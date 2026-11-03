@@ -13,41 +13,28 @@
 .rfp-job-banner .rfp-analysis-elapsed b { color: #345782; font-size: 17px; font-variant-numeric: tabular-nums; }
 .rfp-job-banner .rfp-analysis-elapsed small { font-size: 10px; }
 .rfp-job-banner .rfp-analysis-document { color: #5d7290; overflow-wrap: anywhere; padding-top: 8px; }
-.rfp-job-banner .rfp-analysis-stages { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; list-style: none; padding: 0; margin: 14px 0 10px; }
-.rfp-job-banner .rfp-analysis-stages li { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 7px 6px; background: transparent; border: 0; border-bottom: 2px solid #dfe5ee; border-radius: 2px; color: #6d7d92; }
-.rfp-job-banner .rfp-stage-number { color: #8c9ab0; font-size: 11px; font-variant-numeric: tabular-nums; }
-.rfp-job-banner .rfp-analysis-stages b { display: block; font-size: 12px; font-weight: 600; }
-.rfp-job-banner .rfp-analysis-stages small { display: block; margin-top: 2px; color: #8592a4; font-size: 10px; }
-.rfp-job-banner .rfp-analysis-stages .is-observed { background: #edf3fc; border-color: #cbdaf0; }
-.rfp-job-banner .rfp-analysis-stages .is-current { background: #28548f; border-color: #28548f; color: white; box-shadow: 0 3px 8px #264d8122; }
-.rfp-job-banner .rfp-analysis-stages .is-current small, .rfp-job-banner .rfp-analysis-stages .is-current .rfp-stage-number { color: #d3e2fb; }
-.rfp-job-banner .rfp-analysis-observation { padding: 10px 12px; background: white; border: 1px solid #dce5f2; border-radius: 4px; }
-.rfp-job-banner .rfp-analysis-observation > div { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
-.rfp-job-banner .rfp-observation-dot { width: 6px; height: 6px; background: #6383b5; border-radius: 50%; }
-.rfp-job-banner .rfp-analysis-observation time { margin-left: auto; color: #7b8a9f; font-size: 11px; }
-.rfp-job-banner .rfp-analysis-observation p { color: #6c7e95; }
-.ls-root .rfp-job-banner .rfp-analysis-observation b { font-size: 14px; font-weight: 600; }
 .ls-root .rfp-job-banner .rfp-analysis-elapsed b { font-size: 20px; font-weight: 600; }
-.rfp-job-banner .rfp-analysis-observation strong { color: #305b96; }
 .rfp-job-banner .rfp-analysis-notice { color: #795a22; }
 .rfp-job-banner .rfp-analysis-footnote { color: #73849b; font-size: 11px; }
 .rfp-job-banner .rfp-analysis-result { font-weight: 600; white-space: nowrap; }
 .rfp-job-banner.rfp-job-banner.is-terminal { padding: 12px 16px; background: #f5f8fc; border-top-color: #65819f; }
 .rfp-job-banner.is-terminal .rfp-analysis-title > strong { font-size: 15px; }
 .rfp-job-banner.is-disconnected .rfp-analysis-badge { background: #f5eedf; color: #896531; border-color: #dccba9; }
-.rfp-job-banner.is-disconnected .rfp-analysis-stages .is-current { background: #6c7685; border-color: #6c7685; }
 @keyframes rfp-breathe { 50% { opacity: .35; } }
-@media (max-width: 1100px) { .rfp-job-banner .rfp-analysis-stages { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-@media (max-width: 650px) { .rfp-job-banner.rfp-job-banner { margin: 8px; padding: 12px; } .rfp-job-banner .rfp-analysis-heading { flex-wrap: wrap; gap: 10px; } .rfp-job-banner .rfp-analysis-title > strong { font-size: 16px; } .rfp-job-banner .rfp-analysis-stages { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rfp-job-banner .rfp-analysis-result { white-space: normal; } }
+@media (max-width: 650px) { .rfp-job-banner.rfp-job-banner { margin: 8px; padding: 12px; } .rfp-job-banner .rfp-analysis-heading { flex-wrap: wrap; gap: 10px; } .rfp-job-banner .rfp-analysis-title > strong { font-size: 16px; } .rfp-job-banner .rfp-analysis-result { white-space: normal; } }
 @media (prefers-reduced-motion: reduce) { .rfp-job-banner.is-live .rfp-analysis-badge::before { animation: none; transition: none; } }
 
-.rfp-job-banner .rfp-analysis-playback { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 12px; color: #526e90; font-size: 12px; }
-
 /* Carbon productive motion: keep layout fixed while the stage emphasis changes. */
-.rfp-job-banner .rfp-analysis-stages li, .rfp-job-banner .rfp-analysis-stages small, .rfp-job-banner .rfp-stage-number { transition: background-color 240ms cubic-bezier(.2,0,.38,.9), border-color 240ms cubic-bezier(.2,0,.38,.9), color 240ms cubic-bezier(.2,0,.38,.9), box-shadow 240ms cubic-bezier(.2,0,.38,.9); }
 .rfp-job-banner .rfp-analysis-title > strong { min-height: 1.5em; }
-@media (prefers-reduced-motion: reduce) { .rfp-job-banner .rfp-analysis-stages li, .rfp-job-banner .rfp-analysis-stages small, .rfp-job-banner .rfp-stage-number { transition: none; } }
 
 .rfp-job-banner .rfp-stage-caption { animation: rfp-caption-enter 180ms cubic-bezier(0,0,.38,.9) both; }
 @keyframes rfp-caption-enter { from { opacity: .55; transform: translateY(2px); } to { opacity: 1; transform: translateY(0); } }
 @media (prefers-reduced-motion: reduce) { .rfp-job-banner .rfp-stage-caption { animation: none; } }
+
+/* Stable current-status area: only the latest observed text changes. */
+.rfp-job-banner .rfp-analysis-current { height: 148px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; gap: 12px; overflow: auto; margin-top: 14px; padding: 14px 16px; border: 1px solid #dce5f2; border-radius: 6px; background: #fff; }
+.rfp-job-banner .rfp-current-label { display: block; color: #74839a; font-size: 11px; margin-bottom: 5px; }
+.rfp-job-banner .rfp-current-copy > strong { display: block; color: #274a78; font-size: 17px; line-height: 1.5; font-weight: 650; }
+.rfp-job-banner .rfp-current-copy p { color: #64758c; font-size: 12px; }
+.rfp-job-banner .rfp-current-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; color: #7b8a9f; font-size: 11px; font-variant-numeric: tabular-nums; }
+@media (max-width: 650px) { .rfp-job-banner .rfp-analysis-current { height: 176px; padding: 12px; } }

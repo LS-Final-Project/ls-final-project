@@ -12,6 +12,8 @@ const documents = [{ document_version_id: 'version-1', title: '합성 단선도'
 it('shows only public observations, the actual document and provisional counts', () => {
   const { container } = render(<RfpReasoning activity={[event]} active completed={false} disconnected={false} documents={documents} labels={labels} />);
   const toggle = screen.getByRole('button', { name: /AI 작업 내역/ });
+  expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  fireEvent.click(toggle);
   expect(toggle.getAttribute('aria-expanded')).toBe('true');
   expect(container.querySelector('.is-active')).toBeTruthy();
   expect(screen.getByText('관측 문서: 합성 단선도 v2')).toBeTruthy();
@@ -24,6 +26,7 @@ it('shows only public observations, the actual document and provisional counts',
 it('removes the live shimmer while reconnecting and after completion without collapsing records', () => {
   const ui = (active: boolean, completed: boolean, disconnected: boolean) => <RfpReasoning activity={[event]} active={active} completed={completed} disconnected={disconnected} documents={[]} labels={labels} />;
   const { container, rerender } = render(ui(true, false, false));
+  fireEvent.click(screen.getByRole('button', {name:/AI 작업 내역/}));
   rerender(ui(false, false, true));
   expect(container.querySelector('.is-active')).toBeNull();
   expect(screen.getByText(/연결을 다시 확인/)).toBeTruthy();

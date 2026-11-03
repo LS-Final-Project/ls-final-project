@@ -12,13 +12,16 @@ const P = '33333333-3333-4333-8333-333333333333', J = '11111111-1111-4111-8111-1
 vi.mock('../components/BusinessAccess', () => ({ BusinessGate: () => null, useBusinessAccess: () => ({ ready: true, operational: true, enabled: true, user: { isSuccess: true, data: { data: { id: '00000000-0000-4000-8000-000000000003', roles: ['sales'] } } } }) }));
 vi.mock('../api/rfp-job-events', async original => ({ ...await original<typeof import('../api/rfp-job-events')>(), watchRfpJob: vi.fn(async () => undefined) }));
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); setApiMode('mock'); });
-function setup() {
+function setup(drawing = false) {
   setApiMode('live');
   const detail = structuredClone(examples.find(e => e.path === `/api/v1/tft/projects/${P}`)!.body.data);
-  const project = { ...detail, latest_job: { job_id: J, status: 'RUNNING' } };
+  const project = { ...detail, ...(drawing ? {requirements_count:0,documents_count:1} : {}), latest_job: { job_id: J, status: 'RUNNING' } };
   const fetcher = vi.fn(async (input: string) => {
     const path = input.split('?')[0];
     if (path === `/api/v1/platform/jobs/${J}`) return new Response('{}', { status: 403 });
+    if (drawing && path === `/api/v1/tft/projects/${P}/documents`) return Response.json({data:{items:[{document_id:'drawing-doc',document_version_id:'drawing-version',version:1,title:'합성 단선도',kind:'DRAWING',mime:'image/png',uploaded_at:'2026-11-03T00:00:00Z',uploaded_by:A,edit_trace_support:false}]}});
+    if (drawing && path.endsWith('/diagrams')) return Response.json({data:{document_id:'drawing-doc',document_version_id:'drawing-version',processing_status:'ANALYZED',items:[],warnings:[]}});
+    if (drawing && path.endsWith('/documents/drawing-doc')) return Response.json({data:{document_version_id:'drawing-version',extraction_warnings:[]}});
     const data = path.endsWith('/me') ? { id: A } : path === `/api/v1/tft/projects/${P}` ? project : { items: [], next_cursor: null };
     return Response.json({ data });
   });
@@ -75,4 +78,17 @@ it.each(['job.started', 'job.progress'])('recent job row agrees with %s, termina
   expect(client.getQueryData(['jobs', 'live', A, P, J])).toEqual({ data: job });
   await act(async () => update({ connection: 'ended', job: { ...job, status: 'SUCCEEDED', last_event_sequence: 2 } }));
   expect(row()).toBe('완료');
+});
+
+
+it('도면 작업 완료 후 요구 0건을 분석 실패나 미처리로 안내하지 않는다', async () => {
+  setup(true);
+  await waitFor(() => expect(vi.mocked(watchRfpJob)).toHaveBeenCalled());
+  const update=vi.mocked(watchRfpJob).mock.calls[0][2];
+  const job={job_id:J,project_id:P,owner:'tft' as const,kind:'rfp.process' as const,status:'RUNNING' as const,version:1,last_event_sequence:2};
+  await act(async()=>update({connection:'connected',job}));
+  await act(async()=>update({connection:'ended',job:{...job,status:'SUCCEEDED',last_event_sequence:3}}));
+  await screen.findByText('문자 요구 0건입니다. 도면의 장비·기호와 연결 후보는 아래 도면 검토에서 별도로 확인하세요.');
+  expect(screen.queryByText(/뽑은 요구가 인용 검사에서 모두 버려졌을/)).toBeNull();
+  expect(screen.queryByText(/다음 처리 실행. 올리기만으로는/)).toBeNull();
 });

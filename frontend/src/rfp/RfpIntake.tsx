@@ -201,6 +201,7 @@ function Intake({ projectId, actorId, list, before, after }: { projectId: string
   const original = latestVersions(docs).find(d => d.kind === 'RFP_SPEC') ?? latestVersions(docs)[0];
   const next = (() => {
     if (finished === 'FAILED' || finished === 'CANCELLED') return '처리가 끝나지 못했습니다. 입력을 확인하고 다시 실행하세요.';
+    if (!analyzing && data.requirements_count === 0 && latestVersions(docs).some(d => d.kind === 'DRAWING')) return `${finished === 'PARTIAL' ? '일부 처리된 결과입니다. ' : ''}문자 요구 0건입니다. 도면의 장비·기호와 연결 후보는 아래 도면 검토에서 별도로 확인하세요.`;
     if (finished === 'PARTIAL') return `일부만 처리됐습니다. 요구 ${data.requirements_count}건, 빠진 절이 있으니 자사 대응표를 확인하세요.`;
     if (finished && data.requirements_count === 0) return '분석 완료, 요구 0건. 원문을 확인하세요. 평가 절이 비었거나 뽑은 요구가 인용 검사에서 모두 버려졌을 수 있습니다.';
     if (finished) return `분석 완료, 요구 ${data.requirements_count}건. 자사 대응표에서 확인하세요.`;

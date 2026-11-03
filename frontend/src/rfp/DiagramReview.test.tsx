@@ -15,9 +15,9 @@ let item: DiagramItem;
 let response: DiagramList;
 const fetchAsset = vi.fn();
 const createUrl = vi.fn(), revokeUrl = vi.fn();
-const show = (doc = document) => {
+const show = (doc = document, onOriginalVisible?: (visible: boolean) => void) => {
   const client = new QueryClient({ defaultOptions: { queries: { retry:false } } });
-  return render(<QueryClientProvider client={client}><MemoryRouter><DiagramReview document={doc} actorId="actor1" projectId="project1" /></MemoryRouter></QueryClientProvider>);
+  return render(<QueryClientProvider client={client}><MemoryRouter><DiagramReview document={doc} actorId="actor1" projectId="project1" onOriginalVisible={onOriginalVisible} /></MemoryRouter></QueryClientProvider>);
 };
 const open = () => { const details = screen.getByText('단선결선도 연결 검토').closest('details')!; details.open = true; fireEvent(details, new Event('toggle')); };
 const sha = async (value: Uint8Array) => Buffer.from(await webcrypto.subtle.digest('SHA-256', value)).toString('hex');
@@ -149,7 +149,41 @@ it('보존 바이트를 반환하고 무결성 오류·권한 오류는 표시 �
 it('API 계약의 생략된 빈 목록 기본값을 추정 연결 없이 표시한다', async () => {
   item.graph = {diagram_type:'UNKNOWN',title:'도면 유형 미확인',review_required:true};
   show(); open(); await screen.findByRole('img');
-  expect(screen.getByText('장비·기호 후보 0개')).toBeTruthy();
-  expect(screen.getByText('연결 후보 0개')).toBeTruthy();
+  expect(screen.getByRole('heading',{name:'장비·기호 후보 0개'})).toBeTruthy();
+  expect(screen.getByRole('heading',{name:'연결 후보 0개'})).toBeTruthy();
   expect(screen.getByText('저장된 연결 후보가 없습니다. 연결이 없다는 확정은 아닙니다.')).toBeTruthy();
+});
+
+
+it('DRAWING은 바로 열리고 저장된 도면·기호·연결 후보 집계를 요구 수와 구분한다', async () => {
+  response = {...response,processing_status:'PARTIAL',warnings:['교차선 확인 필요']};
+  show({...document,kind:'DRAWING'});
+  await screen.findByRole('img');
+  expect(screen.getByText('단선결선도 연결 검토').closest('details')?.open).toBe(true);
+  const summary = screen.getByRole('region',{name:'도면 분석 결과 요약'});
+  expect(summary.textContent).toContain('도면 원본 1개');
+  expect(summary.textContent).toContain('장비·기호 후보 2개');
+  expect(summary.textContent).toContain('연결 후보 2개');
+  expect(summary.textContent).toContain('확인 필요');
+});
+
+it('DRAWING 조회 중에는 완료 수치를 표시하지 않는다', async () => {
+  vi.mocked(listDocumentDiagrams).mockReturnValue(new Promise(() => undefined));
+  show({...document,kind:'DRAWING'});
+  await screen.findByText('현재 판본의 도면 분석 읽는 중');
+  expect(screen.queryByRole('region',{name:'도면 분석 결과 요약'})).toBeNull();
+});
+
+
+it('중복 원문은 검증된 도면이 실제 표시된 뒤에만 숨기고 표시 실패·종료 시 복원한다', async () => {
+  const visible=vi.fn();
+  const view=show({...document,kind:'DRAWING'},visible);
+  const image=await screen.findByRole('img');
+  expect(visible).not.toHaveBeenCalledWith(true);
+  fireEvent.load(image);
+  await waitFor(()=>expect(visible).toHaveBeenLastCalledWith(true));
+  fireEvent.error(image);
+  await waitFor(()=>expect(visible).toHaveBeenLastCalledWith(false));
+  expect(screen.getByRole('link',{name:'도면 원본 내려받기'})).toBeTruthy();
+  view.unmount();expect(visible).toHaveBeenLastCalledWith(false);
 });

@@ -10,7 +10,7 @@ import {
 import './RfpPersona.css';
 
 export type RfpPersonaState = 'idle' | 'thinking' | 'speaking';
-export interface RfpPersonaProps { state: RfpPersonaState; paused: boolean; label: string }
+export interface RfpPersonaProps { state: RfpPersonaState; paused: boolean; label: string; completed?: boolean }
 const HALO_URL = 'https://ejiidnob33g9ap1r.public.blob.vercel-storage.com/halo-2.0.riv';
 const RUNTIME = `${import.meta.env.BASE_URL}vendor/rive/2.48.0/`;
 RuntimeLoader.setWasmUrl(`${RUNTIME}rive.wasm`);
@@ -35,6 +35,16 @@ function StaticPersona({ reason }: { reason: string }) {
   return <span className="rfp-persona-static" data-renderer="static" data-fallback-reason={reason} aria-hidden="true">AI</span>;
 }
 
+function CompletedPersona() {
+  return <span className="rfp-persona-completed" data-renderer="completed" aria-hidden="true">
+    <svg viewBox="0 0 64 64" focusable="false">
+      <circle className="rfp-persona-completed-ring" cx="32" cy="32" r="28" />
+      <circle className="rfp-persona-completed-disc" cx="32" cy="32" r="22" />
+      <path d="m22 32 7 7 14-15" />
+    </svg>
+  </span>;
+}
+
 class PersonaBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() { return { failed: true }; }
@@ -42,7 +52,7 @@ class PersonaBoundary extends Component<{ children: ReactNode }, { failed: boole
 }
 
 /** Exactly one stable Rive instance; state changes only update its state-machine inputs. */
-function Halo({ state, paused, onUnavailable }: Omit<RfpPersonaProps, 'label'> & { onUnavailable: () => void }) {
+function Halo({ state, paused, onUnavailable }: Omit<RfpPersonaProps, 'label' | 'completed'> & { onUnavailable: () => void }) {
   const [ready, setReady] = useState(false);
   const [loaded, setLoaded] = useState(false);
   // The throw-away StrictMode effect cancels this frame before any WebGL context is created.
@@ -87,13 +97,13 @@ function Halo({ state, paused, onUnavailable }: Omit<RfpPersonaProps, 'label'> &
   </div>;
 }
 
-export function RfpPersona({ state, paused, label }: RfpPersonaProps) {
+export function RfpPersona({ state, paused, label, completed = false }: RfpPersonaProps) {
   const reduced = useReducedMotion();
   const [failed, setFailed] = useState(false);
   const onUnavailable = useCallback(() => setFailed(true), []);
   // Unmount all Rive hooks together. Clearing only its canvas leaves binding effects
   // able to access freed WASM view-model/state-machine objects during the same update.
-  return <div className="rfp-persona" role="img" aria-label={label} data-state={state} data-paused={paused}>
-    {reduced || failed ? <StaticPersona reason={reduced ? 'reduced-motion' : 'unavailable'} /> : <PersonaBoundary><Halo state={state} paused={paused} onUnavailable={onUnavailable} /></PersonaBoundary>}
+  return <div className="rfp-persona" role="img" aria-label={label} data-state={state} data-paused={paused} data-completed={completed}>
+    {completed ? <CompletedPersona /> : reduced || failed ? <StaticPersona reason={reduced ? 'reduced-motion' : 'unavailable'} /> : <PersonaBoundary><Halo state={state} paused={paused} onUnavailable={onUnavailable} /></PersonaBoundary>}
   </div>;
 }

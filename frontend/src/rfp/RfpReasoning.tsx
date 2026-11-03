@@ -15,16 +15,20 @@ const descriptions: Record<string, string> = {
   annotate: '보완 문서 처리 단계가 기록됐습니다.',
 };
 
+export function rfpStageDescription(step?: string) {
+  return descriptions[step ?? ''] ?? '서버에서 작업 상태를 수신했습니다.';
+}
+
 /** Public worker observations only: no model reasoning text and no synthetic progress. */
-export function RfpReasoning({ activity, active, completed, disconnected, documents, labels }: {
+export function RfpReasoning({ activity, active, completed, disconnected, currentStep, documents, labels }: {
   activity: RfpProgress[]; active: boolean; completed: boolean; disconnected: boolean;
-  documents: DocumentVersion[]; labels: Record<string, string>;
+  currentStep?: string; documents: DocumentVersion[]; labels: Record<string, string>;
 }) {
-  // Open on first activity. A person's choice persists across events and completion;
-  // completion never collapses the history before it can be read.
-  const [open, setOpen] = useState(true);
+  // Start compact; preserve the person's choice across events and completion.
+  const [open, setOpen] = useState(false);
   const contentId = useId();
   const latest = activity.at(-1);
+  const observedStep = currentStep ?? latest?.step;
   const summary = completed ? '처리 결과와 함께 작업 기록을 확인하세요.'
     : disconnected ? '연결을 다시 확인하고 있습니다. 마지막 기록을 보존합니다.'
     : active ? '서버에서 보내온 작업 소식을 확인하고 있습니다.'
@@ -34,7 +38,7 @@ export function RfpReasoning({ activity, active, completed, disconnected, docume
       <span className="rfp-reasoning-chevron" aria-hidden="true">›</span>
       <span className="rfp-reasoning-label">AI 작업 내역</span>
       <span className="rfp-reasoning-count">{activity.length}개 단계 관측</span>
-      {latest?.step && <span className="rfp-reasoning-latest">{labels[latest.step]}</span>}
+      {observedStep && <span className="rfp-reasoning-latest">{labels[observedStep]}</span>}
     </button>
     <p className="rfp-reasoning-summary">{summary}</p>
     <div id={contentId} className="rfp-reasoning-content" data-open={open} aria-hidden={!open} inert={!open}>
@@ -45,7 +49,7 @@ export function RfpReasoning({ activity, active, completed, disconnected, docume
             <span className="rfp-reasoning-marker" aria-hidden="true" />
             <div className="rfp-reasoning-entry">
               <div className="rfp-reasoning-entry-heading"><b>{labels[item.step ?? ''] ?? '작업 상태'}</b><time dateTime={item.occurredAt}>{new Date(item.occurredAt).toLocaleTimeString('ko-KR', { hour12: false })}</time></div>
-              <p>{descriptions[item.step ?? ''] ?? '서버에서 작업 상태를 수신했습니다.'}</p>
+              <p>{rfpStageDescription(item.step)}</p>
               {item.documentVersionId && <small>관측 문서: {document ? `${document.title} v${document.version}` : '문서 판본 이름 확인 중'}</small>}
               {item.counts && <small>요구 {item.counts.requirements}건 · 제안 {item.counts.proposals}건 발견 (임시)</small>}
             </div>

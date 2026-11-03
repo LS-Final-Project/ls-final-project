@@ -134,3 +134,25 @@ it('색상 바인딩이 늦게 준비되어도 밝은 화면용 검정색을 적
   view.rerender(<RfpPersona state="thinking" paused={false} label="AI 분석 중"/>);
   expect(fake.setRgb).toHaveBeenCalledWith(0,0,0);
 });
+
+it('완료는 움직이던 마지막 프레임을 정리하고 정돈된 링과 체크로 표시한다',()=>{
+  const view=render(<RfpPersona state="thinking" paused={false} label="AI 분석 중"/>);frame();
+  expect(fake.active).toBe(1);fake.pause.mockClear();
+  view.rerender(<RfpPersona state="idle" paused completed label="분석 완료"/>);
+  const persona=screen.getByRole('img',{name:'분석 완료'});
+  expect(persona.querySelector('[data-renderer="completed"] circle')).toBeTruthy();
+  expect(persona.querySelector('[data-renderer="completed"] path')).toBeTruthy();
+  expect(persona.querySelector('canvas')).toBeNull();
+  expect(fake.active).toBe(0);expect(fake.pause).not.toHaveBeenCalled();
+  expect(vi.getTimerCount()).toBe(0);
+  view.rerender(<RfpPersona state="idle" paused={false} label="AI 대기 중"/>);frame();
+  expect(persona.querySelector('[data-renderer="completed"]')).toBeNull();
+  expect(fake.active).toBe(1);expect(fake.created).toBe(2);
+});
+
+it('완료표식은 감소 모션 상태에서도 애니메이션이나 외부 리소스 없이 표시된다',()=>{
+  reduced=true;
+  render(<RfpPersona state="idle" paused completed label="분석 완료"/>);frame();
+  expect(screen.getByRole('img',{name:'분석 완료'}).querySelector('[data-renderer="completed"]')).toBeTruthy();
+  expect(fake.created).toBe(0);expect(vi.getTimerCount()).toBe(0);
+});

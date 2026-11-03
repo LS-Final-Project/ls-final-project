@@ -38,33 +38,41 @@ export async function readDiagramAsset(document: DocumentVersion, item: DiagramI
   return bytes;
 }
 
-export function DiagramReview({ document, actorId, projectId }: { document: DocumentVersion; actorId?: string; projectId: string }) {
-  const [open, setOpen] = useState(false);
-  return <details className="rfp-diagram-review" onToggle={event => setOpen(event.currentTarget.open)}>
+export function DiagramReview({ document, actorId, projectId, onOriginalVisible }: { document: DocumentVersion; actorId?: string; projectId: string; onOriginalVisible?: (visible: boolean) => void }) {
+  const [open, setOpen] = useState(document.kind === 'DRAWING');
+  return <details className="rfp-diagram-review" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
     <summary>단선결선도 연결 검토<small>원본 이미지와 AI 연결 후보 대조</small></summary>
-    {open && <DiagramBody key={`${actorId}:${document.document_version_id}`} document={document} actorId={actorId} projectId={projectId} />}
+    {open && <DiagramBody key={`${actorId}:${document.document_version_id}`} document={document} actorId={actorId} projectId={projectId} onOriginalVisible={onOriginalVisible} />}
   </details>;
 }
 
-function DiagramBody({ document, actorId, projectId }: { document: DocumentVersion; actorId?: string; projectId: string }) {
+function DiagramBody({ document, actorId, projectId, onOriginalVisible }: { document: DocumentVersion; actorId?: string; projectId: string; onOriginalVisible?: (visible: boolean) => void }) {
   const [source, setSource] = useState<string>();
   const query = useQuery({ queryKey: ['rfp-diagrams', getApiMode(), actorId, projectId, document.document_id, document.document_version_id], queryFn: ({ signal }) => listDocumentDiagrams(document.document_id, document.document_version_id, signal), retry: false });
   if (query.isPending) return <Loading label="현재 판본의 도면 분석 읽는 중" />;
   if (query.isError) return <ErrorState error={query.error} onRetry={() => query.refetch()} />;
   const data = query.data.data;
   if (data.document_id !== document.document_id || data.document_version_id !== document.document_version_id) return <p role="alert" className="rfp-review-warning">도면 분석과 선택 문서 판본이 다릅니다. 문서 목록을 새로 고침하세요.</p>;
+  if (data.processing_status === 'NOT_ANALYZED') return <p className="rfp-diagram-empty">이 판본에는 단선결선도 분석 기록이 없습니다. 기존 분석 결과를 자동으로 다시 처리하지 않습니다.</p>;
+  const nodes = data.items.reduce((total, row) => total + (row.graph?.nodes?.length ?? 0), 0);
+  const edges = data.items.reduce((total, row) => total + (row.graph?.edges?.length ?? 0), 0);
   const item = data.items.find(row => row.source_id === source) ?? data.items[0];
   return <div className="rfp-diagram-body">
+    <section className="rfp-diagram-result-summary" aria-label="도면 분석 결과 요약">
+      <strong>{data.processing_status === 'PARTIAL' ? '도면 분석 기록 · 확인 필요' : '저장된 도면 분석 기록'}</strong>
+      <div><span>도면 원본 {data.items.length}개</span><span>장비·기호 후보 {nodes}개</span><span>연결 후보 {edges}개</span></div>
+      <p>문자 요구 개수와 별도로 집계한 검토 후보입니다. 연결과 정격은 원본 확인이 필요합니다.</p>
+    </section>
     <p className="rfp-diagram-intro">장비와 연결선은 AI가 읽은 검토 후보입니다. 접속점·교차선·표시 정격을 원본과 대조하세요. 연결 후보만으로 전기적 적합성이나 자사·협력사 대체 가능을 확정하지 않습니다.</p>
     {data.warnings.length > 0 && <div className="rfp-diagram-notices" role="status"><h4>원문 확인 필요</h4><ul>{data.warnings.map((warning, i) => <li key={i}>{warning}</li>)}</ul></div>}
-    {!item ? <p className="rfp-diagram-empty">{data.processing_status === 'NOT_ANALYZED' ? '이 판본에는 단선결선도 분석 기록이 없습니다. 기존 분석 결과를 자동으로 다시 처리하지 않습니다.' : data.processing_status === 'PARTIAL' ? '도면 분석 일부를 확인하지 못했습니다. 원문 확인 안내를 살펴보세요.' : '이 판본에서 저장된 단선결선도 연결 후보가 없습니다. 도면이 없거나 읽지 못한 경우를 원문과 대조하세요.'}</p> : <>
+    {!item ? <p className="rfp-diagram-empty">{data.processing_status === 'PARTIAL' ? '도면 분석 일부를 확인하지 못했습니다. 원문 확인 안내를 살펴보세요.' : '이 판본에서 저장된 단선결선도 연결 후보가 없습니다. 도면이 없거나 읽지 못한 경우를 원문과 대조하세요.'}</p> : <>
       <div className="rfp-diagram-toolbar"><label>검토 도면<select aria-label="검토 도면" value={item.source_id} onChange={event => setSource(event.target.value)}>{data.items.map(row => <option key={row.source_id} value={row.source_id}>{row.location}{row.graph?.title ? ` · ${row.graph.title}` : ''}</option>)}</select><span>문서 판본 v{document.version} · 원본 이미지 보존</span></label></div>
-      <DiagramPanel key={`${document.document_version_id}:${item.source_id}:${item.sha256}`} document={document} item={item} projectId={projectId} />
+      <DiagramPanel key={`${document.document_version_id}:${item.source_id}:${item.sha256}`} document={document} item={item} projectId={projectId} onOriginalVisible={onOriginalVisible} />
     </>}
   </div>;
 }
 
-function DiagramPanel({ document, item, projectId }: { document: DocumentVersion; item: DiagramItem; projectId: string }) {
+function DiagramPanel({ document, item, projectId, onOriginalVisible }: { document: DocumentVersion; item: DiagramItem; projectId: string; onOriginalVisible?: (visible: boolean) => void }) {
   const [asset, setAsset] = useState<{ bytes: ArrayBuffer; url: string }>();
   const [error, setError] = useState<unknown>();
   const [attempt, setAttempt] = useState(0);
@@ -81,6 +89,10 @@ function DiagramPanel({ document, item, projectId }: { document: DocumentVersion
     }).catch(reason => { if (!controller.signal.aborted) setError(reason); });
     return () => { controller.abort(); if (url) URL.revokeObjectURL(url); };
   }, [document.document_id, document.document_version_id, item, attempt]);
+  useEffect(() => {
+    onOriginalVisible?.(painted && !error);
+    return () => onOriginalVisible?.(false);
+  }, [painted, error, onOriginalVisible]);
   if (error && !asset) return <ErrorState error={error} onRetry={() => setAttempt(attempt + 1)} />;
   if (!asset) return <Loading label="보존된 도면 원본 확인 중" />;
   const graph = item.graph ? diagramGraph(item.graph) : null;

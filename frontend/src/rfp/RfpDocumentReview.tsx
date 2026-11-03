@@ -17,8 +17,8 @@ export function RfpDocumentReview({ projectId, actorId, documents }: { projectId
   const versions = latestVersions(documents);
   const document = versions.find(d => d.document_version_id === picked) ?? versions.find(d => d.kind === 'RFP_SPEC') ?? versions[0];
   if (!document) return <div className="rfp-review-empty">문서를 올리면 원문과 분석 결과를 나란히 확인할 수 있습니다.</div>;
-  return <section className="rfp-document-review" aria-label="원문과 분석 검토">
-    <div className="rfp-review-heading"><div><h2>원문과 분석 결과</h2><p>설비별 대응 현황을 확인하고, 세부 요구를 선택해 원문과 근거를 대조하세요.</p></div>
+  return <section id="rfp-document-review" className="rfp-document-review" aria-label="원문과 분석 검토">
+    <div className="rfp-review-heading"><div><h2>원문과 분석 결과</h2><p>{document.kind === 'DRAWING' ? '도면 원본에서 장비·기호와 연결 후보를 확인하세요. 문자 요구는 별도로 표시합니다.' : '설비별 대응 현황을 확인하고, 세부 요구를 선택해 원문과 근거를 대조하세요.'}</p></div>
       <label>검토 문서<select aria-label="검토 문서" value={document.document_version_id} onChange={e => setPicked(e.target.value)}>{versions.map(d => <option key={d.document_version_id} value={d.document_version_id}>{d.title} · v{d.version}</option>)}</select></label>
     </div>
     <DocumentAnalysis key={`${actorId}:${projectId}:${document.document_version_id}`} projectId={projectId} actorId={actorId} document={document} />
@@ -27,6 +27,8 @@ export function RfpDocumentReview({ projectId, actorId, documents }: { projectId
 
 function DocumentAnalysis({ projectId, actorId, document }: { projectId: string; actorId?: string; document: DocumentVersion }) {
   const mode = getApiMode();
+  const drawing = document.kind === 'DRAWING';
+  const [diagramVisible, setDiagramVisible] = useState(false);
   const [page, setPage] = useState(0);
   const [picked, setPicked] = useState<string>();
   const [filter, setFilter] = useState(false);
@@ -57,15 +59,15 @@ function DocumentAnalysis({ projectId, actorId, document }: { projectId: string;
   return <>
     {extractionInfoUnavailable && <p className="rfp-review-warning" role="status">현재 판본 추출 안내 확인 불가</p>}
     {extractionWarnings.length > 0 && <div className="rfp-review-warning" role="status"><strong>원문 추출 확인 필요</strong><ul>{extractionWarnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></div>}
-    <DiagramReview document={document} actorId={actorId} projectId={projectId} />
+    <DiagramReview document={document} actorId={actorId} projectId={projectId} onOriginalVisible={setDiagramVisible} />
     <div className="rfp-group-filter"><label><input type="checkbox" checked={filter} onChange={e => { setFilter(e.target.checked); setPage(0); setPicked(undefined); setGroupKey(undefined); }} />미해결 필수만</label></div>
     {requirements.isError ? <ErrorState error={requirements.error} onRetry={() => requirements.refetch()} /> : requirements.isPending ? <Loading label="설비별 요구 전체 읽는 중" /> : <>
-      {groups.length ? <EquipmentOverview groups={groups} selected={group?.key} onSelect={chooseGroup} filtered={filter} /> : <p className="rfp-review-empty">{filter ? '이 문서에 미해결 필수 요구가 없습니다.' : '이 문서의 분석 결과가 없습니다. 처리 실행 후 확인하세요.'}</p>}
+      {groups.length ? <EquipmentOverview groups={groups} selected={group?.key} onSelect={chooseGroup} filtered={filter} /> : <p className="rfp-review-empty">{filter ? '이 문서에 미해결 필수 요구가 없습니다.' : drawing ? '추출된 문자 요구는 0건입니다. 도면의 장비·기호와 연결 후보는 위 도면 검토에서 확인하세요.' : '이 문서의 분석 결과가 없습니다. 처리 실행 후 확인하세요.'}</p>}
       {group && <EquipmentResponse group={group} candidates={candidates.data?.data.items ?? []} candidatesPending={candidates.isPending} candidatesError={candidates.isError} projectId={projectId} />}
     </>}
-    <div className="rfp-review-columns">
+    {(!drawing || groups.length > 0 || !diagramVisible) && <div className="rfp-review-columns" style={drawing && !groups.length ? { gridTemplateColumns: 'minmax(0, 1fr)' } : undefined}>
     <OriginalDocument key={document.document_version_id} document={document} origin={selected?.origin} selectionRevision={selectionRevision} onQuoteClick={focusAnalysis} />
-    <aside className="rfp-analysis-pane" aria-label="문서별 분석 결과">
+    {(!drawing || groups.length > 0) && <aside className="rfp-analysis-pane" aria-label="문서별 분석 결과">
       <div className="rfp-analysis-toolbar"><h3>{group ? `${group.name} · 세부 요구` : '분석한 요구'}</h3></div>
       {!requirements.isError && !requirements.isPending && <>
         <div className="rfp-requirement-cards" role="group" aria-label="분석 요구 선택">
@@ -78,8 +80,8 @@ function DocumentAnalysis({ projectId, actorId, document }: { projectId: string;
         {rows.length > 0 && <><p className="rfp-review-page-count">{currentPage + 1}쪽 · {rows.length}건 / 선택 묶음 {group?.rows.length}건</p><ReviewPages label="문서 요구 페이지" page={currentPage} count={totalPages} onChange={n => { setPage(n); setPicked(undefined); }} /></>}
       </>}
       {id && (detail.isError ? <ErrorState error={detail.error} onRetry={() => detail.refetch()} /> : detail.isPending ? <Loading label="선택한 요구 읽는 중" /> : selected ? <AnalysisDetail data={selected} projectId={projectId} actorId={actorId} /> : <p role="alert">요구와 문서 판본이 일치하지 않습니다. 문서를 다시 선택하세요.</p>)}
-    </aside>
-    </div>
+    </aside>}
+    </div>}
   </>;
 }
 

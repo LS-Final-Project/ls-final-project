@@ -5,8 +5,8 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { RfpDocumentReview } from './RfpDocumentReview';
 import { MOCK_COMPARISON, MOCK_DETAIL, MOCK_REQUIREMENTS } from '../mocks/rfp-table';
-import { getComparison, getDocument, getRequirement, listProjectCandidates, listRequirements, type DocumentVersion } from '../api/rfp';
-vi.mock('../api/rfp', async original => ({ ...await original<object>(), getRequirement: vi.fn(), listRequirements: vi.fn(), getComparison: vi.fn(), getDocument: vi.fn(), listProjectCandidates: vi.fn() }));
+import { listDocumentDiagrams, getComparison, getDocument, getRequirement, listProjectCandidates, listRequirements, type DocumentVersion } from '../api/rfp';
+vi.mock('../api/rfp', async original => ({ ...await original<object>(), listDocumentDiagrams: vi.fn(), getRequirement: vi.fn(), listRequirements: vi.fn(), getComparison: vi.fn(), getDocument: vi.fn(), listProjectCandidates: vi.fn() }));
 vi.mock('./OriginalDocument', () => ({ OriginalDocument: ({ document, origin }: { document: DocumentVersion; origin?: { quote: string } }) => <div data-testid="original">{document.title}<span data-testid="quote">{origin?.quote}</span></div> }));
 beforeEach(() => { vi.mocked(getDocument).mockResolvedValue({ data: { document_version_id: 'v0', extraction_warnings: [] } as never }); vi.mocked(getComparison).mockResolvedValue({ data: MOCK_COMPARISON }); vi.mocked(listProjectCandidates).mockResolvedValue({ data: { items: [], manufacturer_list_basis: 'CURRENT_PROJECT_INPUT' } }); });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
@@ -104,4 +104,30 @@ it('같은 문서의 선택 판본이 바뀌면 추출 안내도 별도 조회�
   await screen.findByText('현재 판본 안내');
   expect(screen.queryByText('이전 판본 안내')).toBeNull();
   expect(getDocument).toHaveBeenCalledTimes(2);
+});
+
+
+it('요구 없는 DRAWING은 도면 검토를 먼저 열고 미분석일 때 원문을 보존한다', async () => {
+  vi.mocked(listRequirements).mockResolvedValue({data:{items:[],next_cursor:null}});
+  vi.mocked(listDocumentDiagrams).mockResolvedValue({data:{document_id:'doc0',document_version_id:'v0',processing_status:'NOT_ANALYZED',items:[],warnings:[]}});
+  render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><MemoryRouter><RfpDocumentReview projectId="p" actorId="a" documents={[{...docs[0],kind:'DRAWING'}]} /></MemoryRouter></QueryClientProvider>);
+  await screen.findByText(/이 판본에는 단선결선도 분석 기록이 없습니다/);
+  expect(screen.getByRole('region',{name:'원문과 분석 검토'}).id).toBe('rfp-document-review');
+  await screen.findByText('추출된 문자 요구는 0건입니다. 도면의 장비·기호와 연결 후보는 위 도면 검토에서 확인하세요.');
+  expect(screen.getByTestId('original')).toBeTruthy();
+  expect(screen.queryByRole('complementary',{name:'문서별 분석 결과'})).toBeNull();
+  expect(screen.queryByText('이 문서의 분석 결과가 없습니다. 처리 실행 후 확인하세요.')).toBeNull();
+});
+
+
+it.each(['empty','error','wrong-version'])('도면 %s 상태는 원문을 보존하고 요구 0을 전체 분석 없음으로 바꾸지 않는다', async state => {
+  vi.mocked(listRequirements).mockResolvedValue({data:{items:[],next_cursor:null}});
+  if(state === 'error') vi.mocked(listDocumentDiagrams).mockRejectedValue(new Error('도면 결과 접근 불가'));
+  else vi.mocked(listDocumentDiagrams).mockResolvedValue({data:{document_id:'doc0',document_version_id:state==='wrong-version'?'other':'v0',processing_status:'ANALYZED',items:[],warnings:[]}});
+  render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><MemoryRouter><RfpDocumentReview projectId="p" actorId="a" documents={[{...docs[0],kind:'DRAWING'}]} /></MemoryRouter></QueryClientProvider>);
+  if(state==='error') await screen.findByText('도면 결과 접근 불가');
+  else if(state==='wrong-version') await screen.findByText(/도면 분석과 선택 문서 판본이 다릅니다/);
+  else await screen.findByText(/이 판본에서 저장된 단선결선도 연결 후보가 없습니다/);
+  expect(screen.getByTestId('original')).toBeTruthy();
+  expect(screen.queryByText('이 문서의 분석 결과가 없습니다. 처리 실행 후 확인하세요.')).toBeNull();
 });

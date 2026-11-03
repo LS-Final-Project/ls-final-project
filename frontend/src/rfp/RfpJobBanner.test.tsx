@@ -4,17 +4,18 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { DocumentVersion } from '../api/rfp';
 import { RfpJobBanner } from './RfpJobBanner';
 import { useRfpJobEvents } from './useRfpJobEvents';
 import { watchRfpJob } from '../api/rfp-job-events';
-vi.mock('./RfpPersona', () => ({ RfpPersona: ({ state, paused, label }: { state: string; paused: boolean; label: string }) => <div role="img" aria-label={label} data-state={state} data-paused={paused} /> }));
+vi.mock('./RfpPersona', () => ({ RfpPersona: ({ state, paused, label, completed }: { state: string; paused: boolean; label: string; completed?: boolean }) => <div role="img" aria-label={label} data-state={state} data-paused={paused} data-completed={completed} /> }));
 vi.mock('../api/rfp-job-events', async importOriginal => ({ ...await importOriginal<typeof import('../api/rfp-job-events')>(), watchRfpJob: vi.fn(async () => undefined) }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); vi.useRealTimers(); });
 it('shows immediate admission, observed stage/counts and separates reconnecting from job failure', () => {
   const { rerender } = render(<MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" /></MemoryRouter>);
   expect(screen.getByRole('status').textContent).toContain('접수했습니다');
   rerender(<MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" status="RUNNING" view={{ connection: 'reconnecting', progress: { sequence: 2, occurredAt: '2026-11-02T12:00:00Z', type: 'job.progress', step: 'extract', counts: { requirements: 5, proposals: 0 }, needsReview: true } }} /></MemoryRouter>);
-  expect(screen.getByText(/최근 확인 단계/).textContent).toContain('요구 추출');
+  expect(screen.getByLabelText('현재 분석 상태').textContent).toContain('요구 추출');
   expect(screen.getByText(/누적 발견 수/).textContent).toContain('(임시)');
   expect(screen.getByRole('status').textContent).toContain('작업 실패를 뜻하지 않습니다');
   expect(screen.queryByRole('link')).toBeNull();
@@ -58,9 +59,8 @@ it('shows only observed stages and stops motion on reconnect, denial and termina
   const ui = (v: typeof view | { connection: 'stopped' }, status = 'RUNNING') => <MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" status={status} view={v} /></MemoryRouter>;
   const { container, rerender } = render(ui(view));
   expect(container.querySelector('.is-live')).toBeTruthy();
-  expect(container.querySelectorAll('.rfp-analysis-stages .is-observed')).toHaveLength(1);
-  expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('요구 추출');
-  expect(screen.getAllByText('아직 관측 안 됨')).toHaveLength(5);
+  expect(screen.getByLabelText('현재 분석 상태').getAttribute('data-step')).toBe('extract');
+  expect(container.querySelector('.rfp-analysis-stages')).toBeNull();
   expect(container.querySelector('.rfp-analysis-history')?.textContent).toContain('2개 단계 관측');
   expect(document.body.textContent).not.toMatch(/%|ETA|문서 읽기 완료/);
   rerender(<MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" status="RUNNING" view={{ ...view, connection: 'reconnecting' }} /></MemoryRouter>);
@@ -79,30 +79,21 @@ it('shows only observed stages and stops motion on reconnect, denial and termina
 });
 
 
-it('gives extraction more reading time than parsing without delaying confirmed completion', () => {
+it('shows the newest stage immediately for a burst without replay timers or delayed completion', () => {
   vi.useFakeTimers();
-  const events = ['parse', 'extract', 'search', 'compare', 'supplement', 'candidates', 'draft'].map((step, i) => ({ sequence: i + 2, occurredAt: '2026-11-02T12:00:01Z', type: 'job.progress', step }));
-  const ui = (activity: typeof events, status = 'RUNNING') => <MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" status={status} view={{ connection: 'connected', activity, progress: activity.at(-1) }} /></MemoryRouter>;
-  const { container, rerender, unmount } = render(ui([]));
-  rerender(ui(events));
-  expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('문서 읽기');
-  act(() => vi.advanceTimersByTime(1099));
-  expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('문서 읽기');
-  act(() => vi.advanceTimersByTime(1));
-  expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('요구 추출');
-  act(() => vi.advanceTimersByTime(2199));
-  expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('요구 추출');
-  act(() => vi.advanceTimersByTime(1));
-  expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('자사 자료 검색');
-  rerender(ui(events, 'SUCCEEDED'));
-  expect(screen.getByRole('status').textContent).toContain('처리가 완료');
+  const activity = ['parse', 'extract', 'search', 'compare', 'supplement', 'candidates', 'draft'].map((step, i) => ({ sequence: i + 2, occurredAt: '2026-11-02T12:00:01Z', type: 'job.progress', step }));
+  const ui = (events: typeof activity, status = 'RUNNING') => <MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" status={status} view={{ connection: 'connected', activity: events, progress: events.at(-1) }} /></MemoryRouter>;
+  const { rerender, unmount } = render(ui([]));
+  rerender(ui(activity));
+  expect(screen.getByLabelText('현재 분석 상태').getAttribute('data-step')).toBe('draft');
+  expect(screen.getByRole('img').getAttribute('data-state')).toBe('speaking');
+  expect(screen.getByRole('button', {name:/AI 작업 내역/}).textContent).toContain('초안 작성');
+  expect(vi.getTimerCount()).toBe(0);
+  rerender(ui(activity, 'SUCCEEDED'));
+  expect(screen.getByLabelText('현재 분석 상태').textContent).toContain('처리가 완료');
+  expect(screen.getByRole('img').getAttribute('data-completed')).toBe('true');
   expect(screen.getByRole('link')).toBeTruthy();
-  expect(screen.getByText(/완료된 분석 과정 다시보기/)).toBeTruthy();
-  expect(container.querySelector('.is-live')).toBeNull();
-  act(() => screen.getByRole('button', { name: '한 번에 보기' }).click());
-  expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('초안 작성');
-  act(() => screen.getByRole('button', { name: '과정 다시보기' }).click());
-  expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('문서 읽기');
+  expect(screen.queryByRole('button', {name:'과정 다시보기'})).toBeNull();
   unmount(); expect(vi.getTimerCount()).toBe(0);
 });
 
@@ -112,13 +103,13 @@ it('holds a long extraction until the next real event, then advances without add
   const ui = (activity: typeof extract[]) => <MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" status="RUNNING" view={{ connection: 'connected', activity, progress: activity.at(-1) }} /></MemoryRouter>;
   const { container, rerender } = render(ui([extract]));
   act(() => vi.advanceTimersByTime(60000));
-  expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('요구 추출');
+  expect(screen.getByLabelText('현재 분석 상태').textContent).toContain('요구 추출');
   expect(container.querySelectorAll('.is-observed')).toHaveLength(0);
-  // Another extraction count does not restart the presentation deadline.
+  // Count updates retain the actual step; the next event changes it immediately.
   rerender(ui([{ ...extract, sequence: 4, counts: { requirements: 9, proposals: 0 } } as typeof extract]));
   rerender(ui([extract, { ...extract, sequence: 5, step: 'search' }]));
   act(() => vi.advanceTimersByTime(0));
-  expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('자사 자료 검색');
+  expect(screen.getByLabelText('현재 분석 상태').textContent).toContain('자사 자료 검색');
 });
 
 it('keeps the analysis animation through draft observation and result confirmation until authoritative completion', () => {
@@ -141,33 +132,17 @@ it('keeps the analysis animation through draft observation and result confirmati
   expect(container.querySelector('.is-processing')).toBeNull();
 });
 
-it('keeps readable completed history through the draft card while the live Halo stays idle', () => {
-  vi.useFakeTimers();
-  const activity = ['parse', 'extract', 'search', 'compare', 'supplement', 'candidates', 'draft'].map((step, i) => ({ sequence: i + 2, occurredAt: '2026-11-03T00:00:01Z', type: 'job.progress', step }));
-  const ui = (events: typeof activity, status: string) => <MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" status={status} view={{ connection: status === 'SUCCEEDED' ? 'ended' : 'connected', activity: events, progress: events.at(-1) }} /></MemoryRouter>;
-  const { container, rerender } = render(ui([], 'RUNNING'));
-  rerender(ui(activity, 'SUCCEEDED'));
-  expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('문서 읽기');
+it('shows confirmed completion immediately even when all stage events arrive together', () => {
+  const activity = ['parse', 'extract', 'draft'].map((step, i) => ({ sequence: i + 2, occurredAt: '2026-11-03T00:00:01Z', type: 'job.progress', step }));
+  const { container } = render(<MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" status="SUCCEEDED" view={{ connection:'ended', activity, progress:activity.at(-1) }} /></MemoryRouter>);
   expect(container.querySelector('.is-processing')).toBeNull();
-  expect(container.querySelector('.is-replaying')).toBeTruthy();
+  expect(container.querySelector('.is-replaying')).toBeNull();
   expect(screen.getByRole('status').textContent).toContain('처리가 완료됐습니다.');
-  expect(screen.getByRole('status').textContent).toContain('완료 · 과정 표시 중');
+  expect(screen.getByLabelText('현재 분석 상태').textContent).toContain('처리가 완료됐습니다.');
+  expect(screen.getByRole('img', {name:'분석 완료'}).getAttribute('data-completed')).toBe('true');
+  expect(screen.getByRole('button', {name:/AI 작업 내역/}).getAttribute('aria-expanded')).toBe('false');
   expect(screen.getByRole('link')).toBeTruthy();
-  for (const ms of [1100, 2200, 1000, 1800, 1400, 1200]) act(() => vi.advanceTimersByTime(ms));
-  expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('초안 작성');
-  expect(container.querySelector('.is-replaying')).toBeTruthy();
-  expect(screen.getByRole('img', { name: '분석 완료' }).getAttribute('data-state')).toBe('idle');
-  expect(screen.getByRole('img', { name: '분석 완료' }).getAttribute('data-paused')).toBe('true');
-  act(() => vi.advanceTimersByTime(2199));
-  expect(container.querySelector('.is-replaying')).toBeTruthy();
-  act(() => vi.advanceTimersByTime(1));
-  expect(container.querySelector('.is-replaying')).toBeNull();
-  act(() => screen.getByRole('button', { name: '과정 다시보기' }).click());
-  expect(container.querySelector('.is-replaying')).toBeTruthy();
-  act(() => screen.getByRole('button', { name: '한 번에 보기' }).click());
-  expect(container.querySelector('.is-replaying')).toBeNull();
 });
-
 
 it('maps the Halo to idle, thinking and speaking without animating completed or denied work', () => {
   const event = { sequence: 3, occurredAt: '2026-11-03T00:00:01Z', type: 'job.progress', step: 'extract' };
@@ -184,30 +159,32 @@ it('maps the Halo to idle, thinking and speaking without animating completed or 
   expect(screen.getByRole('img', { name: '분석 상태 확인 중' }).getAttribute('data-paused')).toBe('true');
   rerender(ui('FAILED', 'draft'));
   expect(screen.getByRole('img', { name: '분석 중단' }).getAttribute('data-paused')).toBe('true');
+  expect(screen.getByRole('img').getAttribute('data-completed')).toBe('false');
 });
 
 
-it('opens restored history at the current stage, and only replays it on explicit request', () => {
+it('restores the current stage immediately and preserves it on reconnect without replay', () => {
   const activity = ['parse', 'extract', 'compare'].map((step, i) => ({ sequence: i + 2, occurredAt: '2026-11-03T00:00:01Z', type: 'job.progress', step }));
-  const ui = (status: string, restoredCount = 0) => <MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" status={status} view={{ connection: 'connected', ...(restoredCount ? { activity, progress: activity.at(-1) } : {}), restoredCount }} /></MemoryRouter>;
-  const { container, rerender } = render(ui('RUNNING'));
-  rerender(ui('RUNNING', 3));
-  expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('자사 비교');
-  expect(screen.queryByText('수신한 분석 단계를 순서대로 표시합니다')).toBeNull();
-  rerender(ui('SUCCEEDED', 3));
-  act(() => screen.getByRole('button', { name: '과정 다시보기' }).click());
-  expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('문서 읽기');
+  const ui = (connection: 'connected' | 'reconnecting', restored = false) => <MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" status="RUNNING" view={{ connection, ...(restored ? {activity, progress:activity.at(-1),restoredCount:3} : {}) }} /></MemoryRouter>;
+  const {rerender}=render(ui('connected'));
+  rerender(ui('connected',true));
+  expect(screen.getByLabelText('현재 분석 상태').getAttribute('data-step')).toBe('compare');
+  expect(screen.getByRole('button',{name:/AI 작업 내역/}).textContent).toContain('자사 비교');
+  rerender(ui('reconnecting',true));
+  expect(screen.getByLabelText('현재 분석 상태').getAttribute('data-step')).toBe('compare');
+  expect(screen.getByText('마지막 수신 단계')).toBeTruthy();
+  expect(screen.getByRole('img').getAttribute('data-paused')).toBe('true');
 });
 
-
-it('uses the latest real draft observation for Persona even while earlier cards are still being presented', () => {
+it('keeps Persona, current text and history heading on the same latest draft observation', () => {
   vi.useFakeTimers();
   const parse = { sequence: 2, occurredAt: '2026-11-03T00:00:01Z', type: 'job.progress', step: 'parse' };
   const draft = { ...parse, sequence: 8, step: 'draft' };
   const ui = (activity: typeof parse[], status = 'RUNNING') => <MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" status={status} view={{ connection: 'connected', activity, progress: activity.at(-1) }} /></MemoryRouter>;
   const { container, rerender } = render(ui([]));
   rerender(ui([parse, draft]));
-  expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('문서 읽기');
+  expect(screen.getByLabelText('현재 분석 상태').textContent).toContain('초안 작성');
+  expect(screen.getByRole('button', {name:/AI 작업 내역/}).textContent).toContain('초안 작성');
   expect(screen.getByRole('img', { name: 'AI 초안 작성 중' }).getAttribute('data-state')).toBe('speaking');
   expect(screen.getByRole('status').textContent).toContain('AI가 RFP 초안을 작성하고 있습니다');
   rerender(ui([parse, draft], 'SUCCEEDED'));
@@ -222,8 +199,7 @@ it('keeps work history open on completion and respects a user collapse across in
   const scroll = vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
   const ui = (activity: typeof parse[], status = 'RUNNING') => <MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" status={status} view={{ connection: 'connected', activity, progress: activity.at(-1) }} /></MemoryRouter>;
   const { rerender } = render(ui([parse]));
-  expect(screen.getByRole('button', { name: /AI 작업 내역/ }).getAttribute('aria-expanded')).toBe('true');
-  act(() => screen.getByRole('button', { name: /AI 작업 내역/ }).click());
+  expect(screen.getByRole('button', { name: /AI 작업 내역/ }).getAttribute('aria-expanded')).toBe('false');
   rerender(ui([parse, draft]));
   expect(screen.getByRole('button', { name: /AI 작업 내역/ }).getAttribute('aria-expanded')).toBe('false');
   act(() => screen.getByRole('button', { name: /AI 작업 내역/ }).click());
@@ -232,5 +208,24 @@ it('keeps work history open on completion and respects a user collapse across in
   expect(screen.getByText(/최종 저장 상태는 별도로 확인/)).toBeTruthy();
   expect(screen.getByText(/AI의 내부 추론이 아니며/)).toBeTruthy();
   expect(scroll).not.toHaveBeenCalled();
+  scroll.mockRestore();
+});
+
+
+it('routes drawing-only completion to the original and connection candidates without treating interim counts as results', () => {
+  const progress = {sequence:4,occurredAt:'2026-11-03T00:00:01Z',type:'job.completed',step:'draft',counts:{requirements:0,proposals:0}};
+  const ui = (kinds: string[]) => <MemoryRouter><RfpJobBanner accepted documents={kinds.map(kind => ({kind})) as DocumentVersion[]} projectId="p" status="SUCCEEDED" view={{connection:'ended',progress,activity:[progress]}} /></MemoryRouter>;
+  const scroll = vi.spyOn(window,'scrollTo').mockImplementation(()=>undefined);
+  const {rerender}=render(ui(['DRAWING','DRAWING']));
+  expect(screen.getByRole('link',{name:'도면 분석 결과 확인 →'}).getAttribute('href')).toBe('#rfp-document-review');
+  expect(screen.getByText(/도면 원본과 연결 후보를 대조/)).toBeTruthy();
+  expect(screen.getByLabelText('현재 분석 상태').textContent).not.toContain('누적 발견 수');
+  expect(screen.getByLabelText('현재 분석 상태').querySelector('time')).toBeTruthy();
+  expect(scroll).not.toHaveBeenCalled();
+  rerender(ui(['DRAWING','RFP_SPEC']));
+  expect(screen.getByRole('link').getAttribute('href')).toBe('/tft/projects/p/table');
+  expect(screen.getByText(/대응표의 미해결 요구와 근거/)).toBeTruthy();
+  rerender(ui([]));
+  expect(screen.getByRole('link').getAttribute('href')).toBe('/tft/projects/p/table');
   scroll.mockRestore();
 });
