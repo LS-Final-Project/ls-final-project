@@ -5,3 +5,4 @@
 .development-review .development-detail { display:inline-block; margin:10px; font-size:12px; }
 .development-review .development-delivery { color:#63738c; font-size:12px; }
 @media(max-width:650px) { .development-review .development-stages { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+.development-review>.response-disclosure{margin:0}.development-review .development-record{font-size:12px}.development-review .development-stages li{font-size:11px;padding:7px 5px}

@@ -60,3 +60,72 @@ test('failed options refresh disables cached selection evidence', async () => {
   await waitFor(() => expect(screen.queryByRole('button', { name: '보완 선택 저장' })).toBeNull());
   expect(selectSupplement).not.toHaveBeenCalled();
 });
+
+test('default view identifies the selected requirement and keeps all review areas collapsed', async () => {
+  show();
+  const current = await screen.findByRole('region', { name: '선택 요구 현재 상태' });
+  await waitFor(() => expect(current.textContent).toContain(MOCK_DETAIL.judgement.reason));
+  expect(current.textContent).toContain('사양 차이');
+  for (const name of ['자사 비교 근거', '개발 검토', '협력사 후보', '대응 경로 선택', '판정 기준·상세']) {
+    const summary = screen.getByText(name).closest('summary');
+    expect((summary?.parentElement as HTMLDetailsElement).open).toBe(false);
+  }
+  expect(screen.getByText('저장 후보 1개')).toBeTruthy();
+  expect(screen.getByText('제외되지 않은 후보 1곳')).toBeTruthy();
+  expect(screen.getByText('선택 미완료')).toBeTruthy();
+  expect(selectSupplement).not.toHaveBeenCalled();
+});
+
+test('the next action opens the relevant review without saving or requesting', async () => {
+  show();
+  await waitFor(() => expect(screen.getByRole('region', { name: '선택 요구 현재 상태' }).textContent).toContain(MOCK_DETAIL.judgement.reason));
+  fireEvent.click(screen.getByRole('button', { name: '개발·보완 검토 시작 →' }));
+  await waitFor(() => expect((screen.getByText('개발 검토').closest('details') as HTMLDetailsElement).open).toBe(true));
+  expect(selectSupplement).not.toHaveBeenCalled();
+});
+
+test('collapsing a selection keeps the unsaved role split and does not submit it', async () => {
+  show();
+  const selection = screen.getByText('대응 경로 선택').closest('details') as HTMLDetailsElement;
+  fireEvent.click(selection.querySelector('summary')!);
+  await screen.findByRole('combobox', { name: '보완 경로' });
+  fireEvent.change(screen.getByRole('textbox', { name: '역할 분담' }), { target: { value: '검토 중인 역할' } });
+  fireEvent.click(selection.querySelector('summary')!);
+  await waitFor(() => expect(selection.open).toBe(false));
+  fireEvent.click(selection.querySelector('summary')!);
+  expect((screen.getByRole('textbox', { name: '역할 분담' }) as HTMLTextAreaElement).value).toBe('검토 중인 역할');
+  expect(selectSupplement).not.toHaveBeenCalled();
+});
+
+test('detail-derived rereview stays visible and an AI path is not a completed human selection', async () => {
+  vi.mocked(getSupplementRequirement).mockResolvedValue({ data: { ...MOCK_DETAIL, needs_rereview: true, judgement: { ...MOCK_DETAIL.judgement, path: 'EXTERNAL_PRODUCT' } } as never });
+  show();
+  await screen.findByText(/판정에 기록된 경로/);
+  const current = screen.getByRole('region', { name: '선택 요구 현재 상태' });
+  expect(current.textContent).toContain('원문 확인·재검토 필요');
+  expect(current.textContent).toContain('AI 제안');
+  expect(screen.getByText('판정 경로 있음 · 사람 선택 미확인')).toBeTruthy();
+  expect(screen.queryByText('선택 완료')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: '원문·판정 재확인 →' }));
+  await waitFor(() => expect((screen.getByText('판정 기준·상세').closest('details') as HTMLDetailsElement).open).toBe(true));
+});
+
+
+test('validated detail state takes priority and list disagreement remains visible', async () => {
+  vi.mocked(getSupplementRequirement).mockResolvedValue({ data: { ...MOCK_DETAIL, judgement: { ...MOCK_DETAIL.judgement, status: 'EVIDENCE_FOUND' } } as never });
+  show();
+  const warning = await screen.findByText(/목록과 상세의 판정 상태가 다릅니다/);
+  expect(warning.closest('details')).toBeNull();
+  expect(screen.getByRole('region', { name: '선택 요구 현재 상태' }).textContent).toContain('근거 있음');
+  expect(screen.getByRole('button', { name: '최신 근거 다시 조회 →' })).toBeTruthy();
+});
+
+
+test('unknown option candidate stays visible outside collapsed selection and asks for refresh', async () => {
+  vi.mocked(getSupplementOptions).mockResolvedValue({ data: { ...options, options: [{ ...options.options[0], candidate_codes: ['missing'] }] }, meta: { request_id: 'test' } });
+  show();
+  const warning = await screen.findByText(/대응 경로와 후보의 연결이 일치하지 않습니다/);
+  expect(warning.closest('details')).toBeNull();
+  expect(screen.getByRole('button', { name: '최신 근거 다시 조회 →' })).toBeTruthy();
+  expect(selectSupplement).not.toHaveBeenCalled();
+});
