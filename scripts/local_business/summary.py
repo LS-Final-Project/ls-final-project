@@ -23,7 +23,14 @@ from backend.engine.cs.providers import GenerationKnobs, gemini_text_provider
 from backend.engine.cs.summary import INSTRUCTION, SummaryOutput, render_prompt
 from backend.shared import ai
 from backend.shared.errors import ApplicationError
-from scripts.local_business.worker import Client, Configuration, LocalStop, Meter
+from scripts.local_business.permit import Denied
+from scripts.local_business.worker import (
+    ADMISSION_LIMIT_CODES,
+    Client,
+    Configuration,
+    LocalStop,
+    Meter,
+)
 
 PORT = 38084
 MAX_REQUEST = 256 * 1024
@@ -173,8 +180,14 @@ class SummaryBridge:
                             "elapsed_ms": result.elapsed_ms,
                         }
                     ).encode()
-                except (Exception, LocalStop):
-                    # Even non-accounting failures stop this bridge until the driver is restarted.
+                except (Denied, LocalStop) as error:
+                    reason = str(error) if isinstance(error, Denied) else error.admission_reason
+                    # Reaching an explicit limit incurred no new provider cost and needs
+                    # no cost review. Unknown spend and authorization failures still halt.
+                    bridge.failed = reason not in ADMISSION_LIMIT_CODES
+                    self.send_error(503)
+                    return
+                except Exception:
                     bridge.failed = True
                     self.send_error(503)
                     return

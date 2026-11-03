@@ -115,6 +115,7 @@ def test_authenticated_summary_and_analysis_share_jobs_calls_and_usage(ledger, t
         assert result.status_code == 200
         assert result.json()["usage"]["total_tokens"] == 14
         assert post(bridge, prompt).status_code == 503
+        assert not bridge.failed
         with permit.transaction() as db:
             assert db.execute("SELECT count(*) FROM grants").fetchone()[0] == 2
             rows = db.execute("SELECT * FROM charges").fetchall()
@@ -443,3 +444,67 @@ def test_dispatcher_counts_summary_grant_before_admitting_analysis(tmp_path, mon
     assert not (control / "enabled.json").exists()
     with permit.transaction() as db:
         assert db.execute("SELECT token FROM driver").fetchone()[0] is None
+
+
+@pytest.mark.parametrize("limit", ["jobs", "calls", "budget"])
+def test_normal_summary_limits_are_not_cost_review_failures(tmp_path, prompt, limit):
+    permit = Permit(tmp_path / "permit.sqlite3")
+    token = permit.authorize(
+        max_jobs=1 if limit == "jobs" else 4,
+        max_calls=1 if limit == "calls" else 4,
+        reserve_usd=".15",
+        budget_usd=".15" if limit == "budget" else "1.50",
+    )
+    fake_factory(permit, token, tmp_path, "fake-model")(prompt)
+    bridge = summary.SummaryBridge(
+        permit,
+        token,
+        tmp_path,
+        "fake-model",
+        threading.Lock(),
+        address=("127.0.0.1", 0),
+        factory=fake_factory,
+    )
+    try:
+        assert post(bridge, prompt).status_code == 503
+        assert not bridge.failed
+        assert post(bridge, prompt).status_code == 503
+        assert not bridge.failed
+        with permit.transaction() as db:
+            charges = db.execute("SELECT * FROM charges").fetchall()
+        assert len(charges) == 1 and charges[0]["state"] == "SETTLED"
+    finally:
+        bridge.close()
+        permit.close_driver(token)
+    # The next explicitly authorized driver needs no unknown-cost review.
+    permit.authorize(max_jobs=1, max_calls=1, reserve_usd=".01")
+
+
+@pytest.mark.parametrize("reason", ["unknown", "authorization"])
+def test_non_limit_admission_denial_keeps_summary_fail_closed(ledger, tmp_path, prompt, reason):
+    permit, token = ledger
+    if reason == "unknown":
+        job = str(uuid4())
+        permit.grant(token, job)
+        charge = permit.reserve(token, job, "fake-model")
+        permit.settle(charge, actual_usd=None)
+    else:
+        permit.close_driver(token)
+    bridge = summary.SummaryBridge(
+        permit,
+        token,
+        tmp_path,
+        "fake-model",
+        threading.Lock(),
+        address=("127.0.0.1", 0),
+        factory=fake_factory,
+    )
+    try:
+        assert post(bridge, prompt).status_code == 503
+        assert bridge.failed
+        with permit.transaction() as db:
+            assert db.execute("SELECT count(*) FROM charges").fetchone()[0] == (
+                1 if reason == "unknown" else 0
+            )
+    finally:
+        bridge.close()
