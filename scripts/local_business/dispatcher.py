@@ -67,6 +67,10 @@ def corpus_check(dsn: str):
 
 def main():
     local_only()
+    raw_timeout = os.environ.get("LOCAL_WORKER_TIMEOUT_SECONDS", "1800")
+    if not raw_timeout.isascii() or not raw_timeout.isdecimal() or int(raw_timeout) <= 0:
+        raise ValueError("LOCAL_WORKER_TIMEOUT_INVALID")
+    worker_timeout = int(raw_timeout)
     state = Path(os.environ["LOCAL_BUSINESS_STATE"])
     control = Path(os.environ["LOCAL_BUSINESS_CONTROL"])
     owner = os.environ["LOCAL_JOB_OWNER"]
@@ -182,7 +186,7 @@ def main():
                         "remaining_jobs": None if limit is None else limit - used,
                     },
                 )
-                if time.monotonic() - started > 1800:
+                if time.monotonic() - started > worker_timeout:
                     child.terminate()
                     stopped = True
                 time.sleep(0.5)

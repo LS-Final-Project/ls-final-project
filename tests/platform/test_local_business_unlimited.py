@@ -268,10 +268,22 @@ def test_bootstrap_unlimited_ready_needs_explicit_matching_marker(tmp_path, monk
         assert "disable-real" in commands.call_args.args[0]
 
 
+@pytest.mark.parametrize(
+    "timeout_seconds,elapsed,interrupted",
+    [(None, 1799, False), (None, 1801, True), ("7200", 1801, False), ("7200", 7201, True)],
+)
 @pytest.mark.parametrize("unlimited,expected_jobs", [(False, 1), (True, 3)])
 def test_dispatcher_until_explicit_stop_uses_actual_permit(
-    tmp_path, monkeypatch, unlimited, expected_jobs
+    tmp_path, monkeypatch, unlimited, expected_jobs, timeout_seconds, elapsed, interrupted
 ):
+    if timeout_seconds is None:
+        monkeypatch.delenv("LOCAL_WORKER_TIMEOUT_SECONDS", raising=False)
+    else:
+        monkeypatch.setenv("LOCAL_WORKER_TIMEOUT_SECONDS", timeout_seconds)
+    monotonic = iter([v for n in range(3) for v in (n * 10000, n * 10000 + elapsed)])
+    monkeypatch.setattr(
+        dispatcher, "time", SimpleNamespace(monotonic=lambda: next(monotonic), sleep=lambda _: None)
+    )
     control = tmp_path / "control"
     control.mkdir()
     credentials = tmp_path / "fake-credentials.json"
@@ -320,7 +332,8 @@ def test_dispatcher_until_explicit_stop_uses_actual_permit(
     heartbeat = []
 
     def marker(path, data):
-        heartbeat.append(data.copy())
+        if path.name == "enabled.json":
+            heartbeat.append(data.copy())
         save(path, data)
 
     monkeypatch.setattr(dispatcher, "save", marker)
@@ -334,11 +347,19 @@ def test_dispatcher_until_explicit_stop_uses_actual_permit(
         def poll(self):
             return next(self.polls)
 
+        def terminate(self):
+            assert interrupted
+
         def wait(self, **kw):
             return 0
 
     monkeypatch.setattr(dispatcher.subprocess, "Popen", Child)
-    dispatcher.main()
+    if interrupted:
+        with pytest.raises(SystemExit, match="LOCAL_WORKER_INTERRUPTED_REVIEW_REQUIRED"):
+            dispatcher.main()
+        expected_jobs = 1
+    else:
+        dispatcher.main()
     with p.transaction() as db:
         assert db.execute("SELECT count(*) FROM grants").fetchone()[0] == expected_jobs
         assert (
@@ -353,3 +374,12 @@ def test_dispatcher_until_explicit_stop_uses_actual_permit(
     else:
         assert heartbeat[0]["remaining_jobs"] == 1
     assert not (control / "enabled.json").exists()
+
+
+@pytest.mark.parametrize("value", ["", "0", "-1", "1.5", "true", " 7200", "inf"])
+def test_dispatcher_rejects_invalid_duration_before_credentials(monkeypatch, value):
+    monkeypatch.setattr(dispatcher, "local_only", lambda: None)
+    monkeypatch.setenv("LOCAL_WORKER_TIMEOUT_SECONDS", value)
+    monkeypatch.setattr(dispatcher, "Path", lambda _: pytest.fail("No private file access"))
+    with pytest.raises(ValueError, match="LOCAL_WORKER_TIMEOUT_INVALID"):
+        dispatcher.main()

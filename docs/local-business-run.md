@@ -249,3 +249,9 @@ uv run --frozen --python 3.12 python -m scripts.local_business restart --namespa
 **남은 운영 한계(P3):** POST 허용 확인은 원자적으로 예약하는 슬롯이 아니다. UI 작업은 한 번에 하나씩 요청하고 종료·허용 상태를 확인한 후 다음 작업을 보낸다. stop 도중 오류가 나면 전체 종료로 간주하지 말고 status와 실제 컨테이너·tunnel·lease·비용의 잔류 상태를 확인해 담당자에게 보고한다. 모든 고아 job의 start/restart 자동 거부나 복구 전용 CLI는 없다. usage·비용이 불명인 호출은 추가 허용 차단을 유지하며 disable-real·앱 재시작으로 자동 정산하거나 예약을 지우지 않는다. source46의 한정 실증 이후에도 최신 통합 전체 E2E와 각 PC의 재현은 별도 확인 대상이다.
 
 status는 컨테이너와 실제 DB의 QUEUED/RUNNING/FAILED 상태·실패 코드·lease 유효 여부를 읽는다. `settings.json`의 코드 SHA와 실제 소비 이미지를 함께 기록한다. 로그는 `artifacts/local-business/$NS/logs/`, driver 결과·worker 로그는 `control/`에 있다. 자격 파일·원문·키·전체 환경은 공유하지 말고 고정 오류 코드·시각·job ID·코드 SHA만 전달한다. 이번 문서 정정·dev 정합 작업에서는 setup/start/적재/모델/DB를 추가 실행하지 않았다. 앞선 source46 실증, 최신 코드 정합, 각 PC의 재현과 전체 업무·운영 완료를 각각 구분해 기록한다.
+
+### 긴 문서의 로컬 작업 수명
+
+로컬 dispatcher의 작업당 총수명 기본값은 1,800초다. 운영자가 검증한 driver 실행 환경에 `LOCAL_WORKER_TIMEOUT_SECONDS`를 명시하면 그 실행의 유한 양의 정수 초로 변경할 수 있다(예: 긴 문서 1회 검증에 `7200`). 이 값은 컨테이너 안 dispatcher 설정이며, 호스트 `.env`나 bootstrap/enable CLI에서 자동 전달하지 않는다. 기존 driver나 진행 중인 작업에 소급 적용되지 않는다.
+
+`--unlimited`는 이 총수명 제한을 해제하지 않는다. SDK 단일 호출 timeout·재시도 설정·lease·UNKNOWN 차단도 그대로다. 총수명을 넘으면 기존 중단 경로로 종료하고 원장·업무 상태를 보존한다. 자동 재처리하지 말고 결과와 미정산을 확인한다.
