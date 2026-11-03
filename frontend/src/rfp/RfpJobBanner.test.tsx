@@ -155,6 +155,7 @@ it('keeps a separately labelled replay animation through the draft card when a f
   for (const ms of [1100, 2200, 1000, 1800, 1400, 1200]) act(() => vi.advanceTimersByTime(ms));
   expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('초안 작성');
   expect(container.querySelector('.is-replaying')).toBeTruthy();
+  expect(screen.getByRole('img', { name: '완료된 과정 · AI 초안 작성 중' }).getAttribute('data-state')).toBe('speaking');
   act(() => vi.advanceTimersByTime(2199));
   expect(container.querySelector('.is-replaying')).toBeTruthy();
   act(() => vi.advanceTimersByTime(1));
@@ -163,4 +164,22 @@ it('keeps a separately labelled replay animation through the draft card when a f
   expect(container.querySelector('.is-replaying')).toBeTruthy();
   act(() => screen.getByRole('button', { name: '한 번에 보기' }).click());
   expect(container.querySelector('.is-replaying')).toBeNull();
+});
+
+
+it('maps the Halo to idle, thinking and speaking without animating completed or denied work', () => {
+  const event = { sequence: 3, occurredAt: '2026-11-03T00:00:01Z', type: 'job.progress', step: 'extract' };
+  const ui = (status: string, step?: string, connection: 'connected' | 'stopped' = 'connected') => <MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" status={status} view={{ connection, ...(step ? { progress: { ...event, step }, activity: [{ ...event, step }] } : {}) }} /></MemoryRouter>;
+  const { rerender } = render(ui('QUEUED'));
+  expect(screen.getByRole('img', { name: 'AI 대기 중' }).getAttribute('data-state')).toBe('idle');
+  rerender(ui('RUNNING', 'extract'));
+  expect(screen.getByRole('img', { name: 'AI 분석 중' }).getAttribute('data-state')).toBe('thinking');
+  rerender(ui('RUNNING', 'draft'));
+  expect(screen.getByRole('img', { name: 'AI 초안 작성 중' }).getAttribute('data-state')).toBe('speaking');
+  rerender(ui('SUCCEEDED', 'draft'));
+  expect(screen.getByRole('img', { name: '분석 완료' }).getAttribute('data-paused')).toBe('true');
+  rerender(ui('RUNNING', 'draft', 'stopped'));
+  expect(screen.getByRole('img', { name: '분석 상태 확인 중' }).getAttribute('data-paused')).toBe('true');
+  rerender(ui('FAILED', 'draft'));
+  expect(screen.getByRole('img', { name: '분석 중단' }).getAttribute('data-paused')).toBe('true');
 });

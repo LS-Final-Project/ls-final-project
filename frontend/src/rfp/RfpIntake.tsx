@@ -258,7 +258,7 @@ function Intake({ projectId, actorId, list, before, after }: { projectId: string
         ? <a className="kb" href={`/api/v1/tft/documents/${encodeURIComponent(original.document_id)}/file`}>원문 내려받기</a>
         : <button className="kb" disabled title="문서를 먼저 올리세요">원문 내려받기</button>}
     </>)}
-    {jobId && <RfpJobBanner key={jobId} view={bannerView} status={unavailable ? undefined : jobStatus} accepted={started === jobId} documents={docs} projectId={projectId} requestDocuments={requestDocuments} />}
+    <RfpJobBanner key={jobId ?? projectId} idle={!jobId} view={jobId ? bannerView : undefined} status={jobId && !unavailable ? jobStatus : undefined} accepted={!!jobId && started === jobId} documents={docs} projectId={projectId} requestDocuments={requestDocuments} />
     <KvNext>{next}</KvNext>
     {list}
     {panel === 'constraints' && canEdit && <ProjectConstraintsForm project={data} onClose={() => setPanel(undefined)} />}

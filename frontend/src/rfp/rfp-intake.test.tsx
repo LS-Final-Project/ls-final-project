@@ -86,6 +86,9 @@ describe('프로젝트 화면', () => {
     renderApp(PATH);
     await screen.findByText('문서가 없습니다. 문서 올리기로 시작하세요.');
     expect(next()).toContain('문서 0, 요구 0');
+    expect(screen.getByRole('img', { name: 'AI 대기 중' }).getAttribute('data-state')).toBe('idle');
+    expect(screen.getByRole('status').textContent).toContain('문서를 올리면 분석을 시작할 수 있습니다.');
+    expect(screen.queryByRole('list', { name: '분석 단계별 관측 상태' })).toBeNull();
     expect((screen.getByRole('button', { name: '처리 실행' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
