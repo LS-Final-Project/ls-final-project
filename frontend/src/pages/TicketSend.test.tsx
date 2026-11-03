@@ -196,3 +196,27 @@ test('다른 문의로 옮기면 보내기 확인·승인·받는 사람이 남�
   expect((screen.getByLabelText(/고객에게 메일이 나가는 것을 승인합니다/) as HTMLInputElement).checked).toBe(false);
   expect((screen.getByRole('button', { name: '승인하고 보내기' }) as HTMLButtonElement).disabled).toBe(true);
 });
+
+test('승인한 뒤 본문을 부서 문안으로 바꾸면 승인이 풀리고 다시 확인해야 보낸다', async () => {
+  const api = server('IN_REVIEW', 5, {
+    transfers: [{ id: 't1', dept_code: 'TS_TRF', status: 'RESULT_SUBMITTED', round: 1, reason: '검토', transferred_at: '2026-10-28T00:30:00Z', transferred_by: 'u1', ended_at: null, end_reason: null }],
+    dept_results: [{ id: 'r1', transfer_id: 't1', dept_code: 'TS_TRF', version: 1, review_status: 'ACCEPTED', result: '교체 필요', reply_content: 'We will replace the unit.', submitted_at: '2026-10-28T01:00:00Z', submitted_by: 'u2' }],
+  });
+  view(); await ready('검토중');
+  fireEvent.click(await screen.findByRole('button', { name: '답변 보내기' }));
+  await screen.findByText('보내기 확인');
+  await waitFor(() => expect((screen.getByLabelText('보낼 사서함') as HTMLSelectElement).value).toBe(MAILBOX));
+  const approve = () => screen.getByLabelText(/고객에게 메일이 나가는 것을 승인합니다/) as HTMLInputElement;
+  const send = () => screen.getByRole('button', { name: '승인하고 보내기' }) as HTMLButtonElement;
+  fireEvent.click(approve());
+  await waitFor(() => expect(send().disabled).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: '이 문안 쓰기' }));
+  await waitFor(() => expect(approve().checked).toBe(false));
+  expect(send().disabled).toBe(true);
+  fireEvent.click(approve());
+  await waitFor(() => expect(send().disabled).toBe(false));
+  fireEvent.click(send());
+  await screen.findByText(/승인해 플랫폼에 넘겼습니다/);
+  expect(api.posts).toHaveLength(1);
+  expect(body(api.posts[0]).body).toBe('We will replace the unit.');
+});

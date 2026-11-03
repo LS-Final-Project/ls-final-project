@@ -89,7 +89,8 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
   const [sendSubject, setSendSubject] = useState<string | null>(null);
   const [sendMailbox, setSendMailbox] = useState('');
   const [askCodes, setAskCodes] = useState<string[] | null>(null);
-  const [approved, setApproved] = useState(false);
+  // 승인은 승인한 순간의 내용에 묶는다. 본문·받는 사람·제목·사서함·묻는 정보 중 하나라도 바뀌면 승인이 풀린다.
+  const [approvedFor, setApprovedFor] = useState<string | null>(null);
   const [closeNoteError, setCloseNoteError] = useState(false);
   const [copyNote, setCopyNote] = useState('');
   const [unitPick, setUnitPick] = useState('');
@@ -246,6 +247,9 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
   const toValue = sendTo ?? wf?.mail_origin?.sender_address ?? '';
   const subjectValue = sendSubject ?? `Re: ${ticket.data?.data?.subject || '문의'}`;
   const recipients = toValue.split(/[\s,;]+/).filter(Boolean);
+  const sendKey = JSON.stringify([act, bodyText.trim(), recipients, subjectValue.trim(), mailboxId, act === 'info' ? [...asking].sort() : []]);
+  const approved = approvedFor !== null && approvedFor === sendKey;
+  const setApproved = (on: boolean) => setApprovedFor(on ? sendKey : null);
   const sendProblem = sendBlock ? sendBlock
     : mailboxes.isError ? '사서함 연결을 읽지 못했습니다'
     : !connected ? '사서함 연결을 읽는 중입니다'
@@ -637,7 +641,7 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
         onSubmit={form => void run(form.decision === 'ACCEPT' ? '부서 답변을 확인했습니다.' : '같은 부서에 다시 요청했습니다.', signal => reviewDeptResult(ticketId, pendingResult.id, { ...form, version }, signal))} />
     </KvModal>}
     {dialog === 'resolution' && data && <KvModal title={`해결 기록 남기기, ${code}`} onClose={() => !busy && setDialog(null)}>
-      <ResolutionCaseForm workflow={wf} busy={busy} onCancel={() => setDialog(null)} prefill={resolutionPrefill} faults={{ items: faultList.data?.data.items, pending: faultList.isPending, failed: faultList.isError }}
+      <ResolutionCaseForm workflow={wf} busy={busy} onCancel={() => setDialog(null)} prefill={resolutionPrefill} faults={{ items: faultList.data?.data.items, pending: faultList.isLoading, failed: faultList.isError }}
         onSubmit={form => void run('해결 기록을 남겼습니다.', signal => registerResolutionCase(ticketId, { ...form, version }, signal))} />
     </KvModal>}
     {dialog === 'correct' && data && analysisData && <KvModal title={`분류 정정, ${code}`} onClose={() => setDialog(null)}>
