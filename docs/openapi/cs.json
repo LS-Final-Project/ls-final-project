@@ -3386,6 +3386,140 @@
         "title": "EvidenceWrite",
         "type": "object"
       },
+      "FaultEntry": {
+        "properties": {
+          "action": {
+            "description": "Typical action in the catalog.",
+            "title": "Action",
+            "type": "string"
+          },
+          "applies_to": {
+            "description": "Product codes this fault applies to.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Applies To",
+            "type": "array"
+          },
+          "diagnosis": {
+            "title": "Diagnosis",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Error code shown by the product, if any.",
+            "title": "Error Code"
+          },
+          "family": {
+            "description": "Product family.",
+            "title": "Family",
+            "type": "string"
+          },
+          "fault_id": {
+            "description": "Fault ID a resolution case records.",
+            "pattern": "^FLT-[0-9]{3}$",
+            "title": "Fault Id",
+            "type": "string"
+          },
+          "fw_fix_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Firmware version that fixes the fault, if any.",
+            "title": "Fw Fix Version"
+          },
+          "needs_onsite": {
+            "description": "The catalog marks this fault as needing a site visit.",
+            "title": "Needs Onsite",
+            "type": "boolean"
+          },
+          "needs_rma": {
+            "description": "The catalog marks this fault as needing an RMA.",
+            "title": "Needs Rma",
+            "type": "boolean"
+          },
+          "replacement_part": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replacement Part"
+          },
+          "root_cause": {
+            "description": "Typical cause in the catalog. Not the cause of a given ticket.",
+            "title": "Root Cause",
+            "type": "string"
+          },
+          "severity_hint": {
+            "title": "Severity Hint",
+            "type": "string"
+          },
+          "symptom": {
+            "title": "Symptom",
+            "type": "string"
+          },
+          "typical_resolution_hours": {
+            "title": "Typical Resolution Hours",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "fault_id",
+          "family",
+          "applies_to",
+          "error_code",
+          "symptom",
+          "root_cause",
+          "diagnosis",
+          "action",
+          "severity_hint",
+          "needs_onsite",
+          "needs_rma",
+          "replacement_part",
+          "fw_fix_version",
+          "typical_resolution_hours"
+        ],
+        "title": "FaultEntry",
+        "type": "object"
+      },
+      "FaultList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FaultEntry"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "source": {
+            "description": "Where the list comes from: the provided ref/fault_catalog.csv, unmodified.",
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items",
+          "source"
+        ],
+        "title": "FaultList",
+        "type": "object"
+      },
       "FieldView": {
         "properties": {
           "ai_value": {
@@ -7257,6 +7391,22 @@
         "title": "SuccessResponse[CustomerHistory]",
         "type": "object"
       },
+      "SuccessResponse_FaultList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/FaultList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[FaultList]",
+        "type": "object"
+      },
       "SuccessResponse_HealthData_": {
         "properties": {
           "data": {
@@ -9606,6 +9756,79 @@
         "summary": "Get Group Comparison",
         "tags": [
           "condition-comparisons"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/faults": {
+      "get": {
+        "description": "Faults in the catalog, all of them or those that apply to one product.\n\nA product with no catalog entry gives an empty list, not an error: the person then writes\nthe resolution case without a catalog hint.",
+        "operationId": "cs_list_faults",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "product_code",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Product Code"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_FaultList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "List Faults",
+        "tags": [
+          "faults"
         ],
         "x-implementation-status": "partial"
       }

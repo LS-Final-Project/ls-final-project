@@ -30,6 +30,7 @@ POLICY_FILES = {
 # Reference data, not a rule table: it stays out of POLICY_VERSION so stored decisions keep theirs.
 REFERENCE_FILES = {
     "firmware_history.csv": "4ea1f156d6d7dd0926879b154f5b5166f700c30adb8fc09284facc37e7ad5abd",
+    "fault_catalog.csv": "9eb221594aeab7078cf1e5bad1db9f4d3d7145724816b0e12757fc1ab60c65e6",
 }
 POLICY_VERSION = (
     "cs-rules-v1:"
@@ -141,6 +142,56 @@ def firmware_releases() -> tuple[FirmwareRelease, ...]:
         )
         for row in _read("firmware_history.csv")
     )
+
+
+@dataclass(frozen=True)
+class Fault:
+    """One row of the provided fault catalog (C/S proposal ④ and ⑧): a known failure of a product."""
+
+    fault_id: str
+    family: str
+    applies_to: tuple[str, ...]
+    error_code: str | None
+    symptom: str
+    root_cause: str
+    diagnosis: str
+    action: str
+    severity_hint: str
+    needs_onsite: bool
+    needs_rma: bool
+    replacement_part: str | None
+    fw_fix_version: str | None
+    typical_resolution_hours: int
+
+
+@cache
+def fault_catalog() -> tuple[Fault, ...]:
+    """The provided fault catalog, read as it was copied. A malformed row stops the service."""
+    faults = []
+    for row in _read("fault_catalog.csv"):
+        if row["needs_onsite"] not in ("Y", "N") or row["needs_rma"] not in ("Y", "N"):
+            raise RuntimeError(f"fault_catalog.csv has an invalid Y/N value in {row['fault_id']}")
+        faults.append(
+            Fault(
+                fault_id=row["fault_id"],
+                family=row["family"],
+                applies_to=tuple(code for code in row["applies_to"].split(";") if code),
+                error_code=row["error_code"] or None,
+                symptom=row["symptom"],
+                root_cause=row["root_cause"],
+                diagnosis=row["diagnosis"],
+                action=row["action"],
+                severity_hint=row["severity_hint"],
+                needs_onsite=row["needs_onsite"] == "Y",
+                needs_rma=row["needs_rma"] == "Y",
+                replacement_part=row["replacement_part"] or None,
+                fw_fix_version=row["fw_fix_version"] or None,
+                typical_resolution_hours=int(row["typical_resolution_hours"]),
+            )
+        )
+    if len({fault.fault_id for fault in faults}) != len(faults):
+        raise RuntimeError("fault_catalog.csv repeats a fault_id")
+    return tuple(faults)
 
 
 @cache
