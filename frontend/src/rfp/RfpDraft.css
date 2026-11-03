@@ -6,20 +6,20 @@
 .rfp-draft .draft-context{margin:4px 14px 0;color:var(--erp-muted);font-size:11px}
 .rfp-draft .draft-notice{margin:6px 14px}
 .rfp-draft .draft-layout{padding-bottom:12px}
-.rfp-draft .draft-sections{height:calc(100dvh - 285px);min-height:360px;overflow:auto;scrollbar-gutter:stable;min-width:0;padding-right:2px}
+.rfp-draft .draft-sections{min-width:0;padding:0 30px 30px}
 .rfp-draft .draft-sections>section{margin-bottom:8px}
-.rfp-draft .draft-sentence{display:grid;grid-template-columns:42px minmax(0,1fr) minmax(130px,.56fr);gap:8px;border-bottom:1px solid var(--erp-border-soft);padding:8px 10px;align-items:start}
+.rfp-draft .draft-sentence{display:grid;grid-template-columns:28px minmax(0,1fr);gap:4px 8px;padding:12px 0;align-items:start}
 .rfp-draft .draft-sentence:last-child{border-bottom:0}
 .rfp-draft .draft-sentence-number{border:0;background:transparent;padding:0;text-align:left;color:var(--erp-accent);font:inherit;font-size:12px;line-height:1.7;cursor:pointer}
 .rfp-draft .is-selected{background:#f8fafd}
 .rfp-draft .draft-sentence-number[aria-pressed=true]{font-weight:600;text-decoration:underline}
 .rfp-draft .draft-sentence-body{min-width:0}
-.rfp-draft .draft-sentence-text{margin:0 0 5px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.65;font-size:12px}
+.rfp-draft .draft-sentence-text{display:block;width:100%;border:0;background:transparent;color:inherit;padding:0;text-align:left;font:inherit;margin:0 0 5px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.9;font-size:14px;cursor:pointer}.rfp-draft .draft-sentence-text:focus-visible{outline:2px solid var(--erp-accent);outline-offset:3px}
 .rfp-draft .draft-edit-button{font-size:11px;opacity:.85}
-.rfp-draft .draft-proof{min-width:0;font-size:11px;line-height:1.55;color:var(--erp-muted);overflow-wrap:anywhere}
+.rfp-draft .draft-proof{grid-column:2;display:flex;gap:8px;flex-wrap:wrap;min-width:0;font-size:11px;line-height:1.55;color:var(--erp-muted);overflow-wrap:anywhere}
 .rfp-draft .draft-proof p{margin:0 0 3px}
 .rfp-draft .draft-proof summary{cursor:pointer;color:var(--erp-accent)}
-.rfp-draft .draft-proof details[open]{padding:5px;background:var(--erp-head);border:1px solid var(--erp-border-soft)}
+.rfp-draft .draft-proof details[open]{flex-basis:100%;padding:5px;background:var(--erp-head);border:1px solid var(--erp-border-soft)}
 .rfp-draft .draft-proof ul{margin:3px 0;padding-left:12px}
 .rfp-draft .draft-proof details>div{display:block;margin-top:5px}
 .rfp-draft .draft-proof details>div>div{display:block}
@@ -48,3 +48,18 @@
 .rfp-draft .draft-empty{padding:8px 10px;margin:0;color:var(--erp-muted);font-size:12px}
 @media(max-width:1000px){.rfp-draft .draft-overview{grid-template-columns:1fr 1fr}.rfp-draft .draft-checks>div{flex-wrap:wrap}.rfp-draft .draft-sentence{grid-template-columns:30px minmax(0,1fr)}.rfp-draft .draft-proof{grid-column:2}}
 @media(max-width:800px){.rfp-draft .draft-sections{height:auto;max-height:none;overflow:visible}.rfp-draft .draft-overview{grid-template-columns:1fr}.rfp-draft .draft-version-form{align-items:stretch;flex-direction:column}}
+
+.rfp-draft .draft-model-help{margin:4px 14px;color:var(--erp-muted);font-size:11px;line-height:1.6}
+.rfp-draft .draft-model-help summary{cursor:pointer}
+.rfp-draft .draft-section-nav{display:flex;gap:5px;flex-wrap:wrap;margin:10px 14px}
+.rfp-draft .draft-section-nav button{display:flex;gap:6px;align-items:center}
+.rfp-draft .draft-section-nav button[aria-pressed=true]{background:var(--erp-head);border-color:var(--erp-accent);color:var(--erp-accent)}
+.rfp-draft .draft-section-nav span{color:var(--erp-muted);font-size:10px}
+.rfp-draft .draft-document{min-width:0;background:white;border:1px solid var(--erp-border);box-shadow:0 2px 8px #132e4910}
+.rfp-draft .draft-document-heading{padding:24px 30px 18px;border-bottom:1px solid var(--erp-border-soft);margin-bottom:18px}
+.rfp-draft .draft-document-heading h2{font-size:22px;line-height:1.5;margin:8px 0;color:var(--erp-text)}
+.rfp-draft .draft-document-heading p{margin:0;font-size:11px;color:var(--erp-muted)}
+.rfp-draft .draft-document-section{margin:0 0 24px}
+.rfp-draft .draft-document-section h3{margin:0 0 8px;padding-bottom:8px;border-bottom:1px solid var(--erp-border);font-size:16px;font-weight:600}
+.rfp-draft .draft-sentence.is-selected{border-left:2px solid var(--erp-accent);padding-left:8px;margin-left:-10px}
+@media(max-width:800px){.rfp-draft .draft-document-heading{padding:18px}.rfp-draft .draft-sections{padding:0 18px 18px}.rfp-draft .draft-section-nav{gap:4px}.rfp-draft .draft-sentence-text{font-size:13px}}

@@ -13,8 +13,8 @@ import { DATA_ORIGIN_LABEL, JUDGEMENT_LABEL, OUTPUT_LABEL, label } from './label
 import './RfpDraft.css';
 
 const SECTIONS: Record<string, string> = {
-  CUSTOMER_GOAL_SCOPE: '고객 목표와 범위', OUR_RESPONSE: '자사 대응', DEVIATIONS: '차이 사항',
-  PARTNER_SUPPLEMENT: '협력사 보완', ASSUMPTIONS_EXCLUSIONS: '가정과 제외', QUESTIONS_NEXT_ACTIONS: '질문과 다음 행동',
+  CUSTOMER_GOAL_SCOPE: '고객 목표·제안 범위', OUR_RESPONSE: '자사 대응', DEVIATIONS: '사양 차이·대체 제안',
+  PARTNER_SUPPLEMENT: '협력사 보완', ASSUMPTIONS_EXCLUSIONS: '전제·제외·미확인 사항', QUESTIONS_NEXT_ACTIONS: '질문·다음 행동',
 };
 const EVIDENCE_LABEL: Record<string, string> = { requirement: '요구', clause: '조항', product: '제품', partner: '협력사', question: '질문' };
 const JOB_LABEL = { QUEUED: '대기 중', RUNNING: '내보내는 중', SUCCEEDED: '완료', PARTIAL: '일부 완료 — 파일 확인 필요', FAILED: '실패', CANCELLED: '취소됨' };
@@ -193,8 +193,9 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
       <Link to={`/tft/projects/${projectId}`}>프로젝트</Link>{' '}
       <button className="kb" disabled={busy || draft.isFetching} onClick={() => { setVersion(undefined); setVersionInput(''); void cache.invalidateQueries({ queryKey: ['rfp-draft', user.id, projectId] }); }}>최신 조회</button>
     </KvTitle>
-    <KvNext>{data ? `초안 판본 ${data.version} · 문장 ${sentences?.length}개 · 재검토 ${needsReview}개. ` : ''}근거와 조건을 검토한 뒤 검토본을 저장하세요. 공급·납기 확약과 발송은 사람이 별도로 확인합니다.</KvNext>
-    <p className="draft-context">판단을 확인한 뒤 요청하세요. 모델로 문장 작성은 호출 비용이 드는 별도 작업입니다. 실패한 문장은 양식 초안으로 유지됩니다. 저장된 사람 문장은 바꾸지 않습니다.</p>
+    <KvNext>{data ? `초안 판본 ${data.version} · 문장 ${sentences?.length}개 · 재검토 ${needsReview}개. ` : ''}{project.data?.unresolved_mandatory_count !== undefined ? `필수 요구 미해결 ${project.data.unresolved_mandatory_count}건. ` : ''}근거와 조건을 검토한 뒤 검토본을 저장하세요. 공급·납기 확약과 발송은 사람이 별도로 확인합니다.</KvNext>
+    <p className="draft-context">대응 내용·조건을 바꾸려면 <Link to={`/tft/projects/${projectId}`}>RFP 검토로 이동</Link>하세요. 이 화면에서는 저장된 초안의 문장을 다듬고 검토본을 남깁니다. 변경 후에는 최신 초안과 재검토 표시를 확인하세요.</p>
+    <details className="draft-model-help"><summary>모델 문장 작성 안내</summary>모델로 문장 작성은 호출 비용이 드는 별도 작업입니다. 실패한 문장은 양식 초안으로 유지됩니다. 저장된 사람 문장은 바꾸지 않습니다.</details>
     {rewriteAccepted && <div className="draft-notice" aria-label="모델 문장 작성 작업">
       {rewriteJob.isPending && <Loading label="모델 작성 상태 확인 중" />}
       {rewriteJob.isError && <ErrorState error={rewriteJob.error} onRetry={() => rewriteJob.refetch()} />}
@@ -228,17 +229,23 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
     <p className="draft-context">보기·구역 필터는 표시만 바꿉니다. 편집과 검토본 저장은 숨겨진 문장까지 포함한 전체 초안 판본을 기준으로 처리합니다.</p>
     {draft.isPending && <Loading />}
     {draft.isError && <ErrorState error={draft.error} onRetry={() => draft.refetch()} />}
-    <div className="draft-layout"><KvSplit columns="minmax(0, 1.49fr) minmax(330px, 1fr)">
+    {data && <nav className="draft-section-nav" aria-label="문서 구역 이동">
+      {data.sections.map(part => <button key={part.section} type="button" className="kb sm" aria-pressed={section === part.section} onClick={() => { setSection(part.section); document.getElementById('draft-document')?.scrollIntoView?.({ block: 'start' }); }}>{SECTIONS[part.section] ?? part.section}<span>{part.sentences.length}</span></button>)}
+      <button type="button" className="kb sm" aria-pressed={section === 'all'} onClick={() => setSection('all')}>전체 문서</button>
+    </nav>}
+    <div className="draft-layout"><KvSplit columns="minmax(0, 2.3fr) minmax(290px, .85fr)">
+    <div className="draft-document" id="draft-document">
+    <header className="draft-document-heading"><p>제안 검토용 초안 · {latest ? '최신 조회 판본' : '지정 판본'}</p><h2>{project.data?.name ?? 'RFP 대응 제안'}</h2><p>초안 {data?.version ?? '-'}판 · 고객 제출 전 담당자 확인 필요</p></header>
     <div className="draft-sections" aria-label="초안 문장 목록">
     {data && visibleSentences.length === 0 && <p className="draft-empty" role="status">선택한 조건의 문장이 없습니다.</p>}
-    {visibleSentences.length > 0 && displayedSections.map(part => <KvBox key={part.section} title={SECTIONS[part.section] ?? part.section} note={`${part.sentences.filter(matches).length}문장`} bodyStyle={{ padding: 0 }}>
+    {visibleSentences.length > 0 && displayedSections.map(part => <section className="draft-document-section" key={part.section}><h3>{SECTIONS[part.section] ?? part.section}</h3>
       {!part.sentences.length && <p className="draft-empty">저장된 문장이 없습니다.</p>}
-      {part.sentences.filter(matches).map(row => <article className={`draft-sentence${editing?.sentence.sentence_id === row.sentence_id ? ' is-editing' : selectedSentence?.sentence_id === row.sentence_id ? ' is-selected' : ''}`} id={`draft-sentence-${row.sentence_id}`} key={row.sentence_id} aria-label={`문장 ${row.sentence_id}`}>
+      {part.sentences.filter(matches).map(row => <article className={`draft-sentence${editing?.sentence.sentence_id === row.sentence_id ? ' is-editing' : selectedSentence?.sentence_id === row.sentence_id ? ' is-selected' : ''}`} id={`draft-sentence-${row.sentence_id}`} key={row.sentence_id} aria-label={`문장 S${sentenceNumbers.get(row.sentence_id)}`}>
         <button type="button" className="draft-sentence-number" aria-label={`S${sentenceNumbers.get(row.sentence_id)} 선택`} aria-pressed={selectedSentence?.sentence_id === row.sentence_id} onClick={() => setSelectedSentenceId(row.sentence_id)}>S{sentenceNumbers.get(row.sentence_id)}</button>
         <div className="draft-sentence-body">
           {editing?.sentence.sentence_id === row.sentence_id ? editor : <>
-            <p className="draft-sentence-text">{row.text}</p>
-            <button className="kb sm draft-edit-button" disabled={!writable || !latest || !!editing} onClick={() => startEdit(row)}>문장 수정</button>
+            <button type="button" className="draft-sentence-text" aria-label={`S${sentenceNumbers.get(row.sentence_id)} 문장 선택`} aria-pressed={selectedSentence?.sentence_id === row.sentence_id} onClick={() => setSelectedSentenceId(row.sentence_id)}>{row.text}</button>
+            {selectedSentence?.sentence_id === row.sentence_id && <button className="kb sm draft-edit-button" disabled={!writable || !latest || !!editing} onClick={() => startEdit(row)}>문장 수정</button>}
           </>}
         </div>
         <div className="draft-proof">
@@ -255,9 +262,9 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
           </details>
         </div>
       </article>)}
-    </KvBox>)}
+    </section>)}
     {editing && !editingVisible && <KvBox title="문장 편집" note="표시 필터 밖의 선택 문장을 편집하고 있습니다.">{editor}</KvBox>}
-    </div><aside className="draft-actions" aria-label="검토본과 내보내기">
+    </div></div><aside className="draft-actions" aria-label="검토본과 내보내기">
     <KvBox title="검토본 저장 조건">
       <dl className="draft-checks">
         <div><dt>필수 요구, 상태와 근거 또는 다음 행동</dt><dd>{project.data?.unresolved_mandatory_count === undefined ? '서버 확인' : `미해결 ${project.data.unresolved_mandatory_count}`}</dd></div>

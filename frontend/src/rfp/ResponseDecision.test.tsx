@@ -20,8 +20,8 @@ beforeEach(() => {
   vi.mocked(listSupplementCandidates).mockResolvedValue({ data: { items: [candidate], manufacturer_list_basis: 'CURRENT_PROJECT_INPUT' }, meta: { request_id: 'test' } });
 });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
-function show(canSelect = true, onSaved = vi.fn(), selectedRequirement = requirement) {
-  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter><ResponseDecision projectId="project" actorId="actor" requirement={selectedRequirement} canSelect={canSelect} onSaved={onSaved} /></MemoryRouter></QueryClientProvider>);
+function show(canSelect = true, onSaved = vi.fn(), selectedRequirement = requirement, reviewDepartments?: string[]) {
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter><ResponseDecision projectId="project" actorId="actor" requirement={selectedRequirement} canSelect={canSelect} onSaved={onSaved} reviewDepartments={reviewDepartments} /></MemoryRouter></QueryClientProvider>);
   return onSaved;
 }
 test('stale comparison and candidate profiles prevent saving', async () => {
@@ -36,6 +36,7 @@ test('stale comparison and candidate profiles prevent saving', async () => {
 });
 test('read only access disables original selection form without opening mutations', async () => {
   show(false);
+  fireEvent.click(screen.getByRole('button', { name: '대응 방안 검토' }));
   expect((await screen.findByRole('combobox', { name: '보완 경로' })).closest('fieldset')?.disabled).toBe(true);
   expect((screen.getByRole('button', { name: '보완 선택 저장' }) as HTMLButtonElement).disabled).toBe(true);
   expect(selectSupplement).not.toHaveBeenCalled();
@@ -43,6 +44,7 @@ test('read only access disables original selection form without opening mutation
 test('explicit save uses original version and invokes parent refresh', async () => {
   vi.mocked(selectSupplement).mockResolvedValue({ data: { requirement_id: requirement.requirement_id, version: 2 } as never, meta: { request_id: 'test' } });
   const saved = show();
+  fireEvent.click(screen.getByRole('button', { name: '대응 방안 검토' }));
   fireEvent.change(await screen.findByRole('combobox', { name: '보완 경로' }), { target: { value: 'NONE' } });
   fireEvent.change(screen.getByRole('textbox', { name: '역할 분담' }), { target: { value: '자사 확인 담당' } });
   expect(selectSupplement).not.toHaveBeenCalled();
@@ -54,6 +56,7 @@ test('explicit save uses original version and invokes parent refresh', async () 
 
 test('failed options refresh disables cached selection evidence', async () => {
   show();
+  fireEvent.click(screen.getByRole('button', { name: '대응 방안 검토' }));
   await screen.findByRole('combobox', { name: '보완 경로' });
   vi.mocked(getSupplementOptions).mockRejectedValueOnce(new Error('조회 실패'));
   fireEvent.click(screen.getByRole('button', { name: '대응 근거 최신 조회' }));
@@ -76,20 +79,21 @@ test('default view compares typed customer and product values before opening evi
 test('unknown development gate opens real selection without suggesting development', async () => {
   show();
   fireEvent.click(await screen.findByRole('button', { name: '미확인 조건·대응 경로 확인 →' }));
-  await waitFor(() => expect((screen.getByText('대응 방안 검토').closest('details') as HTMLDetailsElement).open).toBe(true));
+  expect(screen.getByRole('region', { name: '대응 경로 선택' })).toBeTruthy();
   expect(screen.queryByText('개발 검토 요청 작성')).toBeNull();
   expect(selectSupplement).not.toHaveBeenCalled();
 });
 
 test('collapsing a selection keeps the unsaved role split and does not submit it', async () => {
   show();
-  const selection = screen.getByText('대응 방안 검토').closest('details') as HTMLDetailsElement;
-  fireEvent.click(selection.querySelector('summary')!);
+  fireEvent.click(screen.getByRole('button', { name: '대응 방안 검토' }));
   await screen.findByRole('combobox', { name: '보완 경로' });
   fireEvent.change(screen.getByRole('textbox', { name: '역할 분담' }), { target: { value: '검토 중인 역할' } });
-  fireEvent.click(selection.querySelector('summary')!);
-  await waitFor(() => expect(selection.open).toBe(false));
-  fireEvent.click(selection.querySelector('summary')!);
+  fireEvent.click(screen.getByRole('button', { name: '비교 근거와 원문' }));
+  expect(screen.queryByRole('textbox', { name: '역할 분담' })).toBeNull();
+  expect(screen.getByRole('region', { name: '비교 근거와 원문' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '대응 방안 검토' }));
+  expect(screen.queryByRole('region', { name: '비교 근거와 원문' })).toBeNull();
   expect((screen.getByRole('textbox', { name: '역할 분담' }) as HTMLTextAreaElement).value).toBe('검토 중인 역할');
   expect(selectSupplement).not.toHaveBeenCalled();
 });
@@ -101,10 +105,10 @@ test('detail-derived rereview stays visible and an AI path is not a completed hu
   const current = screen.getByRole('region', { name: '선택 요구 현재 상태' });
   expect(current.textContent).toContain('원문 확인·재검토 필요');
   expect(current.textContent).toContain('AI 제안');
-  expect(screen.getByText('판정 경로 있음 · 사람 선택 미확인')).toBeTruthy();
+  expect(screen.getByRole('region', { name: '선택 요구 현재 상태' }).textContent).toContain('판정에 기록된 경로');
   expect(screen.queryByText('선택 완료')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: '원문·판정 재확인 →' }));
-  await waitFor(() => expect((screen.getByText('비교 근거와 원문').closest('details') as HTMLDetailsElement).open).toBe(true));
+  expect(screen.getByRole('region', { name: '비교 근거와 원문' })).toBeTruthy();
 });
 
 
@@ -139,7 +143,7 @@ test('commercial warranty compares typed values and opens terms selection withou
   expect(current.textContent).toContain('12 개월 차이');
   expect(screen.queryByText('개발 검토 요청 작성')).toBeNull();
   fireEvent.click(action);
-  await waitFor(() => expect((screen.getByText('보증·상업 조건 검토').closest('details') as HTMLDetailsElement).open).toBe(true));
+  expect(screen.getByRole('region', { name: '대응 경로 선택' })).toBeTruthy();
   expect(screen.getAllByText('영업·보증 담당 조건 변경 확인').length).toBeGreaterThan(0);
   expect(selectSupplement).not.toHaveBeenCalled();
 });
@@ -158,7 +162,7 @@ test('task server development gate preserves the actual feasibility request flow
   show();
   const action = await screen.findByRole('button', { name: '담당·수행 범위와 제출 근거 확인 →' });
   fireEvent.click(action);
-  await waitFor(() => expect((screen.getByText('수행 가능성·일정 검토').closest('details') as HTMLDetailsElement).open).toBe(true));
+  expect(screen.getByRole('heading', { name: '수행 가능성·일정 검토' })).toBeTruthy();
   expect(screen.getByRole('button', { name: '수행 가능성 검토 요청 작성' })).toBeTruthy();
   expect(selectSupplement).not.toHaveBeenCalled();
 });
@@ -187,7 +191,45 @@ test('an evidenced task without work paths opens its evidence instead of an empt
   vi.mocked(getSupplementOptions).mockResolvedValue({ data: { ...options, deficiency_cause: null, options: [] }, meta: { request_id: 'test' } });
   show(true, vi.fn(), { ...requirement, task: '시험 성적서 제출', status: 'EVIDENCE_FOUND' });
   fireEvent.click(await screen.findByRole('button', { name: '충족 근거 확인 →' }));
-  await waitFor(() => expect((screen.getByText('비교 근거와 원문').closest('details') as HTMLDetailsElement).open).toBe(true));
-  expect((screen.getByText('수행 범위·담당 검토').closest('details') as HTMLDetailsElement).open).toBe(false);
+  expect(screen.getByRole('region', { name: '비교 근거와 원문' })).toBeTruthy();
+  expect(screen.queryByRole('region', { name: '대응 경로 선택' })).toBeNull();
+  expect(selectSupplement).not.toHaveBeenCalled();
+});
+
+test('a recorded development question remains available for commercial requirements without fabricating delivery', async () => {
+  vi.mocked(getSupplementRequirement).mockResolvedValue({ data: { ...MOCK_DETAIL, judgement: { ...MOCK_DETAIL.judgement, rnd_check: 'PENDING', rnd_question_id: 'recorded-question' } } as never });
+  vi.mocked(getSupplementOptions).mockResolvedValue({ data: { ...options, deficiency_cause: 'COMMERCIAL', options: [{ ...options.options[0], path: 'OWN_TERMS_REVIEW' }] }, meta: { request_id: 'test' } });
+  show();
+  await screen.findByText(/현재 대응 조건과 별도로 개발 검토 기록/);
+  fireEvent.click(screen.getByRole('button', { name: '기술·개발 검토' }));
+  expect(await screen.findByText('이 요구의 개발 검토 요청 기록이 없습니다.')).toBeTruthy();
+  expect(screen.getByText(/실제 이메일 전달 여부/)).toBeTruthy();
+  expect(screen.queryByText('발송 완료')).toBeNull();
+  expect(screen.queryByRole('region', { name: '대응 경로 선택' })).toBeNull();
+  expect(selectSupplement).not.toHaveBeenCalled();
+});
+
+test('designated procurement stays separate from partner and development suggestions', async () => {
+  vi.mocked(getSupplementOptions).mockResolvedValue({ data: { ...options, deficiency_cause: 'DESIGNATED_MODEL', options: [{ ...options.options[0], path: 'CUSTOMER_SPECIFIED_PROCUREMENT' }] }, meta: { request_id: 'test' } });
+  show();
+  fireEvent.click(await screen.findByRole('button', { name: '지정품 조달 조건 확인 →' }));
+  expect(screen.getByRole('region', { name: '대응 경로 선택' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: '기술·개발 검토' })).toBeNull();
+  expect(screen.queryByRole('button', { name: '협력사 후보 비교' })).toBeNull();
+  expect(selectSupplement).not.toHaveBeenCalled();
+});
+
+test('switching evidence preserves an unsaved internal development question', async () => {
+  vi.mocked(getSupplementRequirement).mockResolvedValue({ data: { ...MOCK_DETAIL, judgement: { ...MOCK_DETAIL.judgement, rnd_check: 'NOT_REQUIRED' } } as never });
+  vi.mocked(getSupplementOptions).mockResolvedValue({ data: { ...options, options: [{ ...options.options[0], gate: { requires: 'OWN_DEVELOPMENT_CHECK', status: 'NOT_REQUIRED' } }] }, meta: { request_id: 'test' } });
+  show(true, vi.fn(), requirement, ['RND_FW']);
+  fireEvent.click(await screen.findByRole('button', { name: '기술·개발 검토 확인 →' }));
+  await waitFor(() => expect((screen.getByRole('button', { name: '개발 검토 요청 작성' }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: '개발 검토 요청 작성' }));
+  fireEvent.change(screen.getByLabelText('질문'), { target: { value: '고객 납기에 가능한지 검토 부탁드립니다.' } });
+  fireEvent.click(screen.getByRole('button', { name: '비교 근거와 원문' }));
+  expect(screen.queryByRole('textbox', { name: '질문' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: '기술·개발 검토' }));
+  expect((screen.getByLabelText('질문') as HTMLTextAreaElement).value).toBe('고객 납기에 가능한지 검토 부탁드립니다.');
   expect(selectSupplement).not.toHaveBeenCalled();
 });

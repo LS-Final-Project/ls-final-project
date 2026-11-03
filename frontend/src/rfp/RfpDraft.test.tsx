@@ -351,11 +351,14 @@ it('계정 전환 뒤 늦은 A 편집 응답은 B 캐시나 폼에 적용되지 
 });
 
 
-it('보드 배치의 문장 번호와 접힌 전체 근거를 유지하고 편집은 해당 문장에 표시한다', async () => {
+it('문서의 문장 번호와 접힌 전체 근거를 유지하고 편집은 해당 문장에 표시한다', async () => {
   serve(); renderApp(`/tft/projects/${P}/draft`);
   await waitFor(() => expect(disabled('문장 수정')).toBe(false));
-  const row = screen.getByRole('article', { name: `문장 ${SENTENCE}` });
+  const row = screen.getByRole('article', { name: '문장 S1' });
   expect(within(row).getByText('S1')).toBeTruthy();
+  expect(row.getAttribute('aria-label')).toBe('문장 S1');
+  expect(row.getAttribute('aria-label')).not.toContain(SENTENCE);
+  expect(row.id).toBe(`draft-sentence-${SENTENCE}`);
   const proof = within(row).getByText('근거 1건 · 조건 1건').closest('details');
   expect(proof?.open).toBe(false);
   expect(within(row).getByText('요구: requirement-1')).toBeTruthy();
@@ -372,7 +375,7 @@ it('근거 미리보기에는 종류별 건수만 보이고 원형 ID는 상세�
   const row = { ...draft.sections[0].sentences[0], evidence: [{ type: 'clause', id: clauseId }, { type: 'requirement', id: '8b8c4590-e77f-4e3c-95ac-23b94f9227f1' }] };
   serve(url => url === BASE ? data({ ...draft, sections: [{ section: 'CUSTOMER_GOAL_SCOPE', sentences: [row] }] }) : data(draft));
   renderApp(`/tft/projects/${P}/draft`);
-  const article = await screen.findByRole('article', { name: `문장 ${SENTENCE}` });
+  const article = await screen.findByRole('article', { name: '문장 S1' });
   expect(within(article).getByText('요구 1건 · 조항 1건')).toBeTruthy();
   expect(article.querySelector('.draft-proof-preview')?.textContent).not.toContain('a568c6a8');
   expect(within(article).getByText(`조항: ${clauseId}`)).toBeTruthy();
@@ -383,7 +386,7 @@ it('필터에서는 0문장 구역을 빼고 전체 0건은 빈 상태를 한 �
   await screen.findByText(draft.disclaimer);
   fireEvent.change(screen.getByLabelText('보기'), { target: { value: 'review' } });
   const list = screen.getByLabelText('초안 문장 목록');
-  expect(within(list).getByRole('heading', { name: /고객 목표와 범위/ })).toBeTruthy();
+  expect(within(list).getByRole('heading', { name: /고객 목표·제안 범위/ })).toBeTruthy();
   expect(within(list).queryByRole('heading', { name: /자사 대응/ })).toBeNull();
   fireEvent.change(screen.getByLabelText('보기'), { target: { value: 'evidence' } });
   expect(within(list).queryAllByRole('heading')).toHaveLength(0);
@@ -555,8 +558,31 @@ it.each([
     return data({ id: P, name: '실제 API 프로젝트', sales_user_id: USER, responsible_user_id: null, integration_responsibility });
   }));
   renderApp(`/tft/projects/${P}/draft`);
-  await screen.findByText('실제 API 프로젝트');
+  await screen.findByRole('heading', { name: '실제 API 프로젝트' });
   const link = screen.queryByRole('link', { name: '보완 화면에서 지정' });
   expect(!!link).toBe(shown);
   if (link) expect(link.getAttribute('href')).toBe(`/tft/projects/${P}/supplement`);
+});
+
+
+it('문서 구역 이동은 저장된 순서와 문장을 유지하며 편집 중 입력을 보존한다', async () => {
+  const second = { ...draft.sections[0].sentences[0], sentence_id: '66666666-6666-4666-8666-666666666666', text: '자사 대응의 저장된 문장' };
+  const sections = [{ section: 'CUSTOMER_GOAL_SCOPE', sentences: draft.sections[0].sentences }, { section: 'OUR_RESPONSE', sentences: [second] }];
+  const f = serve(() => data({ ...draft, sections }));
+  renderApp(`/tft/projects/${P}/draft`);
+  await waitFor(() => expect(disabled('선택 문장 수정')).toBe(false));
+  const nav = screen.getByRole('navigation', { name: '문서 구역 이동' });
+  const list = screen.getByLabelText('초안 문장 목록');
+  expect(within(list).getAllByRole('heading').map(row => row.textContent)).toEqual(['고객 목표·제안 범위', '자사 대응']);
+  expect(screen.getByRole('link', { name: 'RFP 검토로 이동' }).getAttribute('href')).toBe(`/tft/projects/${P}`);
+  expect(within(list).getAllByRole('button', { name: '문장 수정' })).toHaveLength(1);
+  fireEvent.click(screen.getByRole('button', { name: '선택 문장 수정' }));
+  fireEvent.change(screen.getByLabelText('수정 문장'), { target: { value: '구역 이동 중 작성 문장' } });
+  fireEvent.change(screen.getByLabelText('수정 사유'), { target: { value: '담당자 검토' } });
+  fireEvent.click(within(nav).getByRole('button', { name: /자사 대응/ }));
+  expect(within(list).getByText(second.text)).toBeTruthy();
+  expect((screen.getByLabelText('수정 문장') as HTMLTextAreaElement).value).toBe('구역 이동 중 작성 문장');
+  fireEvent.click(within(nav).getByRole('button', { name: '전체 문서' }));
+  expect((screen.getByLabelText('수정 사유') as HTMLTextAreaElement).value).toBe('담당자 검토');
+  expect(f.mock.calls.some(([, init]) => init?.method === 'PATCH' || init?.method === 'POST')).toBe(false);
 });

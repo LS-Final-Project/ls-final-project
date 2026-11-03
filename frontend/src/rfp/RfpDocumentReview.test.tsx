@@ -30,6 +30,7 @@ afterEach(()=>{cleanup();vi.clearAllMocks();});
 it('has one review entry and connects target → customer requirement → real response workflow',async()=>{
  show();await screen.findByRole('heading',{name:'RFP 검토'});expect(screen.queryByText('기존 요구·대응 검토')).toBeNull();expect(screen.queryByText('맥락별 검토')).toBeNull();expect(screen.queryByTestId('decision')).toBeNull();
  await chooseFirst();await waitFor(()=>expect(screen.getByTestId('quote').textContent).toBe('first quote'));expect(screen.getByTestId('decision').textContent).toContain('저장 가능');expect(screen.getByTestId('decision').textContent).toContain('RND_FW');
+ expect(screen.queryByRole('button',{name:/R-02/})).toBeNull();fireEvent.click(screen.getByRole('button',{name:'전체 요구'}));
  fireEvent.click(screen.getByRole('button',{name:/R-02/}));await waitFor(()=>expect(screen.getByTestId('quote').textContent).toBe('second quote'));
  fireEvent.change(screen.getByLabelText('검토 문서'),{target:{value:'v1'}});await screen.findByText('이 범위에 추출된 고객 요구가 없습니다.');expect(screen.getByTestId('quote').textContent).toBe('');expect(screen.queryByTestId('decision')).toBeNull();expect(listRequirements).toHaveBeenLastCalledWith('p',{document_version_id:'v1'},100,undefined,{signal:expect.any(AbortSignal),useMockFallback:false});expect(processContext).not.toHaveBeenCalled();
 });

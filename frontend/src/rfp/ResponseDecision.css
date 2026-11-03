@@ -30,3 +30,13 @@
 .rfp-response-decision .development-review { order:2; }
 .rfp-response-decision .response-criteria { order:4; }
 @media(max-width:600px) { .rfp-response-decision .response-comparison { grid-template-columns:1fr; } }
+
+.response-workspace-actions { display:flex; flex-wrap:wrap; gap:6px; }
+.response-workspace-actions .kb { font-size:12px; }
+.response-workspace-actions [aria-expanded="true"] { background:#e8f0fb; border-color:#517eae; color:#203b60; }
+.rfp-response-decision .response-workspace { border:1px solid #cbd9eb; border-radius:7px; background:#fff; }
+.rfp-response-decision .response-workspace [hidden], .rfp-response-decision .response-workspace[hidden] { display:none; }
+.rfp-response-decision .response-workspace .response-card { border:0; padding:0; }
+.response-workspace header { padding:12px 14px; border-bottom:1px solid #e3e9f1; background:#f8fafc; }
+.response-workspace h4 { margin:0 0 4px; color:#203b60; font-size:14px; }
+.rfp-response-decision .response-comparison > div > b { font-size:12px; line-height:1.5; }

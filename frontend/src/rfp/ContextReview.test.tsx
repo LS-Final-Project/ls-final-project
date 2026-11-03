@@ -51,3 +51,43 @@ it('project source navigation retains exact document identity without leaking in
 it('target search and six-item pagination keep the chosen customer requirements reachable',async()=>{
  const data=fixture();data.result!.groups=Array.from({length:9},(_,i)=>({...data.result!.groups[1],entity_id:`t${i}`,name:`대상 ${i}`,tag:`TR-${i}`,parent_id:null}));data.result!.assignments.forEach(a=>{a.group_ids=data.result!.groups.map(g=>g.entity_id);});vi.mocked(getContext).mockResolvedValue({data});show();await screen.findByText('고객 요구 12건 / 검토 대상 9개');expect(within(screen.getByRole('group',{name:'검토 대상 선택'})).getAllByRole('button')).toHaveLength(6);fireEvent.click(screen.getByRole('button',{name:'검토 대상 2페이지'}));expect(within(screen.getByRole('group',{name:'검토 대상 선택'})).getAllByRole('button')).toHaveLength(3);fireEvent.change(screen.getByLabelText('검토 대상 찾기'),{target:{value:'TR-8'}});fireEvent.click(screen.getByRole('button',{name:/대상 8/}));expect(screen.getByRole('region',{name:'선택 대상 고객 요구'})).toBeTruthy();
 });
+
+it('summarizes unique actual requirements and defaults to unresolved without inferring review departments',async()=>{
+ const items=rows.map((row,i)=>({...row,status:i===0?'EVIDENCE_FOUND':row.status,needs_review:false,needs_rereview:false,open_questions:0,rnd_check:'NOT_REQUIRED'})) as RequirementSummary[];
+ show(items);await screen.findByText('확인 필요 11건');expect(screen.getByText('근거 있음 1건')).toBeTruthy();
+ await choose();const panel=screen.getByRole('region',{name:'선택 대상 고객 요구'});
+ expect(within(panel).queryByRole('button',{name:/조항 2.1 · 요구 1[^0-9]/})).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'전체 요구'}));
+ fireEvent.click(screen.getByRole('button',{name:'2페이지'}));
+ expect(within(panel).getByRole('button',{name:/조항 2.1 · 요구 1[^0-9]/})).toBeTruthy();
+ expect(screen.getByText('고객 요구 12건 / 검토 대상 2개')).toBeTruthy();
+ expect(processContext).not.toHaveBeenCalled();
+});
+it('an evidenced requirement with a rereview flag still needs confirmation',async()=>{
+ const items=rows.map(row=>({...row,status:'EVIDENCE_FOUND',needs_review:false,needs_rereview:false,open_questions:0,rnd_check:'NOT_REQUIRED'})) as RequirementSummary[];
+ items[0]={...items[0],needs_rereview:true};show(items);await screen.findByText('확인 필요 1건');await choose();
+ expect(screen.getByText('근거 있음 11건')).toBeTruthy();expect(screen.getAllByRole('button',{name:/조항 2.1 · 요구/})).toHaveLength(1);
+});
+it('all-evidenced targets remain accessible through the all requirements toggle',async()=>{
+ const items=rows.map(row=>({...row,status:'EVIDENCE_FOUND',needs_review:false,needs_rereview:false,open_questions:0,rnd_check:'NOT_REQUIRED'})) as RequirementSummary[];
+ show(items);await screen.findByText('확인 필요 0건');expect(screen.getByText('근거 있음 12건')).toBeTruthy();
+ expect(screen.queryByRole('button',{name:/변압기.*전력계통/})).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'전체 요구'}));await choose();
+ expect(screen.getByRole('region',{name:'선택 대상 고객 요구'})).toBeTruthy();expect(processContext).not.toHaveBeenCalled();
+});
+
+it('counts actual open questions and pending R&D as unresolved even when evidence exists',async()=>{
+ const items=rows.map(row=>({...row,status:'EVIDENCE_FOUND',needs_review:false,needs_rereview:false,open_questions:0,rnd_check:'NOT_REQUIRED'})) as RequirementSummary[];
+ items[0]={...items[0],open_questions:1};items[1]={...items[1],rnd_check:'PENDING'};
+ show(items);await screen.findByText('확인 필요 2건');await choose();
+ expect(screen.getAllByRole('button',{name:/조항 2.1 · 요구/})).toHaveLength(2);
+ expect(screen.getByText('근거 있음 10건')).toBeTruthy();expect(processContext).not.toHaveBeenCalled();
+});
+it('filter changes preserve the selected requirement and explain when it is outside the filter',async()=>{
+ const items=rows.map(row=>({...row,status:'EVIDENCE_FOUND',needs_review:false,needs_rereview:false,open_questions:0,rnd_check:'NOT_REQUIRED'})) as RequirementSummary[];
+ show(items);await screen.findByText('확인 필요 0건');fireEvent.click(screen.getByRole('button',{name:'전체 요구'}));await choose();
+ fireEvent.click(screen.getByRole('button',{name:/조항 2.1 · 요구 1[^0-9]/}));
+ fireEvent.click(screen.getByRole('button',{name:'확인 필요한 요구'}));
+ expect(screen.getByText(/선택한 요구는 현재 필터 밖/)).toBeTruthy();expect(screen.getByText('합성 인용 0')).toBeTruthy();
+ expect(selected).toHaveBeenCalledTimes(1);
+});
