@@ -74,8 +74,7 @@ describe('운영 빌드에서 C/S·메일 화면을 연다', () => {
     show(`/cs/tickets/${ID}`, '/cs/tickets/:ticketId', <TicketDetail />);
     await screen.findByText('T-1');
     expect(screen.queryByText(PREPARING)).toBeNull();
-    fireEvent.click(screen.getByText(/^기타 \d/));
-    const start = () => screen.getByRole('menuitem', { name: /^검토 시작/ }) as HTMLButtonElement;
+    const start = () => screen.getByRole('button', { name: '검토 시작' }) as HTMLButtonElement;
     await waitFor(() => expect(start().disabled).toBe(false));
     fireEvent.click(start());
     await screen.findByText('검토를 시작했습니다.');
@@ -97,8 +96,7 @@ describe('운영 빌드에서 C/S·메일 화면을 연다', () => {
     show(`/cs/tickets/${ID}`, '/cs/tickets/:ticketId', <TicketDetail />);
     await screen.findByText('T-1');
     expect(calls.some(call => call.url.endsWith('/platform/auth/mailbox'))).toBe(false);
-    fireEvent.click(screen.getByText(/^기타 \d/));
-    fireEvent.click(screen.getByRole('menuitem', { name: /^AI 초안 보기/ }));
+    fireEvent.click(screen.getByRole('button', { name: '다른 초안' }));
     await waitFor(() => expect(calls.some(call => call.url.endsWith('/platform/auth/mailbox'))).toBe(true));
   });
 

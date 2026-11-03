@@ -1,14 +1,14 @@
 import { useMemo, useState } from 'react';
 import type { TicketAnalysisResponse } from '../api/cs';
 import type { SendBody } from '../api/cs-workflow';
-import { formatStamp } from '../ls-shell/cs-labels';
+import { formatStamp, infoName } from '../ls-shell/cs-labels';
 
 type Analysis = TicketAnalysisResponse['data'];
 type DraftRun = NonNullable<Analysis['drafts']>[number];
 type Option = { label: string; sentences: { text: string; kind: string; evidence_chunk_ids: string[] }[]; info_requests: { info_code: string; question: string }[] };
 type Verdict = { label: string; sentence_index: number; verdict: string; reason: string };
 
-const OPTION_LABEL: Record<string, string> = { CONCISE: '간결하게', DETAILED: '자세하게', INFO_FIRST: '부족한 정보 먼저' };
+export const OPTION_LABEL: Record<string, string> = { CONCISE: '간결하게', DETAILED: '자세하게', INFO_FIRST: '부족한 정보 먼저' };
 const KIND_LABEL: Record<string, string> = { EVIDENCE: '근거 있음', CONDITION: '조건', UNCONFIRMED: '확인 안 됨' };
 const VERDICT_LABEL: Record<string, string> = { SUPPORTED: '근거 확인', UNSUPPORTED: '근거 부족', UNVERIFIABLE: '검증 불가' };
 const OWN = 'OWN';
@@ -34,8 +34,8 @@ export function pickDraft(analysis: Analysis | undefined): DraftRun | undefined 
   const drafts = analysis?.drafts ?? [];
   return drafts.find(item => item.id === analysis?.latest_valid_draft_id) ?? [...drafts].reverse().find(item => item.draft) ?? drafts.at(-1);
 }
-const optionsOf = (run: DraftRun | undefined): Option[] => Array.isArray((run?.draft as { options?: unknown } | null)?.options) ? (run!.draft as { options: Option[] }).options : [];
-const textOf = (option: Option | undefined) => option ? option.sentences.map(item => item.text).join(' ') : '';
+export const optionsOf = (run: DraftRun | undefined): Option[] => Array.isArray((run?.draft as { options?: unknown } | null)?.options) ? (run!.draft as { options: Option[] }).options : [];
+export const textOf = (option: Option | undefined) => option ? option.sentences.map(item => item.text).join(' ') : '';
 
 // 안전 문의인데 쓸 초안이 없으면 담당자가 직접 응답해야 한다. 일반 안내 대신 강조 경고를 보인다.
 // 기한은 분석 규칙의 첫 응답 기한이고, 정정이 있으면 더 이른 쪽(effective)을 쓴다.
@@ -50,7 +50,7 @@ export function safetyWithoutDraft(analysis: Analysis | undefined): { due: strin
  * AI 초안 3개를 보고 하나를 고르거나 직접 쓰는 대화상자. 문장마다 근거 표시와 검증 결과를 함께 보인다.
  * 고른 문안은 고쳐 쓸 수 있고 복사할 수 있다. send가 있으면 사람이 확인해 승인한 뒤 고객에게 보낸다(자동 발송 없음).
  */
-export default function AiDraftDialog({ analysis, ticketLabel, send }: { analysis: Analysis | undefined; ticketLabel: string; send?: SendOptions }) {
+export default function AiDraftDialog({ analysis, ticketLabel, send, initialPick, onUse }: { analysis: Analysis | undefined; ticketLabel: string; send?: SendOptions; initialPick?: string; onUse?: (label: string, text: string) => void }) {
   const run = pickDraft(analysis);
   const options = useMemo(() => optionsOf(run), [run]);
   const verdicts = useMemo<Verdict[]>(() => {
@@ -58,8 +58,9 @@ export default function AiDraftDialog({ analysis, ticketLabel, send }: { analysi
     return (latest?.sentences ?? []) as Verdict[];
   }, [run]);
   const recommended = options.find(item => item.label === 'INFO_FIRST') ?? options[0];
-  const [picked, setPicked] = useState<string>(recommended?.label ?? OWN);
-  const [text, setText] = useState(textOf(recommended));
+  const initial = initialPick === OWN ? undefined : options.find(item => item.label === initialPick) ?? recommended;
+  const [picked, setPicked] = useState<string>(initialPick === OWN ? OWN : initial?.label ?? OWN);
+  const [text, setText] = useState(textOf(initial));
   const [copied, setCopied] = useState('');
   const current = options.find(item => item.label === picked);
   const safety = safetyWithoutDraft(analysis);
@@ -98,7 +99,7 @@ export default function AiDraftDialog({ analysis, ticketLabel, send }: { analysi
     try { await navigator.clipboard.writeText(text); setCopied('복사했습니다.'); }
     catch { setCopied('복사하지 못했습니다. 미리보기 글을 직접 선택해 복사하세요.'); }
   }
-  return <div>
+  return <div className="draft-dlg">
     <div className="kv-sub" style={{ margin: '0 0 8px' }}>{ticketLabel}{run ? <> · <span className="unc">AI 작성 {formatStamp(run.created_at)}, 검증 {run.verification_status}</span></> : null}</div>
     {safety && <div className="kv-err" role="alert" style={{ margin: '0 0 8px', padding: '8px 10px' }}><b>안전 문의입니다.</b> AI 초안이 없어 담당자가 직접 응답해야 합니다.{safety.due ? ` 첫 응답 기한 ${formatStamp(safety.due)}` : ''}</div>}
     {options.length === 0 && !safety && <div className="kv-sub" role="note" style={{ margin: '0 0 8px' }}>{run ? 'AI 초안을 쓸 수 없습니다(검증을 통과하지 못했거나 비어 있음). 직접 쓸 수 있습니다.' : '아직 AI 초안이 없습니다. 분석을 실행하면 만들어집니다. 직접 쓸 수 있습니다.'}</div>}
@@ -119,13 +120,14 @@ export default function AiDraftDialog({ analysis, ticketLabel, send }: { analysi
       </ul>
       {current.info_requests.length > 0 && <>
         <div className="kv-sub" style={{ margin: '8px 0 4px' }}>이 문안이 고객에게 묻는 정보</div>
-        <ul aria-label="요청 정보" style={{ margin: 0, padding: '0 0 0 16px' }}>{current.info_requests.map(item => <li key={item.info_code}>{item.question}<small style={{ color: 'var(--erp-muted)' }}> ({item.info_code})</small></li>)}</ul>
+        <ul aria-label="요청 정보" style={{ margin: 0, padding: '0 0 0 16px' }}>{current.info_requests.map(item => <li key={item.info_code}>{item.question}<small style={{ color: 'var(--erp-muted)' }} title={item.info_code}> ({infoName(item.info_code)})</small></li>)}</ul>
       </>}
     </>}
     <div className="kv-sub" style={{ margin: '8px 0 0' }}>AI 초안은 제안입니다. 사람이 읽고 고친 뒤에만 쓰세요. RMA·방문·보증 승인은 초안이 정하지 않습니다.</div>
     {copied && <div className="kv-sub" role="status" style={{ margin: '6px 0 0' }}>{copied}</div>}
     <div className="kv-actions">
       <button type="button" className="kb" disabled={!text.trim()} onClick={() => void copy()}>문안 복사</button>
+      {onUse && <button type="button" className="kb primary" disabled={!text.trim()} onClick={() => onUse(picked, text)}>이 초안 쓰기</button>}
     </div>
     {send && <fieldset style={{ margin: '10px 0 0', padding: '8px 10px', border: '1px solid var(--erp-line)' }} disabled={send.busy}>
       <legend>고객에게 보내기</legend>

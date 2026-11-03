@@ -77,3 +77,18 @@ export const categoryName = (code: unknown) => typeof code === 'string' ? `${CAT
 export const RETURN_STATED_LABEL: Record<string, string> = { DEFECT: '품질·불량 반품', NON_DEFECT: '비불량 반품' };
 export const RESPONSIBILITY_LABEL: Record<string, string> = { MANUFACTURING: '제조 책임', NON_MANUFACTURING: '제조 외 책임', UNDETERMINED: '검사로 정하지 못함' };
 export const CAUSE_LABEL: Record<string, string> = { SITE_CONDITION: '현장 조건', HARDWARE: '하드웨어', SETTING: '설정', WEAR_PART: '소모품', FIRMWARE: '펌웨어' };
+
+// 받은 자료·요청 정보 코드의 한국어 이름. 코드 목록은 eval/policy/cs_required_info.csv(영문 field_labels)와 같다.
+export const INFO_LABEL: Record<string, string> = {
+  application: '사용 조건(전압·부하·운전)', battery_age: '배터리 설치일·사용 기간', battery_status: '배터리 SOC·셀 온도',
+  current_fw: '현재 펌웨어 버전', document_type: '요청 문서 종류', error_code: '오류 코드·표시 증상',
+  failure_description: '고장 내용·발생 시각', incoterms: '인코텀즈·납품지', install_date: '설치·시운전 일자',
+  load_profile: '부하 전류·온도 기록', logs: '이벤트·트립 로그', motor_nameplate: '모터 명판 정보',
+  operating_condition: '고장 당시 운전 조건', packaging_condition: '도착 시 포장 상태', parameter_backup: '파라미터 백업 파일',
+  photos: '제품·명판 사진', po_number: '발주 번호', product_model: '모델명·주문 코드', program_backup: 'PLC/HMI 프로젝트 백업',
+  purchase_doc: '발주서·인보이스 번호', quantity: '수량', required_date: '희망 납기', return_reason: '반품 사유',
+  serial_no: '시리얼 번호', site_condition: '현장 조건(온도·고도·습도)', string_config: 'PV 스트링 구성',
+  target_country: '수출 국가·시장', target_standard: '요구 규격·인증', tool_version: '엔지니어링 툴 버전',
+  wiring_diagram: '배선도·단선도',
+};
+export const infoName = (code: string) => INFO_LABEL[code] ?? code;

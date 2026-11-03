@@ -160,7 +160,8 @@ test('계정·문의 변경은 이전 확인과 늦은 접수 응답을 새 작�
   expect(done).not.toHaveBeenCalled();
 });
 
-test('문의 처리 화면의 명시 접수 완료는 분석·문의·업무흐름을 다시 읽고 초안 부재를 알린다', async () => {
+// 문의 처리 화면(KAN-210)은 CsAnalysisAction 대신 한 번 누르는 AnalysisRunButton을 쓴다. 접수·상태 확인·완료 뒤 다시 읽기는 같다.
+test('문의 처리 화면의 AI 분석 실행은 한 번만 접수하고, 끝나면 분석·문의·업무흐름을 다시 읽고 초안 부재를 알린다', async () => {
   const source = examples.find(item => item.path === '/api/v1/cs/tickets/22222222-2222-4222-8222-222222222222')!.body;
   let finished = false;
   const fetch = serve();
@@ -174,11 +175,14 @@ test('문의 처리 화면의 명시 접수 완료는 분석·문의·업무흐�
     return jsonResponse(200, { ...source, data: { ...(source as { data: object }).data, workflow_state: 'RECEIVED' } });
   });
   setApiMode('live'); renderAt(`/cs/tickets/${T}`, '/cs/tickets/:ticketId', <TicketDetail />);
-  await screen.findByRole('button', { name: 'AI 분석 요청' });
+  const run = await screen.findByRole('button', { name: '✦ AI 분석 실행' });
+  await waitFor(() => expect((run as HTMLButtonElement).disabled).toBe(false));
   const calls = (suffix: string) => fetch.mock.calls.filter(([url]) => String(url).endsWith(suffix)).length;
   const before = calls('/workflow');
-  confirm(); start();
-  await screen.findByText(/분류 결과는 있지만 유효한 초안이 없습니다/);
+  fireEvent.click(run); fireEvent.click(run);
+  await screen.findByText(/AI 분석을 마쳤습니다/);
+  await screen.findByText(/아직 AI 초안이 없습니다/);
+  expect(screen.getByText('AI 분석 완료')).toBeTruthy();
   expect(calls('/workflow')).toBeGreaterThan(before);
   expect(calls('/analysis')).toBeGreaterThan(1);
   expect(calls(`/tickets/${T}`)).toBeGreaterThan(1);
