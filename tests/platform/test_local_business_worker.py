@@ -506,8 +506,11 @@ def test_no_claim_means_no_finish_and_only_fixed_diagnostic(capsys):
     assert capsys.readouterr().err == "LOCAL_FAILURE_NOT_RECORDED_NO_LEASE\n"
 
 
+@pytest.mark.parametrize("parallel_count", [3, 6])
 @pytest.mark.parametrize("fail_first", [False, True])
-def test_real_journal_parallel_calls_settle_inflight_and_block_after_unknown(tmp_path, fail_first):
+def test_real_journal_parallel_calls_settle_inflight_and_block_after_unknown(
+    tmp_path, fail_first, parallel_count
+):
     from concurrent.futures import ThreadPoolExecutor
     from dataclasses import replace
     from threading import Barrier, Event
@@ -519,7 +522,7 @@ def test_real_journal_parallel_calls_settle_inflight_and_block_after_unknown(tmp
     config = replace(configuration(tmp_path), token=token)
     p.grant(token, str(config.job_id))
     meter = worker.Meter(p, config, PRICES)
-    barrier = Barrier(3, timeout=3)
+    barrier = Barrier(parallel_count, timeout=3)
     failed = Event()
 
     def generate_content(**kwargs):
@@ -537,16 +540,16 @@ def test_real_journal_parallel_calls_settle_inflight_and_block_after_unknown(tmp
             failed.set()
             return error.code
 
-    with ThreadPoolExecutor(3) as pool:
-        results = list(pool.map(call, ["first", "second", "third"]))
+    with ThreadPoolExecutor(parallel_count) as pool:
+        results = list(pool.map(call, ["first", *[f"other{i}" for i in range(parallel_count - 1)]]))
     with p.transaction() as db:
         states = [r[0] for r in db.execute("SELECT state FROM charges")]
         assert states.count("RESERVED") == 0
         assert states.count("UNKNOWN") == int(fail_first)
-        assert states.count("SETTLED") == (2 if fail_first else 3)
+        assert states.count("SETTLED") == parallel_count - int(fail_first)
     assert not meter.active_charges
     if fail_first:
-        assert results == ["LOCAL_PROVIDER_CALL_FAILED"] * 3
+        assert results == ["LOCAL_PROVIDER_CALL_FAILED"] * parallel_count
         with pytest.raises(worker.LocalStop, match="LOCAL_PROVIDER_CALL_FAILED"):
             meter.generate(lambda **_: pytest.fail("no more SDK"), model=MODEL)
         p.close_driver(token)
@@ -584,12 +587,13 @@ def test_provider_diagnostic_fixed_non_api_kinds(tmp_path, capsys, error, expect
     assert len(calls) == 1
 
 
-def test_api_diagnostic_only_allowed_status_and_http_code(tmp_path, capsys):
+@pytest.mark.parametrize("http_code,status", [(403, "PERMISSION_DENIED"), (500, "INTERNAL")])
+def test_api_diagnostic_only_allowed_status_and_http_code(tmp_path, capsys, http_code, status):
     from google.genai.errors import APIError
 
     error = APIError(
-        403,
-        {"error": {"status": "PERMISSION_DENIED", "message": "secret-token-input-body"}},
+        http_code,
+        {"error": {"status": status, "message": "secret-token-input-body"}},
         response=SimpleNamespace(headers={"Authorization": "secret-token"}),
     )
     permit = FakePermit()
@@ -601,8 +605,8 @@ def test_api_diagnostic_only_allowed_status_and_http_code(tmp_path, capsys):
     assert json.loads(captured.err) == {
         "event": "LOCAL_PROVIDER_CALL_FAILED",
         "kind": "API_ERROR",
-        "http_status": 403,
-        "provider_status": "PERMISSION_DENIED",
+        "http_status": http_code,
+        "provider_status": status,
     }
     assert permit.settlements == [("offline-charge", None, None)] and len(calls) == 1
 
@@ -698,3 +702,58 @@ def test_diagnostic_output_failure_preserves_unknown_and_local_stop(tmp_path, mo
         with pytest.raises(worker.LocalStop, match="LOCAL_PROVIDER_CALL_FAILED"):
             client.models.generate_content(model=MODEL)
     assert permit.settlements == [("offline-charge", None, None)] and len(calls) == 1
+
+
+@pytest.mark.parametrize("owner,expected", [("tft", 6), ("cs", 1)])
+def test_actual_sdk_gate_bounds_waiting_calls_and_releases_all(tmp_path, owner, expected):
+    from concurrent.futures import ThreadPoolExecutor
+    from dataclasses import replace
+    from threading import Event, Lock
+
+    from scripts.local_business.permit import Permit
+
+    p = Permit(tmp_path / "bounded.sqlite3")
+    token = p.authorize(max_jobs=1, max_calls=8, reserve_usd="0.15", unlimited=True)
+    config = replace(configuration(tmp_path), owner=owner, token=token)
+    p.grant(token, str(config.job_id))
+    meter = worker.Meter(p, config, PRICES)
+    saturated, release, lock = Event(), Event(), Lock()
+    active = peak = calls = 0
+
+    def generate_content(**kwargs):
+        nonlocal active, peak, calls
+        with lock:
+            active += 1
+            calls += 1
+            peak = max(peak, active)
+            if active == expected:
+                saturated.set()
+        assert release.wait(3)
+        with lock:
+            active -= 1
+        return response()
+
+    with ThreadPoolExecutor(8) as pool:
+        futures = [pool.submit(meter.generate, generate_content, model=MODEL) for _ in range(8)]
+        try:
+            assert saturated.wait(2)
+            with p.transaction() as db:
+                assert (
+                    db.execute("SELECT count(*) FROM charges WHERE state='RESERVED'").fetchone()[0]
+                    == expected
+                )
+            assert peak == expected
+        finally:
+            release.set()
+        results = [f.result() for f in futures]
+    assert active == 0 and peak == expected and calls == 8
+    assert len(results) == 8 and not meter.active_charges
+    with p.transaction() as db:
+        assert db.execute("SELECT count(*) FROM charges WHERE state='SETTLED'").fetchone()[0] == 8
+
+
+def test_context_graph_and_local_sdk_limits_agree():
+    from backend.engine.rfp.context_graph import MAX_PARALLEL
+    from scripts.local_business.permit import MAX_PARALLEL_TFT_CALLS
+
+    assert MAX_PARALLEL == MAX_PARALLEL_TFT_CALLS == 6

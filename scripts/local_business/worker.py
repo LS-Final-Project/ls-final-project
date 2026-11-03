@@ -19,6 +19,7 @@ from google.genai.errors import APIError
 from pydantic import SecretStr
 
 from backend.shared import ai
+from scripts.local_business.permit import MAX_PARALLEL_TFT_CALLS
 
 
 class LocalStop(BaseException):
@@ -158,7 +159,7 @@ class Meter:
         self.permit, self.config, self.prices = permit, config, prices
         self.stopped: str | None = None
         self.lock = RLock()
-        self.slots = BoundedSemaphore(3 if config.owner == "tft" else 1)
+        self.slots = BoundedSemaphore(MAX_PARALLEL_TFT_CALLS if config.owner == "tft" else 1)
         self.active_charges: set[str] = set()
 
     def stop(self, code: str) -> None:

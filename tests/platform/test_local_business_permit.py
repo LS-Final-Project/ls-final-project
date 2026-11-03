@@ -224,3 +224,19 @@ def test_parallel_reservations_count_toward_limited_budget_and_calls(tmp_path):
     p.settle(second, actual_usd="0.50")
     with p.transaction() as db:
         assert p.committed(db) == Decimal("1.00")
+
+
+def test_six_reservations_allowed_seventh_rejected_without_mutation(tmp_path):
+    p = Permit(tmp_path / "six.sqlite3")
+    token = p.authorize(max_jobs=1, max_calls=8, reserve_usd="0.15", unlimited=True)
+    job = str(uuid4())
+    p.grant(token, job)
+    charges = []
+    for _ in range(6):
+        charges.append(p.reserve(token, job, "fake", active_charges=tuple(charges)))
+    with pytest.raises(Denied, match="LOCAL_COST_UNKNOWN_REVIEW_REQUIRED"):
+        p.reserve(token, job, "fake", active_charges=tuple(charges))
+    with p.transaction() as db:
+        assert db.execute("SELECT count(*) FROM charges").fetchone()[0] == 6
+    for charge in charges:
+        assert p.settle(charge, actual_usd="0.01") is None

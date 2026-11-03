@@ -15,6 +15,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 UNLIMITED_PROTOCOL = 1
+MAX_PARALLEL_TFT_CALLS = 6
 
 
 def require_unlimited_snapshot(state: Path):
@@ -185,7 +186,7 @@ class Permit:
                 "SELECT id,token,job_id,state FROM charges WHERE state!='SETTLED'"
             ).fetchall()
             if (
-                len(active_charges) > 2
+                len(active_charges) >= MAX_PARALLEL_TFT_CALLS
                 or len(set(active_charges)) != len(active_charges)
                 or {r["id"] for r in unresolved} != set(active_charges)
                 or any(
