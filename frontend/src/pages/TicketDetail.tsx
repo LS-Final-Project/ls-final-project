@@ -411,7 +411,7 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
       <div className="info">
         <div className="k">문의번호</div><div className="v">{code}{urgency && urgency !== 'NONE' && <span className="urg">긴급</span>}</div>
         <div className="k">접수일시</div><div className="v">{formatStamp(data.received_at)}</div>
-        <div className="k">고객</div><div className="v"><Link className="link" to="/cs/customers">{data.customer_external_id}</Link></div>
+        <div className="k">고객</div><div className="v"><Link className="link" to={`/cs/customers?customer=${encodeURIComponent(data.customer_external_id)}`}>{data.customer_external_id}</Link></div>
         <div className="k">접수 경로</div><div className="v last">{CHANNEL_LABEL[data.channel]}, {LANG_LABEL[data.body_language] ?? data.body_language}</div>
         <div className="k nb">제품</div><div className="v nb">{data.product_code}</div>
         <div className="k nb">상태</div><div className="v nb"><strong className="state">{state}</strong></div>

@@ -135,3 +135,29 @@ test('고객 이력은 라벨 표에 없는 문의 상태를 빈 칸이 아니�
   const row = (await screen.findByRole('link', { name: 'T-1' })).closest('tr')!;
   expect(row.textContent).toContain('NEW_STATE');
 });
+
+test('고객 이력은 주소의 customer로 들어오면 바로 그 고객을 조회한다', async () => {
+  const fetch = vi.fn(async (_url: RequestInfo | URL) => jsonResponse(200, { data: { customer_external_id: 'CUST-9', received: 1, unconfirmed: [], by_state: {}, by_product: { P: 1 }, tickets: [], units: [], improvement_requests: [] } }));
+  vi.stubGlobal('fetch', fetch); setApiMode('live');
+  renderAt('/cs/customers?customer=CUST-9', '/cs/customers', <CsCustomers />);
+  await screen.findByText('기간 내 접수');
+  expect(String(fetch.mock.calls.at(-1)?.[0])).toBe('/api/v1/cs/stats/customers/CUST-9');
+  expect((screen.getByLabelText('고객 ID') as HTMLInputElement).value).toBe('CUST-9');
+});
+
+test('고객 이력은 고객 ID 칸에서 Enter로 조회한다', async () => {
+  const fetch = vi.fn(async (_url: RequestInfo | URL) => jsonResponse(200, { data: { customer_external_id: 'C2', received: 0, unconfirmed: [], by_state: {}, by_product: {}, tickets: [], units: [], improvement_requests: [] } }));
+  vi.stubGlobal('fetch', fetch); customers();
+  const input = screen.getByLabelText('고객 ID');
+  fireEvent.change(input, { target: { value: 'C2' } });
+  fireEvent.submit(input.closest('form')!);
+  await screen.findByText('기간 내 접수');
+  expect(String(fetch.mock.calls.at(-1)?.[0])).toBe('/api/v1/cs/stats/customers/C2');
+});
+
+test('고객 이력 주소의 기간이 거꾸로면 조회하지 않고 오류를 보인다', async () => {
+  const fetch = vi.fn(async () => jsonResponse(200, example)); vi.stubGlobal('fetch', fetch); setApiMode('live');
+  renderAt('/cs/customers?customer=C3&start=2026-05-02&end=2026-05-01', '/cs/customers', <CsCustomers />);
+  expect((await screen.findByRole('alert')).textContent).toContain('종료일은 시작일보다 빠를 수 없습니다.');
+  expect(fetch).not.toHaveBeenCalled();
+});
