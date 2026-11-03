@@ -180,7 +180,7 @@ function Intake({ projectId, actorId, list, before, after }: { projectId: string
     // Keep the admitted job authoritative until project navigation or a new admission.
     // A stale latest_job during invalidation must not switch back to the previous job.
     setFinished(jobStatus);
-    for (const key of ['projects', 'rfp-documents', 'rfp-requirements', 'rfp-proposals', 'rfp-questions']) client.invalidateQueries({ queryKey: [key, mode] });
+    for (const key of ['projects', 'rfp-documents', 'rfp-diagrams', 'rfp-requirements', 'rfp-proposals', 'rfp-questions']) client.invalidateQueries({ queryKey: [key, mode] });
     client.invalidateQueries({ queryKey: ['rfp-supplement', mode] });
     client.invalidateQueries({ queryKey: ['rfp-integration-candidates', mode, projectId] });
     if (actorId) {

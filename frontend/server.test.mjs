@@ -894,3 +894,19 @@ test('root service worker is JavaScript with revalidation instead of a one-hour 
     assert.equal(response.headers.get('cache-control'), 'no-cache');
   } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await rm(directory, { recursive: true }); }
 });
+
+
+test('diagram images retain exact version query and binary only on image path', async () => {
+  const id = '11111111-1111-4111-8111-111111111111';
+  const path = `/api/v1/tft/documents/${id}/diagrams/OCR-DOCX-0001/image`;
+  const calls = [];
+  await fixture(async origin => {
+    const response = await fetch(origin + path + `?document_version_id=${id}`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'image/png');
+    assert.equal(await response.text(), 'original-image');
+    assert.equal((await fetch(origin + `/api/v1/tft/documents/${id}/file`)).status, 502);
+    assert.equal((await fetch(origin + path.replace('OCR-DOCX-0001', 'unknown'))).status, 502);
+  }, async url => { calls.push(String(url)); return new Response('original-image', { headers: { 'Content-Type': 'image/png' } }); }, true);
+  assert.ok(calls[0].endsWith(path + `?document_version_id=${id}`));
+});

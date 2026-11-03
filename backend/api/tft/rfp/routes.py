@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from backend.api.tft.projects.access import require_project_list
 from backend.api.tft.rfp import (
     jobs,
+    routes_diagrams,
     routes_draft,
     routes_proposals,
     routes_questions,
@@ -654,3 +655,30 @@ async def process_annotations(
         request, principal, project_id, "rfp.annotate", payload, idempotency_key
     )
     return respond(request, data)
+
+
+@router.get(
+    "/documents/{document_id}/diagrams",
+    response_model=SuccessResponse[s.DiagramList],
+    operation_id="tft_list_document_diagrams",
+)
+async def list_document_diagrams(
+    document_id: UUID, document_version_id: UUID, request: Request, principal: User
+) -> SuccessResponse[s.DiagramList]:
+    return respond(
+        request,
+        await routes_diagrams.list_diagrams(request, principal, document_id, document_version_id),
+    )
+
+
+@router.get(
+    "/documents/{document_id}/diagrams/{source_id}/image",
+    operation_id="tft_download_diagram_image",
+    response_class=Response,
+)
+async def download_diagram_image(
+    document_id: UUID, source_id: str, document_version_id: UUID, request: Request, principal: User
+) -> Response:
+    return await routes_diagrams.image(
+        request, principal, document_id, document_version_id, source_id
+    )

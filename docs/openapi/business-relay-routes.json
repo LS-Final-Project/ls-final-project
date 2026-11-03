@@ -459,6 +459,24 @@
       "query": []
     },
     {
+      "path": "/api/v1/tft/documents/{uuid}/diagrams",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "document_version_id"
+      ]
+    },
+    {
+      "path": "/api/v1/tft/documents/{uuid}/diagrams/{evidence}/image",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "document_version_id"
+      ]
+    },
+    {
       "path": "/api/v1/tft/projects/{uuid}/draft",
       "methods": [
         "GET",

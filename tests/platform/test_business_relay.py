@@ -950,3 +950,20 @@ def test_export_file_relay_allows_docx_only_on_the_exact_file_path(monkeypatch):
     assert result.headers["cache-control"] == "no-store"
     with pytest.raises(HTTPException):
         relay.forward("GET", "https://tft.example.invalid" + path.split("/exports/")[0], {}, b"")
+
+
+@pytest.mark.parametrize("mime", ["image/png", "image/jpeg", "image/webp", "application/pdf"])
+def test_diagram_binary_is_limited_to_exact_diagram_route(monkeypatch, mime):
+    from fastapi import HTTPException
+
+    from backend.api.platform import relay
+
+    path = "/api/v1/tft/documents/11111111-1111-4111-8111-111111111111/diagrams/OCR-DOCX-0001/image"
+    fake_upstream(monkeypatch, kind=mime, body=b"original", headers={})
+    assert relay.forward("GET", "https://tft.example.invalid" + path, {}, b"").body == b"original"
+    for refused in [path.replace("OCR-DOCX-0001", "unknown"), path.rsplit("/", 1)[0]]:
+        with pytest.raises(HTTPException):
+            relay.forward("GET", "https://tft.example.invalid" + refused, {}, b"")
+    if mime.startswith("image/"):
+        with pytest.raises(HTTPException):
+            relay.forward("GET", "https://tft.example.invalid" + FILE_URL, {}, b"")

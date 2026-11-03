@@ -54,6 +54,7 @@ it('confirmed GET terminal snapshot triggers existing result invalidation after 
   expect((screen.getByRole('button',{name:'문서 올리기'}) as HTMLButtonElement).disabled).toBe(true);
   await act(async()=>update({connection:'ended',job:{...job,status:'SUCCEEDED',last_event_sequence:3}}));
   await waitFor(()=>expect(invalidate).toHaveBeenCalledWith({queryKey:['rfp-requirements','live']}));
+  expect(invalidate).toHaveBeenCalledWith({queryKey:['rfp-diagrams','live']});
   expect(invalidate).toHaveBeenCalledWith({queryKey:['rfp-draft',A,P]});
   expect((screen.getByRole('button',{name:'문서 올리기'}) as HTMLButtonElement).disabled).toBe(false);
 });

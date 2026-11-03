@@ -62,6 +62,7 @@ def test_process_preflights_all_new_documents_before_any_provider_or_store(monke
     import asyncio
     from datetime import date
     from types import SimpleNamespace
+    from unittest.mock import AsyncMock
     from uuid import uuid4
 
     from backend.api.tft import worker_processor as wp
@@ -111,6 +112,7 @@ def test_process_preflights_all_new_documents_before_any_provider_or_store(monke
     monkeypatch.setattr(wp.psycopg.AsyncConnection, "connect", connect)
     monkeypatch.setattr(wp.repository, "all_document_versions", versions)
     monkeypatch.setattr(wp.repository, "document_processed", unprocessed)
+    monkeypatch.setattr(wp.diagram_repository, "read_diagrams", AsyncMock(return_value=None))
     monkeypatch.setattr(wp, "read_document", read)
     monkeypatch.setattr(wp, "extract", lambda data, **kwargs: trees[data])
     monkeypatch.setattr(wp, "build_clause_tree", lambda tree: tree)

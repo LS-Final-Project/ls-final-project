@@ -7,6 +7,7 @@ import { ErrorState, Loading } from '../components/states';
 import { latestVersions } from './IntakeForms';
 import { attributeName, label, NECESSITY_LABEL, OPERATOR_LABEL, PATH_LABEL, PROVENANCE_LABEL, STATUS_LABEL, requirementNo } from './labels';
 import { OriginalDocument } from './OriginalDocument';
+import { DiagramReview } from './DiagramReview';
 import { equipmentGroups, readDocumentRequirements } from './equipment-groups';
 import { EquipmentOverview, EquipmentResponse, ReviewPages } from './EquipmentOverview';
 import './RfpDocumentReview.css';
@@ -56,6 +57,7 @@ function DocumentAnalysis({ projectId, actorId, document }: { projectId: string;
   return <>
     {extractionInfoUnavailable && <p className="rfp-review-warning" role="status">현재 판본 추출 안내 확인 불가</p>}
     {extractionWarnings.length > 0 && <div className="rfp-review-warning" role="status"><strong>원문 추출 확인 필요</strong><ul>{extractionWarnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></div>}
+    <DiagramReview document={document} actorId={actorId} projectId={projectId} />
     <div className="rfp-group-filter"><label><input type="checkbox" checked={filter} onChange={e => { setFilter(e.target.checked); setPage(0); setPicked(undefined); setGroupKey(undefined); }} />미해결 필수만</label></div>
     {requirements.isError ? <ErrorState error={requirements.error} onRetry={() => requirements.refetch()} /> : requirements.isPending ? <Loading label="설비별 요구 전체 읽는 중" /> : <>
       {groups.length ? <EquipmentOverview groups={groups} selected={group?.key} onSelect={chooseGroup} filtered={filter} /> : <p className="rfp-review-empty">{filter ? '이 문서에 미해결 필수 요구가 없습니다.' : '이 문서의 분석 결과가 없습니다. 처리 실행 후 확인하세요.'}</p>}

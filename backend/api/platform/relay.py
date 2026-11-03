@@ -30,6 +30,10 @@ FILE_TYPES = frozenset(
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
 )
+DIAGRAM_TYPES = frozenset(("application/pdf", "image/png", "image/jpeg", "image/webp"))
+DIAGRAM_PATH = re.compile(
+    rf"/api/v1/tft/documents/{UUID_PATH}/diagrams/OCR-(?:DOCX-\d{{4,}}|PDF-P\d{{4,}})/image"
+)
 UPLOAD_PATH = re.compile(rf"/api/v1/tft/projects/{UUID_PATH}/documents")
 DOWNLOAD_PATH = re.compile(
     rf"(?:/api/v1/tft/documents/{UUID_PATH}/file|/api/v1/tft/projects/{UUID_PATH}/draft/exports/{UUID_PATH}/file)"
@@ -131,6 +135,8 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ("/api/v1/tft/projects/{uuid}/documents", ("GET", "POST"), ()),
     ("/api/v1/tft/documents/{uuid}", ("GET",), ()),
     ("/api/v1/tft/documents/{uuid}/file", ("GET",), ()),
+    ("/api/v1/tft/documents/{uuid}/diagrams", ("GET",), ("document_version_id",)),
+    ("/api/v1/tft/documents/{uuid}/diagrams/{evidence}/image", ("GET",), ("document_version_id",)),
     ("/api/v1/tft/projects/{uuid}/draft", ("GET", "PATCH"), ("version",)),
     ("/api/v1/tft/projects/{uuid}/draft/rewrite", ("POST",), ()),
     ("/api/v1/tft/projects/{uuid}/draft/rewrites/{uuid}", ("GET",), ()),
@@ -266,8 +272,16 @@ def forward(method: str, url: str, headers: dict[str, str], body: bytes) -> Resp
             is_file = (
                 method == "GET"
                 and upstream.status_code == 200
-                and content_type in FILE_TYPES
-                and DOWNLOAD_PATH.fullmatch(urlsplit(url).path) is not None
+                and (
+                    (
+                        content_type in FILE_TYPES
+                        and DOWNLOAD_PATH.fullmatch(urlsplit(url).path) is not None
+                    )
+                    or (
+                        content_type in DIAGRAM_TYPES
+                        and DIAGRAM_PATH.fullmatch(urlsplit(url).path) is not None
+                    )
+                )
             )
             if 300 <= upstream.status_code < 400 or (
                 upstream.status_code != 204 and content_type != "application/json" and not is_file

@@ -147,6 +147,42 @@
         "title": "AttributeMatch",
         "type": "object"
       },
+      "BBox": {
+        "properties": {
+          "x_max": {
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "X Max",
+            "type": "number"
+          },
+          "x_min": {
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "X Min",
+            "type": "number"
+          },
+          "y_max": {
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Y Max",
+            "type": "number"
+          },
+          "y_min": {
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Y Min",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x_min",
+          "y_min",
+          "x_max",
+          "y_max"
+        ],
+        "title": "BBox",
+        "type": "object"
+      },
       "CandidateGrade": {
         "additionalProperties": false,
         "properties": {
@@ -732,6 +768,388 @@
           "clause_id"
         ],
         "title": "DesignatedItem",
+        "type": "object"
+      },
+      "DiagramEdge": {
+        "properties": {
+          "connection": {
+            "enum": [
+              "CONTINUOUS_LINE",
+              "JUNCTION_DOT",
+              "UNRESOLVED",
+              "CROSS_PAGE"
+            ],
+            "title": "Connection",
+            "type": "string"
+          },
+          "evidence": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Evidence",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+            "title": "Id",
+            "type": "string"
+          },
+          "off_page_reference": {
+            "anyOf": [
+              {
+                "maxLength": 320,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Off Page Reference"
+          },
+          "path": {
+            "items": {
+              "$ref": "#/components/schemas/Point"
+            },
+            "maxItems": 32,
+            "title": "Path",
+            "type": "array"
+          },
+          "source": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Source",
+            "type": "string"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "uncertainties": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16,
+            "title": "Uncertainties",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "source",
+          "connection",
+          "evidence"
+        ],
+        "title": "DiagramEdge",
+        "type": "object"
+      },
+      "DiagramGraph": {
+        "properties": {
+          "diagram_type": {
+            "enum": [
+              "SINGLE_LINE",
+              "OTHER",
+              "UNKNOWN"
+            ],
+            "title": "Diagram Type",
+            "type": "string"
+          },
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/DiagramEdge"
+            },
+            "maxItems": 160,
+            "title": "Edges",
+            "type": "array"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/DiagramNode"
+            },
+            "maxItems": 80,
+            "title": "Nodes",
+            "type": "array"
+          },
+          "review_required": {
+            "const": true,
+            "default": true,
+            "title": "Review Required",
+            "type": "boolean"
+          },
+          "title": {
+            "default": "",
+            "maxLength": 320,
+            "title": "Title",
+            "type": "string"
+          },
+          "uncertainties": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 64,
+            "title": "Uncertainties",
+            "type": "array"
+          }
+        },
+        "required": [
+          "diagram_type"
+        ],
+        "title": "DiagramGraph",
+        "type": "object"
+      },
+      "DiagramItem": {
+        "additionalProperties": false,
+        "properties": {
+          "graph": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DiagramGraph"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "location": {
+            "title": "Location",
+            "type": "string"
+          },
+          "mime": {
+            "enum": [
+              "application/pdf",
+              "image/png",
+              "image/jpeg",
+              "image/webp"
+            ],
+            "title": "Mime",
+            "type": "string"
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page"
+          },
+          "requirement_links": {
+            "items": {
+              "$ref": "#/components/schemas/DiagramRequirementLink"
+            },
+            "title": "Requirement Links",
+            "type": "array"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "location",
+          "page",
+          "mime",
+          "sha256",
+          "size",
+          "graph",
+          "requirement_links"
+        ],
+        "title": "DiagramItem",
+        "type": "object"
+      },
+      "DiagramList": {
+        "additionalProperties": false,
+        "properties": {
+          "document_id": {
+            "format": "uuid",
+            "title": "Document Id",
+            "type": "string"
+          },
+          "document_version_id": {
+            "format": "uuid",
+            "title": "Document Version Id",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DiagramItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "processing_status": {
+            "enum": [
+              "NOT_ANALYZED",
+              "ANALYZED",
+              "PARTIAL"
+            ],
+            "title": "Processing Status",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "document_id",
+          "document_version_id",
+          "processing_status",
+          "warnings",
+          "items"
+        ],
+        "title": "DiagramList",
+        "type": "object"
+      },
+      "DiagramNode": {
+        "properties": {
+          "bbox": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BBox"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evidence": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Evidence",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "TRANSFORMER",
+              "BREAKER",
+              "BUS",
+              "DISCONNECTOR",
+              "FUSE",
+              "LOAD",
+              "GENERATOR",
+              "GROUND",
+              "METER",
+              "TERMINAL",
+              "OTHER",
+              "UNKNOWN"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 320,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "ratings": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16,
+            "title": "Ratings",
+            "type": "array"
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag"
+          },
+          "uncertainties": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16,
+            "title": "Uncertainties",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "kind",
+          "evidence"
+        ],
+        "title": "DiagramNode",
+        "type": "object"
+      },
+      "DiagramRequirementLink": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "equipment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Equipment"
+          },
+          "node_id": {
+            "title": "Node Id",
+            "type": "string"
+          },
+          "requirement_id": {
+            "format": "uuid",
+            "title": "Requirement Id",
+            "type": "string"
+          },
+          "requirement_version": {
+            "minimum": 1.0,
+            "title": "Requirement Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "node_id",
+          "requirement_id",
+          "requirement_version",
+          "code"
+        ],
+        "title": "DiagramRequirementLink",
         "type": "object"
       },
       "DocumentDetail": {
@@ -2087,6 +2505,28 @@
           "pdf_annot"
         ],
         "title": "PendingByOrigin",
+        "type": "object"
+      },
+      "Point": {
+        "properties": {
+          "x": {
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y"
+        ],
+        "title": "Point",
         "type": "object"
       },
       "ProcessRequest": {
@@ -5382,6 +5822,22 @@
         "title": "SuccessResponse[Comparison]",
         "type": "object"
       },
+      "SuccessResponse_DiagramList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/DiagramList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[DiagramList]",
+        "type": "object"
+      },
       "SuccessResponse_DocumentDetail_": {
         "properties": {
           "data": {
@@ -6399,6 +6855,214 @@
           }
         },
         "summary": "List Clauses",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
+    "/api/v1/tft/documents/{document_id}/diagrams": {
+      "get": {
+        "operationId": "tft_list_document_diagrams",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "document_version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_DiagramList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "List Document Diagrams",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
+    "/api/v1/tft/documents/{document_id}/diagrams/{source_id}/image": {
+      "get": {
+        "operationId": "tft_download_diagram_image",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "title": "Source Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "document_version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Download Diagram Image",
         "tags": [
           "rfp"
         ]

@@ -151,6 +151,7 @@ def test_processed_document_rerun_regrades_actual_saved_version_with_zero_models
         ),
     )
     monkeypatch.setattr(repository, "document_processed", AsyncMock(return_value=True))
+    monkeypatch.setattr(worker.diagram_repository, "read_diagrams", AsyncMock(return_value=None))
     monkeypatch.setattr(repository, "stored_grading_requirements", AsyncMock(return_value=[row]))
     monkeypatch.setattr(
         repository,

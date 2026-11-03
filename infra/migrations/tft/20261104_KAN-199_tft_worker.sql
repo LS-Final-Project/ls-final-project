@@ -59,6 +59,9 @@ BEGIN
         EXECUTE 'GRANT SELECT ON tft.draft_rewrites TO tft_worker';
         EXECUTE 'GRANT UPDATE(state,result_version) ON tft.draft_rewrites TO tft_worker';
     END IF;
+    IF to_regclass('tft.document_diagrams') IS NOT NULL THEN
+        EXECUTE 'GRANT SELECT,INSERT ON tft.document_diagrams TO tft_worker';
+    END IF;
     IF to_regclass('tft.draft_rewrite_calls') IS NOT NULL THEN
         EXECUTE 'GRANT SELECT,INSERT ON tft.draft_rewrite_calls TO tft_worker';
     END IF;

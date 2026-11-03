@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 from backend.api.tft.partners.grading import Grade
 from backend.api.tft.partners.schemas import Attribute, LeadTime, Scope
 from backend.api.tft.rfp.integration import FallbackPath
+from backend.engine.documents.diagrams import DiagramGraph
 
 # --- 공통 축 -----------------------------------------------------------------------------
 
@@ -875,3 +876,31 @@ class ExportRequest(Model):
 class AnnotationProcess(Model):
     document_version_id: UUID
     base_document_version_id: UUID
+
+
+# Diagram candidates are source observations, never confirmed electrical topology.
+class DiagramRequirementLink(Model):
+    node_id: str
+    requirement_id: UUID
+    requirement_version: int = Field(ge=1)
+    code: str
+    equipment: str | None = None
+
+
+class DiagramItem(Model):
+    source_id: str
+    location: str
+    page: int | None
+    mime: Literal["application/pdf", "image/png", "image/jpeg", "image/webp"]
+    sha256: str
+    size: int
+    graph: DiagramGraph | None
+    requirement_links: list[DiagramRequirementLink]
+
+
+class DiagramList(Model):
+    document_id: UUID
+    document_version_id: UUID
+    processing_status: Literal["NOT_ANALYZED", "ANALYZED", "PARTIAL"]
+    warnings: list[str]
+    items: list[DiagramItem]

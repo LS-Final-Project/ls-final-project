@@ -177,3 +177,10 @@ export const updateIntegration = (projectId: string, version: number, integratio
 export const listProjectCandidates = (projectId: string, signal?: AbortSignal) => request<Envelope<Schemas['PartnerCandidateList']>>(
   `/api/v1/tft/projects/${encodeURIComponent(projectId)}/partner-candidates`, { signal, mockFallback: mock({ items: [] }) },
 );
+
+export type DiagramList = Schemas['DiagramList'];
+export type DiagramItem = Schemas['DiagramItem'];
+export const listDocumentDiagrams = (documentId: string, versionId: string, signal?: AbortSignal) => request<Envelope<DiagramList>>(
+  `/api/v1/tft/documents/${encodeURIComponent(documentId)}/diagrams?${new URLSearchParams({ document_version_id: versionId })}`,
+  { signal, mockFallback: mock({ document_id: documentId, document_version_id: versionId, processing_status: 'NOT_ANALYZED', items: [], warnings: [] }) },
+);

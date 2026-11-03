@@ -958,3 +958,86 @@ def test_rewrite_worker_uses_fake_provider_and_human_save_wins(
     calls = len(called)
     processor(job, lambda _: None)
     assert len(called) == calls
+
+
+def test_graph_only_drawing_manifest_commits_and_replay_skips_models(worker_dsn, admin, tmp_path):
+    """A graph with no OCR lines is reviewable without manufacturing text requirements."""
+    from backend.engine.documents.model import DOCX_MIME
+    from tests.tft.test_rfp_diagrams import diagram
+    from tests.tft.test_rfp_image_transcription import IMAGE, PNG, docx
+
+    original = docx(IMAGE)
+    project = make_project(admin, tmp_path, original)
+    with psycopg.connect(admin) as conn:
+        conn.execute("UPDATE tft.documents SET kind='DRAWING' WHERE id=%s", (project["document"],))
+        conn.execute(
+            "UPDATE tft.document_versions SET mime=%s WHERE id=%s", (DOCX_MIME, project["docver"])
+        )
+    calls = []
+
+    def vision(image):
+        calls.append(image)
+        return Generation(
+            json.dumps(
+                {"lines": [], "uncertain": [], "contains_diagram": True, "diagram": diagram()}
+            ),
+            Usage(),
+            "fake",
+            ["STOP"],
+        )
+
+    settings = Settings(_env_file=None, environment="test", database_url=SecretStr(worker_dsn))
+    files = LocalDocumentStore(project["root"])
+    processor = make_processor(
+        settings,
+        provider=lambda _: pytest.fail("graph topology sent to text model"),
+        image_provider=vision,
+        store=files,
+    )
+    job = TftJob(
+        uuid4(), "rfp.process", project["project"], input_version([project["docver"]]), SALES
+    )
+    result = processor(job, lambda _: None)
+    assert result["counts"]["requirements"] == 0 and result["needs_review"]
+    with psycopg.connect(admin, row_factory=dict_row) as conn:
+        manifest = conn.execute(
+            "SELECT source_sha256,payload FROM tft.document_diagrams WHERE document_version_id=%s",
+            (project["docver"],),
+        ).fetchone()
+    assert manifest["source_sha256"] == hashlib.sha256(original).hexdigest()
+    assert manifest["payload"]["items"][0]["graph"]["review_required"] is True
+    asset = manifest["payload"]["items"][0]
+    assert asyncio.run(files.get(asset["storage_key"])) == PNG
+    assert (project["root"] / f"rfp/{project['docver']}.md").read_bytes() == original
+    replay = TftJob(uuid4(), "rfp.process", project["project"], job.input_version, SALES)
+    replay_result = processor(replay, lambda _: None)
+    assert replay_result["needs_review"] is True
+    assert len(calls) == 1
+    assert stored(admin, project)["requirements"] == 0
+
+
+def test_empty_image_manifest_rolls_back_with_late_worker_failure(worker_dsn, project, admin):
+    """A manifest never marks a document processed when the final business transaction fails."""
+    settings = Settings(_env_file=None, environment="test", database_url=SecretStr(worker_dsn))
+    processor = make_processor(
+        settings, provider=FakeExtractor(), store=LocalDocumentStore(project["root"])
+    )
+    job = TftJob(
+        uuid4(), "rfp.process", project["project"], input_version([project["docver"]]), SALES
+    )
+
+    def emit(event):
+        if event["step"] == "supplement":
+            raise RuntimeError("SYNTHETIC_LEASE_LOST")
+
+    with pytest.raises(RuntimeError, match="SYNTHETIC_LEASE_LOST"):
+        processor(job, emit)
+    with psycopg.connect(admin) as conn:
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM tft.document_diagrams WHERE document_version_id=%s",
+                (project["docver"],),
+            ).fetchone()[0]
+            == 0
+        )
+    assert stored(admin, project)["clauses"] == 0

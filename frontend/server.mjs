@@ -80,6 +80,8 @@ export const businessRoutes = [
   ['/api/v1/tft/projects/{uuid}/documents', ['GET', 'POST'], []],
   ['/api/v1/tft/documents/{uuid}', ['GET'], []],
   ['/api/v1/tft/documents/{uuid}/file', ['GET'], []],
+  ['/api/v1/tft/documents/{uuid}/diagrams', ['GET'], ['document_version_id']],
+  ['/api/v1/tft/documents/{uuid}/diagrams/{evidence}/image', ['GET'], ['document_version_id']],
   ['/api/v1/tft/projects/{uuid}/draft', ['GET', 'PATCH'], ['version']],
   ['/api/v1/tft/projects/{uuid}/draft/rewrite', ['POST'], []],
   ['/api/v1/tft/projects/{uuid}/draft/rewrites/{uuid}', ['GET'], []],
@@ -128,6 +130,8 @@ const fileLimit = 26 * 1024 * 1024;
 const fileTypes = new Set(['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']);
 const uploadPath = new RegExp(`^/api/v1/tft/projects/${placeholders['{uuid}']}/documents$`);
 const downloadPath = new RegExp(`^(?:/api/v1/tft/documents/${placeholders['{uuid}']}/file|/api/v1/tft/projects/${placeholders['{uuid}']}/draft/exports/${placeholders['{uuid}']}/file)$`);
+const diagramTypes = new Set(['application/pdf', 'image/png', 'image/jpeg', 'image/webp']);
+const diagramPath = new RegExp(`^/api/v1/tft/documents/${placeholders['{uuid}']}/diagrams/OCR-(?:DOCX-\\d{4,}|PDF-P\\d{4,})/image$`);
 const compiledRoutes = businessRoutes.map(([template, methods, query]) => [new RegExp(`^${template.split(/(\{uuid\}|\{customer\}|\{evidence\}|\{dept\})/).map(part => placeholders[part] ?? part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('')}$`), methods, query]);
 
 /**
@@ -261,7 +265,7 @@ export function handler({ directory, upstream, tokenProvider, fetcher = fetch, b
         }
         const result = await fetcher(new URL(path + (business.length || assignees ? parsed.search : ''), target), { method: request.method, headers, body: form, signal: AbortSignal.timeout((authMethod || business.length) ? 45000 : 15000), redirect: authMethod ? 'manual' : 'error' });
         const resultType = (result.headers.get('content-type') || '').split(';', 1)[0].trim().toLowerCase();
-        const isFile = business.length > 0 && request.method === 'GET' && result.status === 200 && downloadPath.test(path) && fileTypes.has(resultType);
+        const isFile = business.length > 0 && request.method === 'GET' && result.status === 200 && (downloadPath.test(path) && fileTypes.has(resultType) || diagramPath.test(path) && diagramTypes.has(resultType));
         if (business.length && (result.status >= 300 && result.status < 400 || (result.status !== 204 && resultType !== 'application/json' && !isFile))) {
           await result.body?.cancel();
           throw new Error('Invalid business response');

@@ -36,6 +36,8 @@ from backend.api.tft.partners.loader import PROFILE_FAMILIES, load_document_pool
 from backend.api.tft.partners.schemas import Condition, PartnerProfile
 from backend.api.tft.rfp import (
     comparison,
+    diagram_artifacts,
+    diagram_repository,
     draft_exports,
     draft_repository,
     draft_rewrite,
@@ -71,8 +73,8 @@ from backend.shared.settings import Settings
 
 Provider = Callable[[str], Generation]
 ZERO = {"requirements": 0, "proposals": 0}
-# 요구를 뽑는 문서 종류. 도면·자료표·메모 PDF는 처리 단계에서 읽지 않는다.
-SPEC_KINDS = ("RFP_SPEC", "ADDENDUM")
+# 도면은 별도 연결 후보와 명시된 OCR 문자만 보존한다. 자료표·메모 PDF는 포함하지 않는다.
+SPEC_KINDS = ("RFP_SPEC", "ADDENDUM", "DRAWING")
 # 접수 입력 판본(input_version)을 찾을 때 조합을 다 볼 문서 판본 수 상한.
 MAX_VERSIONS = 12
 
@@ -933,8 +935,19 @@ def apply_image_plan(
     emit: Emit,
     document_version_id: str,
 ) -> tuple[ClauseTree, bool]:
+    result = transcribe_image_plan(plan, image_provider, emit, document_version_id)
+    return vision.append_ocr_clauses(tree, result), bool(result.items or result.skipped)
+
+
+def transcribe_image_plan(
+    plan: vision.VisionPlan,
+    image_provider: Callable[[vision.ImageInput], Generation] | None,
+    emit: Emit,
+    document_version_id: str,
+) -> vision.VisionResult:
+    """Retain the observations for source preservation without changing the legacy parse tuple."""
     if not plan.inputs and not plan.skipped:
-        return tree, False
+        return vision.VisionResult()
     if image_provider is None:
         result = vision.VisionResult(
             skipped=[
@@ -956,7 +969,29 @@ def apply_image_plan(
                 emit({"step": "parse", "document_version_id": document_version_id})
 
         result = vision.transcribe(plan, tracked)
-    return vision.append_ocr_clauses(tree, result), bool(result.items or result.skipped)
+    return result
+
+
+def drawing_inputs(
+    kind: str, tree: ClauseTree, observations: vision.VisionResult
+) -> tuple[list[ExtractionInput], bool]:
+    """Only a validated graph-only DRAWING may have zero textual requirement inputs.
+
+    Existing malformed/native sections and all specification documents still use the
+    normal extraction-input gate; topology is never turned into text requirements.
+    """
+    if (
+        kind == "DRAWING"
+        and not sections_of(tree)
+        and any(
+            row.diagram is not None
+            and row.diagram.diagram_type == "SINGLE_LINE"
+            and bool(row.diagram.nodes)
+            for row in observations.items
+        )
+    ):
+        return [], True
+    return document_inputs(tree)
 
 
 async def process(
@@ -1000,8 +1035,18 @@ async def process(
         # 쓴다. 그래서 조항이 있으면 그 판본은 끝까지 처리된 것이다(요구 0건 문서 포함).
         parsed: list[tuple[Mapping[str, Any], ClauseTree, dict[str, Any]]] = []
         planned: list[tuple[Mapping[str, Any], ClauseTree, vision.VisionPlan]] = []
+        image_manifests: dict[UUID, dict[str, Any]] = {}
         for document in documents:
-            if not await repository.document_processed(conn, document["id"]):
+            processed = await repository.document_processed(conn, document["id"])
+            previous = await diagram_repository.read_diagrams(conn, document["id"])
+            if previous is not None:
+                if previous["source_sha256"] != document["sha256"]:
+                    raise ValueError("TFT_DIAGRAM_SOURCE_MISMATCH")
+                needs_review |= bool(
+                    previous["payload"]["items"] or previous["payload"]["warnings"]
+                )
+                processed = True
+            if not processed:
                 if store is None:
                     raise ValueError("TFT_DOCUMENT_ROOT_MISSING")
                 data = await read_document(
@@ -1022,14 +1067,20 @@ async def process(
 
         prepared = []
         for document, tree, plan in planned:
-            tree, image_review = await asyncio.to_thread(
-                apply_image_plan, tree, plan, image_provider, emit, str(document["id"])
+            observations = await asyncio.to_thread(
+                transcribe_image_plan, plan, image_provider, emit, str(document["id"])
             )
-            needs_review |= image_review
+            tree = vision.append_ocr_clauses(tree, observations)
+            needs_review |= bool(observations.items or observations.skipped)
             clauses: dict[str, Any] = {}
             parsed.append((document, tree, clauses))
-            inputs, skipped = document_inputs(tree)
+            inputs, skipped = drawing_inputs(document["kind"], tree, observations)
             needs_review |= skipped
+            if store is None:  # Already checked before reading each planned document.
+                raise ValueError("TFT_DOCUMENT_ROOT_MISSING")
+            image_manifests[document["id"]] = await diagram_artifacts.preserve_images(
+                store, document["id"], plan, observations
+            )
             prepared.append((document, clauses, inputs))
 
         # extract: 절마다 모델을 부른다. 일부 긴 절·실패한 절은 검토가 필요하다고 표시한다.
@@ -1091,6 +1142,9 @@ async def process(
                 await conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
                 for document, tree, clauses in parsed:
                     clauses.update(await repository.store_clauses(conn, document, tree.clauses))
+                    await diagram_repository.store_diagrams(
+                        conn, document["id"], document["sha256"], image_manifests[document["id"]]
+                    )
                 ids = await store_requirements(conn, job.project_id, extracted, outcomes)
                 await store_question_drafts(conn, job, parsed, extracted, ids)
                 emit({"step": "compare", "counts": counts(total)})
