@@ -1,5 +1,8 @@
 """Local-only synchronous summary bridge; model keys never enter an API container.
 
+The same bridge also serves the improvement-request AI draft (KAN-115) on its own path with its
+own prompt check and output schema; both share the driver's lock, limits and usage accounting.
+
 Only the explicit CS driver serves this authenticated Docker-internal endpoint. Calls
 share its worker lock, job/call limits, reservations and fail-closed usage accounting.
 No prompt or response is persisted here; the regular summary route owns that record.
@@ -19,6 +22,9 @@ import httpx
 from pydantic import SecretStr
 
 from backend.engine.cs.classification import ClassificationInput
+from backend.engine.cs.improvement_drafting import ImprovementDraft, ImprovementDraftInput
+from backend.engine.cs.improvement_drafting import instruction as draft_instruction
+from backend.engine.cs.improvement_drafting import render_prompt as render_draft_prompt
 from backend.engine.cs.providers import GenerationKnobs, gemini_text_provider
 from backend.engine.cs.summary import INSTRUCTION, SummaryOutput, render_prompt
 from backend.shared import ai
@@ -44,8 +50,11 @@ def unavailable():
     )
 
 
-def bridge_provider(state: Path):
-    """Read the current driver capability per call; cached summaries need no driver."""
+def bridge_provider(state: Path, endpoint: str = "/summary"):
+    """Read the current driver capability per call; cached summaries need no driver.
+
+    endpoint is "/summary" or "/improvement-draft" (KAN-115).
+    """
 
     def provide(prompt):
         try:
@@ -63,7 +72,7 @@ def bridge_provider(state: Path):
                 raise ValueError
             with httpx.Client(trust_env=False, timeout=120) as client:
                 response = client.post(
-                    f"http://{host}:{PORT}/summary",
+                    f"http://{host}:{PORT}{endpoint}",
                     headers={"Authorization": "Bearer " + bridge["capability"]},
                     json={"prompt": prompt},
                 )
@@ -83,8 +92,10 @@ def bridge_provider(state: Path):
     return provide
 
 
-def metered_provider(permit, token, control, model):
-    """Only invoked in the key-bearing driver, once per authorized summary."""
+def metered_provider(
+    permit, token, control, model, *, response_schema=SummaryOutput, max_output_tokens=4096
+):
+    """Only invoked in the key-bearing driver, once per authorized summary or draft."""
     from backend.shared.settings import Settings
     from scripts.local_business.runtime import local_only
 
@@ -109,9 +120,36 @@ def metered_provider(permit, token, control, model):
         Client(ai.create_client(settings), meter),
         settings,
         model=model,
-        response_schema=SummaryOutput,
-        generation=GenerationKnobs(max_output_tokens=4096),
+        response_schema=response_schema,
+        generation=GenerationKnobs(max_output_tokens=max_output_tokens),
     )
+
+
+def metered_draft_provider(permit, token, control, model):
+    """The improvement-request AI draft (KAN-115): its schema and a larger output limit."""
+    return metered_provider(
+        permit, token, control, model, response_schema=ImprovementDraft, max_output_tokens=8192
+    )
+
+
+def checked_prompt(path, prompt):
+    """Accept only the exact prompt the C/S route renders for that path; else ValueError."""
+    if path == "/summary":
+        prefix = INSTRUCTION + "\n\n입력:\n"
+        if not prompt.startswith(prefix):
+            raise ValueError
+        payload = ClassificationInput.model_validate_json(prompt[len(prefix) :])
+        rendered = render_prompt(payload)
+    elif path == "/improvement-draft":
+        prefix = draft_instruction() + "\n\n입력:\n"
+        if not prompt.startswith(prefix):
+            raise ValueError
+        draft = ImprovementDraftInput.model_validate_json(prompt[len(prefix) :])
+        rendered = render_draft_prompt(draft)
+    else:
+        raise ValueError
+    if rendered != prompt:
+        raise ValueError
 
 
 class SummaryBridge:
@@ -125,6 +163,7 @@ class SummaryBridge:
         *,
         address=("0.0.0.0", PORT),
         factory=metered_provider,
+        draft_factory=metered_draft_provider,
     ):
         from scripts.local_business.runtime import local_only
 
@@ -147,18 +186,13 @@ class SummaryBridge:
                     return
                 try:
                     length = int(self.headers.get("Content-Length", "0"))
-                    if self.path != "/summary" or not 0 < length <= MAX_REQUEST:
+                    if not 0 < length <= MAX_REQUEST:
                         raise ValueError
                     body = json.loads(self.rfile.read(length))
                     if set(body) != {"prompt"}:
                         raise ValueError
                     prompt = body["prompt"]
-                    prefix = INSTRUCTION + "\n\n입력:\n"
-                    if not prompt.startswith(prefix):
-                        raise ValueError
-                    payload = ClassificationInput.model_validate_json(prompt[len(prefix) :])
-                    if render_prompt(payload) != prompt:
-                        raise ValueError
+                    checked_prompt(self.path, prompt)
                 except (ValueError, TypeError, AttributeError, OSError):
                     self.send_error(400)
                     return
@@ -166,7 +200,8 @@ class SummaryBridge:
                     self.send_error(503)
                     return
                 try:
-                    result = factory(permit, token, control, model)(prompt)
+                    make = factory if self.path == "/summary" else draft_factory
+                    result = make(permit, token, control, model)(prompt)
                     usage = asdict(result.usage)
                     usage.pop("billable_input_tokens", None)
                     usage.pop("raw", None)

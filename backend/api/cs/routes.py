@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from backend.api.cs.analysis.routes import router as analysis
 from backend.api.cs.comparisons.routes import router as comparisons
 from backend.api.cs.faults.routes import router as faults
+from backend.api.cs.improvements.ai_draft import router as improvement_ai_draft
 from backend.api.cs.improvements.candidates import router as improvement_candidates
 from backend.api.cs.improvements.followup_routes import router as improvement_followups
 from backend.api.cs.improvements.routes import router as improvements
@@ -31,6 +32,7 @@ router.include_router(improvements)
 router.include_router(improvement_transitions)
 router.include_router(improvement_followups)
 router.include_router(improvement_candidates)
+router.include_router(improvement_ai_draft)
 router.include_router(comparisons)
 router.include_router(faults)
 router.include_router(stats)

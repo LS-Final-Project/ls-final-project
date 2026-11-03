@@ -508,3 +508,93 @@ def test_non_limit_admission_denial_keeps_summary_fail_closed(ledger, tmp_path, 
             )
     finally:
         bridge.close()
+
+
+def draft_prompt():
+    """KAN-115 개선요청 초안 경로가 받는 정확한 프롬프트(C/S 경로가 만드는 것과 같다)."""
+    from datetime import UTC, datetime
+
+    from backend.engine.cs.improvement_drafting import (
+        ConditionSummary,
+        EvidenceTicket,
+        ImprovementDraftContext,
+        build_improvement_draft_input,
+    )
+    from backend.engine.cs.improvement_drafting import render_prompt as render_draft
+
+    at = datetime(2026, 10, 1, tzinfo=UTC)
+    context = ImprovementDraftContext(
+        request_type="DOCUMENT",
+        product_code="TRF-OIL-1000",
+        fault_id=None,
+        doc_signal="NOT_FOUND",
+        tickets=[
+            EvidenceTicket(
+                ticket_ref="T-1",
+                received_at=at,
+                product_code="TRF-OIL-1000",
+                fw_version_reported=None,
+                error_code_reported=None,
+                summary="Tap range is missing from the catalogue.",
+            )
+        ],
+        cases=[],
+        condition=ConditionSummary(condition_status="UNKNOWN", summary=None),
+        candidate_depts=["TS_TRF"],
+        as_of=at,
+    )
+    return render_draft(build_improvement_draft_input(context, sensitive_values={}).payload)
+
+
+def test_the_improvement_draft_path_takes_only_its_own_prompt_and_factory(ledger, tmp_path, prompt):
+    """KAN-115: 같은 중계가 /improvement-draft에서 초안 프롬프트만 받고 초안 공급자로 부른다(같은 원장)."""
+    permit, token = ledger
+    used = []
+
+    def draft_factory(*args):
+        used.append("draft")
+        return fake_factory(*args)
+
+    bridge = summary.SummaryBridge(
+        permit,
+        token,
+        tmp_path,
+        "fake-model",
+        threading.Lock(),
+        address=("127.0.0.1", 0),
+        factory=fake_factory,
+        draft_factory=draft_factory,
+    )
+    url = f"http://127.0.0.1:{bridge.server.server_port}"
+    headers = {"Authorization": "Bearer " + bridge.capability}
+    try:
+        # 요약 프롬프트는 초안 경로에서, 초안 프롬프트는 요약 경로에서 받지 않는다. 모르는 경로도 400.
+        for path, body in (("/improvement-draft", prompt), ("/summary", draft_prompt())):
+            response = httpx.post(
+                url + path, headers=headers, json={"prompt": body}, trust_env=False
+            )
+            assert response.status_code == 400
+        other = httpx.post(
+            url + "/other", headers=headers, json={"prompt": prompt}, trust_env=False
+        )
+        assert other.status_code == 400
+        assert used == []
+        made = httpx.post(
+            url + "/improvement-draft",
+            headers=headers,
+            json={"prompt": draft_prompt()},
+            trust_env=False,
+        )
+        assert made.status_code == 200 and used == ["draft"]
+        with permit.transaction() as db:
+            assert db.execute("SELECT count(*) FROM charges").fetchone()[0] == 1
+    finally:
+        bridge.close()
+
+
+def test_the_draft_bridge_provider_is_unavailable_without_a_driver(tmp_path):
+    """초안 공급자도 요약과 같이 CS 실행기가 없으면 모델을 부르지 않고 503(LOCAL_SUMMARY_UNAVAILABLE)이다."""
+    provider = summary.bridge_provider(tmp_path, "/improvement-draft")
+    with pytest.raises(ApplicationError) as error:
+        provider("prompt")
+    assert error.value.code == "LOCAL_SUMMARY_UNAVAILABLE"
