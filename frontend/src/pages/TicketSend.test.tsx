@@ -237,3 +237,19 @@ test('막는 정보가 빠졌을 때만 추가 정보 요청을 제안하고, �
   expect(await suggested()).toContain('추가 정보 요청');
   expect(screen.getByText(/처리에 꼭 필요한 정보 1개\(.+\)가 빠져 있어 추가 정보 요청을 제안합니다/)).toBeTruthy();
 });
+
+// KAN-162 QA: 한국어 요약은 줄마다 번호를 붙인 항목으로 보인다. 줄이 없던 이전 요약은 문장 끝에서 나눈다.
+test.each([
+  ['TRF-OIL-1000 개스킷 누유가 반복됨\n1. 보증 처리 가능 여부를 문의함', ['TRF-OIL-1000 개스킷 누유가 반복됨', '보증 처리 가능 여부를 문의함']],
+  ['개스킷 누유가 있다고 함. 보증 여부를 묻는다.', ['개스킷 누유가 있다고 함.', '보증 여부를 묻는다.']],
+])('한국어 요약을 항목으로 나눠 번호를 붙인다 (%s)', async (summary, items) => {
+  server('IN_REVIEW', 1);
+  const inner = (globalThis.fetch as unknown as (url: RequestInfo | URL, init?: RequestInit) => Promise<Response>);
+  vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => String(url).endsWith('/summary')
+    ? jsonResponse(200, { data: { ticket_id: 'x', provenance: 'ai_draft', latest_attempt: null, summary: { id: 's', summary_ko: summary, created_at: '2026-11-03T00:00:00Z', requested_model: 'm', model_version: null, prompt_version: 'v2', input_version: 'v', stale: false } } })
+    : inner(url, init)));
+  view();
+  const first = await screen.findByText(items[0]);
+  const box = first.closest('.sum')!;
+  expect([...box.querySelectorAll('p')].map(p => [p.querySelector('.n')?.textContent, p.textContent?.replace(p.querySelector('.n')?.textContent ?? '', '')])).toEqual(items.map((text, index) => [String(index + 1), text]));
+});
