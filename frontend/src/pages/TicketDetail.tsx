@@ -303,7 +303,8 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
 
   // 단계
   // 등록된 장비가 없는 고객은 장비 확인 단계가 해당 없다.
-  const unitsNone = units.isSuccess && unitRows.length === 0;
+  // 장비가 없는 고객이거나 장비 조회가 실패하면 이 단계에서 멈추지 않고 다음 할 일을 안내한다(장비 상자에서 다시 조회).
+  const unitsNone = (units.isSuccess && unitRows.length === 0) || units.isError;
   const sent = (wf?.customer_sends ?? []).some(item => item.send_status === 'ACCEPTED');
   const done = [
     knownState && st !== 'RECEIVED',
@@ -478,7 +479,7 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
             <div className="unit" id="td-unit">
               <div className="uh">설치 장비 <span className="ai">후보 {unitRows.filter(row => row.matches_ticket).length}</span><span className="r">{confirmedUnit ? `확정: ${confirmedUnit.unit.serial_no}` : `고객 보유 장비 ${unitRows.length}대 중`}</span></div>
               {units.isPending && <div className="meta">불러오는 중</div>}
-              {units.isError && <div className="meta">장비 정보를 불러오지 못했습니다</div>}
+              {units.isError && <div className="meta" role="alert">장비 정보를 불러오지 못했습니다 <button className="kb3 sm" onClick={() => void units.refetch()}>다시 조회</button></div>}
               {units.isSuccess && unitRows.length === 0 && <div className="meta">조회 가능한 장비가 없습니다</div>}
               <div className="cand-list">{unitRows.map(row => <label key={row.unit.id} className={row.unit.id === pickedUnit?.unit.id ? 'cand sel' : 'cand'}>
                 <input type="radio" name="unit" className="rad" checked={row.unit.id === pickedUnit?.unit.id} onChange={() => setUnitPick(row.unit.id)} />

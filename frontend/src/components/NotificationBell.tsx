@@ -53,7 +53,7 @@ function Inbox({ actorId }: { actorId: string }) {
       else if (!(error instanceof ApiError && [401, 403].includes(error.status))) setFailedItem(item);
     } finally { if (alive.current) setBusy(false); }
   }
-  return <div style={{ position: 'relative' }}>
+  return <div className="nb-wrap">
     <button type="button" className="kb nb-bell" aria-label={`알림${count.data && !count.isError ? `, 안 읽음 ${count.data.count}건` : ''}`} aria-expanded={open} onClick={() => setOpen(!open)}>
       <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9a6 6 0 0 1 12 0v6l2 3H4l2-3V9m4 12h4" fill="none" stroke="currentColor" strokeWidth="2" /></svg>
       {count.isError ? <span className="nb-err" aria-hidden="true">—</span> : <Badge count={count.data?.count ?? 0} />}
