@@ -108,6 +108,11 @@ test('메일이 아닌 채널의 검토중 문의는 종결 창에서 응대 내
   await screen.findByRole('dialog');
   const note = dialog().getByLabelText('응대 내용') as HTMLTextAreaElement;
   expect(note.required).toBe(true);
+  // 공백만 넣으면 보내지 않고 창 안에서 안내한다(서버는 응대 내용이 없으면 409).
+  fireEvent.change(note, { target: { value: '   ' } });
+  fireEvent.submit(dialog().getByRole('button', { name: '종결' }).closest('form')!);
+  await dialog().findByText(/공백만으로는 종결할 수 없습니다/);
+  expect(api.posts).toHaveLength(0);
   fireEvent.change(note, { target: { value: '  전화로 납기 4주 안내  ' } });
   fireEvent.click(dialog().getByRole('button', { name: '종결' }));
   await screen.findByText('문의를 종결했습니다.');

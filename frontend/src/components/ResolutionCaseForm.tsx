@@ -41,6 +41,8 @@ export default function ResolutionCaseForm({ workflow, busy, onSubmit, onCancel,
   const ready = faultOk && symptom.trim() && causeType && rootCause.trim() && action.trim() && dept && onsite !== '';
   const blank = (value: string) => value.trim() || null;
   const faultList = faults?.items ?? [];
+  // 목록에 없는 새 고장도 기록할 수 있게 직접 입력으로 바꿀 수 있다.
+  const [manualFault, setManualFault] = useState(false);
   const pickedFault = faultList.find(item => item.fault_id === fault.trim());
   const [catalogFilled, setCatalogFilled] = useState<string[]>([]);
   // 고른 고장의 목록 값으로 빈 칸만 채운다(이미 적은 값은 덮지 않는다). 담당자가 확인·수정한다.
@@ -70,12 +72,14 @@ export default function ResolutionCaseForm({ workflow, busy, onSubmit, onCancel,
   return <form onSubmit={submit} aria-label="해결 기록">
     <div className="kv-sub" style={{ margin: '0 0 8px' }}>해결 기록은 문의당 한 건이고 등록하면 고치는 경로가 없습니다. 사람이 확인한 내용만 적으세요.{prefill && Object.keys(prefill.sources).length > 0 && ' 이미 있는 데이터로 일부 칸을 채웠습니다. 저장 전에 확인하고 고치세요.'}</div>
     <div className="kv-field"><span className="req">고장 코드</span><div>
-      {faultList.length > 0
-        ? <select aria-label="고장 코드" value={pickedFault ? fault.trim() : ''} onChange={event => { setFault(event.target.value); setCatalogFilled([]); }}>
+      {faultList.length > 0 && !manualFault
+        ? <select aria-label="고장 코드" value={pickedFault ? fault.trim() : ''} onChange={event => { if (event.target.value === '__manual__') { setManualFault(true); setFault(''); } else setFault(event.target.value); setCatalogFilled([]); }}>
           <option value="">이 제품의 고장 {faultList.length}종에서 선택</option>
           {faultList.map(item => <option key={item.fault_id} value={item.fault_id}>{item.fault_id}{item.error_code ? ` · ${item.error_code}` : ''} · {item.symptom}</option>)}
+          <option value="__manual__">목록에 없음 · 코드 직접 입력</option>
         </select>
         : <input type="text" aria-label="고장 코드" placeholder="FLT-012" maxLength={7} value={fault} onChange={event => setFault(event.target.value)} />}
+      {faultList.length > 0 && manualFault && <button type="button" className="kb" style={{ marginTop: 4, height: 22 }} onClick={() => { setManualFault(false); setFault(''); }}>목록에서 고르기</button>}
       {faults?.pending && <small className="unc"> 고장 목록을 읽는 중</small>}
       {faults?.failed && <small className="unc"> 고장 목록을 읽지 못했습니다. 코드를 직접 적으세요(FLT-000)</small>}
       {faults?.items && faultList.length === 0 && <small className="unc"> 이 제품은 고장 목록에 없습니다. 코드를 직접 적으세요</small>}

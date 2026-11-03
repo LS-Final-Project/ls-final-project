@@ -90,6 +90,7 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
   const [sendMailbox, setSendMailbox] = useState('');
   const [askCodes, setAskCodes] = useState<string[] | null>(null);
   const [approved, setApproved] = useState(false);
+  const [closeNoteError, setCloseNoteError] = useState(false);
   const [copyNote, setCopyNote] = useState('');
   const [unitPick, setUnitPick] = useState('');
   const running = useRef<AbortController | null>(null);
@@ -659,10 +660,11 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
       </form>
     </KvModal>}
     {dialog === 'close' && data && <KvModal title={`종결, ${code}`} onClose={() => !busy && setDialog(null)}>
-      <form onSubmit={event => { event.preventDefault(); const note = String(new FormData(event.currentTarget).get('note') ?? '').trim(); void run('문의를 종결했습니다.', signal => closeTicket(ticketId, version, signal, !isMail && note ? note : undefined)); }}>
+      <form onSubmit={event => { event.preventDefault(); const note = String(new FormData(event.currentTarget).get('note') ?? '').trim(); if (!isMail && noteRequired && !note) { setCloseNoteError(true); return; } setCloseNoteError(false); void run('문의를 종결했습니다.', signal => closeTicket(ticketId, version, signal, !isMail && note ? note : undefined)); }}>
         <div className="kv-sub" style={{ margin: '0 0 8px' }}>이 문의를 종결합니다. 종결 뒤에는 해결 기록을 한 건 남길 수 있습니다. 종결 조건은 서버가 확인합니다.</div>
         {!isMail && <div className="kv-field"><span className={noteRequired ? 'req' : undefined}>응대 내용</span>
-          <div><textarea name="note" aria-label="응대 내용" rows={3} maxLength={2000} required={noteRequired} placeholder={`${channelName}로 고객에게 어떻게 안내했는지 적으세요. 예: 납기 4주와 인코텀즈 확인 요청을 전화로 안내함`} />
+          <div><textarea name="note" aria-label="응대 내용" rows={3} maxLength={2000} required={noteRequired} placeholder={`${channelName}로 고객에게 어떻게 안내했는지 적으세요. 예: 납기 4주와 인코텀즈 확인 요청을 전화로 안내함`} onChange={() => setCloseNoteError(false)} />
+          {closeNoteError && <small className="nb-warn" role="alert" style={{ display: 'block', color: '#a3221a', marginTop: 3 }}>응대 내용을 적어 주세요. 공백만으로는 종결할 수 없습니다.</small>}
           <small className="filled">{channelName} 문의는 시스템에서 메일을 보내지 않아, 응대 내용이 종결 기록에 남습니다.</small></div></div>}
         <div className="kv-actions"><button type="button" className="kb" disabled={busy} onClick={() => setDialog(null)}>닫기</button><button type="submit" className="kb primary" disabled={busy}>종결</button></div>
       </form>
