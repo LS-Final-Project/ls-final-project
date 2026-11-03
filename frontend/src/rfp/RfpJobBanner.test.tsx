@@ -139,3 +139,28 @@ it('keeps the analysis animation through draft observation and result confirmati
   rerender(ui('job.progress', 'stopped'));
   expect(container.querySelector('.is-processing')).toBeNull();
 });
+
+it('keeps a separately labelled replay animation through the draft card when a fast job already completed', () => {
+  vi.useFakeTimers();
+  const activity = ['parse', 'extract', 'search', 'compare', 'supplement', 'candidates', 'draft'].map((step, i) => ({ sequence: i + 2, occurredAt: '2026-11-03T00:00:01Z', type: 'job.progress', step }));
+  const ui = (events: typeof activity, status: string) => <MemoryRouter><RfpJobBanner accepted documents={[]} projectId="p" status={status} view={{ connection: status === 'SUCCEEDED' ? 'ended' : 'connected', activity: events, progress: events.at(-1) }} /></MemoryRouter>;
+  const { container, rerender } = render(ui([], 'RUNNING'));
+  rerender(ui(activity, 'SUCCEEDED'));
+  expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('문서 읽기');
+  expect(container.querySelector('.is-processing')).toBeNull();
+  expect(container.querySelector('.is-replaying')).toBeTruthy();
+  expect(screen.getByRole('status').textContent).toContain('처리가 완료됐습니다.');
+  expect(screen.getByRole('status').textContent).toContain('완료 · 과정 표시 중');
+  expect(screen.getByRole('link')).toBeTruthy();
+  for (const ms of [1100, 2200, 1000, 1800, 1400, 1200]) act(() => vi.advanceTimersByTime(ms));
+  expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('초안 작성');
+  expect(container.querySelector('.is-replaying')).toBeTruthy();
+  act(() => vi.advanceTimersByTime(2199));
+  expect(container.querySelector('.is-replaying')).toBeTruthy();
+  act(() => vi.advanceTimersByTime(1));
+  expect(container.querySelector('.is-replaying')).toBeNull();
+  act(() => screen.getByRole('button', { name: '과정 다시보기' }).click());
+  expect(container.querySelector('.is-replaying')).toBeTruthy();
+  act(() => screen.getByRole('button', { name: '한 번에 보기' }).click());
+  expect(container.querySelector('.is-replaying')).toBeNull();
+});

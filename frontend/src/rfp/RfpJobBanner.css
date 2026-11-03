@@ -3,7 +3,7 @@
 .rfp-job-banner a { color: #24558c; }
 .rfp-analysis-heading { display: flex; align-items: center; gap: 14px; }
 .rfp-analysis-symbol { position: relative; display: grid; place-items: center; flex: 0 0 44px; height: 44px; background: #e0eaff; border: 1px solid #b3c9ed; color: #325da5; border-radius: 14px; font-size: 27px; }
-.is-processing .rfp-analysis-symbol::after { content: ''; position: absolute; inset: -5px; border: 2px solid transparent; border-top-color: #6b91cf; border-right-color: #6b91cf55; border-radius: 18px; animation: rfp-orbit 2.8s linear infinite; }
+.is-processing .rfp-analysis-symbol::after, .is-replaying .rfp-analysis-symbol::after { content: ''; position: absolute; inset: -5px; border: 2px solid transparent; border-top-color: #6b91cf; border-right-color: #6b91cf55; border-radius: 18px; animation: rfp-orbit 2.8s linear infinite; }
 .rfp-analysis-title { flex: 1; min-width: 0; }
 .rfp-analysis-title > strong { display: block; margin-top: 3px; color: #1d3760; font-size: 18px; font-weight: 700; letter-spacing: -.35px; }
 .rfp-analysis-title p { color: #5a6d87; }
@@ -49,6 +49,6 @@
 @keyframes rfp-breathe { 50% { opacity: .35; } }
 @media (max-width: 1100px) { .rfp-analysis-stages { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 @media (max-width: 650px) { .rfp-job-banner { margin: 8px; padding: 12px; } .rfp-analysis-heading { flex-wrap: wrap; gap: 10px; } .rfp-analysis-title > strong { font-size: 16px; } .rfp-analysis-stages { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rfp-analysis-result { white-space: normal; } }
-@media (prefers-reduced-motion: reduce) { .is-processing .rfp-analysis-symbol::after, .is-live .rfp-analysis-badge::before { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .is-processing .rfp-analysis-symbol::after, .is-replaying .rfp-analysis-symbol::after, .is-live .rfp-analysis-badge::before { animation: none; } }
 
 .rfp-analysis-playback { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 12px; color: #526e90; font-size: 12px; }

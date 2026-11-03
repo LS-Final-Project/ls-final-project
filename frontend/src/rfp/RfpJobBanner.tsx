@@ -31,6 +31,7 @@ export function RfpJobBanner({ view, status, accepted, documents, projectId, req
   const activity = stopped ? [] : view?.activity ?? (p?.step ? [p] : []);
   // Pace only newly received observations; an already completed job opens without a fake wait.
   const [visibleCount, setVisibleCount] = useState(activity.length);
+  const [finishingPlayback, setFinishingPlayback] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false);
   useEffect(() => {
     const media = window.matchMedia?.('(prefers-reduced-motion: reduce)');
@@ -54,9 +55,24 @@ export function RfpJobBanner({ view, status, accepted, documents, projectId, req
   useEffect(() => {
     if (!playing) return;
     const remaining = Math.max(0, (readingTime[shownLatest?.step ?? ''] ?? 1100) - (Date.now() - shownSince.current.at));
-    const timer = window.setTimeout(() => setVisibleCount(count => Math.max(1, count) + 1), remaining);
+    const timer = window.setTimeout(() => {
+      const next = Math.max(1, visibleCount) + 1;
+      setVisibleCount(next);
+      if (next >= activity.length) setFinishingPlayback(true);
+    }, remaining);
     return () => window.clearTimeout(timer);
   }, [playing, visibleCount, activity.length, shownLatest?.step]);
+  useEffect(() => {
+    if (!finishingPlayback) return;
+    if (!paced) { setFinishingPlayback(false); return; }
+    const remaining = Math.max(0, (readingTime[shownLatest?.step ?? ''] ?? 1100) - (Date.now() - shownSince.current.at));
+    const timer = window.setTimeout(() => setFinishingPlayback(false), remaining);
+    return () => window.clearTimeout(timer);
+  }, [finishingPlayback, paced, shownLatest?.step]);
+  const presenting = playing || paced && finishingPlayback;
+  // Real completion and the visual replay are separate: results stay available while
+  // the ring accompanies the remaining observed cards, including the final draft card.
+  const replaying = display.terminal && presenting;
   const latest = activity.at(-1);
   const counts = [...activity].reverse().find(item => item.counts)?.counts;
   const docId = p?.documentVersionId ?? latest?.documentVersionId;
@@ -75,11 +91,11 @@ export function RfpJobBanner({ view, status, accepted, documents, projectId, req
   const seconds = view?.startedAt ? Math.floor((now - Date.parse(view.startedAt)) / 1000) : -1;
   const elapsed = seconds >= 0 ? `${Math.floor(seconds / 60)}분 ${String(seconds % 60).padStart(2, '0')}초` : undefined;
   const clock = (stamp: string) => new Date(stamp).toLocaleTimeString('ko-KR', { hour12: false });
-  return <section className={`rfp-job-banner${live ? ' is-live' : ''}${processing ? ' is-processing' : ''}${display.terminal ? ' is-terminal' : ''}${disconnected || stopped ? ' is-disconnected' : ''}`} aria-label="문서 처리 상태">
+  return <section className={`rfp-job-banner${live ? ' is-live' : ''}${processing ? ' is-processing' : ''}${replaying ? ' is-replaying' : ''}${display.terminal ? ' is-terminal' : ''}${disconnected || stopped ? ' is-disconnected' : ''}`} aria-label="문서 처리 상태">
     <header className="rfp-analysis-heading">
       <div className="rfp-analysis-symbol" aria-hidden="true">{display.terminal ? status === 'SUCCEEDED' ? '✓' : '!' : stopped || disconnected ? '!' : '✦'}</div>
       <div className="rfp-analysis-title" role="status" aria-live="polite">
-        <div className="rfp-analysis-eyebrow">RFP ANALYSIS <span className="rfp-analysis-badge">{display.terminal ? '처리 결과' : stopped ? '조회 중단' : disconnected ? '연결 확인 중' : live ? '분석 진행 중' : confirming ? '결과 확인 중' : running ? '상태 확인 중' : '시작 대기'}</span></div>
+        <div className="rfp-analysis-eyebrow">RFP ANALYSIS <span className="rfp-analysis-badge">{display.terminal ? replaying ? '완료 · 과정 표시 중' : '처리 결과' : stopped ? '조회 중단' : disconnected ? '연결 확인 중' : live ? '분석 진행 중' : confirming ? '결과 확인 중' : running ? '상태 확인 중' : '시작 대기'}</span></div>
         <strong>{title}</strong>
         {!display.terminal && <p>{disconnected ? '실시간 연결 확인 중 · 작업 실패를 뜻하지 않습니다.' : live ? isAnalysis ? '문서의 요구사항과 대응 근거를 정리하고 있습니다. 실시간 상태 연결됨' : '요청한 작업을 처리하고 있습니다. 실시간 상태 연결됨' : display.headline}</p>}
       </div>
@@ -90,9 +106,9 @@ export function RfpJobBanner({ view, status, accepted, documents, projectId, req
     {docId ? <p className="rfp-analysis-document">관측 문서: {doc ? `${doc.title} v${doc.version}` : '문서 판본 이름을 확인 중입니다.'}</p>
       : requestDocuments.length > 0 && <p className="rfp-analysis-document">요청 문서: {requestDocuments.map(id => { const d = documents.find(v => v.document_version_id === id); return d ? `${d.title} v${d.version}` : '문서 판본 확인 중'; }).join(', ')}</p>}
     {!stopped && isAnalysis && activity.length > 0 && <div className="rfp-analysis-playback">
-      <span>{display.terminal ? playing ? '완료된 분석 과정 다시보기 · 결과는 지금 열 수 있습니다' : '완료된 분석 과정' : playing ? '수신한 분석 단계를 순서대로 표시합니다' : '서버에서 관측된 분석 단계'}</span>
-      {playing ? <button className="kb" onClick={() => setVisibleCount(activity.length)}>한 번에 보기</button>
-        : display.terminal && !failed && !reducedMotion && activity.length > 1 && <button className="kb" onClick={() => setVisibleCount(0)}>과정 다시보기</button>}
+      <span>{display.terminal ? presenting ? '완료된 분석 과정 다시보기 · 결과는 지금 열 수 있습니다' : '완료된 분석 과정' : presenting ? '수신한 분석 단계를 순서대로 표시합니다' : '서버에서 관측된 분석 단계'}</span>
+      {presenting ? <button className="kb" onClick={() => { setFinishingPlayback(false); setVisibleCount(activity.length); }}>한 번에 보기</button>
+        : display.terminal && !failed && !reducedMotion && activity.length > 1 && <button className="kb" onClick={() => { setFinishingPlayback(false); setVisibleCount(0); }}>과정 다시보기</button>}
     </div>}
     {!stopped && isAnalysis && (!display.terminal || activity.length > 0) && <ol className="rfp-analysis-stages" aria-label="분석 단계별 관측 상태">
       {pipeline.map((step, i) => {
