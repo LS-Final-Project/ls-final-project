@@ -56,7 +56,7 @@ real을 선택한다. 인증 환경이나 요청의 출처 필드로 실제 여�
 | `POST /api/v1/cs/tickets/{ticket_id}/resolution-case` | cs_agent | `CLOSED`에서만. 상태 변경 없음. 해결 사례 1건 등록(선택) |
 
 - **수신 ≠ 검토 ≠ 완료**: 부서가 등록한 결과는 `SUBMITTED`이고, cs_agent가 채택해야 `ACCEPTED`가 된다. 채택해도 문의는 `IN_REVIEW`로 남고 종결은 cs_agent가 따로 확정한다.
-- **검토된 회신만 반영**: 종결 조건은 `ANSWERED`이거나, `IN_REVIEW`에서 **채택된** 부서 결과 또는 고객 발송 이력(`customer_sent_at`)이 있는 경우다. 아니면 409 `CS_CLOSE_CONDITION_UNMET`. 검토 전(`SUBMITTED`) 결과가 있으면 종결과 새 이관은 409 `CS_DEPT_RESULT_UNREVIEWED`. 반송·회수된 이관은 처리 결과가 아니다.
+- **검토된 회신만 반영**: 종결 조건은 `ANSWERED`이거나, `IN_REVIEW`에서 **채택된** 부서 결과 또는 고객 발송 이력(`customer_sent_at`)이 있는 경우다. **메일 외 채널**(KAN-211, 2026-11-03 팀 결정): `channel`이 `EMAIL`이 아닌 문의는 시스템이 메일을 보내지 않고 담당자가 그 채널로 직접 응대하므로, `IN_REVIEW`에서 `POST /close`에 `response_note`(어떻게 응대했는지, 1~2000자)를 주면 종결된다. 응대 내용은 업무 상태에 칸을 두지 않고 종결 감사(`ticket_workflow` `close`)의 `response_note`에 남는다. `EMAIL` 문의는 응대 내용만으로 종결되지 않는다. 아니면 409 `CS_CLOSE_CONDITION_UNMET`. 검토 전(`SUBMITTED`) 결과가 있으면 종결과 새 이관은 409 `CS_DEPT_RESULT_UNREVIEWED`. 반송·회수된 이관은 처리 결과가 아니다.
 - **승인 판본 감사**: 모든 요청은 결정한 화면의 업무 판본 `version`을 보낸다. 다르면 409 `CS_WORKFLOW_VERSION_CONFLICT`. 부서 결과 검토는 결과 판본 `result_version`도 보내며 다르면 409 `CS_DEPT_RESULT_VERSION_CONFLICT`, 이미 검토했으면 409 `CS_DEPT_RESULT_ALREADY_REVIEWED`. 전이마다 `cs.audit_events`에 `ticket_workflow`(action `transition`, 바뀐 칸·동작 이름·부서·사유)와 `dept_result`(`create`, `review`와 검토한 결과 판본)를 남긴다. 결과 본문은 감사에 복제하지 않는다.
 - **검사 순서**(권한 문서 1.3): 조회 범위 404 → 역할 403 → 상태 409 `CS_INVALID_TRANSITION` → 판본 409 → 입력 422. 이관 이력이 있지만 지금 이관 부서가 아닌 dept_staff의 결과 등록·반송은 403이다.
 - **답변·추가 정보 요청 발송**과 **고객 회신 재투입**은 `backend/api/cs/workflow/service.py`의 내부 함수다. 손으로 "보냈음"을 표시하는 API는 없다.

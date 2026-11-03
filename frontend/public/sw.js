@@ -82,7 +82,9 @@ self.addEventListener('notificationclick', event => {
     const data = event.notification.data;
     const item = await currentNotification(data?.id, data?.ownerId);
     if (!item) return;
-    const target = new URL(item.link_path, self.location.origin).href;
+    // KAN-211: 부서 이관 알림은 부서 검토 답변 화면으로 연다(화면 notificationTarget과 같은 규칙).
+    const path = item.kind === 'cs.transfer' && item.link_path.startsWith('/cs/tickets/') ? item.link_path.replace('/cs/tickets/', '/dept/result/') : item.link_path;
+    const target = new URL(path, self.location.origin).href;
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     if (!await sameOwner(revision, data.ownerId)) return;
     const same = windows.filter(client => new URL(client.url).origin === self.location.origin);

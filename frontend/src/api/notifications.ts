@@ -10,6 +10,13 @@ export class NotificationSessionChanged extends Error {
 const uuid = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
 const safeLink = new RegExp(`^/(?:cs/tickets|tft/projects)/${uuid}$`);
 export const notificationPath = (value: string): string | null => safeLink.test(value) ? value : null;
+// 부서 이관 알림(cs.transfer)은 받는 부서에게만 간다. 부서 담당자는 C/S 문의 처리 화면이 아니라
+// 검토 답변 화면에서 일한다(KAN-211). 서버 경로는 저장 제약(KAN-201) 때문에 문의 경로로 둔다.
+export const notificationTarget = (item: { kind: string; link_path: string }): string | null => {
+  const path = notificationPath(item.link_path);
+  if (!path) return null;
+  return item.kind === 'cs.transfer' && path.startsWith('/cs/tickets/') ? path.replace('/cs/tickets/', '/dept/result/') : path;
+};
 const signalFor = (signal?: AbortSignal) => signal ? AbortSignal.any([signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000);
 async function error(response: Response) {
   const body = await response.json().catch(() => null);

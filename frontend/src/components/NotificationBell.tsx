@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ApiError } from '../api/client';
-import { listNotifications, markNotificationRead, notificationPath, NotificationSessionChanged, unreadCount, type NotificationItem } from '../api/notifications';
+import { listNotifications, markNotificationRead, notificationTarget, NotificationSessionChanged, unreadCount, type NotificationItem } from '../api/notifications';
 import { me } from '../api/platform';
 import { reconcilePush } from '../notifications/push';
 import { KvBox } from '../ls-shell/kv';
@@ -37,13 +37,14 @@ function Inbox({ actorId }: { actorId: string }) {
   const count = useQuery({ queryKey: ['notifications', actorId, 'count'], queryFn: ({ signal }) => unreadCount(signal), retry: false, refetchInterval: query => query.state.error ? false : 30000, refetchIntervalInBackground: false, refetchOnWindowFocus: query => !query.state.error });
   const list = useQuery({ queryKey: ['notifications', actorId, 'list', offset], queryFn: ({ signal }) => listNotifications(offset, signal), enabled: open, retry: false });
   async function choose(item: NotificationItem) {
-    if (busy || !notificationPath(item.link_path)) return;
+    const target = notificationTarget(item);
+    if (busy || !target) return;
     setBusy(true); setFailure(undefined); setFailedItem(undefined);
     try {
       await markNotificationRead(actorId, item.id, controller.current!.signal);
       if (!alive.current) return;
       void cache.invalidateQueries({ queryKey: ['notifications', actorId] });
-      setOpen(false); navigate(item.link_path);
+      setOpen(false); navigate(target);
     } catch (error) {
       if (!alive.current) return;
       setFailure(error);
@@ -62,13 +63,13 @@ function Inbox({ actorId }: { actorId: string }) {
         {list.isPending && <Loading label="알림 조회 중" />}
         {list.isError && <ErrorState error={list.error} onRetry={() => list.refetch()} />}
         {failure != null && <ErrorState error={failure} />}
-        {failedItem && <button className="kb" onClick={() => { setOpen(false); navigate(failedItem.link_path); }}>읽음 처리 없이 열기</button>}
+        {failedItem && <button className="kb" onClick={() => { setOpen(false); navigate(notificationTarget(failedItem) ?? failedItem.link_path); }}>읽음 처리 없이 열기</button>}
         {list.data && !list.isError && <>
           {!list.data.items.length && <p>받은 알림이 없습니다.</p>}
           <ul>{list.data.items.map(item => <li key={item.id}>
-            <button type="button" disabled={busy || !notificationPath(item.link_path)} onClick={() => choose(item)}>{item.title}</button>{' '}
+            <button type="button" disabled={busy || !notificationTarget(item)} onClick={() => choose(item)}>{item.title}</button>{' '}
             <small>{item.read_at ? '읽음' : '안 읽음'} / {formatDateTime(item.created_at)}</small>
-            {!notificationPath(item.link_path) && <p>이 알림의 이동 경로를 확인할 수 없습니다.</p>}
+            {!notificationTarget(item) && <p>이 알림의 이동 경로를 확인할 수 없습니다.</p>}
           </li>)}</ul>
           <button className="kb" disabled={list.isFetching || offsets.length === 1} onClick={() => setOffsets(offsets.slice(0, -1))}>알림 이전</button>{' '}
           <button className="kb" disabled={list.isFetching || list.data.next_offset === null} onClick={() => list.data?.next_offset !== null && list.data?.next_offset !== undefined && setOffsets([...offsets, list.data.next_offset])}>알림 다음</button>
