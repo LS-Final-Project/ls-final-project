@@ -57,7 +57,7 @@ export default function TicketAnalysisPanel({ analysis, pending, failed = false,
   };
 
   return <section className="kv-box ai-pre">
-    <h2>문의 정보{run && <span className="auto">AI 작성 {formatStamp(run.created_at)}</span>}{!run && <span className="unc" style={{ marginLeft: 8 }}>분석 실행 없음</span>}<button className="kb" style={{ marginLeft: 'auto', height: 22 }} disabled={!onCorrect} title={onCorrect ? 'AI 분류를 사유와 함께 정정합니다' : '검토중 상태에서 AI 분류를 읽은 뒤 정정할 수 있습니다'} onClick={onCorrect}>분류 정정</button></h2>
+    <h2>AI 분류{run && <span className="auto">AI 작성 {formatStamp(run.created_at)}</span>}{!run && <span className="unc" style={{ marginLeft: 8 }}>분석 실행 없음</span>}{onCorrect && <button className="kb" style={{ marginLeft: 'auto', height: 22 }} title="AI 분류를 사유와 함께 정정합니다" onClick={onCorrect}>분류 정정</button>}</h2>
     <div className="body">
       {failed && <p role="alert">최신 분석 조회에 실패했습니다. 표시된 이전 결과와 구분해 확인하세요.</p>}
       <div className="kv-field"><span>주분류</span><span className="ro">{categoryName(category)}{tag('category_code') && <small className="auto"> {tag('category_code')}</small>}</span></div>
