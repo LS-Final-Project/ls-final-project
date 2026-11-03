@@ -12,14 +12,16 @@ import sys
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from threading import BoundedSemaphore, RLock
+from threading import BoundedSemaphore, Event, RLock
 from uuid import UUID
 
 from google.genai.errors import APIError
 from pydantic import SecretStr
 
 from backend.shared import ai
-from scripts.local_business.permit import MAX_PARALLEL_TFT_CALLS
+from scripts.local_business.permit import MAX_PARALLEL_TFT_CALLS, Busy
+
+CONCURRENCY_PROTOCOL = 1
 
 
 class LocalStop(BaseException):
@@ -158,6 +160,7 @@ class Meter:
     def __init__(self, permit, config: Configuration, prices: dict[str, ai.ModelPrice]):
         self.permit, self.config, self.prices = permit, config, prices
         self.stopped: str | None = None
+        self.stop_event = Event()
         self.lock = RLock()
         self.slots = BoundedSemaphore(MAX_PARALLEL_TFT_CALLS if config.owner == "tft" else 1)
         self.active_charges: set[str] = set()
@@ -165,6 +168,13 @@ class Meter:
     def stop(self, code: str) -> None:
         with self.lock:
             self.stopped = self.stopped or code
+            self.stop_event.set()
+            halt = getattr(self.permit, "halt", None)
+            if halt is not None:
+                try:
+                    halt(self.config.token)
+                except Exception:
+                    pass  # Keep the original stop; unresolved charges stay fail-closed.
             raise LocalStop(self.stopped) from None
 
     def priced(self, model) -> str:
@@ -202,21 +212,28 @@ class Meter:
     def _generate(self, generate_content, *args, **kwargs):
         if args:
             self.stop("LOCAL_SDK_OPERATION_BLOCKED")
-        with self.lock:
-            model = self.priced(kwargs.get("model"))
-            try:
-                if self.active_charges:
-                    charge = self.permit.reserve(
-                        self.config.token,
-                        str(self.config.job_id),
-                        model,
-                        active_charges=tuple(sorted(self.active_charges)),
-                    )
-                else:
-                    charge = self.permit.reserve(self.config.token, str(self.config.job_id), model)
-                self.active_charges.add(charge)
-            except Exception:
-                self.stop("LOCAL_RESERVATION_DENIED")
+        while True:
+            with self.lock:
+                model = self.priced(kwargs.get("model"))
+                try:
+                    if self.active_charges:
+                        charge = self.permit.reserve(
+                            self.config.token,
+                            str(self.config.job_id),
+                            model,
+                            active_charges=tuple(sorted(self.active_charges)),
+                        )
+                    else:
+                        charge = self.permit.reserve(
+                            self.config.token, str(self.config.job_id), model
+                        )
+                    self.active_charges.add(charge)
+                    break
+                except Busy:
+                    pass  # Release Meter/SQLite locks before waiting; no reservation exists.
+                except Exception:
+                    self.stop("LOCAL_RESERVATION_DENIED")
+            self.stop_event.wait(0.05)
         try:
             response = generate_content(**kwargs)
         except BaseException as error:
@@ -301,6 +318,18 @@ def intercept(meter: Meter, key: SecretStr, runtime, claimed: list):
     def observe(settings, owner, lease_seconds, job_id):
         if owner != meter.config.owner or job_id != meter.config.job_id or claimed:
             meter.stop("LOCAL_JOB_SCOPE_MISMATCH")
+        check = getattr(meter.permit, "check_worker", None)
+        if check is not None:
+            while True:
+                try:
+                    check(meter.config.token, str(meter.config.job_id))
+                    break
+                except Busy:
+                    meter.stop_event.wait(0.05)
+                    if meter.stopped:
+                        meter.stop(meter.stopped)
+                except Exception:
+                    meter.stop("LOCAL_RESERVATION_DENIED")
         lease = claim(settings, owner, lease_seconds, job_id)
         if isinstance(lease, runtime.Lease):
             claimed.append((settings, lease))
@@ -339,11 +368,25 @@ def main() -> None:
         module = f"backend.agent.{config.owner}_worker"
         if module in sys.modules:
             raise LocalStop("LOCAL_WORKER_ALREADY_IMPORTED")
+        permit = Permit(config.control / "permit.sqlite3")
+        # Parent registers the child PID after Popen. Do not read keys or claim regular
+        # work until that registration is visible; pending saturation is not failure.
+        check_worker = getattr(permit, "check_worker", None)
+        while check_worker is not None:
+            try:
+                check_worker(config.token, str(config.job_id))
+                break
+            except Busy:
+                import time
+
+                time.sleep(0.05)
+            except Exception:
+                raise LocalStop("LOCAL_RESERVATION_DENIED") from None
         prices = ai.load_price_table(config.prices_file)
         key = SecretStr(config.key_file.read_text().strip())
         if not key.get_secret_value():
             raise LocalStop("LOCAL_MODEL_KEY_REQUIRED")
-        meter = Meter(Permit(config.control / "permit.sqlite3"), config, prices)
+        meter = Meter(permit, config, prices)
         with intercept(meter, key, runtime, claimed):
             runpy.run_module(module, run_name="__main__")
     except LocalStop as error:

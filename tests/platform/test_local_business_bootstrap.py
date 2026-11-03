@@ -175,6 +175,10 @@ def test_model_enable_exit_without_live_marker_is_failure_and_disables(tmp_path,
     monkeypatch.setattr(module, "owned", lambda p: {})
     monkeypatch.setattr(module, "no_active_driver", lambda c: None)
     monkeypatch.setattr(module, "running_drivers", lambda c: [])
+    for name in ("permit", "dispatcher", "worker", "runtime"):
+        path = state / "source/scripts/local_business" / (name + ".py")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("CONCURRENCY_PROTOCOL = 1\n")
     commands = Mock(return_value=b"started")
     monkeypatch.setattr(module, "command", commands)
     with pytest.raises(ValueError, match="MODEL_DRIVER_NOT_READY"):

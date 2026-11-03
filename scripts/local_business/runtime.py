@@ -22,6 +22,7 @@ from scripts.local_business.auth import (
 from scripts.local_business.config import settings
 
 UNLIMITED_PROTOCOL = 1
+CONCURRENCY_PROTOCOL = 1
 
 
 def local_only():

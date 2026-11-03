@@ -32,7 +32,15 @@ def test_save_failure_preserves_destination_and_removes_only_own_temp(tmp_path):
     assert set(tmp_path.iterdir()) == {path, unrelated}
 
 
+def supported_snapshot(state):
+    for name in ("permit", "dispatcher", "worker", "runtime"):
+        path = state / "source/scripts/local_business" / (name + ".py")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("CONCURRENCY_PROTOCOL = 1\n")
+
+
 def test_enable_rejects_original_symlink_before_loading_prices(tmp_path, monkeypatch):
+    supported_snapshot(tmp_path)
     key = tmp_path / "synthetic-key"
     key.write_text("not-a-real-key")
     key.chmod(0o600)
@@ -42,7 +50,7 @@ def test_enable_rejects_original_symlink_before_loading_prices(tmp_path, monkeyp
     from backend.shared import ai
 
     monkeypatch.setattr(ai, "load_price_table", lambda _: pytest.fail("Must reject before prices"))
-    args = SimpleNamespace(key_file=str(link), prices_file=str(tmp_path / "unused"))
+    args = SimpleNamespace(owner="tft", key_file=str(link), prices_file=str(tmp_path / "unused"))
     with pytest.raises(ValueError, match="LOCAL_PRIVATE_KEY_FILE_REQUIRED"):
         cli.enable(tmp_path, args)
     assert link.is_symlink() and key.read_text() == "not-a-real-key"
@@ -50,11 +58,12 @@ def test_enable_rejects_original_symlink_before_loading_prices(tmp_path, monkeyp
 
 @pytest.mark.parametrize("mode,size", [(0o644, 16), (0o600, 4097)])
 def test_enable_retains_private_permission_and_size_checks(tmp_path, monkeypatch, mode, size):
+    supported_snapshot(tmp_path)
     key = tmp_path / "synthetic-key"
     key.write_text("x" * size)
     key.chmod(mode)
     monkeypatch.setattr(cli, "owned", lambda _: {"namespace": "team4-kan159-offline"})
-    args = SimpleNamespace(key_file=str(key), prices_file=str(tmp_path / "unused"))
+    args = SimpleNamespace(owner="tft", key_file=str(key), prices_file=str(tmp_path / "unused"))
     with pytest.raises(ValueError, match="LOCAL_PRIVATE_KEY_FILE_REQUIRED"):
         cli.enable(tmp_path, args)
 

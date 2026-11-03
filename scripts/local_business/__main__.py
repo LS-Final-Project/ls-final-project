@@ -15,7 +15,13 @@ import urllib.request
 from pathlib import Path
 
 from scripts.local_business.config import ROOT, clean_env, settings, state_path
-from scripts.local_business.permit import Permit, require_unlimited_snapshot, validate_limits
+from scripts.local_business.permit import (
+    Permit,
+    require_concurrency_snapshot,
+    require_unlimited_snapshot,
+    validate_concurrency,
+    validate_limits,
+)
 from scripts.local_business.setup import docker, fresh, inspect, owned
 from scripts.local_business.stack import running_drivers, start, stop, tunnel
 
@@ -272,6 +278,12 @@ def enable(state, args):
     unlimited = getattr(args, "unlimited", False)
     if unlimited:
         require_unlimited_snapshot(state)
+    concurrent_jobs = getattr(args, "concurrent_jobs", 1)
+    concurrent_calls = getattr(args, "concurrent_calls", 6)
+    validate_concurrency(concurrent_jobs, concurrent_calls)
+    if args.owner == "cs" and concurrent_jobs != 1:
+        raise ValueError("LOCAL_CS_CONCURRENCY_REQUIRES_ONE_JOB")
+    require_concurrency_snapshot(state)
     key = Path(args.key_file).expanduser()
     if key.is_symlink():
         raise ValueError("LOCAL_PRIVATE_KEY_FILE_REQUIRED")
@@ -291,6 +303,8 @@ def enable(state, args):
         reserve_usd=args.reserve_usd,
         budget_usd=args.budget_usd,
         unlimited=unlimited,
+        concurrent_jobs=concurrent_jobs,
+        concurrent_calls=concurrent_calls,
     )
     name = ns + "-driver-" + token[:8]
     try:
@@ -359,6 +373,50 @@ def enable(state, args):
     print("UNKNOWN/interrupted reservations still block work; provider quotas remain in effect.")
 
 
+def set_concurrency(state, args):
+    """Change only the current authorization's scheduling caps, without a key or restart."""
+    if os.environ.get("ENVIRONMENT", "local") != "local" or "K_SERVICE" in os.environ:
+        raise ValueError("LOCAL_RUNNER_REQUIRES_LOCAL_ENVIRONMENT")
+    validate_concurrency(args.concurrent_jobs, args.concurrent_calls)
+    config = owned(state)
+    require_concurrency_snapshot(state)
+    drivers = running_drivers(config)
+    if len(drivers) != 1:
+        raise ValueError("LOCAL_SINGLE_DRIVER_REQUIRED")
+    row = inspect(drivers[0])
+    command = row["Config"]["Cmd"]
+    if (
+        not row["State"]["Running"]
+        or row["Image"] != config["images"]["runtime"]
+        or command[-3:] != ["python", "-m", "scripts.local_business.dispatcher"]
+        or not any(
+            m.get("Source") == str(state / "control")
+            and m["Destination"] == "/local/control"
+            and m["RW"] is True
+            for m in row["Mounts"]
+        )
+    ):
+        raise ValueError("LOCAL_DRIVER_IDENTITY_MISMATCH")
+    tokens = [v.split("=", 1)[1] for v in command if v.startswith("LOCAL_DRIVER_TOKEN=")]
+    owners = [v.split("=", 1)[1] for v in command if v.startswith("LOCAL_JOB_OWNER=")]
+    if len(tokens) != 1 or owners not in (["cs"], ["tft"]):
+        raise ValueError("LOCAL_DRIVER_IDENTITY_MISMATCH")
+    if owners == ["cs"] and args.concurrent_jobs != 1:
+        raise ValueError("LOCAL_CS_CONCURRENCY_REQUIRES_ONE_JOB")
+    Permit(state / "control/permit.sqlite3").update_concurrency(
+        tokens[0], concurrent_jobs=args.concurrent_jobs, concurrent_calls=args.concurrent_calls
+    )
+    print(
+        json.dumps(
+            {
+                "concurrent_jobs": args.concurrent_jobs,
+                "concurrent_calls": args.concurrent_calls,
+                "running_work_cancelled": False,
+            }
+        )
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -371,6 +429,7 @@ def main():
         "tunnel",
         "enable-real",
         "disable-real",
+        "set-concurrency",
     ):
         p = sub.add_parser(command)
         p.add_argument("--namespace", required=True)
@@ -380,6 +439,21 @@ def main():
             p.add_argument("--web-port", type=int, default=38443)
         if command == "tunnel":
             p.add_argument("--tunnel-token", help=argparse.SUPPRESS)
+        if command in {"enable-real", "set-concurrency"}:
+            p.add_argument(
+                "--concurrent-jobs",
+                type=int,
+                default=1,
+                required=command == "set-concurrency",
+                help="Simultaneous RFP jobs",
+            )
+            p.add_argument(
+                "--concurrent-calls",
+                type=int,
+                default=6,
+                required=command == "set-concurrency",
+                help="Simultaneous SDK calls across all jobs",
+            )
         if command == "enable-real":
             p.add_argument("--owner", choices=["cs", "tft"], required=True)
             p.add_argument("--key-file", required=True)
@@ -395,6 +469,11 @@ def main():
             p.add_argument("--reserve-usd", default="0.15")
             p.add_argument("--budget-usd", help="Limited mode default: 1.50")
     args = parser.parse_args()
+    if args.command in {"enable-real", "set-concurrency"}:
+        try:
+            validate_concurrency(args.concurrent_jobs, args.concurrent_calls)
+        except ValueError:
+            parser.error("Concurrency must be positive integers")
     if args.command == "enable-real":
         if args.unlimited and any(
             v is not None for v in (args.max_jobs, args.max_calls, args.budget_usd)
@@ -437,6 +516,8 @@ def main():
         tunnel(state)
     elif args.command == "enable-real":
         enable(state, args)
+    elif args.command == "set-concurrency":
+        set_concurrency(state, args)
     elif args.command == "disable-real":
         config = owned(state)
         rows = running_drivers(config)

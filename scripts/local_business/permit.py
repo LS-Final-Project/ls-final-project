@@ -8,12 +8,14 @@ remain authoritative. No prompt, response, API key or business record is stored 
 
 import ast
 import json
+import os
 import sqlite3
 from contextlib import contextmanager
 from decimal import Decimal
 from pathlib import Path
 from uuid import UUID, uuid4
 
+CONCURRENCY_PROTOCOL = 1
 UNLIMITED_PROTOCOL = 1
 MAX_PARALLEL_TFT_CALLS = 6
 
@@ -39,8 +41,49 @@ def require_unlimited_snapshot(state: Path):
             raise ValueError("LOCAL_UNLIMITED_SNAPSHOT_UNSUPPORTED")
 
 
+def require_concurrency_snapshot(state: Path):
+    """Fail closed before opening keys if any mounted execution boundary is older."""
+    for name in ("permit.py", "dispatcher.py", "worker.py", "runtime.py"):
+        try:
+            tree = ast.parse((state / "source/scripts/local_business" / name).read_text())
+            supported = any(
+                isinstance(node, ast.Assign)
+                and any(
+                    isinstance(t, ast.Name) and t.id == "CONCURRENCY_PROTOCOL" for t in node.targets
+                )
+                and isinstance(node.value, ast.Constant)
+                and type(node.value.value) is int
+                and node.value.value == CONCURRENCY_PROTOCOL
+                for node in tree.body
+            )
+        except (OSError, SyntaxError, UnicodeError):
+            supported = False
+        if not supported:
+            raise ValueError("LOCAL_CONCURRENCY_SNAPSHOT_UNSUPPORTED")
+
+
 class Denied(RuntimeError):
     """A fixed local policy reason; never include provider exceptions or credentials."""
+
+
+class Busy(Denied):
+    """Temporary admission saturation. No call has been reserved or failed."""
+
+
+def validate_concurrency(concurrent_jobs, concurrent_calls):
+    if any(type(value) is not int or value < 1 for value in (concurrent_jobs, concurrent_calls)):
+        raise ValueError("INVALID_LOCAL_CONCURRENCY")
+
+
+def process_identity(pid: int) -> str | None:
+    """Container-local Linux PID start identity; never consulted by host config updates."""
+    if type(pid) is not int or pid < 1:
+        return None
+    try:
+        fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+        return None if fields[0] in {"Z", "X"} else fields[19]
+    except (OSError, IndexError, UnicodeError):
+        return None
 
 
 def money(value: str | Decimal) -> Decimal:
@@ -83,6 +126,13 @@ class Permit:
                     model TEXT NOT NULL, reserved TEXT NOT NULL, actual TEXT,
                     state TEXT NOT NULL CHECK(state IN ('RESERVED','SETTLED','UNKNOWN')),
                     usage TEXT, reason TEXT);
+                CREATE TABLE IF NOT EXISTS driver_concurrency (
+                    token TEXT PRIMARY KEY, concurrent_jobs INTEGER NOT NULL,
+                    concurrent_calls INTEGER NOT NULL, halted INTEGER NOT NULL DEFAULT 0);
+                CREATE TABLE IF NOT EXISTS executions (
+                    job_id TEXT PRIMARY KEY, token TEXT NOT NULL, state TEXT NOT NULL
+                    CHECK(state IN ('PENDING','ACTIVE','FINISHED')),
+                    pid INTEGER NOT NULL, identity TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS driver_modes (
                     token TEXT PRIMARY KEY, limit_mode TEXT NOT NULL
                     CHECK(limit_mode IN ('limited','unlimited')));
@@ -109,8 +159,11 @@ class Permit:
     @staticmethod
     def driver(db, token):
         row = db.execute(
-            "SELECT d.*,coalesce(m.limit_mode,'limited') AS limit_mode FROM driver d "
-            "LEFT JOIN driver_modes m ON m.token=d.token WHERE singleton=1"
+            "SELECT d.*,coalesce(m.limit_mode,'limited') AS limit_mode, "
+            "coalesce(c.concurrent_jobs,1) AS concurrent_jobs, "
+            "coalesce(c.concurrent_calls,6) AS concurrent_calls, coalesce(c.halted,0) AS halted "
+            "FROM driver d LEFT JOIN driver_modes m ON m.token=d.token "
+            "LEFT JOIN driver_concurrency c ON c.token=d.token WHERE singleton=1"
         ).fetchone()
         if row is None or row["token"] is None or row["token"] != token:
             raise Denied("LOCAL_DRIVER_NOT_AUTHORIZED")
@@ -136,7 +189,10 @@ class Permit:
         reserve_usd: str,
         budget_usd: str = "1.50",
         unlimited: bool = False,
+        concurrent_jobs: int = 1,
+        concurrent_calls: int = 6,
     ) -> str:
+        validate_concurrency(concurrent_jobs, concurrent_calls)
         reserve, budget = validate_limits(max_jobs, max_calls, reserve_usd, budget_usd, unlimited)
         with self.transaction() as db:
             row = db.execute("SELECT token FROM driver WHERE singleton=1").fetchone()
@@ -160,14 +216,141 @@ class Permit:
                 "INSERT INTO driver_modes VALUES(?,?)",
                 (token, "unlimited" if unlimited else "limited"),
             )
+            db.execute(
+                "INSERT INTO driver_concurrency VALUES(?,?,?,0)",
+                (token, concurrent_jobs, concurrent_calls),
+            )
             return token
+
+    @staticmethod
+    def _not_halted(db, token):
+        if db.execute(
+            "SELECT 1 FROM driver_concurrency WHERE token=? AND halted=1", (token,)
+        ).fetchone():
+            raise Denied("LOCAL_DRIVER_HALTED")
+        if db.execute("SELECT 1 FROM charges WHERE state='UNKNOWN' LIMIT 1").fetchone():
+            raise Denied("LOCAL_COST_UNKNOWN_REVIEW_REQUIRED")
+
+    @staticmethod
+    def _live(execution):
+        return (
+            execution is not None
+            and execution["state"] in {"PENDING", "ACTIVE"}
+            and process_identity(execution["pid"]) == execution["identity"]
+        )
+
+    def _healthy(self, db, token):
+        self._not_halted(db, token)
+        # A worker may finish normally just before the dispatcher's reap loop.
+        # Dead identities only make paid work unresolved when a reservation remains;
+        # do not turn that ordinary completion/reap race into another job's failure.
+        for charge in db.execute("SELECT * FROM charges WHERE state='RESERVED'"):
+            execution = db.execute(
+                "SELECT * FROM executions WHERE job_id=? AND token=?", (charge["job_id"], token)
+            ).fetchone()
+            if (
+                charge["token"] != token
+                or not self._live(execution)
+                or execution["state"] != "ACTIVE"
+            ):
+                raise Denied("LOCAL_COST_UNKNOWN_REVIEW_REQUIRED")
+
+    def check_ready(self, token: str):
+        with self.transaction() as db:
+            self.driver(db, token)
+            self._healthy(db, token)
+
+    def update_concurrency(self, token: str, *, concurrent_jobs: int, concurrent_calls: int):
+        validate_concurrency(concurrent_jobs, concurrent_calls)
+        with self.transaction() as db:
+            self.driver(db, token)
+            self._not_halted(db, token)
+            # Host CLI and container workers need not share PID namespaces.
+            db.execute(
+                "INSERT INTO driver_concurrency VALUES(?,?,?,0) ON CONFLICT(token) DO UPDATE SET concurrent_jobs=excluded.concurrent_jobs,concurrent_calls=excluded.concurrent_calls",
+                (token, concurrent_jobs, concurrent_calls),
+            )
+
+    def halt(self, token: str):
+        with self.transaction() as db:
+            row = self.driver(db, token)
+            db.execute(
+                "INSERT INTO driver_concurrency VALUES(?,?,?,1) ON CONFLICT(token) DO UPDATE SET halted=1",
+                (token, row["concurrent_jobs"], row["concurrent_calls"]),
+            )
+
+    def register_job(self, token: str, job_id: str):
+        if str(UUID(job_id)) != job_id:
+            raise ValueError("INVALID_JOB_ID")
+        with self.transaction() as db:
+            row = self.driver(db, token)
+            self._healthy(db, token)
+            if db.execute("SELECT 1 FROM executions WHERE job_id=?", (job_id,)).fetchone():
+                raise Denied("LOCAL_JOB_ALREADY_REGISTERED")
+            count = db.execute(
+                "SELECT count(*) FROM executions WHERE token=? AND state!='FINISHED'", (token,)
+            ).fetchone()[0]
+            if count >= row["concurrent_jobs"]:
+                raise Busy("LOCAL_JOB_SLOTS_BUSY")
+            identity = process_identity(os.getpid())
+            if identity is None:
+                raise Denied("LOCAL_WORKER_IDENTITY_UNAVAILABLE")
+            db.execute(
+                "INSERT INTO executions VALUES(?,?,'PENDING',?,?)",
+                (job_id, token, os.getpid(), identity),
+            )
+
+    def register_worker(self, token: str, job_id: str, pid: int):
+        with self.transaction() as db:
+            self.driver(db, token)
+            self._not_halted(db, token)
+            identity = process_identity(pid)
+            if identity is None:
+                raise Denied("LOCAL_WORKER_IDENTITY_UNAVAILABLE")
+            changed = db.execute(
+                "UPDATE executions SET state='ACTIVE',pid=?,identity=? WHERE job_id=? AND token=? AND state='PENDING' AND EXISTS(SELECT 1 FROM grants WHERE job_id=? AND token=?)",
+                (pid, identity, job_id, token, job_id, token),
+            ).rowcount
+            if changed != 1:
+                raise Denied("LOCAL_JOB_NOT_REGISTERED")
+
+    def finish_job(self, token: str, job_id: str):
+        with self.transaction() as db:
+            self.driver(db, token)
+            db.execute(
+                "UPDATE executions SET state='FINISHED' WHERE job_id=? AND token=?", (job_id, token)
+            )
+
+    def check_worker(self, token: str, job_id: str):
+        with self.transaction() as db:
+            self.driver(db, token)
+            self._not_halted(db, token)
+            if not db.execute(
+                "SELECT 1 FROM grants WHERE job_id=? AND token=?", (job_id, token)
+            ).fetchone():
+                raise Denied("LOCAL_JOB_NOT_AUTHORIZED")
+            execution = db.execute(
+                "SELECT * FROM executions WHERE job_id=? AND token=?", (job_id, token)
+            ).fetchone()
+            if execution is None:
+                return  # Legacy serial authorization: reserve keeps its original strict boundary.
+            if execution["state"] == "PENDING":
+                if not self._live(execution):
+                    raise Denied("LOCAL_WORKER_LOST_REVIEW_REQUIRED")
+                raise Busy("LOCAL_WORKER_STARTING")
+            if (
+                execution["state"] != "ACTIVE"
+                or execution["pid"] != os.getpid()
+                or not self._live(execution)
+            ):
+                raise Denied("LOCAL_WORKER_NOT_AUTHORIZED")
 
     def grant(self, token: str, job_id: str):
         if str(UUID(job_id)) != job_id:
             raise ValueError("INVALID_JOB_ID")
         with self.transaction() as db:
             row = self.driver(db, token)
-            self.outstanding(db)
+            self._healthy(db, token)
             if db.execute("SELECT 1 FROM grants WHERE job_id=?", (job_id,)).fetchone():
                 raise Denied("LOCAL_JOB_ALREADY_AUTHORIZED")
             used = db.execute("SELECT count(*) FROM grants WHERE token=?", (token,)).fetchone()[0]
@@ -180,21 +363,37 @@ class Permit:
     ) -> str:
         with self.transaction() as db:
             row = self.driver(db, token)
-            # Only reservations held in this live Meter may overlap. A restarted worker
-            # has no in-memory charge IDs, so abandoned RESERVED calls still block.
+            self._not_halted(db, token)
             unresolved = db.execute(
                 "SELECT id,token,job_id,state FROM charges WHERE state!='SETTLED'"
             ).fetchall()
+            own = [r for r in unresolved if r["job_id"] == job_id and r["token"] == token]
             if (
                 len(active_charges) >= MAX_PARALLEL_TFT_CALLS
                 or len(set(active_charges)) != len(active_charges)
-                or {r["id"] for r in unresolved} != set(active_charges)
-                or any(
-                    r["state"] != "RESERVED" or r["token"] != token or r["job_id"] != job_id
-                    for r in unresolved
-                )
+                or {r["id"] for r in own} != set(active_charges)
+                or any(r["state"] != "RESERVED" for r in own)
             ):
                 raise Denied("LOCAL_COST_UNKNOWN_REVIEW_REQUIRED")
+            execution = db.execute(
+                "SELECT * FROM executions WHERE job_id=? AND token=?", (job_id, token)
+            ).fetchone()
+            if execution is not None:
+                if execution["state"] == "PENDING":
+                    if not self._live(execution):
+                        raise Denied("LOCAL_WORKER_LOST_REVIEW_REQUIRED")
+                    raise Busy("LOCAL_WORKER_STARTING")
+                if (
+                    execution["state"] != "ACTIVE"
+                    or execution["pid"] != os.getpid()
+                    or not self._live(execution)
+                ):
+                    raise Denied("LOCAL_WORKER_NOT_AUTHORIZED")
+                self._healthy(db, token)
+            elif len(own) != len(unresolved):
+                raise Denied("LOCAL_COST_UNKNOWN_REVIEW_REQUIRED")
+            if len(unresolved) >= row["concurrent_calls"]:
+                raise Busy("LOCAL_CALL_SLOTS_BUSY")
             if not db.execute(
                 "SELECT 1 FROM grants WHERE job_id=? AND token=?", (job_id, token)
             ).fetchone():

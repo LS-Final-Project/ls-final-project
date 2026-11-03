@@ -246,7 +246,7 @@ uv run --frozen --python 3.12 python -m scripts.local_business restart --namespa
 
 고아 QUEUED/RUNNING, 살아 있는 lease, 중단된 driver, 비용 RESERVED/UNKNOWN이 있으면 **enable-real·재시작을 중단하고 담당자에게 보고**한다. UI 재요청·setup 재실행·DB/permit 행 삭제·토큰 초기화로 우회하지 않는다. 현재 비용 journal은 미정산 예약을 발견하면 `LOCAL_COST_UNKNOWN_REVIEW_REQUIRED` 등으로 추가 허용을 거부한다. 고아 job의 일괄 자동 복구 CLI는 없다. 정규 stale lease 복구도 살아 있는 holder를 지우지 않는 기존 절차에 따라 담당자가 판단한다.
 
-**남은 운영 한계(P3):** POST 허용 확인은 원자적으로 예약하는 슬롯이 아니다. UI 작업은 한 번에 하나씩 요청하고 종료·허용 상태를 확인한 후 다음 작업을 보낸다. stop 도중 오류가 나면 전체 종료로 간주하지 말고 status와 실제 컨테이너·tunnel·lease·비용의 잔류 상태를 확인해 담당자에게 보고한다. 모든 고아 job의 start/restart 자동 거부나 복구 전용 CLI는 없다. usage·비용이 불명인 호출은 추가 허용 차단을 유지하며 disable-real·앱 재시작으로 자동 정산하거나 예약을 지우지 않는다. source46의 한정 실증 이후에도 최신 통합 전체 E2E와 각 PC의 재현은 별도 확인 대상이다.
+**남은 운영 한계(P3):** POST 허용 확인은 원자적으로 예약하는 슬롯이 아니다. 동시 처리 슬롯보다 많이 접수한 작업은 대기열에 남을 수 있다. 제한 모드의 총 작업 허용량과 동시 실행 수는 별개이며, 중단 후 남은 QUEUED 작업은 자동 재접수하지 않는다. stop 도중 오류가 나면 전체 종료로 간주하지 말고 status와 실제 컨테이너·tunnel·lease·비용의 잔류 상태를 확인해 담당자에게 보고한다. 모든 고아 job의 start/restart 자동 거부나 복구 전용 CLI는 없다. usage·비용이 불명인 호출은 추가 허용 차단을 유지하며 disable-real·앱 재시작으로 자동 정산하거나 예약을 지우지 않는다. source46의 한정 실증 이후에도 최신 통합 전체 E2E와 각 PC의 재현은 별도 확인 대상이다.
 
 status는 컨테이너와 실제 DB의 QUEUED/RUNNING/FAILED 상태·실패 코드·lease 유효 여부를 읽는다. `settings.json`의 코드 SHA와 실제 소비 이미지를 함께 기록한다. 로그는 `artifacts/local-business/$NS/logs/`, driver 결과·worker 로그는 `control/`에 있다. 자격 파일·원문·키·전체 환경은 공유하지 말고 고정 오류 코드·시각·job ID·코드 SHA만 전달한다. 이번 문서 정정·dev 정합 작업에서는 setup/start/적재/모델/DB를 추가 실행하지 않았다. 앞선 source46 실증, 최신 코드 정합, 각 PC의 재현과 전체 업무·운영 완료를 각각 구분해 기록한다.
 
@@ -255,3 +255,30 @@ status는 컨테이너와 실제 DB의 QUEUED/RUNNING/FAILED 상태·실패 코�
 로컬 dispatcher의 작업당 총수명 기본값은 1,800초다. 운영자가 검증한 driver 실행 환경에 `LOCAL_WORKER_TIMEOUT_SECONDS`를 명시하면 그 실행의 유한 양의 정수 초로 변경할 수 있다(예: 긴 문서 1회 검증에 `7200`). 이 값은 컨테이너 안 dispatcher 설정이며, 호스트 `.env`나 bootstrap/enable CLI에서 자동 전달하지 않는다. 기존 driver나 진행 중인 작업에 소급 적용되지 않는다.
 
 `--unlimited`는 이 총수명 제한을 해제하지 않는다. SDK 단일 호출 timeout·재시도 설정·lease·UNKNOWN 차단도 그대로다. 총수명을 넘으면 기존 중단 경로로 종료하고 원장·업무 상태를 보존한다. 자동 재처리하지 말고 결과와 미정산을 확인한다.
+
+
+### RFP 여러 건 동시 처리와 공통 AI 호출 수
+
+새 concurrency protocol을 포함한 snapshot에서는 RFP 작업 수와 **전체 작업이 함께 사용하는 AI 동시 호출 수**를 따로 설정한다. 기본값은 작업 1건·공통 호출 6개다. 다음은 작업 최대 6건, 전체 AI 호출 최대 6개로 실행하는 예시다. `--unlimited`는 총 작업/호출 횟수와 도구 비용 제한만 해제하며 아래 동시 실행 제한과 Google의 할당량은 유지한다.
+
+```bash
+uv run --frozen --python 3.12 python -m scripts.local_business enable-real \
+  --namespace "$NS" --owner tft \
+  --key-file '/absolute/path/to/private/key-file' \
+  --prices-file '/absolute/path/to/confirmed/prices.json' \
+  --model gemini-3.6-flash --unlimited \
+  --concurrent-jobs 6 --concurrent-calls 6
+```
+
+새 환경을 만드는 `scripts.local_business.bootstrap --enable-model tft`에도 같은 두 옵션을 전달할 수 있다. 기존 snapshot에는 `git pull`만으로 적용되지 않는다. 새 지원 snapshot 설치 또는 검증된 환경 업데이트가 필요하다. CLI는 permit/dispatcher/worker/runtime의 protocol을 키 접근·원장 허가·컨테이너 생성보다 먼저 확인하여 구판 혼합 실행을 거부한다.
+
+실행 중 다음 명령으로 두 값을 함께 변경할 수 있다. 작업·원장·활성 토큰을 재생성하지 않는다. 양의 정수만 허용하며 C/S 작업은 계속 1건씩 실행한다.
+
+```bash
+uv run --frozen --python 3.12 python -m scripts.local_business set-concurrency \
+  --namespace "$NS" --concurrent-jobs 6 --concurrent-calls 6
+```
+
+값을 낮춰도 이미 실행 중인 작업이나 호출을 취소하지 않는다. 기존 실행이 끝나 슬롯이 비면 새 요청부터 낮은 상한을 적용한다. 한 문서 내부의 병렬 분석은 최대 6개이며, 여러 문서가 공통 AI 슬롯을 나눠 쓴다. 분당 요청 수 제한이나 작업별 공평한 슬롯 배분을 보장하는 기능은 아니다. 같은 프로젝트의 중복 처리 금지와 정규 worker의 lease·권한 규칙은 유지한다.
+
+새 작업은 활성화 시각 이후의 정상 접수만 선택한다. SDK 호출 전 SQLite 트랜잭션에서 공통 슬롯을 예약하고 응답을 정산한 뒤 반환한다. 정상 진행 중인 다른 작업의 예약은 오류로 취급하지 않는다. UNKNOWN/worker 실패를 발견하면 새 접수·호출을 막고 다른 진행 중 호출은 정산하도록 기다린다. 각 worker의 기존 총수명은 유지하며, 명시적인 `disable-real`은 실행 중 worker도 종료하므로 미정산이 남을 수 있다. 프로세스 중단·lease 상실 후 자동 재처리나 비용 삭제는 하지 않는다.

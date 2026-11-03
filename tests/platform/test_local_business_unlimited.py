@@ -17,10 +17,10 @@ from scripts.local_business.permit import Permit
 
 
 def supported_snapshot(state):
-    for name in ("permit.py", "dispatcher.py", "runtime.py"):
+    for name in ("permit.py", "dispatcher.py", "runtime.py", "worker.py"):
         path = state / "source/scripts/local_business" / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("UNLIMITED_PROTOCOL = 1\n")
+        path.write_text("UNLIMITED_PROTOCOL = 1\nCONCURRENCY_PROTOCOL = 1\n")
 
 
 @pytest.mark.parametrize("missing", ["permit.py", "dispatcher.py", "runtime.py"])
@@ -145,6 +145,8 @@ def test_bootstrap_cli_forwards_limits(tmp_path, monkeypatch, unlimited):
         "reserve_usd": "0.15",
         "budget_usd": "1.50",
         "unlimited": unlimited,
+        "concurrent_jobs": 1,
+        "concurrent_calls": 6,
     }
     assert not state.exists()
 
@@ -245,7 +247,10 @@ def test_bootstrap_unlimited_ready_needs_explicit_matching_marker(tmp_path, monk
 
     def command(args, *a):
         if "enable-real" in args:
-            save(tmp_path / "control/enabled.json", marker)
+            save(
+                tmp_path / "control/enabled.json",
+                {**marker, "concurrent_jobs": 1, "concurrent_calls": 6},
+            )
 
     commands = Mock(side_effect=command)
     monkeypatch.setattr(bootstrap, "command", commands)
@@ -340,11 +345,17 @@ def test_dispatcher_until_explicit_stop_uses_actual_permit(
 
     class Child:
         def __init__(self, *args, **kw):
-            charge = p.reserve(token, kw["env"]["LOCAL_JOB_ID"], "fake-only")
-            assert p.settle(charge, actual_usd="0.01") is None
+            self.pid = dispatcher.os.getpid()
+            self.job = kw["env"]["LOCAL_JOB_ID"]
             self.polls = iter([None, 0])
+            self.charged = False
 
         def poll(self):
+            # Parent registration precedes any worker SDK reservation.
+            if not self.charged:
+                charge = p.reserve(token, self.job, "fake-only")
+                assert p.settle(charge, actual_usd="0.01") is None
+                self.charged = True
             return next(self.polls)
 
         def terminate(self):
