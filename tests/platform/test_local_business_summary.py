@@ -1,0 +1,445 @@
+"""Offline summary bridge integration: real HTTP + permission ledger, fake model only."""
+
+import json
+import threading
+from datetime import date
+from decimal import Decimal
+from pathlib import Path
+from types import SimpleNamespace
+from uuid import uuid4
+
+import httpx
+import pytest
+
+from backend.engine.cs.summary import build_summary_input, render_prompt
+from backend.shared import ai
+from backend.shared.errors import ApplicationError
+from scripts.local_business import summary
+from scripts.local_business.permit import Denied, Permit
+from scripts.local_business.worker import Configuration, Meter
+
+
+@pytest.fixture(autouse=True)
+def local_environment(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "local")
+    monkeypatch.delenv("K_SERVICE", raising=False)
+
+
+@pytest.fixture
+def ledger(tmp_path):
+    permit = Permit(tmp_path / "permit.sqlite3")
+    token = permit.authorize(max_jobs=2, max_calls=2, reserve_usd=".15")
+    return permit, token
+
+
+@pytest.fixture
+def prompt():
+    return render_prompt(
+        build_summary_input(
+            {
+                "channel": "EMAIL",
+                "body_language": "en",
+                "body": "The inverter is noisy.",
+                "subject": "Noise",
+            }
+        )
+    )
+
+
+def fake_factory(permit, token, control, model):
+    job = uuid4()
+    permit.grant(token, str(job))
+    config = Configuration("cs", job, token, control, Path("/unused"), Path("/unused"))
+    prices = {
+        model: ai.ModelPrice(
+            currency="USD",
+            as_of=date(2026, 11, 3),
+            input_per_million=Decimal(1),
+            output_per_million=Decimal(1),
+            cached_input_per_million=Decimal(0),
+        )
+    }
+    meter = Meter(permit, config, prices)
+
+    def provide(prompt):
+        response = meter.generate(
+            lambda **kw: SimpleNamespace(
+                usage_metadata=SimpleNamespace(
+                    prompt_token_count=10,
+                    candidates_token_count=4,
+                    thoughts_token_count=0,
+                    total_token_count=14,
+                )
+            ),
+            model=model,
+        )
+        assert response
+        return ai.Generation(
+            '{"summary_ko":"인버터 소음 문의임."}',
+            ai.Usage(10, 4, 0, 0, 14),
+            "fake-model-version",
+            [],
+            model=model,
+            elapsed_ms=1,
+        )
+
+    return provide
+
+
+def post(bridge, prompt, auth=None):
+    return httpx.post(
+        f"http://127.0.0.1:{bridge.server.server_port}/summary",
+        headers={"Authorization": (auth or "Bearer " + bridge.capability).encode("latin1")},
+        json={"prompt": prompt},
+        trust_env=False,
+    )
+
+
+def test_authenticated_summary_and_analysis_share_jobs_calls_and_usage(ledger, tmp_path, prompt):
+    permit, token = ledger
+    # One analysis job already consumed the shared grant/call budget.
+    fake_factory(permit, token, tmp_path, "fake-model")(prompt)
+    bridge = summary.SummaryBridge(
+        permit,
+        token,
+        tmp_path,
+        "fake-model",
+        threading.Lock(),
+        address=("127.0.0.1", 0),
+        factory=fake_factory,
+    )
+    try:
+        assert post(bridge, prompt, auth="Bearer wrong").status_code == 403
+        assert post(bridge, "arbitrary prompt").status_code == 400
+        result = post(bridge, prompt)
+        assert result.status_code == 200
+        assert result.json()["usage"]["total_tokens"] == 14
+        assert post(bridge, prompt).status_code == 503
+        with permit.transaction() as db:
+            assert db.execute("SELECT count(*) FROM grants").fetchone()[0] == 2
+            rows = db.execute("SELECT * FROM charges").fetchall()
+        assert len(rows) == 2 and all(r["state"] == "SETTLED" for r in rows)
+    finally:
+        bridge.close()
+
+
+def test_worker_lock_blocks_summary_without_grant_and_old_capability_rejected(
+    ledger, tmp_path, prompt
+):
+    permit, token = ledger
+    lock = threading.Lock()
+    lock.acquire()
+    bridge = summary.SummaryBridge(
+        permit, token, tmp_path, "fake-model", lock, address=("127.0.0.1", 0), factory=fake_factory
+    )
+    try:
+        assert post(bridge, prompt).status_code == 503
+        assert post(bridge, prompt, auth="Bearer é").status_code == 403
+        with permit.transaction() as db:
+            assert db.execute("SELECT count(*) FROM grants").fetchone()[0] == 0
+        old_capability = bridge.capability
+    finally:
+        lock.release()
+        bridge.close()
+    new = summary.SummaryBridge(
+        permit, token, tmp_path, "fake-model", lock, address=("127.0.0.1", 0), factory=fake_factory
+    )
+    try:
+        assert post(new, prompt, auth="Bearer " + old_capability).status_code == 403
+        assert post(new, prompt).status_code == 200
+    finally:
+        new.close()
+
+
+def test_unknown_spend_halts_bridge_and_future_driver(ledger, tmp_path, prompt):
+    permit, token = ledger
+
+    def unknown(permit, token, control, model):
+        job = str(uuid4())
+        permit.grant(token, job)
+        charge = permit.reserve(token, job, model)
+
+        def call(prompt):
+            permit.settle(charge, actual_usd=None)
+            raise RuntimeError("private provider payload")
+
+        return call
+
+    bridge = summary.SummaryBridge(
+        permit,
+        token,
+        tmp_path,
+        "fake-model",
+        threading.Lock(),
+        address=("127.0.0.1", 0),
+        factory=unknown,
+    )
+    try:
+        result = post(bridge, prompt)
+        assert result.status_code == 503
+        assert "private" not in result.text
+        assert bridge.failed
+        assert post(bridge, prompt).status_code == 503
+    finally:
+        bridge.close()
+    permit.close_driver(token)
+    with pytest.raises(Denied, match="LOCAL_COST_UNKNOWN_REVIEW_REQUIRED"):
+        permit.authorize(max_jobs=1, max_calls=1, reserve_usd=".15")
+
+
+def test_provider_disabled_or_stale_marker_never_opens_transport(tmp_path, monkeypatch):
+    monkeypatch.setattr(httpx, "Client", lambda **kw: pytest.fail("No connection allowed"))
+    provider = summary.bridge_provider(tmp_path)
+    with pytest.raises(ApplicationError) as error:
+        provider("unused")
+    assert error.value.status_code == 503
+    (tmp_path / "control").mkdir()
+    (tmp_path / "control/enabled.json").write_text(
+        json.dumps({"mode": "real", "owner": "tft", "remaining_jobs": 1})
+    )
+    with pytest.raises(ApplicationError):
+        provider("unused")
+
+
+@pytest.mark.parametrize("failure", [False, True])
+def test_real_metered_provider_fake_sdk_only(ledger, tmp_path, prompt, monkeypatch, failure):
+    from scripts.local_business.worker import LocalStop
+
+    permit, token = ledger
+    key = tmp_path / "fake-key"
+    key.write_text("synthetic-test-key")
+    original_config = summary.Configuration
+    monkeypatch.setattr(
+        summary, "Configuration", lambda *args: original_config(*args[:4], key, tmp_path / "prices")
+    )
+    price = ai.ModelPrice(
+        currency="USD",
+        as_of=date(2026, 11, 3),
+        input_per_million=Decimal(1),
+        output_per_million=Decimal(1),
+        cached_input_per_million=Decimal(0),
+    )
+    monkeypatch.setattr(ai, "load_price_table", lambda p: {"fake-model": price})
+    calls = []
+
+    def generate(**kwargs):
+        calls.append(kwargs)
+        if failure:
+            raise TimeoutError("private payload")
+        usage = SimpleNamespace(
+            prompt_token_count=10,
+            candidates_token_count=4,
+            thoughts_token_count=0,
+            total_token_count=14,
+            cached_content_token_count=0,
+            model_dump=lambda **kw: {},
+        )
+        return SimpleNamespace(
+            text='{"summary_ko":"소음 문의임."}',
+            usage_metadata=usage,
+            model_version="fake-model-001",
+            candidates=[],
+        )
+
+    monkeypatch.setattr(
+        ai,
+        "create_client",
+        lambda s: SimpleNamespace(models=SimpleNamespace(generate_content=generate)),
+    )
+    provider = summary.metered_provider(permit, token, tmp_path, "fake-model")
+    if failure:
+        with pytest.raises(LocalStop, match="LOCAL_PROVIDER_CALL_FAILED"):
+            provider(prompt)
+    else:
+        result = provider(prompt)
+        assert result.model == "fake-model" and result.usage.total_tokens == 14
+    assert len(calls) == 1
+    with permit.transaction() as db:
+        row = db.execute("SELECT * FROM charges").fetchone()
+    assert row["state"] == ("UNKNOWN" if failure else "SETTLED")
+
+
+def test_local_runtime_cached_summary_get_and_post_need_no_driver(tmp_path, monkeypatch):
+    from contextlib import asynccontextmanager
+    from datetime import UTC, datetime
+    from unittest.mock import AsyncMock
+
+    from fastapi.testclient import TestClient
+
+    from backend.api.cs.summary import routes
+    from backend.engine.cs.summary import (
+        SUMMARY_INPUT_VERSION,
+        SUMMARY_PROMPT_VERSION,
+        input_sha256,
+    )
+    from backend.shared.access import Principal, current_principal
+    from scripts.local_business import runtime
+
+    # Reuse the real runtime fixture; its synthetic signing keys never leave this test.
+    from tests.platform.test_local_business_integration import local_state
+
+    state = local_state.__wrapped__(tmp_path, monkeypatch)
+    app = runtime.app_for("cs", state)
+    principal = Principal(user_id=uuid4(), roles={"cs_agent"})
+    app.dependency_overrides[current_principal] = lambda: principal
+    ticket_id = uuid4()
+    ticket = {
+        "channel": "EMAIL",
+        "body_language": "en",
+        "subject": "Noise",
+        "body": "Noisy inverter.",
+    }
+    row = {
+        "id": uuid4(),
+        "ticket_id": ticket_id,
+        "summary_ko": "인버터 소음 문의임.",
+        "input_sha256": input_sha256(build_summary_input(ticket)),
+        "prompt_version": SUMMARY_PROMPT_VERSION,
+        "input_version": SUMMARY_INPUT_VERSION,
+        "requested_model": "fake-model",
+        "model_version": "fake-model-001",
+        "outcome": "VALID",
+        "error_code": None,
+        "created_at": datetime.now(UTC),
+    }
+
+    @asynccontextmanager
+    async def connection(*a):
+        yield object()
+
+    monkeypatch.setattr(routes, "connection", connection)
+    monkeypatch.setattr(routes, "load", AsyncMock(return_value=ticket))
+    monkeypatch.setattr(routes.repository, "matching", AsyncMock(return_value=row))
+    monkeypatch.setattr(routes.repository, "latest", AsyncMock(return_value=row))
+    monkeypatch.setattr(
+        httpx, "Client", lambda **kw: pytest.fail("Cached route must not call bridge")
+    )
+    # TestClient itself subclasses httpx.Client and was imported before the transport guard.
+    with TestClient(app) as client:
+        path = f"/api/v1/cs/tickets/{ticket_id}/summary"
+        got = client.get(path)
+        assert got.status_code == 200, got.text
+        reused = client.post(path)
+        assert reused.status_code == 200, reused.text
+        assert reused.json()["data"]["summary"]["summary_ko"] == row["summary_ko"]
+        monkeypatch.setattr(routes.repository, "matching", AsyncMock(return_value=None))
+        denied = client.post(path)
+        assert denied.status_code == 503
+        assert denied.json()["error"]["code"] == "LOCAL_SUMMARY_UNAVAILABLE"
+        # A connected local provider uses the driver-selected model in the saved attempt.
+        saved = []
+
+        async def insert(conn, values):
+            saved.append(values.copy())
+            return {**row, **values}
+
+        monkeypatch.setattr(routes.repository, "insert", insert)
+        app.state.summary_provider = lambda prompt: ai.Generation(
+            '{"summary_ko":"인버터 소음 문의임."}',
+            ai.Usage(10, 4, 0, 0, 14),
+            "selected-version",
+            [],
+            model="selected-model",
+            elapsed_ms=1,
+        )
+        made = client.post(path)
+        assert made.status_code == 201, made.text
+        assert saved[-1]["requested_model"] == "selected-model"
+        assert saved[-1]["input_tokens"] == 10
+        app.state.summary_provider = lambda prompt: ai.Generation(
+            '{"summary_ko":"99999대 교체 승인됨."}',
+            ai.Usage(10, 4, 0, 0, 14),
+            "selected-version",
+            [],
+            model="selected-model",
+            elapsed_ms=1,
+        )
+        invalid = client.post(path)
+        assert invalid.status_code == 502
+        assert saved[-1]["outcome"] == "INVALID_OUTPUT"
+        assert "summary_ko" not in saved[-1]
+
+
+def test_production_summary_bridge_is_forbidden(ledger, tmp_path, monkeypatch):
+    permit, token = ledger
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    with pytest.raises(RuntimeError, match="LOCAL_RUNNER_REQUIRES_LOCAL_ENVIRONMENT"):
+        summary.SummaryBridge(permit, token, tmp_path, "fake-model", threading.Lock())
+    with permit.transaction() as db:
+        assert db.execute("SELECT count(*) FROM grants").fetchone()[0] == 0
+
+
+def test_tracing_rejected_before_summary_grant_or_key_access(ledger, tmp_path, monkeypatch):
+    permit, token = ledger
+    monkeypatch.setenv("LANGSMITH_TRACING", "true")
+    monkeypatch.setattr(ai, "create_client", lambda *a: pytest.fail("No client allowed"))
+    with pytest.raises(ValueError):
+        summary.metered_provider(permit, token, tmp_path, "fake-model")
+    with permit.transaction() as db:
+        assert db.execute("SELECT count(*) FROM grants").fetchone()[0] == 0
+
+
+def test_dispatcher_counts_summary_grant_before_admitting_analysis(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    from datetime import UTC, datetime
+
+    from scripts.local_business import dispatcher
+
+    control = tmp_path / "control"
+    control.mkdir()
+    permit = Permit(control / "permit.sqlite3")
+    token = permit.authorize(max_jobs=1, max_calls=1, reserve_usd=".15")
+    credentials = tmp_path / "fake-credentials.json"
+    credentials.write_text(json.dumps({"platform_app": "fake-dsn", "local_cs_worker": "fake-dsn"}))
+    (tmp_path / "settings.json").write_text(json.dumps({"namespace": "team4-kan159-test"}))
+    for k, v in {
+        "LOCAL_BUSINESS_STATE": str(tmp_path),
+        "LOCAL_BUSINESS_CONTROL": str(control),
+        "LOCAL_DRIVER_TOKEN": token,
+        "LOCAL_JOB_OWNER": "cs",
+        "LOCAL_MODEL": "fake-model",
+    }.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setattr(
+        dispatcher,
+        "Path",
+        lambda p: credentials if str(p) == "/local/secrets/worker-db.json" else Path(p),
+    )
+    monkeypatch.setattr(dispatcher, "Settings", lambda **kw: object())
+    monkeypatch.setattr(dispatcher, "corpus_check", lambda *a: None)
+    monkeypatch.setattr(dispatcher.signal, "signal", lambda *a: None)
+    monkeypatch.setattr(
+        dispatcher, "candidate", lambda *a: pytest.fail("Summary exhausted shared job limit")
+    )
+
+    @contextmanager
+    def connect(*a, **kw):
+        yield SimpleNamespace(
+            execute=lambda *a: SimpleNamespace(fetchone=lambda: (datetime.now(UTC),))
+        )
+
+    monkeypatch.setattr(dispatcher.psycopg, "connect", connect)
+    closed = []
+
+    class Bridge:
+        def __init__(self, p, t, c, m, lock):
+            self.failed = False
+            self.capability = "synthetic-capability"
+            fake_factory(p, t, c, m)("unused")
+
+        def close(self):
+            # Driver token remains valid through bridge shutdown/settlement.
+            with permit.transaction() as db:
+                permit.driver(db, token)
+                assert (
+                    db.execute("SELECT count(*) FROM charges WHERE state='SETTLED'").fetchone()[0]
+                    == 1
+                )
+            closed.append(True)
+
+    monkeypatch.setattr(summary, "SummaryBridge", Bridge)
+    dispatcher.main()
+    assert closed == [True]
+    assert not (control / "enabled.json").exists()
+    with permit.transaction() as db:
+        assert db.execute("SELECT token FROM driver").fetchone()[0] is None

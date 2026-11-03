@@ -6,6 +6,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from uuid import UUID
@@ -84,10 +85,15 @@ def main():
     marker = control / "enabled.json"
     stopped = False
     child = None
+    bridge = None
+    execution_lock = threading.Lock()
+    summary_marker = {}
 
     def stop(_signal, _frame):
         nonlocal stopped
         stopped = True
+        if bridge is not None:
+            bridge.accepting = False
         if child is not None:
             child.terminate()
 
@@ -106,12 +112,35 @@ def main():
             permission = permit.driver(db, token)
             limit_mode = permission["limit_mode"]
             limit = None if limit_mode == "unlimited" else permission["job_limit"]
+        if owner == "cs":
+            from scripts.local_business.summary import SummaryBridge
+
+            bridge = SummaryBridge(
+                permit, token, control, os.environ["LOCAL_MODEL"], execution_lock
+            )
+            namespace = json.loads((state / "settings.json").read_text())["namespace"]
+            summary_marker = {
+                "summary_bridge": {
+                    "host": namespace + "-driver-" + token[:8],
+                    "capability": bridge.capability,
+                }
+            }
         used = 0
         stage = "LOCAL_DRIVER_FAILED"
-        while not stopped and (limit is None or used < limit):
+        while not stopped:
+            with permit.transaction() as db:
+                permit.driver(db, token)
+                used = db.execute("SELECT count(*) FROM grants WHERE token=?", (token,)).fetchone()[
+                    0
+                ]
+            if bridge is not None and bridge.failed:
+                raise Denied("LOCAL_SUMMARY_FAILED_REVIEW_REQUIRED")
+            if limit is not None and used >= limit:
+                break
             save(
                 marker,
                 {
+                    **summary_marker,
                     "mode": "real",
                     "owner": owner,
                     "started_after": after.isoformat(),
@@ -119,8 +148,12 @@ def main():
                     "remaining_jobs": None if limit is None else limit - used,
                 },
             )
+            if not execution_lock.acquire(blocking=False):
+                time.sleep(0.5)
+                continue
             row = candidate(settings, owner, after)
             if row is None:
+                execution_lock.release()
                 time.sleep(0.5)
                 continue
             job = str(row["id"])
@@ -175,6 +208,7 @@ def main():
                 save(
                     marker,
                     {
+                        **summary_marker,
                         "mode": "real",
                         "owner": owner,
                         "started_after": after.isoformat(),
@@ -200,6 +234,7 @@ def main():
                 raise Denied("LOCAL_WORKER_FAILED_REVIEW_REQUIRED")
             with permit.transaction() as db:
                 permit.outstanding(db)
+            execution_lock.release()
     except Exception as error:
         # Never log a DSN/provider body. Safe reason is a fixed locally generated code only.
         reason = str(error) if isinstance(error, Denied) else stage
@@ -209,6 +244,8 @@ def main():
         )
         raise SystemExit(reason) from None
     finally:
+        if bridge is not None:
+            bridge.close()
         marker.unlink(missing_ok=True)
         permit.close_driver(token)
 
