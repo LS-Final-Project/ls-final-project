@@ -5,9 +5,12 @@ A C/S agent sees the same overview limited to tickets they own. Customer history
 tickets, so it needs the full ticket scope.
 """
 
+import json
+import logging
 import re
+import time
 from datetime import datetime
-from typing import Annotated, get_args
+from typing import Annotated, Any, get_args
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
@@ -42,6 +45,8 @@ from backend.shared.departments import TransferDepartment
 from backend.shared.errors import ApplicationError
 from backend.shared.models import CUSTOMER_ID, ErrorResponse, SuccessResponse
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(
     prefix="/api/v1/cs/stats",
     tags=["stats"],
@@ -61,6 +66,46 @@ STATES = get_args(WorkflowState)
 Start = Annotated[datetime | None, Query(description="Inclusive, with a time zone.")]
 End = Annotated[datetime | None, Query(description="Exclusive, with a time zone.")]
 Customer = Annotated[str | None, Query(pattern=f"^{CUSTOMER_ID}$")]
+
+
+# The SLA rule inputs are read once and shared by /overview and /owners for a short time.
+# Both endpoints open together on the stats screen and would otherwise read and compute the
+# same open tickets twice. Entries expire after SLA_ROWS_TTL seconds; nothing is stored.
+SLA_ROWS_TTL = 30.0
+_sla_rows: dict[str, tuple[float, list[Any]]] = {}
+
+
+async def shared_sla_rows(conn: Any, p: dict[str, Any]) -> list[Any]:
+    key = json.dumps(p, default=str, sort_keys=True)
+    now = time.monotonic()
+    hit = _sla_rows.get(key)
+    if hit and hit[0] > now:
+        return hit[1]
+    rows = await repository.sla_tickets(conn, p)
+    for stale in [k for k, (expires, _) in _sla_rows.items() if expires <= now]:
+        _sla_rows.pop(stale, None)
+    if len(_sla_rows) >= 32:
+        _sla_rows.clear()
+    _sla_rows[key] = (now + SLA_ROWS_TTL, rows)
+    return rows
+
+
+async def recurrence_after_completion(
+    conn: Any, faults: list[Any], documents: int, limited: bool, now: Any
+) -> RecurrenceCount | None:
+    """KAN-117 signal over the most recent completed fault requests. Any failure makes the
+    whole count null (contract: null when it cannot be computed), never the overview."""
+    try:
+        recurrence = 0
+        for row in faults:
+            signal, _ = await signal_for(conn, row, now)
+            recurrence += signal.decision == "RECURRENCE"
+    except Exception:  # noqa: BLE001 - 보조 집계라 실패해도 개요 전체를 막지 않는다.
+        logger.warning("CS_STATS_RECURRENCE_FAILED")
+        return None
+    return RecurrenceCount(
+        checked=len(faults), recurrence=recurrence, not_applicable=documents, limited=limited
+    )
 
 
 def period(start: datetime | None, end: datetime | None) -> Period:
@@ -102,15 +147,14 @@ async def overview(
         departments = await repository.departments(conn, p)
         customers = await repository.top_customers(conn, p)
         now = await improvement_repository.database_now(conn)
-        sla_rows = await repository.sla_tickets(conn, p)
+        sla_rows = await shared_sla_rows(conn, p)
         improvements = None
         if scope == "ALL":
             groups, totals = await repository.improvements(conn, p)
-            faults, documents = await repository.completed_fault_requests(conn, p)
-            recurrence = 0
-            for row in faults:
-                signal, _ = await signal_for(conn, row, now)
-                recurrence += signal.decision == "RECURRENCE"
+            faults, documents, limited = await repository.completed_fault_requests(conn, p)
+            recurrence_count = await recurrence_after_completion(
+                conn, faults, documents, limited, now
+            )
             by_status: dict[str, int] = {}
             by_type = {"FAULT": 0, "DOCUMENT": 0}
             for row in groups:
@@ -125,9 +169,7 @@ async def overview(
                 info_requested=totals["info_requested"],
                 rejected=totals["rejected"],
                 reply_overdue=totals["reply_overdue"],
-                recurrence_after_completion=RecurrenceCount(
-                    checked=len(faults), recurrence=recurrence, not_applicable=documents
-                ),
+                recurrence_after_completion=recurrence_count,
             )
     data = Overview(
         scope=scope,  # type: ignore[arg-type]
@@ -180,7 +222,7 @@ async def owners(
     async with connection(request.app.state.settings) as conn:
         rows = await repository.owners(conn, p)
         now = await improvement_repository.database_now(conn)
-        deadlines = sla.by_owner(await repository.sla_tickets(conn, p), now)
+        deadlines = sla.by_owner(await shared_sla_rows(conn, p), now)
         requests = await repository.owner_requests(conn, dept)
     empty = {"due_today": 0, "overdue": 0, "sla_unknown": 0}
     items = [

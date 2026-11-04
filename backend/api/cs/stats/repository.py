@@ -204,23 +204,38 @@ async def improvements(conn: AsyncConnection[Row], p: Row) -> tuple[list[Row], R
     return groups, {**totals, "completed_in_period": completed["n"]}
 
 
-async def completed_fault_requests(conn: AsyncConnection[Row], p: Row) -> tuple[list[Row], int]:
-    """Completed requests in the overview's request filter: fault requests (full rows, for the
-    KAN-117 recurrence signal) and the number of document requests, which have no signal."""
+# Completed requests are counted by when they were completed (completed_at), the same as
+# completed_in_period. The recurrence signal runs per request, so only the most recent
+# RECURRENCE_LIMIT completed fault requests are checked; `limited` says when more exist.
+COMPLETED_REQUESTS = (
+    "\nFROM cs.improvement_requests r\nWHERE "
+    + IN_PERIOD.format(col="r.completed_at")
+    + REQUEST_SCOPE
+    + " AND r.status = 'COMPLETED'"
+)
+RECURRENCE_LIMIT = 200
+
+
+async def completed_fault_requests(
+    conn: AsyncConnection[Row], p: Row
+) -> tuple[list[Row], int, bool]:
+    """Completed requests in the overview's filter, by completion time: the most recent fault
+    requests (full rows, for the KAN-117 recurrence signal), the number of document requests,
+    which have no signal, and whether more fault requests exist than were returned."""
     cursor = await conn.execute(
-        f"SELECT {improvement_repository.REQUEST_COLUMNS} {REQUESTS} "
-        "AND r.status = 'COMPLETED' AND r.request_type = 'FAULT' ORDER BY r.id",
-        p,
+        f"SELECT {improvement_repository.REQUEST_COLUMNS} {COMPLETED_REQUESTS} "
+        "AND r.request_type = 'FAULT' ORDER BY r.completed_at DESC, r.id LIMIT %(recurrence_limit)s",
+        {**p, "recurrence_limit": RECURRENCE_LIMIT + 1},
     )
     faults = await cursor.fetchall()
+    limited = len(faults) > RECURRENCE_LIMIT
     cursor = await conn.execute(
-        f"SELECT count(*) AS n {REQUESTS} AND r.status = 'COMPLETED' "
-        "AND r.request_type = 'DOCUMENT'",
+        f"SELECT count(*) AS n {COMPLETED_REQUESTS} AND r.request_type = 'DOCUMENT'",
         p,
     )
     documents = await cursor.fetchone()
     assert documents is not None
-    return faults, documents["n"]
+    return faults[:RECURRENCE_LIMIT], documents["n"], limited
 
 
 async def owner_requests(conn: AsyncConnection[Row], dept: str | None) -> dict[Any, int]:

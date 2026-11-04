@@ -273,6 +273,7 @@ def test_improvement_side_counts_and_recurrence(client, admin, seed):
         "checked": 1,
         "recurrence": 0,
         "not_applicable": 1,
+        "limited": False,
     }
     # 담당자 화면의 SLA는 본인 담당 범위에서만 센다.
     agent = Principal(user_id=seed.owner, roles={"cs_agent"})

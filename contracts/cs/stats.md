@@ -47,4 +47,5 @@
 - `completed_in_period`: 지금 `COMPLETED`이고 `completed_at`이 기간 안인 요청(작성 시각 무관). 나머지 칸은 기존처럼 작성 시각 기준이다.
 - `info_requested`: 열린 요청 중 현재 회차 수신 부서에 `INFO_REQUESTED`가 있는 요청 수. `rejected`: 현재 회차 수신 부서에 `REJECTED`가 있는 요청 수(반려 종료 포함).
 - `reply_overdue`: 열린 요청 중 현재 회차 수신 부서의 `reply_due_at`이 지났는데 그 회차에 그 부서 회신(`dept_replies`)이 없는 요청 수.
-- `recurrence_after_completion`: 완료(`COMPLETED`) 고장 요청마다 KAN-117 재발 판정(`followup-signals`와 같은 계산, 지금 시각)을 돌린 결과. `checked` 판정한 요청 수, `recurrence` 판정이 `RECURRENCE`인 수, `not_applicable` 판정 대상이 아닌 완료 문서 요청 수. 계산하지 못하면 null.
+- `recurrence_after_completion`: 기간 안에 **완료된**(`completed_at` 기준, `completed_in_period`와 같은 기준) 고장 요청마다 KAN-117 재발 판정(`followup-signals`와 같은 계산, 지금 시각)을 돌린 결과. 요청마다 조회가 여러 번 나가므로 가장 최근 완료 200건만 판정하고, 더 있으면 `limited`가 true다. `checked` 판정한 요청 수, `recurrence` 판정이 `RECURRENCE`인 수, `not_applicable` 판정 대상이 아닌 완료 문서 요청 수. 판정 중 오류가 나면 이 칸만 null이고 개요의 다른 값은 그대로 준다.
+- SLA 계산 입력(진행 중 문의 전체와 기간 안 접수·종결 문의)은 `/overview`와 `/owners`가 같은 조건이면 30초 동안 한 번 읽은 결과를 함께 쓴다(같은 화면이 두 경로를 함께 부르므로). 저장하지 않으며 30초 안의 변경은 다음 조회에 반영된다.

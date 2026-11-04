@@ -76,3 +76,56 @@ def test_owner_due_today_uses_the_seoul_calendar_day():
     # 서울 12:00 기준, 기한 11시간 뒤(23:00)는 오늘, 13시간 뒤(다음 날 01:00)는 아니다.
     counts = sla.by_owner([row(61), row(59)], NOW)
     assert counts[None] == {"due_today": 1, "overdue": 0, "sla_unknown": 0}
+
+
+# ── 리뷰 P2: 재발 집계 실패는 그 칸만 null, SLA 입력은 두 경로가 함께 쓴다 ──
+import asyncio  # noqa: E402
+
+from backend.api.cs.stats import routes as stats_routes  # noqa: E402
+
+
+def test_recurrence_failure_is_null_not_an_overview_error(monkeypatch):
+    async def boom(conn, row, now):
+        raise RuntimeError("signal failed")
+
+    monkeypatch.setattr(stats_routes, "signal_for", boom)
+    result = asyncio.run(stats_routes.recurrence_after_completion(None, [{"id": 1}], 2, False, NOW))
+    assert result is None
+
+
+def test_recurrence_counts_and_limited_flag(monkeypatch):
+    class Signal:
+        def __init__(self, decision):
+            self.decision = decision
+
+    decisions = iter(["RECURRENCE", "NONE", "RECURRENCE"])
+
+    async def fake(conn, row, now):
+        return Signal(next(decisions)), None
+
+    monkeypatch.setattr(stats_routes, "signal_for", fake)
+    result = asyncio.run(stats_routes.recurrence_after_completion(None, [{}, {}, {}], 4, True, NOW))
+    assert result is not None
+    assert (result.checked, result.recurrence, result.not_applicable, result.limited) == (
+        3,
+        2,
+        4,
+        True,
+    )
+
+
+def test_sla_rows_are_read_once_for_the_same_filter(monkeypatch):
+    calls = []
+
+    async def fake(conn, p):
+        calls.append(p)
+        return [{"id": len(calls)}]
+
+    monkeypatch.setattr(stats_routes.repository, "sla_tickets", fake)
+    stats_routes._sla_rows.clear()
+    p = {"start": None, "end": None, "dept": None, "customer": None, "owner": None}
+    first = asyncio.run(stats_routes.shared_sla_rows(None, p))
+    second = asyncio.run(stats_routes.shared_sla_rows(None, dict(p)))
+    other = asyncio.run(stats_routes.shared_sla_rows(None, {**p, "dept": "TS_TRF"}))
+    assert first is second and len(calls) == 2 and other != first
+    stats_routes._sla_rows.clear()

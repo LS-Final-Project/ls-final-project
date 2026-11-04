@@ -648,7 +648,8 @@
           "recurrence_after_completion": {
             "checked": 0,
             "recurrence": 0,
-            "not_applicable": 0
+            "not_applicable": 0,
+            "limited": false
           }
         },
         "unconfirmed": [

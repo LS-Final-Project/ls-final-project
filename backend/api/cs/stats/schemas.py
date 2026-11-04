@@ -70,12 +70,18 @@ class CustomerLoad(BaseModel):
 
 
 class RecurrenceCount(BaseModel):
-    """KAN-117 recurrence signal of completed requests, computed on read (nothing stored)."""
+    """KAN-117 recurrence signal of requests completed in the period (by completed_at),
+    computed on read (nothing stored)."""
 
     checked: int = Field(description="Completed fault requests whose signal was computed.")
     recurrence: int = Field(description="Of those, requests whose signal is RECURRENCE.")
     not_applicable: int = Field(
         description="Completed document requests: the signal applies to fault requests only."
+    )
+    limited: bool = Field(
+        default=False,
+        description="True when more completed fault requests exist than were checked "
+        "(only the most recent 200 by completion time are checked).",
     )
 
 

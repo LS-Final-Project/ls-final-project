@@ -6583,12 +6583,18 @@
         "type": "object"
       },
       "RecurrenceCount": {
-        "description": "KAN-117 recurrence signal of completed requests, computed on read (nothing stored).",
+        "description": "KAN-117 recurrence signal of requests completed in the period (by completed_at),\ncomputed on read (nothing stored).",
         "properties": {
           "checked": {
             "description": "Completed fault requests whose signal was computed.",
             "title": "Checked",
             "type": "integer"
+          },
+          "limited": {
+            "default": false,
+            "description": "True when more completed fault requests exist than were checked (only the most recent 200 by completion time are checked).",
+            "title": "Limited",
+            "type": "boolean"
           },
           "not_applicable": {
             "description": "Completed document requests: the signal applies to fault requests only.",
