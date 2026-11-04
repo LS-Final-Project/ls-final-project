@@ -319,6 +319,7 @@ def test_gate_counts_decisions_reviews_and_returns(client, chain, admin):
         "deviation_missing": 1,
         "open_queries": 0,
         "review_pending": 0,
+        "self_review": False,
     }
     made = ok(decide(client, chain, "record_deviation", text="기준온도 120 °C 값만 보유"))
     verdict, state = requirement_state(client, chain)
@@ -328,10 +329,12 @@ def test_gate_counts_decisions_reviews_and_returns(client, chain, admin):
         "deviation_missing": 0,
         "open_queries": 0,
         "review_pending": 1,
+        "self_review": False,
     }
     # 책임자만 확인·되돌려 보낸다.
     refused = decide(client, chain, "review_confirm", decision_id=made["decision_id"])
     assert refused.status_code == 403
+    assert refused.json()["error"]["code"] == "TFT_DECISION_RESPONSIBLE_ONLY"
     ok(decide(client, chain, "review_confirm", who=CHIEF, decision_id=made["decision_id"]))
     assert requirement_state(client, chain)[1]["reviewed"] is True
     assert project_gate(client, chain)["review_pending"] == 0
@@ -342,6 +345,7 @@ def test_gate_counts_decisions_reviews_and_returns(client, chain, admin):
         "deviation_missing": 1,
         "open_queries": 0,
         "review_pending": 0,
+        "self_review": False,
     }
 
 
@@ -352,3 +356,39 @@ def test_verdict_change_overrides_the_computed_verdict(client, chain):
     query = ok(decide(client, chain, "add_query", version=2, text="값을 알려 주십시오"))
     assert query["summary"] == "질의서에 넣음"
     assert project_gate(client, chain)["open_queries"] == 1
+
+
+def test_only_the_sales_owner_decides_and_the_responsible_only_reviews(client, chain, admin):
+    """책임자는 결정하지 않는다. 결정한 사람과 확인한 사람이 같으면 확인이 의미를 잃는다."""
+    for action, body in (
+        ("confirm_met", {}),
+        ("record_deviation", {"text": "기준온도 120 °C 값만 보유"}),
+        ("change_verdict", {"verdict": "QUERY"}),
+    ):
+        refused = decide(client, chain, action, who=CHIEF, **body)
+        assert refused.status_code == 403, action
+        assert refused.json()["error"]["code"] == "TFT_DECISION_SALES_ONLY"
+    with psycopg.connect(admin) as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM tft.requirement_decisions WHERE requirement_id=%s",
+            (chain["requirement"],),
+        ).fetchone() == (0,)
+    ok(decide(client, chain, "confirm_met"))
+
+
+def test_same_person_as_sales_and_responsible_keeps_review_pending(client, chain, admin):
+    """담당 sales가 책임자이기도 하면 결정할 수 있고, 확인 대기는 그대로 남아 화면이 본인 결정으로 표시한다."""
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.projects SET responsible_user_id=sales_user_id WHERE id=%s",
+            (chain["project"],),
+        )
+        conn.execute(
+            "UPDATE tft.requirement_versions SET status='SPEC_GAP' WHERE requirement_id=%s",
+            (chain["requirement"],),
+        )
+    made = ok(decide(client, chain, "record_deviation", text="기준온도 120 °C 값만 보유"))
+    gate = project_gate(client, chain)
+    assert (gate["review_pending"], gate["self_review"]) == (1, True)
+    ok(decide(client, chain, "review_confirm", decision_id=made["decision_id"]))
+    assert project_gate(client, chain)["review_pending"] == 0

@@ -236,7 +236,8 @@
           "undecided": 0,
           "deviation_missing": 0,
           "open_queries": 0,
-          "review_pending": 0
+          "review_pending": 0,
+          "self_review": false
         }
       },
       "meta": {

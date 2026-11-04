@@ -187,6 +187,57 @@ def test_customer_reply_does_not_resolve_by_question_substring(client, gap, admi
         ).fetchone() == (1,)
 
 
+def test_customer_reply_returns_a_value_candidate_and_follow_up_links(client, gap, admin):
+    """KAN-224: 회신 기록은 새 요구값 후보를 돌려주지만 요구값을 바꾸지 않는다. 후속 질의는 원래 질의를 잇는다."""
+    asked = ask(client, gap, issue_type="EMPTY_VALUE", target="CUSTOMER", target_dept=None).json()[
+        "data"
+    ]
+    reply = "BIL은 125 kV로 적용 바랍니다(기존 95 kV 표기는 오기)."
+    data = answer(client, asked, OWNER, reply_text=reply).json()["data"]
+    assert data["value_candidate"] == {
+        "method": "rule",
+        "value": "125",
+        "unit": "kV",
+        "conditions": [],
+        "quote": reply,
+        "reason": None,
+    }
+    assert data["created_proposal"] is None
+    # 작업 공간은 질문 목록으로 회신을 읽는다. 저장한 후보가 그대로 나와야 한다.
+    listed = call(client, "GET", f"/projects/{gap['project']}/questions", OWNER).json()["data"]
+    (row,) = [q for q in listed["items"] if q["question_id"] == asked["question_id"]]
+    assert row["value_candidate"] == data["value_candidate"]
+    with psycopg.connect(admin) as conn:
+        assert conn.execute(
+            "SELECT value FROM tft.requirement_versions WHERE requirement_id=%s",
+            (gap["requirement"],),
+        ).fetchall() == [("95",)]
+    vague = ask(client, gap, issue_type="EMPTY_VALUE", target="CUSTOMER", target_dept=None).json()[
+        "data"
+    ]
+    got = answer(client, vague, OWNER, reply_text="기존 사양대로 해 주세요").json()["data"]
+    assert got["value_candidate"]["method"] == "none"
+    follow = ask(
+        client,
+        gap,
+        issue_type="EMPTY_VALUE",
+        target="CUSTOMER",
+        target_dept=None,
+        follows_question_id=vague["question_id"],
+    )
+    assert follow.status_code == 201, follow.text
+    assert follow.json()["data"]["follows_question_id"] == vague["question_id"]
+    stray = ask(
+        client,
+        gap,
+        issue_type="EMPTY_VALUE",
+        target="CUSTOMER",
+        target_dept=None,
+        follows_question_id=str(uuid4()),
+    )
+    assert error(stray) == (422, "VALIDATION_ERROR")
+
+
 def test_selection_refuses_candidates_outside_the_path(client, gap):
     """경로 16: 그 경로의 저장 후보만 받는다. 거절되면 선택이 저장되지 않는다."""
     outside = choose(client, gap, "EXTERNAL_PRODUCT", candidate_codes=["P-A", "P-Z"])

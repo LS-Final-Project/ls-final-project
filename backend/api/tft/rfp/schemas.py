@@ -751,6 +751,8 @@ class QuestionCreate(Model):
     # 명세 v1.3 §5.3: INTERNAL은 프로젝트 검토 부서 안의 target_dept가 필요하다(서버가 범위를 검사한다).
     target: QuestionTarget = "CUSTOMER"
     target_dept: str | None = Field(default=None, min_length=1, max_length=32)
+    # 후속 질의(TQ-1-2): 같은 프로젝트의 원래 질의(KAN-224).
+    follows_question_id: UUID | None = None
 
     @model_validator(mode="after")
     def check_target(self) -> Self:
@@ -791,6 +793,31 @@ class RecordedReply(Model):
     schedule_fits: bool | None = None
 
 
+class ReplyValueCandidate(Model):
+    """회신에서 읽은 새 요구값 후보(KAN-224). 후보일 뿐 요구값을 바꾸지 않는다.
+
+    method: rule(규칙), ai(AI, 근거 검사 통과), none(못 읽음, reason에 이유).
+    """
+
+    method: Literal["rule", "ai", "none"]
+    value: str | None = None
+    unit: str | None = None
+    conditions: list[Condition] = Field(default_factory=list)
+    quote: str | None = None
+    reason: (
+        Literal[
+            "NO_VALUE",
+            "MULTIPLE_VALUES",
+            "CORRECTION",
+            "CONDITIONAL",
+            "MULTIPLE_QUESTIONS",
+            "AI_UNGROUNDED",
+            "AI_FAILED",
+        ]
+        | None
+    ) = None
+
+
 class Question(Provenance):
     question_id: UUID
     requirement_id: UUID | None
@@ -806,6 +833,9 @@ class Question(Provenance):
     target: QuestionTarget = "CUSTOMER"
     target_dept: str | None = None
     rnd_feasibility: RndFeasibility | None = None
+    follows_question_id: UUID | None = None
+    # 요구에 이어진 CUSTOMER 질의의 회신에서 읽은 새 요구값 후보(KAN-224). 회신 전이나 대상 밖이면 없다.
+    value_candidate: ReplyValueCandidate | None = None
 
 
 class QuestionList(Model):
@@ -1141,6 +1171,8 @@ class DecisionGate(Model):
     deviation_missing: int = 0
     open_queries: int = 0
     review_pending: int = 0
+    # 담당 sales와 책임자가 같은 사람이면 결정한 사람이 확인도 한다. 확인 대기는 그대로 두고 화면에 "본인 결정"으로 표시한다.
+    self_review: bool = False
 
 
 RequirementSummary.model_rebuild()
