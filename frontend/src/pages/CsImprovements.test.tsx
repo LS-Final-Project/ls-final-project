@@ -242,8 +242,11 @@ test('처리 상자 없이 부서 동작은 수신 부서 줄에 두고 입력�
  body.data.departments=[{round:1,dept_code:'TS_TRF',status:'SENT',carried_over:false,sent_version:2,reply_due_at:'2999-01-01T00:00:00Z',rejection_reviewed_at:null,rejection_reviewed_by:null}];
  vi.stubGlobal('fetch',vi.fn(async(url:RequestInfo|URL)=>String(url).endsWith('/me')?new Response(JSON.stringify({data:{roles:['dept_staff'],dept:'TS_TRF',managed_departments:[]}}),{headers:{'X-CSRF-Token':'synthetic'}}):jsonResponse(200,body)));view();
  await screen.findByText('수신 부서와 할 일');expect(screen.queryByText('검토·전달·부서 처리')).toBeNull();
- const reply=await screen.findByRole('button',{name:'회신'}) as HTMLButtonElement;expect(reply.disabled).toBe(true);expect(reply.title).toMatch(/수신 확인/);
- const ack=screen.getAllByRole('button',{name:/^수신 확인/}).find(b=>b.closest('td.acts'))!;fireEvent.click(ack);
+ // 부서 줄에는 지금 할 차례인 처리 하나만 보인다(수신 확인). 회신·조치 기록은 그 뒤에 나온다.
+ const ack=(await screen.findAllByRole('button',{name:/^수신 확인/})).find(b=>b.closest('td.acts'))!;
+ expect([...ack.closest('td.acts')!.querySelectorAll('button')].map(b=>b.textContent)).toEqual([ack.textContent]);
+ expect(screen.queryByText('받음(확인 전)')).toBeNull();
+ fireEvent.click(ack);
  const form=await screen.findByRole('form',{name:'수신 확인 입력'});expect(form.closest('#ia-slot-dept')).toBeTruthy();
 });
 
@@ -309,4 +312,15 @@ test('받은 부서에 보이는 limited 근거는 문의 링크 없이 번호�
  expect(table.getByRole('link',{name:'T-OPEN'})).toBeTruthy();
  expect(table.queryByRole('link',{name:'T-LIMIT'})).toBeNull();expect(table.getByText('T-LIMIT')).toBeTruthy();
  expect(table.getByText('CUST-0001')).toBeTruthy();expect(table.getByTitle('이관받지 않은 문의의 고객은 보이지 않습니다').textContent).toBe('-');
+});
+
+test('처리할 것이 없는 사용자(C/S 담당자)에게는 부서 줄에 그 부서의 지금 상태가 보인다',async()=>{
+ const body=structuredClone(source) as unknown as ImprovementDetail;const r=body.data.request;
+ r.status='SENT';r.version=3;r.current_round=1;body.data.next_owners=[{actor:'DEPARTMENT',user_id:null,dept_code:'TS_TRF',task:'REPLY'}];
+ const dept=(code:string,status:string)=>({round:1,dept_code:code,status,carried_over:false,sent_version:2,reply_due_at:'2999-01-01T00:00:00Z',rejection_reviewed_at:null,rejection_reviewed_by:null});
+ body.data.departments=[dept('TS_TRF','SENT'),dept('QA_CLAIM','ADOPTED')] as typeof body.data.departments;
+ vi.stubGlobal('fetch',vi.fn(async(url:RequestInfo|URL)=>String(url).endsWith('/me')?new Response(JSON.stringify({data:{roles:['cs_agent'],dept:null,managed_departments:[]}}),{headers:{'X-CSRF-Token':'synthetic'}}):jsonResponse(200,body)));view();
+ await screen.findByText('수신 부서와 할 일');
+ const cells=await waitFor(()=>{const found=[...document.querySelectorAll('td.acts')].map(td=>td.textContent);expect(found).toEqual(['받음(확인 전)','채택']);return found;});
+ expect(cells).toHaveLength(2);
 });

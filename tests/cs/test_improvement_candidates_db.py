@@ -321,7 +321,7 @@ def test_insufficient_evidence_does_not_read_as_a_result_and_is_not_saved(client
 
 def test_the_firmware_rule_reads_the_release_table(client, admin):
     # ACB-AS-2000 1.3 was released 2025-06-16 (policy/firmware_history.csv).
-    fault = f"FLT-{uuid4().int % 800 + 100}"
+    fault = unused_fault(admin, "ACB-AS-2000")
     add_case(admin, "ACB-AS-2000", 0, "CUST-FW", cause="FIRMWARE", fw="1.2", fault=fault)
     items = [i for i in group(client, "ACB-AS-2000") if i["fault_id"] == fault]
     assert [i["reason_code"] for i in items] == ["FIRMWARE_FIX_RELEASED"]
@@ -337,6 +337,28 @@ def test_data_origins_are_counted_apart(client, admin, product):
         ("synthetic", "NOT_ELIGIBLE"),
         ("demo", "NOT_ELIGIBLE"),
     }
+
+
+def unused_fault(admin, product):
+    """A fault ID this product has no record or request for yet.
+
+    The DB is shared by every test in the run and fault IDs are three digits, so a random pick
+    could land on a group another test already filled (it did, about 1 run in 20).
+    """
+    used = {
+        row[0]
+        for row in admin.execute(
+            "SELECT fault_id FROM cs.resolution_cases WHERE product_code = %s "
+            "UNION SELECT fault_id FROM cs.improvement_requests WHERE product_code = %s",
+            (product, product),
+        ).fetchall()
+    }
+    start = uuid4().int % 800
+    return next(
+        f"FLT-{100 + (start + i) % 900}"
+        for i in range(900)
+        if f"FLT-{100 + (start + i) % 900}" not in used
+    )
 
 
 def proposed_of(admin, product, fault):
@@ -366,7 +388,7 @@ def test_proposed_departments_follow_the_cause_types_of_the_evidence(
     client, admin, product_code, causes, expected
 ):
     # 해결 부서(GCS_L1)는 제안에 쓰이지 않는다. 기획서 p.11 원인 유형별 1차 제안 부서.
-    fault = f"FLT-{uuid4().int % 800 + 100}"
+    fault = unused_fault(admin, product_code)
     for day, cause in enumerate(causes):
         add_case(
             admin, product_code, day, f"CUST-{uuid4()}", fault=fault, cause=cause, dept="GCS_L1"
@@ -377,7 +399,7 @@ def test_proposed_departments_follow_the_cause_types_of_the_evidence(
 
 def test_a_firmware_candidate_proposes_firmware_and_the_product_technical_support(client, admin):
     # ACB-AS-2000 is LV_BREAKER, whose TECH_SPEC route is TS_LV (policy/routing_rules.csv).
-    fault = f"FLT-{uuid4().int % 800 + 100}"
+    fault = unused_fault(admin, "ACB-AS-2000")
     add_case(admin, "ACB-AS-2000", 0, "CUST-FW", cause="FIRMWARE", fw="1.2", fault=fault)
     collect(client)
     assert proposed_of(admin, "ACB-AS-2000", fault) == [(["RND_FW", "TS_LV"],)]

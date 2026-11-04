@@ -34,6 +34,8 @@ const TASK_LABEL: Record<string, string> = {
 };
 const ACTOR_LABEL: Record<string, string> = { CS_OWNER: 'C/S 담당자', DEPARTMENT: '부서' };
 const taskName = (task: string) => TASK_LABEL[task] ?? task;
+// 부서 상태. 처리 칸에 할 차례인 처리가 없을 때(다른 역할로 보거나 부서가 끝냈을 때) 대신 보인다.
+const DEPT_STATUS: Record<string, string> = { SENT: '받음(확인 전)', ACKNOWLEDGED: '수신 확인', ADOPTED: '채택', INFO_REQUESTED: '추가 정보 요청', REJECTED: '반려', ACTION_TAKEN: '조치 기록' };
 type Titled = { origin: string; request_type: string; product_code: string; fault_id: string | null; problem_statement: string };
 // 시스템 후보의 문제 문장은 "제품 고장ID: 판정 사유"다(candidates.draft). 화면 제목에는 판정 사유를 빼고 고장 증상을 보인다.
 // 사람이 쓴 문장(수동 요청이나 내용 수정)은 그대로 보인다.
@@ -50,7 +52,6 @@ function useSymptoms(products: string[]) {
   results.forEach((result, index) => result.data?.data?.items?.forEach(item => map.set(`${unique[index]}:${item.fault_id}`, item.symptom)));
   return (r: Titled) => systemTitle(r) ? `${r.fault_id} · ${map.get(`${r.product_code}:${r.fault_id}`) ?? '고장 증상 미확인'}` : r.problem_statement;
 }
-const DEPT_STATUS: Record<string, string> = { SENT: '받음(확인 전)', ACKNOWLEDGED: '수신 확인', ADOPTED: '채택', INFO_REQUESTED: '추가 정보 요청', REJECTED: '반려', ACTION_TAKEN: '조치 기록' };
 
 type CaseRow = CaseComparison['data']['items'][number];
 type Evidence = ImprovementDetail['data']['evidence'][number];
@@ -356,7 +357,11 @@ function ImprovementView(){
             <div className="pane">
               <div className="ph"><h2>수신 부서와 할 일</h2>{r.current_round>0&&<div className="r"><span className="meta">{r.current_round}회차</span></div>}</div>
               <div className="pb">
-                {d.departments.length?<table className="log"><thead><tr><th>부서</th><th>상태</th><th>할 일</th><th>처리</th></tr></thead><tbody>{d.departments.map(x=>{const task=d.next_owners.find(n=>n.actor==='DEPARTMENT'&&n.dept_code===x.dept_code);return <tr key={`${x.round}-${x.dept_code}`}><td>{deptName(x.dept_code)}{x.carried_over&&<span className="chip x">이월</span>}</td><td><span className="chip">{DEPT_STATUS[x.status]??x.status}</span></td><td>{task?taskName(task.task):<span className="none">-</span>}</td><td className="acts">{(control?.rows??[]).filter(row=>row.target===x.dept_code&&!row.done).map(row=>actButton(row,SHORT[row.kind]))}</td></tr>;})}</tbody></table>
+                {d.departments.length?<table className="log"><thead><tr><th>부서</th><th>처리</th></tr></thead><tbody>{d.departments.map(x=>{
+                  // 내가 그 부서에서 할 차례인 처리 하나(rowsFor가 수신 확인 → 회신 → 조치 기록 순으로 넣는다).
+                  // 할 처리가 없으면(C/S 담당자가 보거나 부서가 끝냈을 때) 그 부서의 지금 상태를 보인다.
+                  const next=(control?.rows??[]).find(row=>row.target===x.dept_code&&!row.done);
+                  return <tr key={`${x.round}-${x.dept_code}`}><td>{deptName(x.dept_code)}{x.carried_over&&<span className="chip x">이월</span>}</td><td className="acts">{next?actButton(next,SHORT[next.kind]):<span className="chip">{DEPT_STATUS[x.status]??x.status}</span>}</td></tr>;})}</tbody></table>
                   :<p className="none">아직 부서에 전달하지 않았습니다.{r.proposed_depts.length>0&&` 전달하면 제안 부서(${r.proposed_depts.map(deptName).join(', ')})가 받습니다.`}</p>}
                 <div id="ia-slot-dept" className="irx ia-slot"/>
                 {d.replies.length>0&&<><h3>부서 회신</h3>{d.replies.map(x=><div key={x.id} className="dept-ans"><span className="meta">{deptName(x.dept_code)} · 회차 {x.round} · 판본 {x.request_version} · {x.reply_type}</span><div className="dept-body">{x.reason??'사유 기록 없음'}</div></div>)}</>}
