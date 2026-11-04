@@ -40,7 +40,7 @@ function Glint() {
  * onPending: 검토 완료를 막을 이유(내용이 비었거나 반영하지 않은 초안이 있음)를 상위 화면에 알린다.
  */
 // ruleOnly: 시스템 초안이 만들 때 규칙으로 채운 내용 그대로다(사람·AI가 아직 쓰지 않음). 그 값은 보이지 않고 AI 초안 작성을 안내한다.
-// next: 현재 내용 아래 버튼 자리에 둘 다음 동작(검토 완료 뒤의 "부서 전달"). 입력은 수신 부서 상자 위에 열린다.
+// next: 현재 내용 아래 버튼 자리에 둘 다음 동작. 작성 중이면 "검토 완료", 검토 뒤에는 같은 자리에 "부서 전달".
 export default function ImprovementContent({ request: r, title, tags, locked, onSaved, onReload, onEditingChange, onPending, next, ruleOnly = false }: {
   request: Request; title: string; tags: ReactNode; locked: boolean; onSaved: (result: ImprovementDetail) => void; onReload: () => void;
   onEditingChange?: (editing: boolean) => void; onPending?: (reason: string | null) => void; next?: ReactNode; ruleOnly?: boolean;
@@ -197,7 +197,7 @@ export default function ImprovementContent({ request: r, title, tags, locked, on
       const result = await updateImprovement(r.id, changes, current.signal);
       if (current.signal.aborted) return;
       setEditing(null);
-      setNote({ kind: 'ok', text: `내용을 저장했습니다(판본 ${result.data.request.version}).${r.status === 'DRAFT' ? ' 확인이 끝나면 단계 바의 "검토 완료 기록"을 누르세요.' : ''}` });
+      setNote({ kind: 'ok', text: `내용을 저장했습니다(판본 ${result.data.request.version}).${r.status === 'DRAFT' ? ' 확인이 끝나면 아래 "검토 완료"를 누르세요.' : ''}` });
       onSaved(result);
     } catch (error) {
       if (current.signal.aborted) return;

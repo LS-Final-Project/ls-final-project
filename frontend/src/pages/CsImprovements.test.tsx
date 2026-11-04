@@ -98,8 +98,10 @@ function uncertainFlow(){
 }
 const reviewButton=async()=>(await screen.findByRole('button',{name:/^검토 완료 기록/})) as HTMLButtonElement;
 async function becomeUncertain(){
- fireEvent.click(await reviewButton());fireEvent.click(screen.getByRole('button',{name:'기록 저장'}));
- await screen.findByText('합성 처리 결과 불확실');
+ // 검토 완료는 입력 없이 바로 기록한다(제안 부서는 '내용 수정'에서만 고친다).
+ fireEvent.click(await reviewButton());
+ // 입력 상자가 없으므로 오류는 '결과 불명' 안내 문장 앞에 붙는다.
+ await screen.findByText(/합성 처리 결과 불확실/);
 }
 test('결과 불명 뒤 최신 상세를 받으면 처리 동작을 다시 시작할 수 있다',async()=>{
  const {fetch}=uncertainFlow();await becomeUncertain();
@@ -115,15 +117,8 @@ test('결과 불명 뒤 다시 읽기가 실패하면 막은 채로 두고 이�
  state.detail=200;fireEvent.click(screen.getByRole('button',{name:'최신 요청 조회'}));
  await waitFor(async()=>expect((await reviewButton()).disabled).toBe(false));expect(screen.queryByText(/최신 상세를 받기 전에는/)).toBeNull();
 });
-test('결과 불명 뒤 입력을 취소해도 최신 상세를 받지 못하면 막은 채로 둔다',async()=>{
- const {state}=uncertainFlow();await becomeUncertain();
- state.detail=503;fireEvent.click(screen.getByRole('button',{name:'입력 취소'}));
- await screen.findByText('합성 조회 실패');expect(screen.getByText(/최신 상세를 받기 전에는/)).toBeTruthy();
-});
-test('처리 입력과 내용 수정은 동시에 열지 않는다',async()=>{
+test('내용 수정 중에는 검토 완료를 누를 수 없다',async()=>{
  uncertainFlow();
- fireEvent.click(await reviewButton());expect((screen.getByRole('button',{name:'내용 수정'}) as HTMLButtonElement).disabled).toBe(true);
- fireEvent.click(screen.getByRole('button',{name:'입력 취소'}));
  fireEvent.click(await screen.findByRole('button',{name:'내용 수정'}));expect((await reviewButton()).disabled).toBe(true);
 });
 
@@ -332,4 +327,24 @@ test('회신을 마친 부서 줄에는 지난 처리 대신 다음 처리(조�
  vi.stubGlobal('fetch',vi.fn(async(url:RequestInfo|URL)=>String(url).endsWith('/me')?new Response(JSON.stringify({data:{roles:['dept_staff'],dept:'TS_TRF',managed_departments:[]}}),{headers:{'X-CSRF-Token':'synthetic'}}):jsonResponse(200,body)));view();
  await screen.findByText('수신 부서와 할 일');
  await waitFor(()=>expect([...document.querySelectorAll('td.acts')].map(td=>td.textContent)).toEqual(['조치 기록']));
+});
+
+test('작성 중이면 개선 요청 작성 상자에 검토 완료가 있고, 누르면 입력 없이 기록한 뒤 같은 자리에 부서 전달이 뜬다',async()=>{
+ const body=structuredClone(source) as unknown as ImprovementDetail;const r=body.data.request;
+ r.status='DRAFT';r.version=2;r.request_type='FAULT';r.proposed_depts=['TS_TRF'];r.problem_statement='합성 문제';body.data.next_owners=[{actor:'CS_OWNER',user_id:null,dept_code:null,task:'REVIEW'}];body.data.departments=[];
+ const reviewed=structuredClone(body);reviewed.data.request.status='REVIEWED';reviewed.data.request.version=3;reviewed.data.next_owners=[{actor:'CS_OWNER',user_id:null,dept_code:null,task:'SEND'}];
+ const fetch=vi.fn(async(url:RequestInfo|URL,init?:RequestInit)=>{
+  const path=String(url);
+  if(path.endsWith('/me'))return new Response(JSON.stringify({data:{roles:['cs_agent'],dept:null,managed_departments:[]}}),{headers:{'X-CSRF-Token':'synthetic'}});
+  if(path.endsWith('/review')&&init?.method==='POST')return jsonResponse(200,reviewed);
+  if(path.includes('/case-comparison'))return jsonResponse(200,{data:{request_id:r.id,hidden_case_count:0,items:[]}});
+  return jsonResponse(200,body);
+ });
+ vi.stubGlobal('fetch',fetch);view();
+ const box=(await screen.findByRole('button',{name:'검토 완료'})).closest('.ai-apply')!;
+ fireEvent.click(within(box as HTMLElement).getByRole('button',{name:'검토 완료'}));
+ await waitFor(()=>expect(fetch.mock.calls.some(([u,i])=>String(u).endsWith('/review')&&(i as RequestInit|undefined)?.method==='POST')).toBe(true));
+ expect(screen.queryByRole('form',{name:/검토 완료 기록 입력/})).toBeNull();
+ const send=await screen.findByRole('button',{name:'부서 전달'});
+ expect(send.closest('.ai-apply')).toBeTruthy();
 });
