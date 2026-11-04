@@ -1,6 +1,6 @@
 // Local provider fixture; standard web relay preserves product authentication/CSRF.
 import { createServer } from 'node:https';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -57,6 +57,8 @@ async function main() {
     directory: join(repo, 'frontend/dist'),
     upstream: `http://127.0.0.1:${settings.ports.platform}/`,
     tokenProvider: async () => 'local-transport-fixture', businessRelayEnabled: true,
+    // mail-on writes auth/mail.json; web only checks that it exists and never reads it.
+    mailboxAuthEnabled: existsSync(join(state, 'auth/mail.json')),
   });
   createServer({
     key: readFileSync(join(state, 'auth/tls-key.pem')),

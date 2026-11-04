@@ -20,6 +20,7 @@ from scripts.local_business.auth import (
     LocalIdentity,
 )
 from scripts.local_business.config import settings
+from scripts.local_business.mail import load as load_mail
 
 UNLIMITED_PROTOCOL = 1
 
@@ -151,6 +152,12 @@ def app_for(service: str, state: Path):
             return forward(method, target, headers, body)
 
         app.state.business_forwarder = local_forward
+        mail = load_mail(state)
+        if mail is not None:
+            from scripts.local_business.mail import configure_platform
+
+            objects = Path(os.environ.get("TFT_DOCUMENT_ROOT", state / "files")) / ".mail-objects"
+            configure_platform(app, mail, identity, ports, objects, config["web_origin"])
 
         @app.middleware("http")
         async def require_enabled_driver(request: Request, call_next):
@@ -192,6 +199,17 @@ def app_for(service: str, state: Path):
         from scripts.local_business.summary import bridge_provider
 
         app = create_app(common, CustomerMailSettings(_env_file=None, enabled=False))
+        mail = load_mail(state)
+        if mail is not None and mail.get("send"):
+            from backend.api.cs.workflow.mail import configure_customer_mail
+
+            # Approved replies go to the local platform send worker, which applies the allow list.
+            configure_customer_mail(
+                app,
+                CustomerMailSettings(_env_file=None, enabled=True, platform_url=PLATFORM_ORIGIN),
+                token=lambda audience: identity.token(audience, CS_SA),
+                transport=ToPlatform(),
+            )
         # No model key/client in the API. Cache reads and reuse work without a driver.
         configure_summary(
             app, CsSummarySettings(_env_file=None, enabled=True), provider=bridge_provider(state)
