@@ -495,7 +495,7 @@ def apply_plan(conn, plan: Plan, target: Target):
             "IMPORT_FUTURE_KNOWN_AT",
         )
         require(
-            conn.execute("SELECT count(*) AS n FROM identity.users").fetchone()["n"] == 4,
+            conn.execute("SELECT count(*) AS n FROM identity.users").fetchone()["n"] == 10,
             "IMPORT_IDENTITY_BASELINE_INVALID",
         )
         conn.execute("SET LOCAL ROLE cs_migrator")
