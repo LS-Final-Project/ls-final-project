@@ -5040,6 +5040,18 @@
             "title": "Derivation Kind",
             "type": "string"
           },
+          "follows_question_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follows Question Id"
+          },
           "internal_assumption": {
             "anyOf": [
               {
@@ -5208,6 +5220,18 @@
       "QuestionCreate": {
         "additionalProperties": false,
         "properties": {
+          "follows_question_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follows Question Id"
+          },
           "internal_assumption": {
             "anyOf": [
               {
@@ -5383,7 +5407,7 @@
       },
       "QuestionReplyResult": {
         "additionalProperties": false,
-        "description": "20. \ud68c\uc2e0 \uacb0\uacfc: \ud68c\uc2e0\ub41c \uc9c8\ubb38. CUSTOMER \ud68c\uc2e0\uc774 \ud310\ub2e8\uc744 \ubc14\uafc0 \uc81c\uc548\uc744 \ub9cc\ub4e4\uc5c8\uc744 \ub54c\ub9cc created_proposal\uc774 \uc788\ub2e4.",
+        "description": "20. \ud68c\uc2e0 \uacb0\uacfc: \ud68c\uc2e0\ub41c \uc9c8\ubb38. CUSTOMER \ud68c\uc2e0\uc774 \ud310\ub2e8\uc744 \ubc14\uafc0 \uc81c\uc548\uc744 \ub9cc\ub4e4\uc5c8\uc744 \ub54c\ub9cc created_proposal\uc774 \uc788\ub2e4.\n\nvalue_candidate\ub294 \uc694\uad6c\uc5d0 \uc774\uc5b4\uc9c4 CUSTOMER \uc9c8\uc758\uc77c \ub54c\ub9cc \uc788\ub2e4(KAN-224).",
         "properties": {
           "created_at": {
             "format": "date-time",
@@ -5423,6 +5447,18 @@
             ],
             "title": "Derivation Kind",
             "type": "string"
+          },
+          "follows_question_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follows Question Id"
           },
           "internal_assumption": {
             "anyOf": [
@@ -5543,6 +5579,16 @@
               }
             ],
             "title": "Target Dept"
+          },
+          "value_candidate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReplyValueCandidate"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "version": {
             "minimum": 1.0,
@@ -5728,6 +5774,86 @@
           "recorded_by"
         ],
         "title": "RecordedReply",
+        "type": "object"
+      },
+      "ReplyValueCandidate": {
+        "additionalProperties": false,
+        "description": "\ud68c\uc2e0\uc5d0\uc11c \uc77d\uc740 \uc0c8 \uc694\uad6c\uac12 \ud6c4\ubcf4(KAN-224). \ud6c4\ubcf4\uc77c \ubfd0 \uc694\uad6c\uac12\uc744 \ubc14\uafb8\uc9c0 \uc54a\ub294\ub2e4.\n\nmethod: rule(\uaddc\uce59), ai(AI, \uadfc\uac70 \uac80\uc0ac \ud1b5\uacfc), none(\ubabb \uc77d\uc74c, reason\uc5d0 \uc774\uc720).",
+        "properties": {
+          "conditions": {
+            "items": {
+              "$ref": "#/components/schemas/Condition"
+            },
+            "title": "Conditions",
+            "type": "array"
+          },
+          "method": {
+            "enum": [
+              "rule",
+              "ai",
+              "none"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "quote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quote"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "NO_VALUE",
+                  "MULTIPLE_VALUES",
+                  "CORRECTION",
+                  "CONDITIONAL",
+                  "MULTIPLE_QUESTIONS",
+                  "AI_UNGROUNDED",
+                  "AI_FAILED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "method"
+        ],
+        "title": "ReplyValueCandidate",
         "type": "object"
       },
       "RequirementCounts": {

@@ -445,3 +445,8 @@ TFT `20261121_KAN-218_decisions.sql`은 `20261120_KAN-188_workflow_snapshot.sql`
 (`requirement_decisions` 결정 기록과 멱등 결과, `deviations` 편차표 행, `question_withdrawals` 보내지 않을 질문)만
 더하고 기존 표·CHECK는 바꾸지 않는다. 연산 이름이나 질문 상태 값을 기존 CHECK에 더하면, 그 CHECK를 다시 정의하는
 20261106·20261111·20261119·20261120 재적용이 새 값의 행 때문에 실패하므로 새 표로 둔다. 앱은 SELECT·INSERT만 한다.
+
+## KAN-224 후속 질의 연결
+
+TFT `20261122_KAN-224_question_follow_up.sql`은 `20261121_KAN-218_decisions.sql` 뒤에 적용한다.
+`tft.customer_questions.follows_question_id` 열 하나(원래 질의 참조, 비울 수 있음)만 더한다. 다시 적용해도 깨지지 않는다.
