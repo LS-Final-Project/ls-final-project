@@ -44,6 +44,7 @@ MIGRATIONS = (
     "20261119_KAN-188_context_commands.sql",
     "20261120_KAN-188_workflow_snapshot.sql",
     "20261121_KAN-218_decisions.sql",
+    "20261122_KAN-225_manual_requirements.sql",
 )
 # 다시 적용해도 깨지지 않는 KAN-182 마이그레이션(매번 적용한다).
 RERUNNABLE = MIGRATIONS[2:]

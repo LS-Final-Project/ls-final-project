@@ -48,7 +48,9 @@ def test_new_requirement_preserves_actual_extraction_semantics_without_dto_chang
     query, params = conn.execute.await_args_list[1].args
     assert "kind, certification_listed, canonical_value" in query
     assert query.count("%s") == len(params)
-    assert params[-4:-1] == ("SPEC", False, "overcurrent")
+    # 뒤 다섯 칸은 출처·자료 출처·파생·판단자(KAN-225)다.
+    assert params[-8:-5] == ("SPEC", False, "overcurrent")
+    assert params[-5:] == ("ai_draft", "synthetic", "DERIVED", None, None)
 
 
 @pytest.mark.parametrize("failure", [None, "draft", "cancel", "unlock", "acquire"])

@@ -74,5 +74,9 @@ BEGIN
     IF to_regclass('tft.draft_rewrite_calls') IS NOT NULL THEN
         EXECUTE 'GRANT SELECT,INSERT ON tft.draft_rewrite_calls TO tft_worker';
     END IF;
+    -- KAN-225: 초안·맥락은 뺀 요구를 넣지 않는다(빼기 표시 열만 읽는다).
+    IF to_regclass('tft.requirement_decisions') IS NOT NULL THEN
+        EXECUTE 'GRANT SELECT (id,requirement_id,detail,created_at) ON tft.requirement_decisions TO tft_worker';
+    END IF;
 END $$;
 COMMIT;

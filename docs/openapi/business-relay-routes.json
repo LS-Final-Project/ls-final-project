@@ -551,7 +551,8 @@
     {
       "path": "/api/v1/tft/projects/{uuid}/requirements",
       "methods": [
-        "GET"
+        "GET",
+        "POST"
       ],
       "query": [
         "limit",
@@ -565,7 +566,8 @@
         "needs_review",
         "has_open_question",
         "next_owner_field",
-        "unresolved_mandatory"
+        "unresolved_mandatory",
+        "excluded"
       ]
     },
     {

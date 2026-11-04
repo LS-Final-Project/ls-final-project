@@ -345,8 +345,9 @@ async def list_requirements(
     has_open_question: bool | None = None,
     next_owner_field: s.NextOwner | None = None,
     unresolved_mandatory: bool | None = None,
+    excluded: bool = False,
 ) -> SuccessResponse[s.RequirementList]:
-    """12. 요구 목록·필터 10개."""
+    """12. 요구 목록·필터 11개. 뺀 요구는 excluded=true일 때만 나온다(KAN-225 별도 목록)."""
     data = await routes_read.list_requirements(
         request,
         principal,
@@ -362,6 +363,7 @@ async def list_requirements(
             "has_open_question": has_open_question,
             "next_owner_field": next_owner_field,
             "unresolved_mandatory": unresolved_mandatory,
+            "excluded": excluded,
         },
         limit=limit,
         cursor=cursor,
@@ -874,3 +876,21 @@ async def decide_requirement(
     return respond(
         request, await decide(request, principal, requirement_id, payload, idempotency_key)
     )
+
+
+@router.post(
+    P + "/requirements",
+    response_model=SuccessResponse[s.DecisionResult],
+    operation_id="tft_add_rfp_requirement",
+)
+async def add_requirement(
+    project_id: UUID,
+    payload: s.ManualRequirementRequest,
+    idempotency_key: Key,
+    request: Request,
+    principal: User,
+) -> SuccessResponse[s.DecisionResult]:
+    """원문에서 고른 글로 요구를 직접 추가하고 규칙 비교로 바로 판정한다(KAN-225)."""
+    from backend.api.tft.rfp.manual_requirements import add
+
+    return respond(request, await add(request, principal, project_id, payload, idempotency_key))
