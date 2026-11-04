@@ -65,6 +65,10 @@ test('group summary renders the action list and a list action filters the rows',
   wrap(<GroupSummary projectId="p" actorId="actor" name="GIS" rows={[row(1), row(7, { status: 'SPEC_GAP' })]} onShowRows={onShowRows} />);
   const first = await screen.findByRole('button', { name: /자료 부족 1건/ });
   expect(first.textContent).toContain('기술 담당에게 자료 요청서 만들기');
+  const overview = screen.getByText('묶음 현황').closest('details')!;
+  expect(overview.open).toBe(false);
+  expect(first.closest('ol')!.compareDocumentPosition(overview) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  fireEvent.click(screen.getByText('묶음 현황'));
   await waitFor(() => expect(screen.getByText('협력사 후보').nextElementSibling?.textContent).toBe('0곳'));
   fireEvent.click(screen.getByRole('button', { name: /사양 차이 1건/ }));
   expect(onShowRows).toHaveBeenCalledWith('gap');

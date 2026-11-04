@@ -12,7 +12,6 @@
 .ls-root .kv .rfp-group-summary>summary:focus-visible{outline:2px solid #2662b1;outline-offset:2px}
 .ls-root .kv .rfp-group-summary[open]{padding:0 10px 10px}
 .ls-root .kv .rfp-group-summary[open]>summary{padding-left:0;padding-right:0;border-bottom:1px solid #e2e8f0;margin-bottom:8px}
-.ls-root .kv .rfp-group-summary .kv-ribbon{margin:0 0 10px}
 .ls-root .kv .rfp-group-actions{list-style:none;margin:0;padding:0;display:grid;gap:5px;counter-reset:act}
 .ls-root .kv .rfp-group-actions>li{display:flex;gap:6px;align-items:stretch;counter-increment:act}
 .ls-root .kv .rfp-group-action{flex:1;min-width:0;display:grid;grid-template-columns:20px minmax(0,auto) minmax(0,1fr);align-items:baseline;gap:2px 8px;padding:8px 10px;border:1px solid #cfdbe9;border-radius:4px;background:#fff;color:inherit;font:inherit;text-align:left;cursor:pointer}
@@ -77,5 +76,13 @@
 .ls-root .kv .rfp-dialog-paths input,.ls-root .kv .rfp-dialog input[type=checkbox]{width:auto;height:auto;min-height:0;margin:0}
 .ls-root .kv .rfp-dept-add label{margin:0}
 .ls-root .kv .kv-modal.rfp-dialog>.body{overscroll-behavior:contain}
-.ls-root .kv .rfp-group-summary .kv-ribbon b,.ls-root .kv .rfp-group-action b{font-variant-numeric:tabular-nums}
-.ls-root .kv .rfp-group-summary .kv-ribbon{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))!important}
+.ls-root .kv .rfp-group-action b{font-variant-numeric:tabular-nums}
+/* 할 일을 먼저 읽고, 전체 현황은 필요한 때 펼친다. 숫자 카드 격자는 사용하지 않는다. */
+.ls-root .kv .rfp-group-status{margin-top:10px;border-top:1px solid #e2e8f0;padding-top:8px}
+.ls-root .kv .rfp-group-status>summary{cursor:pointer;font-size:12px;color:#526f95;width:fit-content}
+.ls-root .kv .rfp-group-status>summary:focus-visible{outline:2px solid #2662b1;outline-offset:2px}
+.ls-root .kv .rfp-group-status dl{margin:8px 0 0;max-width:360px;font-size:12px}
+.ls-root .kv .rfp-group-status dl>div{display:flex;justify-content:space-between;gap:16px;padding:4px 0}
+.ls-root .kv .rfp-group-status dt{color:#61738a}
+.ls-root .kv .rfp-group-status dd{margin:0;color:#203b60;font-variant-numeric:tabular-nums}
+.ls-root .kv .rfp-group-status dl>div:last-child{border-top:1px solid #e2e8f0;margin-top:4px;padding-top:8px}

@@ -23,6 +23,9 @@ it('starts with actual targets, then ten concise customer requirements grouped b
  show();await screen.findByText('고객 요구 12건 / 검토 대상 2개');
  expect(screen.queryByRole('tab')).toBeNull();expect(screen.queryByRole('region',{name:'선택 대상 고객 요구'})).toBeNull();
  await choose();const panel=screen.getByRole('region',{name:'선택 대상 고객 요구'});
+ const targetToggle=screen.getByText('다른 대상 선택').closest('summary')!;
+ expect(targetToggle.textContent).toContain('변압기');expect(targetToggle.textContent).not.toContain('고객 요구');
+ expect(panel.querySelector('header')?.textContent).toContain('고객 요구 12건');
  expect(within(panel).getAllByRole('button',{name:/조항 2.1 · 요구/})).toHaveLength(10);
  expect(screen.queryByText(/1234abcd:/)).toBeNull();expect(screen.getByRole('heading',{name:'장비 사양'})).toBeTruthy();
  fireEvent.click(screen.getByRole('button',{name:'2페이지'}));expect(within(panel).getAllByRole('button',{name:/조항 2.1 · 요구/})).toHaveLength(2);

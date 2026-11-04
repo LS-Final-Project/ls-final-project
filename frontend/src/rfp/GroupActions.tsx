@@ -6,7 +6,7 @@ import { createQuestionsBatch, listProjectCandidates, listQuestions, selectSuppl
 import { getSupplementOptions, getSupplementRequirement, type RequirementSummary, type SupplementOptions } from '../api/rfp-supplement';
 import { getProject } from '../api/tft';
 import { ErrorState, Loading } from '../components/states';
-import { KvGrid, KvModal, KvRibbon, type KvColumn } from '../ls-shell/kv';
+import { KvGrid, KvModal, type KvColumn } from '../ls-shell/kv';
 import { groupPartners, readDocumentRequirements } from './equipment-groups';
 import { batchProblems, draftQuestion, mapLimited, groupSummary, isCustomerRequest, itemReason, outboxItem, outboxText, REQUEST_ISSUE, shortText, subjectOf, valueOf, type GroupAction, type RequestKind, type Situation } from './group-actions';
 import { ReplyForm } from './QuestionForms';
@@ -77,10 +77,6 @@ export function GroupSummary({ projectId, actorId, name, rows, busy = false, col
   // 대화상자는 접힘 상태와 따로 둔다(details가 다시 그려져도 입력이 남는다).
   return <><details key={String(collapsed)} className="rfp-group-summary" open={!collapsed}>
     <summary><b>이 묶음에서 할 일</b><span>{questions.isPending ? '확인 중' : summary.actions.length ? `${summary.actions.length}가지` : '남은 일 없음'}</span></summary>
-    <KvRibbon columns={3} cells={[
-      ['근거 있음', `${summary.counts.evidence}건`], ['남은 조건', `${summary.counts.conditional}건`], ['사양 차이', `${summary.counts.gap}건`],
-      ['자료 부족', `${summary.counts.material}건`], ['과업', `${summary.counts.task}건`], ['협력사 후보', candidates.isError ? '조회 실패' : partners === undefined ? '확인 중' : `${partners}곳`],
-    ]} />
     {questions.isError && <p role="alert" className="rfp-group-note">작성한 질문을 읽지 못했습니다. <button type="button" className="kb" onClick={() => questions.refetch()}>다시 읽기</button></p>}
     {summary.actions.length > 0 ? <ol className="rfp-group-actions">{summary.actions.map(action => {
       const entry = open(action);
@@ -89,6 +85,12 @@ export function GroupSummary({ projectId, actorId, name, rows, busy = false, col
         {entry.secondary.label && <button type="button" className="kb" disabled={entry.secondary.write && !canWrite} onClick={entry.secondary.act}>{entry.secondary.label}</button>}
       </li>;
     })}</ol> : !questions.isPending && <p className="rfp-group-note">남은 할 일이 없습니다. 기록된 대응은 요구별로 확인하세요.</p>}
+    <details className="rfp-group-status"><summary>묶음 현황</summary><dl>
+      {[
+        ['근거 있음', `${summary.counts.evidence}건`], ['남은 조건', `${summary.counts.conditional}건`], ['사양 차이', `${summary.counts.gap}건`],
+        ['자료 부족', `${summary.counts.material}건`], ['과업', `${summary.counts.task}건`], ['협력사 후보', candidates.isError ? '조회 실패' : partners === undefined ? '확인 중' : `${partners}곳`],
+      ].map(([name, value]) => <div key={name}><dt>{name}</dt><dd>{value}</dd></div>)}
+    </dl></details>
     {project.isSuccess && !canWrite && <p className="rfp-group-note">질문과 대응 기록은 프로젝트 담당자·책임자만 만들 수 있습니다.</p>}
   </details>
     {dialog?.type === 'request' && actorId && <RequestDialog projectId={projectId} actorId={actorId} kind={dialog.kind} rows={dialog.rows} groupName={name} onClose={close} />}
