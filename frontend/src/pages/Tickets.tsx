@@ -12,6 +12,7 @@ import { useTicketPages } from '../ls-shell/use-tickets';
 import { downloadCsv, useHotkey } from '../ls-shell/kv';
 import LogTable, { type LogColumn, type LogSort } from './LogTable';
 import './ticket-detail-v3.css';
+import './list-cond.css';
 import './tickets-v3.css';
 import { CHANNEL_LABEL, STATE_LABEL, dayOf, formatStamp, type TicketChannel } from '../ls-shell/cs-labels';
 
@@ -126,7 +127,7 @@ export default function Tickets() {
     </div>
 
     <div className="body">
-      <form className="cond" onSubmit={event => { event.preventDefault(); refresh(); }}>
+      <form className="cond lc" onSubmit={event => { event.preventDefault(); refresh(); }}>
         <label className="search">
           <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
           <input type="text" aria-label="검색어" placeholder="문의번호, 제목, 제품으로 검색" autoComplete="off" value={search} onChange={event => setSearch(event.target.value)} />

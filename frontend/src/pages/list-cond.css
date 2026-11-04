@@ -1,0 +1,17 @@
+/* 목록 화면 조건 줄(문의 조회·개선요청 목록 공통): 맨 앞 넓은 검색 칸(돋보기), 선택 칸들, 조건 지우기 단추 */
+.ls-root .kv .td3 .cond.lc{background:#fff;border:1px solid #d9dde4;display:flex;align-items:center;gap:8px 16px;padding:8px 12px;flex-wrap:wrap}
+.ls-root .kv .td3 .cond.lc label,.ls-root .kv .td3 .cond.lc .field{display:inline-flex;align-items:center;gap:8px;margin:0;font-size:12.5px}
+.ls-root .kv .td3 .cond.lc .k{color:#6b7385;white-space:nowrap}
+.ls-root .kv .td3 .cond.lc select,.ls-root .kv .td3 .cond.lc input[type=text],.ls-root .kv .td3 .cond.lc input[type=date]{display:inline-block;width:auto;height:28px;min-height:0;margin:0;padding:0 8px;border:1px solid #c9cfda;border-radius:0;background:#fff;font:inherit;font-size:12.5px;color:#1d2433}
+.ls-root .kv .td3 .cond.lc input[type=text]{width:200px}
+.ls-root .kv .td3 .cond.lc select:focus,.ls-root .kv .td3 .cond.lc input:focus{outline:none;border-color:#1a3a7a;box-shadow:0 0 0 2px rgba(26,58,122,.12)}
+.ls-root .kv .td3 .cond.lc .range{display:inline-flex;align-items:center;gap:6px}
+.ls-root .kv .td3 .cond.lc em{font-style:normal;color:#7a8394}
+/* 검색 칸: 조건 줄 맨 앞에 넓게, 왼쪽에 돋보기 */
+.ls-root .kv .td3 .cond.lc .search{position:relative;flex:1 1 100%;max-width:100%}
+.ls-root .kv .td3 .cond.lc .search svg{position:absolute;left:10px;top:50%;width:16px;height:16px;transform:translateY(-50%);fill:none;stroke:#6b7385;stroke-width:2;stroke-linecap:round;pointer-events:none}
+.ls-root .kv .td3 .cond.lc .search input[type=text]{width:100%;height:34px;padding-left:34px;font-size:13px}
+.ls-root .kv .td3 .cond.lc .search input[type=text]:focus+svg,.ls-root .kv .td3 .cond.lc .search:focus-within svg{stroke:#1a3a7a}
+/* 조건 지우기: 줄 끝 버튼 */
+.ls-root .kv .td3 .cond.lc .clear{margin-left:auto;display:inline-flex;align-items:center;gap:4px}
+@media print{.ls-root .kv .td3 .cond.lc{display:none}}

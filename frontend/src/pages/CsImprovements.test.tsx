@@ -224,7 +224,9 @@ test('목록은 최근 작성순 10건씩 쪽으로 나누고, 머리를 눌러 
  const table=await screen.findByRole('table',{name:'개선요청 목록'});
  const titles=()=>[...table.querySelectorAll('tbody tr td:first-child')].map(td=>td.textContent);
  expect(titles()).toHaveLength(10);expect(titles()[0]).toBe('합성 요청 11');
- fireEvent.click(screen.getByRole('button',{name:'2쪽'}));expect(titles()).toEqual(['합성 요청 01','합성 요청 00']);expect(screen.getByText(/11–12 \/ 12건/)).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'2쪽'}));expect(titles()).toEqual(['합성 요청 01','합성 요청 00']);expect(screen.getByText('총 12건 중 12건')).toBeTruthy();
+ fireEvent.change(screen.getByLabelText('검색어'),{target:{value:'요청 03'}});expect(titles()).toEqual(['합성 요청 03']);expect(screen.getByText('총 12건 중 1건')).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:/조건 지우기/}));expect(titles()).toHaveLength(10);
  fireEvent.click(screen.getByRole('button',{name:/^문제 정렬/}));expect(titles()[0]).toBe('합성 요청 00');expect(titles()).toHaveLength(10);
  fireEvent.click(screen.getByRole('button',{name:/^문제 오름차순/}));expect(titles()[0]).toBe('합성 요청 11');
 });

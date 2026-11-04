@@ -1,12 +1,4 @@
 /* 문의 조회(CS0101): 고객 이력(customers-v3.css)과 같은 제목 줄·조건 줄·상자·처리 기록 표(.log). */
-.ls-root .kv .td3.tk3 .cond{background:#fff;border:1px solid #d9dde4;display:flex;align-items:center;gap:8px 16px;padding:8px 12px;flex-wrap:wrap}
-.ls-root .kv .td3.tk3 .cond label,.ls-root .kv .td3.tk3 .cond .field{display:inline-flex;align-items:center;gap:8px;margin:0;font-size:12.5px}
-.ls-root .kv .td3.tk3 .cond .k{color:#6b7385;white-space:nowrap}
-.ls-root .kv .td3.tk3 .cond select,.ls-root .kv .td3.tk3 .cond input[type=text],.ls-root .kv .td3.tk3 .cond input[type=date]{display:inline-block;width:auto;height:28px;min-height:0;margin:0;padding:0 8px;border:1px solid #c9cfda;border-radius:0;background:#fff;font:inherit;font-size:12.5px;color:#1d2433}
-.ls-root .kv .td3.tk3 .cond input[type=text]{width:200px}
-.ls-root .kv .td3.tk3 .cond select:focus,.ls-root .kv .td3.tk3 .cond input:focus{outline:none;border-color:#1a3a7a;box-shadow:0 0 0 2px rgba(26,58,122,.12)}
-.ls-root .kv .td3.tk3 .cond .range{display:inline-flex;align-items:center;gap:6px}
-.ls-root .kv .td3.tk3 .cond em{font-style:normal;color:#7a8394}
 .ls-root .kv .td3.tk3 .ph .meta{font-size:11.5px;font-weight:400}
 .ls-root .kv .td3.tk3 .ph .picked{display:inline-flex;align-items:center;gap:6px;font-weight:400;font-size:12.5px}
 .ls-root .kv .td3.tk3 .log td.t .link{color:#1d2433;font-weight:600}
@@ -19,17 +11,11 @@
 .ls-root .kv .td3.tk3 .pager .pg{display:inline-flex;align-items:center;gap:4px}
 .ls-root .kv .td3.tk3 .pager .kb3.sm{min-width:30px;justify-content:center}
 .ls-root .kv .td3.tk3 .pager .gap{color:#9aa2b1;padding:0 2px}
-@media print{.ls-root .kv .td3.tk3 .btns,.ls-root .kv .td3.tk3 .cond,.ls-root .kv .td3.tk3 .pager{display:none}}
 /* 접수 경로 칩: 경로마다 다른 색 */
 .ls-root .kv .td3.tk3 .chip.ch-email{background:#eef3fb;color:#1f3d73}
 .ls-root .kv .td3.tk3 .chip.ch-phone{background:#f4f2fd;color:#5b3fd0}
 .ls-root .kv .td3.tk3 .chip.ch-portal,.ls-root .kv .td3.tk3 .chip.ch-partner_portal{background:#e6f4f5;color:#1b6b73}
 .ls-root .kv .td3.tk3 .chip.ch-webform,.ls-root .kv .td3.tk3 .chip.ch-web_form{background:#fdf1f0;color:#a3221a}
 .ls-root .kv .td3.tk3 .chip.ch-chat{background:#eaf5ee;color:#2f7d4f}
-/* 검색 칸: 조건 줄 맨 앞에 넓게, 왼쪽에 돋보기 */
-.ls-root .kv .td3.tk3 .cond .search{position:relative;flex:1 1 100%;max-width:100%}
-.ls-root .kv .td3.tk3 .cond .search svg{position:absolute;left:10px;top:50%;width:16px;height:16px;transform:translateY(-50%);fill:none;stroke:#6b7385;stroke-width:2;stroke-linecap:round;pointer-events:none}
-.ls-root .kv .td3.tk3 .cond .search input[type=text]{width:100%;height:34px;padding-left:34px;font-size:13px}
-.ls-root .kv .td3.tk3 .cond .search input[type=text]:focus+svg,.ls-root .kv .td3.tk3 .cond .search:focus-within svg{stroke:#1a3a7a}
-/* 조건 지우기: 줄 끝 버튼 */
-.ls-root .kv .td3.tk3 .cond .clear{margin-left:auto;display:inline-flex;align-items:center;gap:4px}
+
+@media print{.ls-root .kv .td3.tk3 .btns,.ls-root .kv .td3.tk3 .pager{display:none}}

@@ -17,6 +17,7 @@ import { addEvidence, getCaseComparison, removeEvidence, type CaseComparison } f
 import { me } from '../api/platform';
 import type { RequestSummary } from '../ls-shell/cs-labels';
 import './ticket-detail-v3.css';
+import './list-cond.css';
 import './improvements-v3.css';
 
 // 단계 바: 상태는 서버가 정한다. 화면은 지금 어느 단계인지만 보인다.
@@ -226,6 +227,9 @@ function ImprovementView(){
   // 목록: 문의 조회처럼 머리를 눌러 정렬하고, 10건씩 쪽으로 나눠 본다. 기본은 최근 작성순.
   const [sort,setSort]=useState<LogSort>({key:'created',dir:'desc'});
   const [page,setPage]=useState(0);
+  // 목록 조건(문의 조회와 같은 조건 줄). 받아 온 목록(최근 200건) 안에서 거른다.
+  const [query,setQuery]=useState('');const [fStatus,setFStatus]=useState('');const [fProduct,setFProduct]=useState('');const [fOrigin,setFOrigin]=useState('');
+  const clearFilters=()=>{setQuery('');setFStatus('');setFProduct('');setFOrigin('');setPage(0);};
   const [primary,setPrimary]=useState<PrimaryAction>(null);
   const reportPrimary=useCallback((action:PrimaryAction)=>setPrimary(action),[]);
   // 처리 동작 목록(검토·전달·부서 처리). 표 대신 부서 줄·제목 줄 버튼으로 보인다.
@@ -256,7 +260,6 @@ function ImprovementView(){
     {key:'title',header:'문제',className:'t',sortValue:item=>titleOf(item),cell:item=><Link className="link" to={`/cs/improvements/${encodeURIComponent(item.id)}`}>{titleOf(item)}</Link>},
     {key:'product',header:'제품',width:150,sortValue:item=>item.product_code,cell:item=>item.product_code},
     {key:'status',header:'상태',width:110,className:'c',sortValue:item=>STEP_OF[item.status]??-1,cell:item=><span className={`chip st-${item.status.toLowerCase()}`}>{REQUEST_STATUS_LABEL[item.status]??item.status}</span>},
-    {key:'evidence',header:'근거',width:64,className:'c',sortValue:item=>item.evidence_count,cell:item=>`${item.evidence_count}건`},
     {key:'created',header:'작성일',width:96,className:'c',sortValue:item=>Date.parse(item.created_at),cell:item=>dayOf(item.created_at)},
     {key:'owner',header:'담당',width:230,sortValue:item=>item.cs_owner??'',cell:item=>`담당자 ID: ${item.cs_owner??'미배정'}`},
   ];
@@ -283,14 +286,29 @@ function ImprovementView(){
       {active.isFetching&&<Loading/>}{!active.isFetching&&active.isError&&<ErrorState error={active.error} onRetry={refresh}/>}
 
       {!requestId&&!list.isFetching&&list.isSuccess&&<>
+        {(()=>{const faults=list.data.data.items.filter(item=>item.request_type==='FAULT');const products=[...new Set(faults.map(item=>item.product_code))].sort();
+          return <form className="cond lc" onSubmit={event=>{event.preventDefault();refresh();}}>
+            <label className="search">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+              <input type="text" aria-label="검색어" placeholder="문제, 제품, 고장 ID로 검색" autoComplete="off" value={query} onChange={event=>{setQuery(event.target.value);setPage(0);}}/>
+            </label>
+            <label><span className="k">상태</span><select aria-label="상태" value={fStatus} onChange={event=>{setFStatus(event.target.value);setPage(0);}}><option value="">전체</option><option value="OPEN">진행 중 전체</option>{Object.keys(STEP_OF).map(key=><option key={key} value={key}>{REQUEST_STATUS_LABEL[key as RequestSummary['status']]??key}</option>)}</select></label>
+            <label><span className="k">제품</span><select aria-label="제품" value={fProduct} onChange={event=>{setFProduct(event.target.value);setPage(0);}}><option value="">전체</option>{products.map(value=><option key={value}>{value}</option>)}</select></label>
+            <label><span className="k">작성</span><select aria-label="작성" value={fOrigin} onChange={event=>{setFOrigin(event.target.value);setPage(0);}}><option value="">전체</option><option value="SYSTEM_CANDIDATE">시스템 후보</option><option value="MANUAL">직접 작성</option></select></label>
+            <button type="button" className="kb3 sm clear" onClick={clearFilters}><span aria-hidden="true">↺</span> 조건 지우기</button>
+            <button type="submit" hidden tabIndex={-1} aria-hidden="true"/>
+          </form>;})()}
         <div className="pane">
           {(()=>{// 화면은 고장 반복 요청만 다룬다(문서 요청은 범위 제외). API로 만들어진 문서 요청이 있어도 목록에 올리지 않는다.
-            const items=list.data.data.items.filter(item=>item.request_type==='FAULT');const pages=Math.max(1,Math.ceil(items.length/PAGE));const at=Math.min(page,pages-1);
+            const faults=list.data.data.items.filter(item=>item.request_type==='FAULT');
+            const needle=query.trim().toLocaleLowerCase();
+            const items=faults.filter(item=>(!fStatus||(fStatus==='OPEN'?item.status!=='COMPLETED':item.status===fStatus))&&(!fProduct||item.product_code===fProduct)&&(!fOrigin||item.origin===fOrigin)
+              &&(!needle||`${titleOf(item)} ${item.problem_statement} ${item.product_code} ${item.fault_id??''}`.toLocaleLowerCase().includes(needle)));const pages=Math.max(1,Math.ceil(items.length/PAGE));const at=Math.min(page,pages-1);
             const shown=sortRows(items,listColumns,sort).slice(at*PAGE,at*PAGE+PAGE);
             return <>
-              <div className="ph">개선요청<div className="r"><span className="meta">{items.length?`${at*PAGE+1}–${at*PAGE+shown.length} / ${items.length}건`:'0건'} (최근 최대 200건)</span></div></div>
-              <LogTable label="개선요청 목록" columns={listColumns} rows={shown} rowKey={item=>item.id} fallback="조회 가능한 개선요청이 없습니다."
-                sort={sort} onSort={key=>{setPage(0);setSort(current=>current.key===key?{key,dir:current.dir==='asc'?'desc':'asc'}:{key,dir:key==='created'||key==='evidence'?'desc':'asc'});}}/>
+              <div className="ph">개선요청<div className="r"><span className="meta" title="최근 최대 200건을 받아 온 기준입니다">총 {faults.length}건 중 {items.length}건</span></div></div>
+              <LogTable label="개선요청 목록" columns={listColumns} rows={shown} rowKey={item=>item.id} fallback={faults.length?'조건에 맞는 개선요청이 없습니다. 조건 지우기로 조건을 비울 수 있습니다.':'조회 가능한 개선요청이 없습니다.'}
+                sort={sort} onSort={key=>{setPage(0);setSort(current=>current.key===key?{key,dir:current.dir==='asc'?'desc':'asc'}:{key,dir:key==='created'?'desc':'asc'});}}/>
               {pages>1&&<nav className="pager" aria-label="개선요청 쪽">
                 <button type="button" className="kb3 sm" disabled={at===0} onClick={()=>setPage(at-1)}>이전</button>
                 {Array.from({length:pages},(_,i)=>i).filter(i=>i===0||i===pages-1||Math.abs(i-at)<=2).map((i,k,arr)=><span key={i} className="pg">
