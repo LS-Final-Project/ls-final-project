@@ -19,15 +19,15 @@ const grid=()=>within(screen.getByRole('table',{name:'문의 목록'}));
 const subjects=()=>grid().getAllByRole('link').map(x=>x.textContent);
 const only=(list:unknown[])=>jsonResponse(200,{data:{items:list,next_cursor:null}});
 
-test('조회조건은 받아 온 목록 안에서만 거르고 서버 전체 검색으로 표시하지 않는다',async()=>{stub(()=>only(items));view();await screen.findByRole('link',{name:'Alpha'});expect(screen.getByText(/조회조건은 받아 온 목록 안에서 거름/)).toBeTruthy();expect(screen.getByText(/서버 필터, 요약, 고객 열 아직 없음/)).toBeTruthy();fireEvent.change(screen.getByLabelText('검색어'),{target:{value:'ID-B'}});expect(subjects()).toEqual(['Beta']);fireEvent.change(screen.getByLabelText('접수 경로'),{target:{value:'EMAIL'}});expect(screen.getByText(/조건에 맞는 문의가 없습니다/)).toBeTruthy();fireEvent.click(screen.getByRole('link',{name:'조건 지우기'}));expect(subjects()).toEqual(['Beta','Alpha']);});
+test('조회조건은 받아 온 목록 안에서만 거르고 서버 전체 검색으로 표시하지 않는다',async()=>{stub(()=>only(items));view();await screen.findByRole('link',{name:'Alpha'});expect(screen.queryByText(/서버 필터, 요약, 고객 열 아직 없음/)).toBeNull();expect(screen.queryByText('다음 할 일')).toBeNull();expect(screen.queryByRole('grid',{name:'개선요청 목록'})).toBeNull();fireEvent.change(screen.getByLabelText('검색어'),{target:{value:'ID-B'}});expect(subjects()).toEqual(['Beta']);fireEvent.change(screen.getByLabelText('접수 경로'),{target:{value:'EMAIL'}});expect(screen.getByText(/조건에 맞는 문의가 없습니다/)).toBeTruthy();fireEvent.click(screen.getByRole('link',{name:'조건 지우기'}));expect(subjects()).toEqual(['Alpha','Beta']);});
 test('상태 조건은 기본으로 종결을 빼고 전체를 고르면 종결도 보여 준다',async()=>{stub(()=>only([...items,{...items[0],id:'c',subject:'Closed',external_id:'ID-C',workflow_state:'CLOSED'}]));view();await screen.findByRole('link',{name:'Alpha'});expect(screen.queryByRole('link',{name:'Closed'})).toBeNull();fireEvent.change(screen.getByLabelText('상태'),{target:{value:''}});expect(screen.getByRole('link',{name:'Closed'})).toBeTruthy();fireEvent.change(screen.getByLabelText('상태'),{target:{value:'CLOSED'}});expect(subjects()).toEqual(['Closed']);});
 test('접수일자 범위는 받아 온 목록에 적용한다',async()=>{stub(()=>only(items));view();await screen.findByRole('link',{name:'Alpha'});fireEvent.change(screen.getByLabelText('접수일자 시작'),{target:{value:'2026-10-21'}});expect(subjects()).toEqual(['Beta']);fireEvent.change(screen.getByLabelText('접수일자 종료'),{target:{value:'2026-10-20'}});expect(screen.getByText(/조건에 맞는 문의가 없습니다/)).toBeTruthy();});
-test('접수일시 정렬은 현재 받은 목록에 적용한다',async()=>{stub(()=>only(items));view();await screen.findByRole('link',{name:'Alpha'});expect(subjects()).toEqual(['Beta','Alpha']);fireEvent.click(screen.getByRole('button',{name:/접수일시 내림차순/}));expect(subjects()).toEqual(['Alpha','Beta']);expect(screen.getByRole('button',{name:/접수일시 오름차순/})).toBeTruthy();});
-test('더 보기는 다음 커서를 인코딩해 보내고 받은 행을 이어 붙인다',async()=>{const f=stub(url=>jsonResponse(200,{data:url.includes('cursor=')?{items:[{...items[0],id:'n',subject:'다음 문의',external_id:'ID-N'}],next_cursor:null}:{items,next_cursor:'abc+/='}}));view();await screen.findByRole('link',{name:'Alpha'});fireEvent.click(screen.getByRole('button',{name:'50건 더 보기'}));await screen.findByRole('link',{name:'다음 문의'});expect(ticketCalls(f).some(([url])=>String(url).includes('cursor=abc%2B%2F%3D'))).toBe(true);expect(subjects()).toContain('Alpha');expect(screen.getByText('표시 3건 / 조회 3건')).toBeTruthy();expect((screen.getByRole('button',{name:'모두 불러옴'}) as HTMLButtonElement).disabled).toBe(true);});
+test('기본은 경과일 긴 순이고 접수일시 머리를 누르면 최근 접수 순으로 바꾼다',async()=>{stub(()=>only(items));view();await screen.findByRole('link',{name:'Alpha'});expect(subjects()).toEqual(['Alpha','Beta']);expect(screen.getByRole('button',{name:/경과일 내림차순/})).toBeTruthy();fireEvent.click(screen.getByRole('button',{name:/접수일시 정렬/}));expect(subjects()).toEqual(['Beta','Alpha']);expect(screen.getByRole('button',{name:/접수일시 내림차순/})).toBeTruthy();});
+test('마지막 쪽의 다음은 다음 커서를 인코딩해 보내고 받은 행을 이어 붙인다',async()=>{const f=stub(url=>jsonResponse(200,{data:url.includes('cursor=')?{items:[{...items[0],id:'n',subject:'다음 문의',external_id:'ID-N'}],next_cursor:null}:{items,next_cursor:'abc+/='}}));view();await screen.findByRole('link',{name:'Alpha'});fireEvent.click(screen.getByRole('button',{name:'다음'}));await screen.findByRole('link',{name:'다음 문의'});expect(ticketCalls(f).some(([url])=>String(url).includes('cursor=abc%2B%2F%3D'))).toBe(true);expect(subjects()).toContain('Alpha');expect(screen.getByText('표시 3건 / 조회 3건')).toBeTruthy();expect((screen.getByRole('button',{name:'다음'}) as HTMLButtonElement).disabled).toBe(true);});
 test('갱신 권한 거부는 이전 데이터를 숨기고 다시 조회로 복구한다',async()=>{let calls=0;stub(()=>++calls===2?jsonResponse(403,errorBody('FORBIDDEN','회수')):only(items));view();await screen.findByRole('link',{name:'Alpha'});fireEvent.click(screen.getByRole('button',{name:/^조회/}));await screen.findByText('권한이 없습니다');await waitFor(()=>expect(screen.queryByRole('link',{name:'Alpha'})).toBeNull());fireEvent.click(screen.getByRole('button',{name:/^조회/}));await screen.findByRole('link',{name:'Alpha'});});
 test('원문과 언어를 표시하고 AI 분석을 만들어내지 않는다',async()=>{const source=examples.find(x=>x.path==='/api/v1/cs/tickets/22222222-2222-4222-8222-222222222222')!;const text=(source.body as {data:{body:string}}).data.body;vi.stubGlobal('fetch',vi.fn(async()=>jsonResponse(200,source.body)));setApiMode('live');renderAt('/cs/tickets/x','/cs/tickets/:ticketId',<TicketDetail/>);await screen.findByRole('heading',{name:'문의 처리'});await waitFor(()=>expect(document.querySelector('.td3 .mail')?.textContent).toBe(text));expect(screen.getByText(/파트너 포털, 튀르키예어/)).toBeTruthy();expect(screen.getByText(/아직 AI 분석이 없습니다/)).toBeTruthy();expect(screen.queryByText('✦ AI',{selector:'.box .ai2'})).toBeNull();});
 
-test('제품 조건은 접수 경로와 결합하고 더 보기 뒤에도 유지하며 지우면 풀린다',async()=>{
+test('제품 조건은 접수 경로와 결합하고 다음 묶음을 받은 뒤에도 유지하며 지우면 풀린다',async()=>{
   const f=stub(url=>jsonResponse(200,{data:url.includes('cursor=')?{items:[{...items[0],id:'c',subject:'Gamma',external_id:'ID-G'}],next_cursor:null}:{items,next_cursor:'next'}}));
   view();await screen.findByRole('link',{name:'Alpha'});
   fireEvent.change(screen.getByLabelText('제품'),{target:{value:'P2'}});
@@ -35,13 +35,13 @@ test('제품 조건은 접수 경로와 결합하고 더 보기 뒤에도 유지
   fireEvent.change(screen.getByLabelText('접수 경로'),{target:{value:'EMAIL'}});
   expect(screen.getByText(/조건에 맞는 문의가 없습니다/)).toBeTruthy();
   fireEvent.change(screen.getByLabelText('접수 경로'),{target:{value:''}});
-  fireEvent.click(screen.getByRole('button',{name:'50건 더 보기'}));
-  await waitFor(()=>expect(screen.getByRole('button',{name:'모두 불러옴'})).toBeTruthy());
+  fireEvent.click(screen.getByRole('button',{name:'다음'}));
+  await waitFor(()=>expect((screen.getByRole('button',{name:'다음'}) as HTMLButtonElement).disabled).toBe(true));
   expect((screen.getByLabelText('제품') as HTMLSelectElement).value).toBe('P2');
   expect(screen.queryByRole('link',{name:'Gamma'})).toBeNull();
   expect(ticketCalls(f).length).toBe(2);
   fireEvent.click(screen.getByRole('link',{name:'조건 지우기'}));
-  expect(subjects()).toEqual(['Beta','Alpha','Gamma']);
+  expect(subjects()).toEqual(['Alpha','Gamma','Beta']);
   expect((screen.getByLabelText('제품') as HTMLSelectElement).value).toBe('');
 });
 
