@@ -893,11 +893,22 @@ async def states(
             (d for d in reversed(history) if d["action"] in STRUCTURAL and d["id"] not in undone),
             None,
         )
+        # 도면 값이 맞다고 확인해도 자사 비교가 편차면 편차표 기재가 남는다. 도면 확인 묶음에서 빼서 편차로 보이고
+        # 미결로 둔다(그러지 않으면 화면에 편차 기재 칸이 없는데 저장 조건 '편차표 누락'이 풀리지 않는다).
+        if (
+            current is not None
+            and current["action"] == "confirm_drawing"
+            and verdict == "DEVIATION"
+        ):
+            current = None
+            drawing = False
+        else:
+            drawing = row["drawing"]
         out[row["requirement_id"]] = (
             verdict,
             s.DecisionState(
                 # 충족 확정처럼 결정이 판정을 MET로 바꿔도 결정한 요구는 결정 대상으로 남긴다(진행 분모·책임자 확인).
-                needed=(verdict != "MET" or row["drawing"] or current is not None)
+                needed=(verdict != "MET" or drawing or current is not None)
                 and not excluded
                 and follows is None,
                 decided=current is not None,
@@ -907,7 +918,7 @@ async def states(
                 decided_at=current["created_at"] if current else None,
                 reviewed=current is not None and str(current["id"]) in confirmed,
                 manually_added=row["manually_added"],
-                drawing_check=row["drawing"],
+                drawing_check=drawing,
                 excluded=excluded,
                 excluded_reason=mark["detail"].get("reason") if mark else None,
                 change_id=change["id"] if change else None,
