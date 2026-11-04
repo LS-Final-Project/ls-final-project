@@ -169,12 +169,12 @@ T17은 기존 표에 `draft_sentences.needs_rereview`(생성 당시 검토 표�
   `rfp.export` 접수. `ExportAccepted(JobAccepted)`에 `export_id`를 추가하여 파일 GET과 연결하며,
   같은 요청 재전송은 같은 export_id다. process/annotate는 기존 JobAccepted를 유지한다.
 - **29 GET exports/{export_id}/file**: 기존 프로젝트 조회 범위, 다른 프로젝트/없는 자원은 404,
-  미완료는 409 `TFT_EXPORT_NOT_READY`. 완료 파일은 sha256/size 확인 후 DOCX MIME·attachment·no-store·nosniff로 반환한다.
+  미완료는 409 `TFT_EXPORT_NOT_READY`. 완료 파일은 sha256/size 확인 후 형식의 MIME(DOCX·XLSX)·attachment·no-store·nosniff로 반환한다.
   파일 누락/손상은 안전한 503이며 내부 storage_key는 응답에 포함하지 않는다.
 
 ### 내보내기 포맷과 파일
 
-ExportFormat의 `DOCX`·`PDF` enum은 바꾸지 않는다. **내보내기는 Word(DOCX)만 지원**이며 PDF는 예약/DB 쓰기/
+ExportFormat은 `DOCX`·`PDF`·`XLSX`(KAN-221)다. **내보내기는 요약서 DOCX와 입찰 대응 XLSX만 지원**이며 PDF는 예약/DB 쓰기/
 플랫폼 접수 전에 422 `TFT_EXPORT_FORMAT_UNAVAILABLE`다. PDF 내보내기는 지원 범위 밖이며 화면에는 PDF 내보내기 동작을 제공하지 않는다.
 reportlab·글꼴·의존성·이미지를 추가하지 않는다.
 
@@ -184,11 +184,35 @@ XML escaping 및 `w:br`·`w:tab`으로 한글/특수문자/줄바꿈을 보존�
 본문·근거·조건·flags를 읽고, 머리는 접수 때 고정한 `title`, 근거 번호표는 불변인 요구·조항 번호를 읽는다. 이후 요구의 `needs_review`나 `rereview_marks`는 파일에 합산하지 않는다.
 일반 `load`를 쓰는 GET·PATCH 응답과 검토본 저장 검사는 현재 재검토 표시를 계속 합산한다.
 편집 저장 입력은 `load_snapshot`의 정적 flags를 보존하며, 일시적인 live 검토 표시를 새 판본에 저장하지 않는다. 기존 원문 DocumentStore(private GCS 또는 `TFT_DOCUMENT_ROOT`)에
-`rfp/{project}/exports/{export}.docx`로 저장하며 25 MiB 상한·해시·크기를 기록한다.
+`rfp/{project}/exports/{export}.docx`(XLSX는 `.xlsx`)로 저장하며 25 MiB 상한·해시·크기를 기록한다.
 객체 생성 후 DB commit 전에 실패하면 private 객체만 남을 수 있다(기존 업로드와 동일).
 재시도는 같은 바이트일 때만 기존 객체를 인정하며 다른 바이트를 덮어쓰지 않는다.
 
-서버/플랫폼 웹 중계는 이 다섯 경로와 34~36과 정확한 export 파일 경로의 DOCX 응답을 허용한다.
+서버/플랫폼 웹 중계는 이 다섯 경로와 34~36과 정확한 export 파일 경로의 DOCX·XLSX 응답을 허용한다.
+
+### 입찰 대응 XLSX와 요약서 검토 요약 (KAN-221, 2026-11-04)
+
+같은 검토본에서 XLSX 한 파일(시트 넷)과 요약서 DOCX(기존 검토본 DOCX)를 따로 내보낸다(28에 `format` `XLSX`·`DOCX`). 생성은
+`backend/api/tft/rfp/bid_outputs.py` 한 곳이고 시트 칸은 작업 공간 출력 탭과 같다. 모든 시트의 1행은 머리 줄
+(접수 때 고정한 제목 | 검토본 n | 자료 구분 | 기준 시각 = 예약 시각 KST | 저장 조건), 2행은 칸 이름(고정·자동 필터), 3행부터 자료다.
+
+| 시트 | 행 | 칸 |
+|---|---|---|
+| 편차표 | 요구별 최신 편차 행이 `RECORDED`인 요구, 원문 조항 순서 | No, 조항, 설비, 항목, 요구, 자사 제안(비교 요약), 편차 내용, 확인(편차 판본이 최신 요구 판본보다 오래되면 "요구가 바뀜, 다시 확인") |
+| 질의서 | 고객 질의 중 `OPEN`·`REPLIED`, 철회 제외, 작성 순 | No(TQ-n, 후속 질의는 TQ-n-2), 조항, 설비, 질의, 상태(회신 대기·회신 받음), 회신, 회신 받은 날 |
+| 현황표 | 설비별 + 합계 | 설비, 충족(충족 확인 포함), 편차, 질의, 보완, 배정, 남은 결정, 남은 조건(회신 대기 질의 수) |
+| 요구별 | 모든 요구, 원문 조항 순서 | No, 요구 번호, 조항, 설비, 항목, 요구값, 필수, 원문, 판정, 결정, 책임자 확인, 판단 근거, 다음 담당, 직접 추가, 같은 요구 출처 |
+
+- 판정·결정은 KAN-220 `decisions.states`, 저장 조건은 `decisions.gate`다. 뺀 요구(KAN-225)와 그 질의는 넣지 않는다.
+- 중복(KAN-223)은 검토본에 고정한 맥락의 `duplicates`로 대표 한 행만 남기고 "같은 요구 출처"에 조항을 적는다. 설비는 같은
+  맥락의 EQUIPMENT 묶음(태그, 없으면 이름), 맥락이 없으면 요구의 설비 칸, 그것도 없으면 "공통"이다.
+- XLSX의 편차·질의·결정·판정은 **내보낼 때의 기록**이다(머리 줄 기준 시각). 요약서 DOCX는 위 불변 검토본 규칙 그대로
+  고정한 판본만 싣는다(내보낼 때의 판정 집계를 넣으면 같은 검토본의 파일이 달라져 넣지 않았다).
+- XLSX 재시도: 저장 직후 DB 기록 전에 멈췄으면 이 내보내기로 이미 만든 파일을 그대로 쓴다(다시 만들면 결정이 바뀌어 달라질 수 있다).
+- 저장 조건이 남아 있어도 내보내기는 막지 않는다. 머리 줄에 "저장 조건 미충족: …"으로 남은 항목을 적는다.
+  내보내는 파일은 언제나 검토본이며 확정·제출본이라는 표시는 없다(기존 고지 유지).
+- worker(tft_worker)는 `requirement_decisions`·`deviations`·`question_withdrawals`를 읽는다(마이그레이션 `20261123_KAN-221_xlsx_exports.sql`).
+- XLSX도 표준 라이브러리 ZIP/XML로 만든다. XML에 넣을 수 없는 글자는 지우지 않고 실패한다(`TFT_EXPORT_INVALID_CHARACTER`).
 본체 JSON 경로에 바이너리를 허용하지 않는다. 실제 모델·외부 발송·공식 추적률 평가 연결은 포함하지 않는다.
 로컬 일반 합성/파일/HTTP 검증과 전용 PostgreSQL CI 검증을 분리하며 DB 미실행을 통과로 보고하지 않는다.
 

@@ -78,5 +78,9 @@ BEGIN
     IF to_regclass('tft.requirement_decisions') IS NOT NULL THEN
         EXECUTE 'GRANT SELECT (id,requirement_id,detail,created_at) ON tft.requirement_decisions TO tft_worker';
     END IF;
+    -- KAN-221: 내보내기(XLSX·요약서)는 판정·결정·편차·철회 기록을 읽는다.
+    IF to_regclass('tft.deviations') IS NOT NULL THEN
+        EXECUTE 'GRANT SELECT ON tft.requirement_decisions, tft.deviations, tft.question_withdrawals TO tft_worker';
+    END IF;
 END $$;
 COMMIT;

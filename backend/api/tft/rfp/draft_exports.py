@@ -1,4 +1,7 @@
-"""불변 검토본을 실제 DOCX로 만들고 같은 원문 저장소에 보관한다(KAN-188). PDF 내보내기는 지원하지 않는다."""
+"""검토본을 요약서 DOCX와 입찰 대응 XLSX(KAN-221)로 만들고 같은 원문 저장소에 보관한다(KAN-188).
+
+PDF 내보내기는 지원하지 않는다. 요약서 DOCX는 검토본에 고정한 판본만, XLSX는 내보낼 때의 판정·결정 기록을 싣는다.
+"""
 
 import asyncio
 import hashlib
@@ -13,6 +16,7 @@ from zoneinfo import ZoneInfo
 from psycopg import AsyncConnection
 
 from backend.agent.processor_registry import Emit, TftJob
+from backend.api.tft.rfp import bid_outputs
 from backend.api.tft.rfp import docx_layout as layout
 from backend.api.tft.rfp import draft_repository as db
 from backend.api.tft.rfp import schemas as s
@@ -25,6 +29,7 @@ from backend.shared.errors import ApplicationError
 
 Row = dict[str, Any]
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+MIME = {"DOCX": DOCX_MIME, "XLSX": bid_outputs.XLSX_MIME}
 MAX_EXPORT_BYTES = 25 * 1024 * 1024
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 KST = ZoneInfo("Asia/Seoul")
@@ -47,12 +52,17 @@ SECTION_TITLES: dict[s.DraftSection, str] = {
 }
 
 
-def require_docx(format: s.ExportFormat) -> None:
+def require_supported(format: s.ExportFormat) -> None:
     """PDF enum은 유지하되 예약·접수·파일 생성 전에 명시적으로 거부한다."""
-    if format != "DOCX":
+    if format not in MIME:
         raise ApplicationError(
-            422, "TFT_EXPORT_FORMAT_UNAVAILABLE", "Only Word (DOCX) export is supported."
+            422, "TFT_EXPORT_FORMAT_UNAVAILABLE", "Only DOCX and XLSX export are supported."
         )
+
+
+def file_name(id: UUID, format: s.ExportFormat) -> str:
+    """내려받기·목록이 같이 쓰는 파일 이름."""
+    return f"rfp-{id}.{format.lower()}"
 
 
 def export_id(project_id: UUID, actor: UUID, key: str) -> UUID:
@@ -72,8 +82,8 @@ async def reserve(
     key: str,
     payload: s.ExportRequest,
 ) -> UUID:
-    """실제 검토본이 있는 DOCX 예약만 만든다. 같은 요청의 원래 예약은 재사용한다."""
-    require_docx(payload.format)
+    """실제 검토본이 있는 예약만 만든다. 같은 요청의 원래 예약은 재사용한다."""
+    require_supported(payload.format)
     id = export_id(project_id, actor, key)
     await db.lock(conn, project_id)
     cursor = await conn.execute("SELECT * FROM tft.exports WHERE id=%s", (id,))
@@ -254,7 +264,7 @@ async def process(
     row = rows[0]
     if row["job_id"] not in (None, job.job_id) or row["created_by"] != job.actor_id:
         raise ValueError("TFT_EXPORT_JOB_MISMATCH")
-    require_docx(row["format"])
+    require_supported(row["format"])
     emit({"step": "export", "counts": {"requirements": 0, "proposals": 0}})
     if row["completed_at"] is not None:
         await read_document(store, row["storage_key"], row["sha256"], row["size"])
@@ -266,16 +276,29 @@ async def process(
     review = await cursor.fetchone()
     if review is None:
         raise ValueError("TFT_REVIEW_VERSION_NOT_FOUND")
-    draft = await db.load_snapshot(conn, job.project_id, review["draft_version"])
-    if draft is None:
-        raise ValueError("TFT_DRAFT_NOT_FOUND")
-    labels = await db.evidence_labels(conn, job.project_id)
-    context = await db.load_review_context(conn, job.project_id, row["review_version"])
-    data = await asyncio.to_thread(
-        render_docx, draft, row["review_version"], labels, row["title"] or "", context
-    )
+    key = f"rfp/{job.project_id}/exports/{row['id']}.{row['format'].lower()}"
+    if row["format"] == "XLSX":
+        # XLSX는 내보낼 때의 판정·결정 기록이라 다시 만들면 달라질 수 있다. 저장 직후 DB 기록 전에 멈춘 재시도는
+        # 이 내보내기로 이미 만든 파일을 그대로 쓴다(덮어쓰지 않는다). 기준 시각은 예약 시각이다.
+        try:
+            data = await store.get(key)
+        except DocumentUnavailable:
+            outputs = await bid_outputs.collect(
+                conn, job.project_id, row["review_version"], row["created_at"], row["title"] or ""
+            )
+            data = await asyncio.to_thread(bid_outputs.render_xlsx, outputs)
+    else:
+        draft = await db.load_snapshot(conn, job.project_id, review["draft_version"])
+        if draft is None:
+            raise ValueError("TFT_DRAFT_NOT_FOUND")
+        labels = await db.evidence_labels(conn, job.project_id)
+        context = await db.load_review_context(conn, job.project_id, row["review_version"])
+        data = await asyncio.to_thread(
+            render_docx, draft, row["review_version"], labels, row["title"] or "", context
+        )
+    if len(data) > MAX_EXPORT_BYTES:
+        raise ValueError("TFT_EXPORT_TOO_LARGE")
     digest = hashlib.sha256(data).hexdigest()
-    key = f"rfp/{job.project_id}/exports/{row['id']}.docx"
     try:
         await store.put(key, data)
     except DocumentUnavailable:

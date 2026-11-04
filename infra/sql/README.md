@@ -458,3 +458,10 @@ TFT `20261122_KAN-225_manual_requirements.sql`은 `20261121_KAN-218_decisions.sq
 KAN-218만 정의하고(CREATE TABLE IF NOT EXISTS) 이전 마이그레이션 재적용이 다시 정의하지 않으므로 새 값의 행이 있어도 깨지지
 않는다. tft_worker에 빼기 표시 계산 열(id·requirement_id·detail·created_at) SELECT를 주고, `20261104_KAN-199_tft_worker.sql`
 재적용도 같은 권한을 복구한다. 표·행은 더하거나 지우지 않는다. 규칙은 [RFP 데이터 구조](../../contracts/tft/rfp-data.md)다.
+
+## KAN-221 입찰 대응 XLSX 내보내기
+
+TFT `20261123_KAN-221_xlsx_exports.sql`은 `20261122_KAN-225_manual_requirements.sql` 뒤에 적용한다.
+`exports.format` CHECK에 `XLSX`를 더하고(KAN-182만 정의하므로 이전 재적용이 다시 좁히지 않는다), 내보내기 worker
+(tft_worker)에 `requirement_decisions`·`deviations`·`question_withdrawals` SELECT를 준다. `20261104_KAN-199_tft_worker.sql`
+재적용도 같은 권한을 복구한다. 표·행은 더하거나 지우지 않는다.
