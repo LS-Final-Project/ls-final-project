@@ -6884,6 +6884,23 @@
         "additionalProperties": false,
         "description": "\ud68c\uc2e0\uc5d0\uc11c \uc77d\uc740 \uc0c8 \uc694\uad6c\uac12 \ud6c4\ubcf4(KAN-224). \ud6c4\ubcf4\uc77c \ubfd0 \uc694\uad6c\uac12\uc744 \ubc14\uafb8\uc9c0 \uc54a\ub294\ub2e4.\n\nmethod: rule(\uaddc\uce59), ai(AI, \uadfc\uac70 \uac80\uc0ac \ud1b5\uacfc), none(\ubabb \uc77d\uc74c, reason\uc5d0 \uc774\uc720).",
         "properties": {
+          "ai": {
+            "anyOf": [
+              {
+                "enum": [
+                  "QUEUED",
+                  "UNAVAILABLE",
+                  "DONE",
+                  "FAILED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai"
+          },
           "conditions": {
             "items": {
               "$ref": "#/components/schemas/Condition"
@@ -15578,6 +15595,111 @@
           }
         },
         "summary": "Reply Question",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
+    "/api/v1/tft/questions/{question_id}/reply/read": {
+      "post": {
+        "description": "KAN-224. \uaddc\uce59\uc774 \ubabb \uc77d\uc740 \uace0\uac1d \ud68c\uc2e0\uc744 AI\ub85c \ub2e4\uc2dc \uc77d\ub294\ub2e4(worker \uc791\uc5c5, \ubaa8\ub378 \ube44\uc6a9). \uc694\uad6c\uac12\uc740 \ubc14\uafb8\uc9c0 \uc54a\ub294\ub2e4.",
+        "operationId": "tft_read_rfp_question_reply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "question_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Question Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Question_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Read Question Reply",
         "tags": [
           "rfp"
         ]

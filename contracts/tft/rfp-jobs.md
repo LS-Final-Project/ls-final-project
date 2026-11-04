@@ -19,6 +19,7 @@
 | `rfp.context` | `POST /api/v1/tft/projects/{project_id}/context/process` | `context_map`·`context_link`·`context_validate` |
 | `rfp.export` | `POST /api/v1/tft/projects/{project_id}/draft/exports` | `export` |
 | `rfp.annotate` | `POST /api/v1/tft/projects/{project_id}/annotations/process` | 지원 범위 밖: 접수 422 `TFT_ANNOTATION_UNAVAILABLE` |
+| `rfp.reply_read` | `POST /api/v1/tft/questions/{question_id}/reply`(·`/reply/read`) | 단계 이벤트 없음 |
 
 - DB CHECK 하나가 소유자·종류·경로 조합을 묶는다. 평가(`platform`·`evaluation.run`) 조합은 그대로다.
 - `subject_id`는 프로젝트 ID이고 tft 작업에만 있다. 같은 프로젝트에 `QUEUED`·`RUNNING` tft 작업은 하나뿐이다(부분 유일 인덱스, 409 `TFT_JOB_IN_PROGRESS`).
@@ -137,3 +138,17 @@ SHA-256이며 문서 hash나 export hash와 섞지 않는다. 자동 연쇄 접�
 
 정규 process의 초안 저장 뒤 맥락 후보를 연결하며, 기존 추출 결과는 별도 `rfp.context`로 정리한다.
 입력 고정·병렬 호출·불변 검토본·실패 경계는 [맥락별 정리 계약](rfp-context.md)을 따른다.
+
+## 회신 값 AI 읽기 / rfp.reply_read (KAN-224)
+
+API 프로세스는 모델 클라이언트를 만들지 않는다. 회신 기록(경로 20)은 규칙으로만 새 요구값 후보를 읽고, 규칙이 못 읽은
+고객 회신이며 `TFT_REPLY_AI_ENABLED`가 켜져 있으면 `tft.reply_value_reads`에 요청 행(QUEUED)을 남긴 뒤 이 작업을 접수한다.
+입력 판본은 `sha256(["rfp.reply_read", reply_id, Idempotency-Key])`, 플랫폼 멱등 키는 회신 기록의 키다. 접수가
+거절되면(진행 중 작업 409, 미연결 503, 응답 모름) UNAVAILABLE 행을 남기고 회신 기록은 그대로 성공한다.
+`POST /questions/{id}/reply/read`(새 키)로 다시 접수한다(값을 이미 읽었으면 409 `TFT_REPLY_ALREADY_READ`, 꺼져 있으면
+503 `TFT_REPLY_AI_DISABLED`). worker는 입력 판본으로 요청을 찾아 같은 근거 검사(`read_reply_value`)를 거친 결과를
+DONE(모델 실패는 FAILED) 행으로 더한다. 이미 결과가 있는 요청을 다시 받으면 모델을 부르지 않는다. 모델 호출은 worker의
+`ai.create_client`로만 만들므로 로컬 원장(permit)과 운영 비용 기록이 다른 모델 작업과 같다. 모델은 `TFT_REPLY_READ_MODEL`
+(기본 gemini-3.6-flash, thinking LOW, 운송 재시도 0), 공급자는 `TFT_EXTRACTION_PROVIDER`(fake면 값 없음 고정 응답)다.
+질문 응답의 `value_candidate`는 가장 최근 읽기 행의 결과(없으면 규칙 결과)에 `ai`(QUEUED·UNAVAILABLE·DONE·FAILED)를
+붙인다. 요구값은 바꾸지 않는다.

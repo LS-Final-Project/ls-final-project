@@ -33,7 +33,12 @@ from backend.shared.service_auth import PlatformCaller
 PREFIX = "/internal/v1/platform/jobs"
 SERVICE_ACCOUNT = re.compile(r"[a-z][a-z0-9-]+@[a-z0-9-]+\.iam\.gserviceaccount\.com")
 TftJobKind = Literal[
-    "rfp.process", "rfp.export", "rfp.annotate", "rfp.draft_rewrite", "rfp.context"
+    "rfp.process",
+    "rfp.export",
+    "rfp.annotate",
+    "rfp.draft_rewrite",
+    "rfp.context",
+    "rfp.reply_read",
 ]
 # 멱등 범위에 쓰는 원래 tft 경로. 마이그레이션의 CHECK와 같은 값이다.
 ROUTES: dict[str, str] = {
@@ -42,6 +47,7 @@ ROUTES: dict[str, str] = {
     "rfp.draft_rewrite": "/api/v1/tft/projects/{project_id}/draft/rewrite",
     "rfp.export": "/api/v1/tft/projects/{project_id}/draft/exports",
     "rfp.annotate": "/api/v1/tft/projects/{project_id}/annotations/process",
+    "rfp.reply_read": "/api/v1/tft/questions/{question_id}/reply",
 }
 
 

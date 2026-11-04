@@ -22,7 +22,7 @@ from scripts.local_business.runtime import job_settings, local_only
 
 KINDS = {
     "cs": ["cs.analyze"],
-    "tft": ["rfp.process", "rfp.draft_rewrite", "rfp.export", "rfp.context"],
+    "tft": ["rfp.process", "rfp.draft_rewrite", "rfp.export", "rfp.context", "rfp.reply_read"],
 }
 UNLIMITED_PROTOCOL = 1
 CONCURRENCY_PROTOCOL = 1
@@ -99,6 +99,7 @@ def worker_environment(state, control, token, owner, job, credentials):
         "GEMINI_MODEL": os.environ["LOCAL_MODEL"],
         "TFT_EXTRACTION_MODEL": os.environ["LOCAL_MODEL"],
         "TFT_DRAFT_REWRITE_MODEL": os.environ["LOCAL_MODEL"],
+        "TFT_REPLY_READ_MODEL": os.environ["LOCAL_MODEL"],
         "TFT_EXTRACTION_PROVIDER": "gemini",
         "TFT_DRAFT_REWRITE_PROVIDER": "gemini",
     }

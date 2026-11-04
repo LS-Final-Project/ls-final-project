@@ -159,6 +159,11 @@ export const replyQuestion = (id: string, body: Schemas['QuestionReply'], key: s
   `/api/v1/tft/questions/${encodeURIComponent(id)}/reply`,
   { ...json(key, body), mockFallback: mock({ ...MOCK_QUESTIONS[0], created_proposal: null }) },
 );
+// KAN-224: 규칙이 못 읽은 회신을 AI로 다시 읽는다(worker 작업, 모델 비용). 결과는 질문 목록의 value_candidate로 온다.
+export const readReplyAgain = (id: string, key: string) => request<Envelope<Schemas['Question']>>(
+  `/api/v1/tft/questions/${encodeURIComponent(id)}/reply/read`,
+  { ...json(key, {}), mockFallback: mock(MOCK_QUESTIONS[0]) },
+);
 
 export type Clause = Schemas['Clause'];
 // 경로의 document_id는 문서 판본 ID다. parent를 빼면 전체 조항을 문서 순서로 준다.

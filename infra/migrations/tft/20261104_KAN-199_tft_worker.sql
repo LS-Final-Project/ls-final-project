@@ -82,5 +82,9 @@ BEGIN
     IF to_regclass('tft.deviations') IS NOT NULL THEN
         EXECUTE 'GRANT SELECT ON tft.requirement_decisions, tft.deviations, tft.question_withdrawals TO tft_worker';
     END IF;
+    -- KAN-224: 회신 값 AI 읽기 작업은 요청을 읽고 결과를 더한다.
+    IF to_regclass('tft.reply_value_reads') IS NOT NULL THEN
+        EXECUTE 'GRANT SELECT, INSERT ON tft.reply_value_reads TO tft_worker';
+    END IF;
 END $$;
 COMMIT;

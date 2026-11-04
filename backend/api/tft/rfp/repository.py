@@ -32,7 +32,11 @@ QUESTION_COLUMNS = (
     "q.derivation_kind, q.known_at, q.created_by, q.created_at, q.follows_question_id, "
     "r.received_at AS reply_received_at, r.recorded_at AS reply_recorded_at, r.rnd_feasibility, "
     "r.id AS reply_id, r.reply_text, r.source_ref AS reply_source_ref, r.recorded_by, "
-    "r.earliest_available_on, r.schedule_fits, r.value_candidate"
+    "r.earliest_available_on, r.schedule_fits, "
+    # KAN-224: 가장 최근 AI 읽기 요청·결과가 있으면 그 결과(없으면 규칙 결과)에 작업 상태를 붙인다.
+    "coalesce((SELECT coalesce(v.candidate, r.value_candidate) || jsonb_build_object('ai', v.status) "
+    "FROM tft.reply_value_reads v WHERE v.reply_id = r.id ORDER BY v.seq DESC LIMIT 1), "
+    "r.value_candidate) AS value_candidate"
 )
 
 

@@ -114,3 +114,24 @@ def test_fake_rewrite_configuration_does_not_need_real_ai_settings(monkeypatch):
         ProcessorSettings(_env_file=None, draft_rewrite_provider="fake")
     )
     assert callable(provider)
+
+
+def test_reply_provider_uses_the_metered_client_factory_lazily(monkeypatch):
+    """KAN-224: 회신 AI 읽기는 worker의 ai.create_client로만 모델을 만든다(로컬 원장이 이 함수를 감싼다)."""
+    from backend.engine.rfp.reply_values import AiOutput
+
+    created, seen = [], {}
+    monkeypatch.setattr(ai, "create_client", lambda settings: created.append(settings) or "client")
+
+    def generate(client, settings, text, *, response_schema, thinking_level=None):
+        seen.update(schema=response_schema, settings=settings)
+        return "generation"
+
+    monkeypatch.setattr(ai, "generate", generate)
+    provider = worker_processor.reply_provider(
+        ProcessorSettings(_env_file=None, extraction_provider="gemini", reply_read_model="m-1")
+    )
+    assert created == []
+    assert provider("prompt") == "generation" and len(created) == 1
+    assert seen["schema"] is AiOutput
+    assert (seen["settings"].gemini_model, seen["settings"].gemini_transient_retries) == ("m-1", 0)

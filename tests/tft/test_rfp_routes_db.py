@@ -202,6 +202,7 @@ def test_customer_reply_returns_a_value_candidate_and_follow_up_links(client, ga
         "conditions": [],
         "quote": reply,
         "reason": None,
+        "ai": None,
     }
     assert data["created_proposal"] is None
     # 작업 공간은 질문 목록으로 회신을 읽는다. 저장한 후보가 그대로 나와야 한다.

@@ -4,24 +4,21 @@
 멱등 처리하고, 상태에 따른 검사(판본 409 등)는 재전송이 첫 결과를 받도록 기록 안쪽(work)에 둔다.
 """
 
-import asyncio
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request
 from psycopg import AsyncConnection
-from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from backend.api.tft.projects.access import can_create_question, can_reply, can_view_rfp
-from backend.api.tft.rfp import commands, repository
+from backend.api.tft.rfp import commands, reply_read, repository
 from backend.api.tft.rfp import schemas as s
 from backend.api.tft.rfp.rnd import check_reply_fields
 from backend.engine.rfp.reply_values import read_reply_value
 from backend.shared.access import Principal
-from backend.shared.ai import Generation
 from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
 
@@ -29,42 +26,26 @@ Row = dict[str, Any]
 
 
 class TftReplySettings(BaseSettings):
-    """회신 값 읽기의 AI 보조(KAN-224). 꺼져 있으면 규칙만 쓰고 모델 클라이언트를 만들지 않는다."""
+    """회신 값 읽기의 AI 보조(KAN-224). 켜면 규칙이 못 읽은 고객 회신을 worker 작업(rfp.reply_read)으로 넘긴다.
+
+    API 프로세스는 모델 클라이언트를 만들지 않는다. 모델·비용 원장은 worker 쪽 설정(TFT_REPLY_READ_*)이다.
+    """
 
     model_config = SettingsConfigDict(
         env_prefix="TFT_REPLY_AI_", env_file=".env", extra="ignore", hide_input_in_errors=True
     )
 
     enabled: bool = False
-    model: str = Field(default="gemini-3.6-flash", pattern=r"^[a-zA-Z0-9._-]+$")
-    max_output_tokens: int = Field(default=2048, ge=256, le=65536)
 
 
-def configure_reply_reader(
-    app: FastAPI, value: TftReplySettings, provider: Callable[[str], Generation] | None = None
-) -> None:
-    """회신 값 읽기 AI 공급자를 앱에 둔다. 꺼져 있으면 None(규칙만).
+def configure_reply_reader(app: FastAPI, value: TftReplySettings) -> None:
+    """회신 AI 읽기 작업 접수 여부를 앱에 둔다.
 
     Args:
         app: TFT 앱.
         value: 설정.
-        provider: 검사용 가짜 공급자. 없고 켜져 있으면 Gemini 공급자를 만든다.
     """
-    app.state.reply_provider = None
-    if not value.enabled:
-        return
-    if provider is None:
-        from backend.engine.cs.providers import GenerationKnobs, gemini_text_provider
-        from backend.shared.ai import AISettings, create_client
-
-        ai = AISettings()
-        provider = gemini_text_provider(
-            create_client(ai),
-            ai,
-            model=value.model,
-            generation=GenerationKnobs(max_output_tokens=value.max_output_tokens),
-        )
-    app.state.reply_provider = provider
+    app.state.reply_ai_enabled = value.enabled
 
 
 async def visible_project(
@@ -461,23 +442,9 @@ async def reply_question(
         )
         if not can_reply(principal, project, question):
             raise HTTPException(403)
-        candidate = None
-        if question["target"] == "CUSTOMER" and question["requirement_id"] is not None:
-            requirement = await repository.latest_requirement_version(
-                conn, project["id"], question["requirement_id"]
-            )
-            if requirement is not None:
-                current = await repository.judgement_of(conn, requirement)
-                # ponytail: 같은 키 재전송도 여기서 다시 읽는다. AI가 켜져 있으면 재전송마다 호출된다.
-                candidate = await asyncio.to_thread(
-                    read_reply_value,
-                    payload.reply_text,
-                    unit=requirement["unit"],
-                    attribute=requirement.get("attribute") or "",
-                    question_text=question["question_text"],
-                    condition_names=[c["name"] for c in current["conditions"]],
-                    provider=getattr(request.app.state, "reply_provider", None),
-                )
+        inputs = await reply_read.reading_inputs(conn, question)
+        # 규칙만 읽는다. 못 읽으면 아래에서 worker 작업으로 넘긴다(API는 모델을 부르지 않는다).
+        candidate = read_reply_value(payload.reply_text, **inputs) if inputs else None
 
         async def work() -> dict[str, Any]:
             locked = await repository.get_question(conn, question_id, lock=True)
@@ -519,4 +486,63 @@ async def reply_question(
             status_code=200,
             work=work,
         )
-    return s.QuestionReplyResult.model_validate(result)
+    replied = s.QuestionReplyResult.model_validate(result)
+    if ai_wanted(request, replied.value_candidate) and replied.reply is not None:
+        await reply_read.enqueue(request, principal, project["id"], replied.reply.reply_id, key)
+        async with connection(request.app.state.settings) as conn:
+            row = await repository.get_question(conn, question_id)
+        assert row is not None
+        replied.value_candidate = question_out(row).value_candidate
+    return replied
+
+
+def ai_wanted(request: Request, candidate: s.ReplyValueCandidate | None) -> bool:
+    """규칙이 못 읽은 고객 회신이고 AI 읽기가 켜져 있는지."""
+    return (
+        candidate is not None
+        and candidate.method != "rule"
+        and bool(getattr(request.app.state, "reply_ai_enabled", False))
+    )
+
+
+async def read_again(
+    request: Request, principal: Principal, question_id: UUID, key: str
+) -> s.Question:
+    """회신 값을 AI로 다시 읽는다(접수 못 했거나 실패했을 때). 같은 키 재전송은 같은 작업이다.
+
+    Args:
+        request: 요청(설정·플랫폼 클라이언트).
+        principal: 요청 사용자(회신을 기록할 수 있는 사람).
+        question_id: 질문 ID.
+        key: Idempotency-Key.
+
+    Returns:
+        s.Question: 질문(value_candidate.ai에 새 상태).
+    """
+    async with connection(request.app.state.settings) as conn:
+        question = await repository.get_question(conn, question_id)
+        if question is None:
+            raise ApplicationError(404, "TFT_QUESTION_NOT_FOUND", "The question was not found.")
+        project = await visible_project(
+            conn,
+            principal,
+            question["project_id"],
+            "TFT_QUESTION_NOT_FOUND",
+            "The question was not found.",
+        )
+        if not can_reply(principal, project, question):
+            raise HTTPException(403)
+    current = question_out(question).value_candidate
+    if question["reply_id"] is None or current is None:
+        raise ApplicationError(409, "TFT_REPLY_NOT_READABLE", "There is no customer reply to read.")
+    if not getattr(request.app.state, "reply_ai_enabled", False):
+        raise ApplicationError(503, "TFT_REPLY_AI_DISABLED", "AI reading of replies is turned off.")
+    # 대기(QUEUED)도 다시 접수할 수 있다. worker가 실패로 끝나 결과 행이 없을 수 있다. 같은 프로젝트에 진행 중인
+    # 작업이 있으면 플랫폼이 409로 막아 UNAVAILABLE이 된다.
+    if current.method in ("rule", "ai"):
+        raise ApplicationError(409, "TFT_REPLY_ALREADY_READ", "The reply already has a value.")
+    await reply_read.enqueue(request, principal, project["id"], question["reply_id"], key)
+    async with connection(request.app.state.settings) as conn:
+        row = await repository.get_question(conn, question_id)
+    assert row is not None
+    return question_out(row)

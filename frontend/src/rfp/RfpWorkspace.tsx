@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } fr
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ApiError, getApiMode } from '../api/client';
 import {
-  addRequirement, approveProposal, bulkDecide, listEquipment, markQuestionsSent, undoBulk, type BulkDecisionItem, createProject, listClauses, listProjectHistory, type Clause, type ManualRequirementRequest, listRequirementHistory, type HistoryItem, type HistoryKind, type HistoryPage, createProposal, createQuestion, decideRequirement, getComparison, getRequirement, listAllRequirements, listDocuments, listQuestions, recompareRequirement, startProcess, uploadDocument,
+  addRequirement, approveProposal, bulkDecide, listEquipment, markQuestionsSent, undoBulk, type BulkDecisionItem, createProject, listClauses, listProjectHistory, type Clause, type ManualRequirementRequest, listRequirementHistory, type HistoryItem, type HistoryKind, type HistoryPage, createProposal, createQuestion, decideRequirement, getComparison, getRequirement, listAllRequirements, listDocuments, listQuestions, readReplyAgain, recompareRequirement, startProcess, uploadDocument,
   type BidVerdict, type DecisionRequest, type DocumentVersion, type Proposal, type ProposalCreate, type Question, type QuestionCreate, type RequirementDetail, type RequirementSummary,
 } from '../api/rfp';
 import { activeRfpJob, type RfpWatch } from '../api/rfp-job-events';
@@ -668,6 +668,19 @@ function ReplyFlow({ projectId, detail, question, onDone }: { projectId: string;
   const [unit, setUnit] = useState(read?.unit ?? detail.spec?.unit ?? '');
   const [cond, setCond] = useState(read?.conditions?.map(c => [c.value, c.unit].filter(Boolean).join(' ')).join(', ') ?? '');
   const refresh = () => client.invalidateQueries({ queryKey: ['workspace-requirements'] });
+  // KAN-224: AI 읽기는 worker 작업이다. 기다리는 동안 질문 목록을 다시 읽고, 값이 오면 빈 칸을 채운다.
+  const waiting = found?.ai === 'QUEUED';
+  useEffect(() => {
+    if (!waiting) return;
+    const timer = setInterval(() => void client.invalidateQueries({ queryKey: ['questions'] }), 3000);
+    return () => clearInterval(timer);
+  }, [waiting, client]);
+  useEffect(() => { if (read?.value && !value) { setValue(read.value); if (read.unit) setUnit(read.unit); } }, [read?.value, read?.unit]);
+  const readAgain = useMutation({
+    mutationFn: () => readReplyAgain(question.question_id, key()),
+    onSettled: () => client.invalidateQueries({ queryKey: ['questions'] }),
+  });
+  const canReadAgain = !read && !waiting && (found?.ai === 'UNAVAILABLE' || found?.ai === 'FAILED' || found?.ai === 'DONE');
   const apply = useMutation({
     mutationFn: async () => {
       const conditions = read?.conditions?.length ? read.conditions.map(c => ({ name: c.name, value: c.value, unit: c.unit ?? null }))
@@ -701,7 +714,9 @@ function ReplyFlow({ projectId, detail, question, onDone }: { projectId: string;
     {read ? <p className="ws-note">회신에서 읽은 값: {[read.value, read.unit].filter(Boolean).join(' ')}{read.conditions?.length ? `, ${read.conditions.map(c => [c.value, c.unit].filter(Boolean).join(' ')).join(', ')}` : ''}
       {read.method === 'ai' && <span className="muted ws-small"> AI가 읽음</span>}
 </p>
-      : <p className="muted ws-note">{found?.reason ? `${REASON[found.reason] ?? '회신에서 값을 찾지 못했습니다'}. ` : '회신에서 값을 찾지 못했습니다. '}값을 직접 입력하거나 다시 질의하세요.</p>}
+      : waiting ? <p className="muted ws-note">AI가 회신을 읽는 중입니다.</p>
+      : <p className="muted ws-note">{found?.ai === 'UNAVAILABLE' ? 'AI 읽기를 시작하지 못했습니다. ' : found?.ai === 'FAILED' ? 'AI 읽기가 실패했습니다. ' : ''}{found?.reason ? `${REASON[found.reason] ?? '회신에서 값을 찾지 못했습니다'}. ` : '회신에서 값을 찾지 못했습니다. '}값을 직접 입력하거나 다시 질의하세요.
+        {canReadAgain && <button className="ws-link" title="AI 읽기에 모델 비용이 듭니다" disabled={readAgain.isPending} onClick={() => readAgain.mutate()}>AI로 다시 읽기</button>}</p>}
     <div className="ws-go">
       <label className="ws-field inline">새 요구값<input value={value} size={10} placeholder="값을 직접 입력" onChange={event => setValue(event.target.value)} /></label>
       <label className="ws-field inline">단위<input value={unit} size={5} onChange={event => setUnit(event.target.value)} /></label>
