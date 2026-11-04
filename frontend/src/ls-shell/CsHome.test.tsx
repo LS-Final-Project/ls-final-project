@@ -11,27 +11,39 @@ const day = (daysAgo: number) => new Date(Date.now() - daysAgo * 86_400_000).toI
 const item = (id: string, state: string, daysAgo: number) => ({ id, subject: id, external_id: `ID-${id}`, channel: 'EMAIL', product_code: 'P1', received_at: day(daysAgo), data_origin: 'synthetic', workflow_state: state });
 const view = () => { setApiMode('live'); return renderAt('/cs', '/cs', <CsHome />); };
 
-test('업무 개요는 받아 온 목록을 상태별로 세고 종결 시각이 없는 칸은 비워 둔다', async () => {
-  const items = [item('a', 'RECEIVED', 10), item('b', 'IN_REVIEW', 2), item('c', 'TRANSFERRED', 3), item('d', 'WAITING_CUSTOMER', 4), item('e', 'CLOSED', 1), item('f', 'ANSWERED', 5)];
-  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { data: { items, next_cursor: null } })));
-  const { container } = view();
-  await screen.findByRole('link', { name: 'ID-a' });
-  expect([...container.querySelectorAll('.kv-steps span')].map(x => x.textContent?.replace(/\s+/g, ' ').trim()))
-    .toEqual(['접수 1', '검토중 1', '부서 검토 1', '고객 회신 대기 1', '오늘 종결 -']);
-  expect(screen.getByText(/받아 온 6건 기준/)).toBeTruthy();
-  expect(container.querySelector('.kv-next')?.textContent).toMatch(/접수 1건 검토 시작, 7일 이상 미처리 1/);
-});
+// 업무 홈은 상태·담당자 서버 필터로 오늘 할 일을 센다. URL의 state·owner로 응답을 나눈다.
+function serve(byState: Record<string, unknown[]>, requests: unknown[] = []) {
+  return vi.fn(async (url: RequestInfo | URL) => {
+    const u = new URL(String(url), 'http://x');
+    if (u.pathname.endsWith('/platform/me')) return jsonResponse(200, { data: { id: 'u1', display_name: '김상담', roles: ['cs_agent'] } });
+    if (u.pathname.endsWith('/improvement-requests')) return jsonResponse(200, { data: { items: requests } });
+    const key = `${u.searchParams.get('state')}|${u.searchParams.get('owner') ?? ''}`;
+    return jsonResponse(200, { data: { items: byState[key] ?? [], next_cursor: null } });
+  });
+}
+const req = (id: string, status: string) => ({ id, status, request_type: 'FAULT', product_code: 'P1', fault_id: 'FLT-001', created_at: day(2), origin: 'SYSTEM_CANDIDATE', problem_statement: 'p', version: 1, evidence_count: 3, cs_owner: null });
 
-test('처리할 문의는 부서·고객 답을 기다리는 건과 종결을 빼고 경과일 내림차순으로 보인다', async () => {
-  const items = [item('b', 'IN_REVIEW', 2), item('a', 'RECEIVED', 10), item('c', 'TRANSFERRED', 3), item('e', 'CLOSED', 1), item('f', 'ANSWERED', 5)];
-  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { data: { items, next_cursor: null } })));
+test('오늘 할 일은 새 문의와 내 담당 진행 문의를 세고, 오래된 순으로 할 일을 보인다', async () => {
+  const fetch = serve({
+    'RECEIVED|': [item('a', 'RECEIVED', 10)],
+    'IN_REVIEW,ANSWERED|u1': [item('b', 'IN_REVIEW', 2), item('f', 'ANSWERED', 5)],
+    'TRANSFERRED,WAITING_CUSTOMER|u1': [item('c', 'TRANSFERRED', 3)],
+  }, [req('r1', 'DRAFT'), req('r2', 'REVIEWED'), req('r3', 'COMPLETED')]);
+  vi.stubGlobal('fetch', fetch);
   view();
   const table = within(await screen.findByRole('table', { name: '처리할 문의' }));
   await table.findByRole('link', { name: 'ID-a' });
   expect(table.getAllByRole('link').map(x => x.textContent)).toEqual(['ID-a', 'ID-f', 'ID-b']);
-  expect(table.getByText('검토 시작')).toBeTruthy();
-  expect(table.getByText('종결 여부 확인')).toBeTruthy();
-  expect(screen.getByText(/담당 구분 API가 없어 팀 전체/)).toBeTruthy();
+  expect(table.getByText('검토 시작')).toBeTruthy();expect(table.getByText('종결 여부 확인')).toBeTruthy();
+  expect(table.queryByText('ID-c')).toBeNull();
+  // 오늘 할 일 = 새 1 + 내 담당 2 + 급한 개선요청 1(초안은 별도)
+  expect(await screen.findByText('4건')).toBeTruthy();
+  expect(screen.getByText(/김상담님/)).toBeTruthy();
+  expect(screen.getByText('7일 넘은 문의 1건부터 처리하세요')).toBeTruthy();
+  expect(screen.getByText('부서 전달')).toBeTruthy();
+  expect(screen.queryByText('용어 풀이')).toBeNull();expect(screen.queryByText('다음 할 일')).toBeNull();
+  const urls = fetch.mock.calls.map(([url]) => String(url));
+  expect(urls.some(url => url.includes('state=IN_REVIEW%2CANSWERED') && url.includes('owner=u1'))).toBe(true);
 });
 
 test('목록 조회가 거부되면 이전 값을 보이지 않고 오류를 안내한다', async () => {
