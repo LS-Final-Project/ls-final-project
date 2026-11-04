@@ -49,6 +49,8 @@ def test_section_label_uses_korean_head_text_when_title_is_empty():
     item = ExtractionInput(
         section_no="제7조",
         section_title=None,
-        clauses=[ClauseInput(clause_no="제7조", path="", text="건식 변압기 (TR-01)", table_rows=[])],
+        clauses=[
+            ClauseInput(clause_no="제7조", path="", text="건식 변압기 (TR-01)", table_rows=[])
+        ],
     )
     assert section_label(item) == "제7조 건식 변압기 (TR-01)"
