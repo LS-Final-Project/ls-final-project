@@ -30,6 +30,14 @@ async def requirements_of(
         f"AND NOT {repository.EXCLUDED.format(requirement='req.id')} ORDER BY id",
         (project_id,),
     )
+    from backend.api.tft.rfp.decisions import states
+
+    # 담당이 결정하고 책임자가 확인한 요구는 추출 단계의 '검토 필요' 표시가 풀린 것으로 본다(KAN-219·220). 그러지
+    # 않으면 결정을 모두 끝내도 초안 문장에 재검토가 남아 검토본을 저장할 수 없다(40444 P26-0002, 16건).
+    found = await states(conn, project_id)
+    settled = {key for key, (_, state) in found.items() if state.decided and state.reviewed}
+    # 중복 구성원은 대표의 결정을 따른다(KAN-231).
+    settled |= {key for key, (_, state) in found.items() if state.follows in settled}
     result = []
     for row in await cursor.fetchall():
         req = await repository.latest_requirement_version(conn, project_id, row["id"])
@@ -45,6 +53,8 @@ async def requirements_of(
                 needs_rereview=await repository.needs_rereview(conn, row["id"]),
             )
         )
+        if row["id"] in settled:
+            result[-1].needs_review = False
     return result
 
 

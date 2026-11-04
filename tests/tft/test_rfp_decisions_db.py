@@ -412,3 +412,38 @@ def test_same_person_as_sales_and_responsible_keeps_review_pending(client, chain
     assert (gate["review_pending"], gate["self_review"]) == (1, True)
     ok(decide(client, chain, "review_confirm", decision_id=made["decision_id"]))
     assert project_gate(client, chain)["review_pending"] == 0
+
+
+def test_decided_and_confirmed_requirement_no_longer_marks_draft_sentences(client, chain, admin):
+    """추출의 '검토 필요' 표시는 담당 결정과 책임자 확인으로 풀린다(40444 P26-0002 저장 막힘)."""
+    import asyncio
+
+    from psycopg.rows import dict_row
+
+    from backend.api.tft.rfp import drafts
+
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.requirement_versions SET needs_review=true, status='EVIDENCE_FOUND' "
+            "WHERE requirement_id=%s",
+            (chain["requirement"],),
+        )
+        # 도면 확인은 판본을 바꾸지 않는 결정이라 표시가 결정만으로는 남는다.
+        conn.execute(
+            "UPDATE tft.clauses SET clause_no='OCR-DOCX-0001' WHERE id=%s", (chain["clause"],)
+        )
+        conn.execute(
+            "UPDATE tft.projects SET responsible_user_id=%s WHERE id=%s",
+            (RESPONSIBLE, chain["project"]),
+        )
+
+    async def flagged():
+        async with await psycopg.AsyncConnection.connect(admin, row_factory=dict_row) as conn:
+            rows = await drafts.requirements_of(conn, chain["project"])
+        return [r.needs_review for r in rows if r.requirement_id == chain["requirement"]]
+
+    assert asyncio.run(flagged()) == [True]
+    made = ok(decide(client, chain, "confirm_drawing"))
+    assert asyncio.run(flagged()) == [True]  # 책임자 확인 전
+    ok(decide(client, chain, "review_confirm", who=CHIEF, decision_id=made["decision_id"]))
+    assert asyncio.run(flagged()) == [False]
