@@ -1,5 +1,5 @@
 import { useId, useState } from 'react';
-import type { RfpProgress } from '../api/rfp-job-events';
+import type { RfpFocus, RfpProgress } from '../api/rfp-job-events';
 import type { DocumentVersion } from '../api/rfp';
 import './RfpReasoning.css';
 
@@ -17,6 +17,14 @@ const descriptions: Record<string, string> = {
   export: 'Word 내보내기 단계가 기록됐습니다.',
   annotate: '보완 문서 처리 단계가 기록됐습니다.',
 };
+
+/** 진행 한 줄(KAN-232). 서버가 준 절 번호·제목·위치 이름과 건수로만 문장을 만든다. */
+export function focusText(f: RfpFocus) {
+  if (f.kind === 'section') return `${f.label} 읽는 중`;
+  if (f.kind === 'found') return `${f.label}에서 요구 ${f.n ?? 0}건`;
+  if (f.kind === 'ocr') return `${f.label} 글자 읽기(OCR)`;
+  return `요구 ${f.n ?? 0}건을 ${f.label}과 비교`;
+}
 
 export function rfpStageDescription(step?: string) {
   return descriptions[step ?? ''] ?? '서버에서 작업 상태를 수신했습니다.';
@@ -48,11 +56,11 @@ export function RfpReasoning({ activity, active, completed, disconnected, curren
       <div className="rfp-reasoning-body">
         <ol>{activity.map(item => {
           const document = documents.find(row => row.document_version_id === item.documentVersionId);
-          return <li key={item.step} className={item === latest && active ? 'is-latest' : undefined}>
+          return <li key={item.sequence} className={item === latest && active ? 'is-latest' : undefined}>
             <span className="rfp-reasoning-marker" aria-hidden="true" />
             <div className="rfp-reasoning-entry">
               <div className="rfp-reasoning-entry-heading"><b>{labels[item.step ?? ''] ?? '작업 상태'}</b><time dateTime={item.occurredAt}>{new Date(item.occurredAt).toLocaleTimeString('ko-KR', { hour12: false })}</time></div>
-              <p>{rfpStageDescription(item.step)}</p>
+              <p>{item.focus ? focusText(item.focus) : rfpStageDescription(item.step)}</p>
               {item.documentVersionId && <small>관측 문서: {document ? `${document.title} v${document.version}` : '문서 판본 이름 확인 중'}</small>}
               {item.counts && <small>요구 {item.counts.requirements}건 · 제안 {item.counts.proposals}건 발견 (임시)</small>}
             </div>

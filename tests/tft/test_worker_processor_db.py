@@ -474,12 +474,14 @@ def test_every_model_call_extends_the_lease_and_a_stop_is_not_swallowed(worker_d
 
     def emit(values):
         seen.append(values)
-        if values == {"step": "extract"}:
+        # 호출마다 남기는 진행(counts 없음). 읽는 절 한 줄(focus, KAN-232)이 함께 실린다.
+        if values.get("step") == "extract" and "counts" not in values:
             raise Stop
 
     with pytest.raises(Stop):
         processor(job, emit)
-    assert extractor.calls == 1 and seen[-1] == {"step": "extract"}
+    assert extractor.calls == 1 and seen[-1]["step"] == "extract" and "counts" not in seen[-1]
+    assert seen[-1]["focus"]["kind"] == "section"
     assert stored(admin, project)["requirements"] == 0
 
 

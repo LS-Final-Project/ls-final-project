@@ -72,7 +72,7 @@ tft 서비스가 §2.2 접근 검사와 본문 검증을 마친 뒤 부른다. `
 
 ## SSE payload 허용 키 (명세 §4.3)
 
-`state`(공통 작업 상태), `step`(위 단계 값), `document_version_id`(표준 하이픈 소문자 UUID 문자열), `counts`(`requirements`·`proposals` 둘 다 0 이상 정수, 다른 키 없음), `needs_review`(bool). 원문·프롬프트·모델 응답은 이벤트에 넣지 않는다. 플랫폼 `EventPayload`가 이 키만 SSE로 내보내고 모르는 키(오류 코드 등)는 버린다. 표에 없는 `step` 값이나 형식이 틀린 값이 저장되면 SSE는 503 `EVENT_DATA_UNAVAILABLE`이다.
+`state`(공통 작업 상태), `step`(위 단계 값), `document_version_id`(표준 하이픈 소문자 UUID 문자열), `counts`(`requirements`·`proposals` 둘 다 0 이상 정수, 다른 키 없음), `needs_review`(bool), `focus`(진행 화면 한 줄, KAN-232: `kind`는 `section`(그 절을 읽는 중, 호출마다)·`found`(절에서 요구 `n`건)·`ocr`(이미지 글자 읽기)·`compare`(요구 `n`건 자사 제품 비교), `label`은 처리 상태에서 만든 절 번호·제목·위치 이름만 허용 문자 `[0-9A-Za-z가-힣 .,()·/~-]` 1~40자, `n`은 0 이상 정수. 새 이벤트는 만들지 않고 모델 호출마다·절마다·이미지마다 남기던 기존 진행 이벤트에 싣는다). 원문·프롬프트·모델 응답은 이벤트에 넣지 않는다. 플랫폼 `EventPayload`가 이 키만 SSE로 내보내고 모르는 키(오류 코드 등)는 버린다. 표에 없는 `step` 값이나 형식이 틀린 값이 저장되면 SSE는 503 `EVENT_DATA_UNAVAILABLE`이다.
 
 ## worker (KAN-199 2/2)
 
