@@ -40,7 +40,8 @@ function rowsFor(data:Data,roles:string[],dept:string|null,managed:string[],now:
   const deptClosed=r.status==='FOLLOW_UP'||completed||rejectionClosed;
   const deptClosedReason=completed?'완료된 요청입니다.':r.status==='FOLLOW_UP'?'후속 확인 단계에서는 부서 처리를 바꾸지 않습니다.':'모든 부서의 반려를 확인해 종료된 회차입니다.';
   if(roles.includes('cs_agent')){
-    rows.push({kind:'review',label:'검토 완료 기록',targetLabel:'요청',reason:r.status==='DRAFT'?reviewBlocked??undefined:'작성 중 상태에서만 검토를 기록할 수 있습니다.',done:r.status!=='DRAFT'});
+    const noDepts=quick&&r.request_type==='FAULT'&&!r.proposed_depts.length?'제안 부서가 없습니다. 개선 요청 작성의 "내용 수정"에서 제안 부서를 고르세요.':undefined;
+    rows.push({kind:'review',label:'검토 완료 기록',targetLabel:'요청',reason:r.status==='DRAFT'?reviewBlocked??noDepts:'작성 중 상태에서만 검토를 기록할 수 있습니다.',done:r.status!=='DRAFT'});
     const sendReason=r.status!=='REVIEWED'?(r.status==='DRAFT'?'검토를 먼저 기록해야 합니다.':'이미 부서에 전달한 요청입니다. 새 회차는 이 화면에서 열지 않습니다.'):quick&&!r.proposed_depts.length?'제안 부서가 없습니다. 개선 요청 작성의 "내용 수정"에서 제안 부서를 고르세요.':undefined;
     rows.push({kind:'send',label:'부서 전달',targetLabel:'요청',reason:sendReason,done:r.status!=='DRAFT'&&r.status!=='REVIEWED'});
     for(const x of data.departments){
@@ -104,6 +105,8 @@ export default function ImprovementActions({data,onSaved,onReload,onEditingChang
   const start=(row:Row)=>{
     // 상세 화면(inline=false)의 부서 전달은 입력 없이 바로 보낸다: 받는 부서 = 제안 부서, 회신 기한 = 서버 기본 7일.
     if(!inline&&row.kind==='send'){void sendNow();return;}
+    // 검토 완료도 입력 없이 바로 기록한다(제안 부서는 개선 요청 작성의 '수정'에서만 고친다). 그 자리에 부서 전달이 뜬다.
+    if(!inline&&row.kind==='review'){void reviewNow();return;}
     if(busy||uncertain||locked)return;
     setOpen({kind:row.kind,target:row.target,version:r.version});setError('');setNotice('');
     setValues(row.kind==='action'?{scope_kind:'OTHER'}:row.kind==='reply'?{reply_type:'ADOPTED'}:{});
@@ -141,6 +144,17 @@ export default function ImprovementActions({data,onSaved,onReload,onEditingChang
       default:return true;
     }
   })();
+  const reviewNow=async()=>{
+    if(controller.current||uncertain||!live||busy||locked||open)return;
+    const current=new AbortController();controller.current=current;setBusy(true);setError('');setNotice('');
+    const s=current.signal;
+    try{const result=await reviewImprovement(r.id,{version:r.version},s);if(!s.aborted){setNotice(`검토 완료를 기록했습니다(판본 ${result.data.request.version}). 다음은 부서 전달입니다.`);onSaved(result);}}
+    catch(e){if(!s.aborted){
+      setError(e instanceof ApiError?e.message:'검토 결과를 확인할 수 없습니다.');
+      if(!(e instanceof ApiError)||e.status===408||e.status===409||e.status>=500)onUncertain?.();
+    }}
+    finally{if(controller.current===current)controller.current=null;if(!s.aborted)setBusy(false);}
+  };
   const sendNow=async()=>{
     if(controller.current||uncertain||!live||busy||locked||open)return;
     const current=new AbortController();controller.current=current;setBusy(true);setError('');setNotice('');

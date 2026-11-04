@@ -347,7 +347,7 @@ function ImprovementView(){
         {<EvidenceCompare data={d} locked={writing||acting} onSaved={saved} onEditingChange={setSorting} openSignal={showEvidence}/>}
 
         <div className="cols">
-          <ImprovementContent key={r.id} request={r} title={titleOf(r)} ruleOnly={ruleOnly(r)} locked={acting||sorting} onSaved={saved} onReload={()=>{void detail.refetch();}} onEditingChange={setWriting} onPending={setReviewBlock} next={r.status==='REVIEWED'?control?.rows.filter(row=>row.kind==='send'&&!row.done).map(row=>actButton(row))[0]:undefined} tags={<div className="tags">
+          <ImprovementContent key={r.id} request={r} title={titleOf(r)} ruleOnly={ruleOnly(r)} locked={acting||sorting} onSaved={saved} onReload={()=>{void detail.refetch();}} onEditingChange={setWriting} onPending={setReviewBlock} next={r.status==='DRAFT'?control?.rows.filter(row=>row.kind==='review'&&!row.done).map(row=>actButton(row,'검토 완료'))[0]:r.status==='REVIEWED'?control?.rows.filter(row=>row.kind==='send'&&!row.done).map(row=>actButton(row))[0]:undefined} tags={<div className="tags">
             <span className="tag-box"><small>제품</small><b>{r.product_code}</b></span>
             <span className="tag-box"><small>고장</small><b>{r.fault_id??'미확인'}</b></span>
             <button type="button" className="tag-box link-box" title="근거 비교 열기" onClick={()=>setShowEvidence(n=>n+1)}><small>근거</small><b>{d.evidence.filter(e=>!e.removed_at).length}건</b></button>
