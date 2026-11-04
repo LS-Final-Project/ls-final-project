@@ -6,17 +6,18 @@ import { getCustomerHistory, type CustomerHistory, type StatsFilters } from '../
 import { ErrorState, Loading } from '../components/states';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { downloadCsv, useHotkey } from '../ls-shell/kv';
-import { CHANNEL_LABEL, REQUEST_STATUS_LABEL, REQUEST_TYPE_LABEL, STATE_LABEL, UNCONFIRMED_LABEL, derivationName, formatStamp } from '../ls-shell/cs-labels';
+import { CHANNEL_LABEL, REQUEST_STATUS_LABEL, REQUEST_TYPE_LABEL, STATE_LABEL, derivationName, formatStamp } from '../ls-shell/cs-labels';
 import { emptyFilters, rangeError, toApiFilters } from '../ls-shell/stats-common';
 import './ticket-detail-v3.css';
 import './customers-v3.css';
 
 type Data = CustomerHistory['data'];
-const join = (values: Record<string, number>, label: (key: string) => string) => Object.keys(values).length ? Object.entries(values).map(([key, count]) => `${label(key)} ${count}`).join(', ') : '기록 없음';
 const stateName = (key: string) => STATE_LABEL[key as keyof typeof STATE_LABEL] ?? key;
 // 고객 코드는 늘 CUST-로 시작한다. 입력 칸에 미리 적어 두고 번호만 쓰게 한다. 앞부분만 있으면 입력 안 한 것으로 본다.
 const PREFIX = 'CUST-';
 const typed = (value: string) => { const v = value.trim(); return v === PREFIX ? '' : v; };
+// 상태 카드 순서: 처리 흐름 순.
+const STATE_ORDER = ['RECEIVED', 'IN_REVIEW', 'TRANSFERRED', 'WAITING_CUSTOMER', 'ANSWERED', 'CLOSED'];
 const UNIT_STATUS: Record<string, string> = { ACTIVE: '사용 중', REPLACED: '교체됨', DECOMMISSIONED: '철거' };
 
 // 고객 이력 CS0103. 고객 한 곳의 기간 내 문의, 설치 장비, 연결된 개선요청을 저장된 기록에서 읽어 보인다.
@@ -47,8 +48,6 @@ function CustomersView() {
   // 다시 읽는 동안에는 이전 값을 보이지 않는다.
   const data: Data | undefined = history.isSuccess && !history.isFetching ? history.data.data : undefined;
   const unapplied = typed(draft.customer) !== filters.customer;
-  const closed = data?.by_state.CLOSED ?? 0;
-  const open = data ? Object.entries(data.by_state).filter(([key]) => key !== 'CLOSED').reduce((sum, [, count]) => sum + count, 0) : 0;
   const exportCsv = () => data && downloadCsv(`고객_이력_${data.customer_external_id}`, ['문의번호', '접수일시', '제목', '접수 경로', '제품', '상태'],
     data.tickets.map(item => [item.external_id ?? item.id, formatStamp(item.received_at), item.subject ?? '', item.channel, item.product_code, stateName(item.workflow_state)]));
   const reset = () => { setDraft({ ...emptyFilters, customer: PREFIX }); setFilters(emptyFilters); setError(''); };
@@ -83,15 +82,11 @@ function CustomersView() {
       {filters.customer !== '' && !history.isFetching && history.isError && <ErrorState error={history.error instanceof ApiError ? history.error : history.error} onRetry={() => void history.refetch()} />}
 
       {data && <>
-        <div className="info">
-          <div className="k">고객</div><div className="v">{data.customer_external_id}</div>
-          <div className="k">기간 내 접수</div><div className="v">{data.received}건</div>
-          <div className="k">진행 중</div><div className="v"><span className="cnt open">{open}건</span></div>
-          <div className="k">종결</div><div className="v last"><span className="cnt closed">{closed}건</span></div>
-          <div className="k nb">제품별</div><div className="v nb wrap">{join(data.by_product, key => key)}</div>
-          <div className="k nb">상태별</div><div className="v nb wrap">{join(data.by_state, stateName)}</div>
-          <div className="k nb">개선요청</div><div className="v nb">연결 {data.improvement_requests.length}건</div>
-          <div className="k nb">미확인 지표</div><div className="v nb last">{data.unconfirmed.length ? data.unconfirmed.map(key => UNCONFIRMED_LABEL[key] ?? `알 수 없는 지표 (${key})`).join(', ') : '없음'}</div>
+        {/* 상태별 문의 건수를 큰 숫자로 보인다. 진행 중 상태는 주황, 종결은 초록. */}
+        <div className="state-cards" aria-label="상태별 문의">
+          {STATE_ORDER.map(key => <div key={key} className={`state-card${key === 'CLOSED' ? ' closed' : (data.by_state[key] ?? 0) > 0 ? ' open' : ''}`}>
+            <small>{stateName(key)}</small><b>{data.by_state[key] ?? 0}</b><span>건</span>
+          </div>)}
         </div>
 
         <div className="cu-cols">

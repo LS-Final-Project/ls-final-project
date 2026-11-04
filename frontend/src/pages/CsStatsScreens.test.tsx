@@ -117,9 +117,9 @@ test.each([401, 403, 503])('고객 이력 갱신 %i는 이전 이력을 숨긴�
   let fail = false;
   vi.stubGlobal('fetch', vi.fn(async () => fail ? jsonResponse(status, errorBody('FAIL', '합성 실패')) : jsonResponse(200, { data: { customer_external_id: 'C1', received: 2, unconfirmed: [], by_state: { CLOSED: 1, IN_REVIEW: 1 }, by_product: { P1: 2 }, tickets: [], units: [], improvement_requests: [] } })));
   customers(); fireEvent.change(screen.getByLabelText('고객 ID'), { target: { value: 'C1' } }); fireEvent.click(screen.getByRole('button', { name: '조회' }));
-  await screen.findByText('기간 내 접수'); expect(screen.getByText('진행 중')).toBeTruthy();
+  await screen.findByLabelText('상태별 문의'); expect(screen.getByText('검토중')).toBeTruthy(); expect(screen.queryByText('미확인 지표')).toBeNull();
   fail = true; fireEvent.click(screen.getByRole('button', { name: '조회' })); await screen.findByRole('alert');
-  expect(screen.queryByText('기간 내 접수')).toBeNull();
+  expect(screen.queryByLabelText('상태별 문의')).toBeNull();
 });
 
 test('URLSearchParams.size가 없는 환경에서도 필터를 보존한다', () => {
@@ -142,7 +142,7 @@ test('고객 이력은 주소의 customer로 들어오면 바로 그 고객을 �
   const fetch = vi.fn(async (_url: RequestInfo | URL) => jsonResponse(200, { data: { customer_external_id: 'CUST-9', received: 1, unconfirmed: [], by_state: {}, by_product: { P: 1 }, tickets: [], units: [], improvement_requests: [] } }));
   vi.stubGlobal('fetch', fetch); setApiMode('live');
   renderAt('/cs/customers?customer=CUST-9', '/cs/customers', <CsCustomers />);
-  await screen.findByText('기간 내 접수');
+  await screen.findByLabelText('상태별 문의');
   expect(String(fetch.mock.calls.at(-1)?.[0])).toBe('/api/v1/cs/stats/customers/CUST-9');
   expect((screen.getByLabelText('고객 ID') as HTMLInputElement).value).toBe('CUST-9');
 });
@@ -153,7 +153,7 @@ test('고객 이력은 고객 ID 칸에서 Enter로 조회한다', async () => {
   const input = screen.getByLabelText('고객 ID');
   fireEvent.change(input, { target: { value: 'C2' } });
   fireEvent.submit(input.closest('form')!);
-  await screen.findByText('기간 내 접수');
+  await screen.findByLabelText('상태별 문의');
   expect(String(fetch.mock.calls.at(-1)?.[0])).toBe('/api/v1/cs/stats/customers/C2');
 });
 
