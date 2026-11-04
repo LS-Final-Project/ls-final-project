@@ -204,7 +204,7 @@ async def reopen_for_customer_reply(
 async def notify_cs(
     conn: AsyncConnection[Row],
     *,
-    kind: Literal["cs.reply", "cs.transfer", "cs.safety"],
+    kind: Literal["cs.reply", "cs.transfer", "cs.safety", "cs.assigned"],
     ticket_id: UUID,
     audience: list[dict[str, Any]],
     actor_id: UUID | None,
@@ -223,3 +223,25 @@ async def notify_cs(
             )
     except Exception:
         logger.warning("NOTIFICATION_INTENT_FAILED")
+
+
+async def notify_assigned(conn: AsyncConnection[Row], workflow: Row, actor: UUID | None) -> None:
+    """Tells the new owner a ticket was assigned to them (KAN-214, `cs.assigned`).
+
+    Called right after the `save` that set the owner, in the same transaction. The key names
+    the ticket, the owner and the workflow version that `save` produced, so each assignment
+    event notifies once and a rollback leaves no notification. Taking a ticket yourself (actor
+    is the owner) is not an assignment and enqueues nothing.
+    """
+    owner = workflow["owner_user_id"]
+    if owner is None or owner == actor:
+        return
+    ticket_id = workflow["ticket_id"]
+    await notify_cs(
+        conn,
+        kind="cs.assigned",
+        ticket_id=ticket_id,
+        audience=[{"user": owner}],
+        actor_id=actor,
+        dedupe_key=f"cs.assigned:{ticket_id}:{owner}:{workflow['version']}",
+    )

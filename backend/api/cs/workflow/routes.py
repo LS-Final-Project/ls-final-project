@@ -43,6 +43,7 @@ from backend.api.cs.workflow.service import (
     check,
     json_value,
     not_started,
+    notify_assigned,
     notify_cs,
     save,
     send_pending,
@@ -552,6 +553,7 @@ async def reassign_owner(
                 "reassign_owner",
                 {"owner_user_id": payload.owner_user_id},
             )
+            await notify_assigned(conn, workflow, principal.user_id)
         data = await view(conn, workflow, principal)
     return respond(request, data)
 

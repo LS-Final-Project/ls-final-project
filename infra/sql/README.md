@@ -61,7 +61,7 @@ T13을 재적용해도 허용집합을 과거로 되돌리지 않는다. 정렬�
 
 ## 전체 적용 순서
 
-`infra/migrations/` 아래 서비스별 마이그레이션 85개의 적용 순서와 적용 전 확인 방법이다. cs·tft 마이그레이션은 platform의 표를 FK로 참조하지 않아 서비스 사이 순서 의존은 없다. 서비스 안에서는 파일명 정렬 순서가 아래 선행 조건을 모두 만족하며, 새 로컬 DB의 `infra/local/init.sh`도 001 다음 cs → tft → platform 순서로 각 폴더를 파일명 정렬로 적용한다. 표의 순서 번호는 추가된 차례라 파일명 정렬과 다를 수 있다(P20은 파일명상 P16 앞). 어느 쪽으로 적용해도 선행 조건을 만족한다.
+`infra/migrations/` 아래 서비스별 마이그레이션 86개의 적용 순서와 적용 전 확인 방법이다. cs·tft 마이그레이션은 platform의 표를 FK로 참조하지 않아 서비스 사이 순서 의존은 없다. 서비스 안에서는 파일명 정렬 순서가 아래 선행 조건을 모두 만족하며, 새 로컬 DB의 `infra/local/init.sh`도 001 다음 cs → tft → platform 순서로 각 폴더를 파일명 정렬로 적용한다. 표의 순서 번호는 추가된 차례라 파일명 정렬과 다를 수 있다(P20은 파일명상 P16 앞). 어느 쪽으로 적용해도 선행 조건을 만족한다.
 
 **공용 상태 열: 운영자가 공용 DB(team4)에 적용·확인한 날짜를 이 열에 직접 기록한다.** 현재 이 저장소에는 공용 DB 적용 기록이 없어 모두 `미확인`이다. 기록 없이 적용됐다고 가정하지 않는다.
 
@@ -157,6 +157,7 @@ T13을 재적용해도 허용집합을 과거로 되돌리지 않는다. 정렬�
 | P32 | `platform/20261108_KAN-159_job_reap.sql` | P28(헤더) | platform_migrator | 가능 | has_column_privilege('platform_app','runtime.job_control','failure_code','UPDATE') | 미적용 |
 | P33 | `platform/20261109_KAN-188_draft_rewrite_jobs.sql` | P28 | platform_migrator | 가능 | rfp.draft_rewrite 접수 제약 | 미적용 |
 | P34 | `platform/20261110_KAN-201_notification_expansion.sql` | P30 | platform_migrator | 가능 | notify.notification_intents의 notification_expand_on_insert trigger | 미적용 |
+| P35 | `platform/20261111_KAN-214_assignment_notification.sql` | P30(헤더) | platform_migrator | 가능 | pg_get_constraintdef로 `notification_intents_kind_check`에 'cs.assigned' 포함 | 미적용 |
 
 적용 전 확인 쿼리(운영자 연결, 읽기 전용):
 
@@ -391,6 +392,13 @@ P30 뒤 `python3 scripts/workspace.py migrate platform 20261110_KAN-201_notifica
 직접 함수 EXECUTE는 PUBLIC/실행 역할에서 회수하고 고정 search_path를 사용한다. 재적용은 기존 읽음 시각을 보존한다.
 GET 목록/unread-count에서는 펼침·쓰기하지 않으며 push worker의 기존 pending 복구는 남는다.
 로컬 코드 검사 통과는 실제 DB 적용 성공을 뜻하지 않는다.
+
+### KAN-214 담당 배정 알림 종류 (P35)
+
+P30 뒤 `python3 scripts/workspace.py migrate platform 20261111_KAN-214_assignment_notification.sql`을
+배정 알림 코드 배포 전에 적용한다. `notify.notification_intents`의 kind·title CHECK를 다시 만들어 `cs.assigned`·`새 문의 배정`만 더한다.
+표·권한·trigger는 바꾸지 않으며 재실행해도 같은 상태가 된다. 적용 전에는 배정·재배정이 그대로 성공하고 알림 INSERT만 savepoint에서 빠진다.
+적용 전 확인: `SELECT pg_get_constraintdef(oid) LIKE '%cs.assigned%' FROM pg_constraint WHERE conname='notification_intents_kind_check'`.
 
 ### KAN-201 Web Push 적용 (P31)
 

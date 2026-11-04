@@ -64,14 +64,26 @@
 - 언제: 시스템 후보를 저장할 때(`save_candidates`: 수집 `POST /improvement-candidates/collect`, 해결 사례 등록 직후 판정, 로컬 부트스트랩). 한 번의 실행에서 여러 후보를 저장하면 배정할 때마다 부하를 센다. 기준표를 읽지 못하면(C29 없음 등) 아무도 배정하지 않고 후보 저장은 그대로다(로그 `CS_REQUEST_ASSIGN_FAILED`). 수동 작성 요청은 기존대로 작성자가 담당이다.
 - 검토: 검토 완료를 기록한 사람은 **담당이 비어 있을 때만** 담당이 된다. 규칙으로 정해진 담당은 바꾸지 않는다. 관리자 재배정(`PUT /improvement-requests/{id}/owner`)은 그대로다.
 - 저장: `cs.improvement_assignments`(추가 전용, `NO_MATCH` 포함, `trigger` = `CANDIDATE`·`BATCH`). 문의용 표와 따로 둔 이유는 각자 외래 키(문의/개선요청)와 사유 목록이 달라서다. 담당 자체는 `improvement_requests.cs_owner`이고, 후보 저장의 `create` 감사와 판본 내용에 `cs_owner`·`assignment_reason`이 들어간다.
-- 일괄 배정: `POST /api/v1/cs/assignments/improvements/preview`(본문 `{"limit"}`, 담당 없는 진행 요청을 오래된 순으로)와 `POST /api/v1/cs/assignments/improvements/apply`(본문 `{"rule_version", "items": [{"request_id", "user_id"}]}`). 권한·재확인·멱등·결과 코드는 문의와 같고, 진행이 아니면 `NOT_OPEN`이다. 적용은 요청 판본을 올리고 `update` 감사를 남긴다. 운영 중계는 제안 담당이 활성 cs_agent인지 같은 방식으로 확인한다. 화면은 아직 없다(API만).
+- 일괄 배정: `POST /api/v1/cs/assignments/improvements/preview`(본문 `{"limit"}`, 담당 없는 진행 요청을 오래된 순으로)와 `POST /api/v1/cs/assignments/improvements/apply`(본문 `{"rule_version", "items": [{"request_id", "user_id"}]}`). 권한·재확인·멱등·결과 코드는 문의와 같고, 진행이 아니면 `NOT_OPEN`이다. 적용은 요청 판본을 올리고 `update` 감사를 남긴다. 운영 중계는 제안 담당이 활성 cs_agent인지 같은 방식으로 확인한다. 화면은 개선요청 목록의 "미배정 자동 배정"(아래 화면 절).
 - `GET /agents`는 사람마다 `open_request_count`(진행 개선요청)와 `request_rule_version`을 함께 준다.
+
+- 자동 배정(#592) 전에 만들어져 `cs_owner`가 빈 진행 요청은 따로 채우는 작업(backfill)을 두지 않는다. C/S 관리자가 개선요청 목록의 "미배정 자동 배정"(미리보기 → 적용)으로 배정한다. 새 로컬 DB는 설치 때 후보 생성(`save_candidates`)이 이미 배정하므로 해당 없다.
+
+## 담당 배정 알림 (`cs.assigned`)
+
+2026-11-04 김나영 승인. 문의의 담당이 정해지면 **새 담당 한 사람에게만** 앱 내 알림 하나를 남긴다([알림 계약](../platform/notifications.md) E2 표).
+
+- 언제: 접수 시 자동 배정(행위자 없음), 관리자 일괄 배정 적용(행위자 = 관리자), 관리자 재배정 `PUT /workflow/owner`(행위자 = 관리자). 담당을 바꾼 업무 `save`와 **같은 트랜잭션**의 savepoint 안에서 쓴다. 본업무가 rollback되면 알림도 없다.
+- 만들지 않음: 검토 시작으로 상담원이 스스로 담당이 될 때, 관리자가 자기 자신에게 재배정할 때, `NO_MATCH`, 멱등 재적용(`ALREADY_ASSIGNED`). 개선요청 담당(`cs_owner`)은 알림 대상이 아니다(링크 허용 경로가 문의·프로젝트뿐).
+- 내용: 고정 제목 "새 문의 배정", 링크 `/cs/tickets/{id}`. 고객명·문의 원문을 넣지 않는다. 받는 범위 `[{user: 새 담당}]`. 중복 키 `cs.assigned:{ticket_id}:{owner}:{업무 판본}`.
+- 마이그레이션 P35(`platform/20261111_KAN-214_assignment_notification.sql`)가 알림 kind·title CHECK에 새 값을 더한다. P35가 없으면 알림 INSERT만 실패해 되돌려지고(`NOTIFICATION_INTENT_FAILED`) 배정은 그대로 성공한다.
 
 ## 화면
 
 - 문의 조회(CS0101): C/S 관리자에게 제목 줄 "자동 배정" 단추. 미리보기 표(문의, 언어, 제품군, 배정 대상, 사유) → "배정 적용"/"취소" → 결과 건수(배정 N, 미배정 M과 사유별 건수) 뒤 목록을 다시 읽는다. 관리자가 아니면 단추를 잠그고 이유를 툴팁으로 보인다.
 - 문의 처리(CS0102): 담당 옆에 "자동 배정: 태국어·저압 차단기 담당 2명 중 진행 1건으로 가장 적음" 같은 한 줄.
 - 운영 현황(CS0901): "담당자 배정 기준" 구역. 담당자, 언어, 제품군, 사용 여부, 진행 문의, 진행 개선요청. 읽기 전용, "가정 자료" 표시.
+- 개선요청 목록(CS0301): 제목 줄 "미배정 자동 배정" 단추(C/S 관리자만, 아니면 잠그고 툴팁). 미리보기 표(요청(제품·고장), 배정 대상, 사유) → "배정 적용"/"취소" → 결과 건수 뒤 목록을 다시 읽는다. 문의 조회와 같은 미리보기 창(`AssignPreviewDialog`)을 쓴다. 목록 머리의 "총 N건 중 M건" 옆에 누구에게나 "미배정 N건"(고장 요청 중 `cs_owner` 없고 `COMPLETED` 아님, 받아 온 최근 200건 기준)을 보인다.
 - 업무 홈(CS0001): "개선요청 할 일"은 내가 C/S 담당인 요청만 센다(`?owner=` 서버 필터). 초안(검토 완료 기록)도 오늘 할 일에 들어간다. 목록을 못 읽으면 합계에 `+`와 빠진 이유를 보인다.
 
 ## 로컬 시연 기준표
