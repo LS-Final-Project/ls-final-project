@@ -666,8 +666,12 @@ function Output({ project, rows, excluded = [], responsible, actorId, onJump, on
   });
   const save = useMutation({
     mutationFn: async () => {
-      const draft = await getDraft(project.id);
-      return sendCommand(project.id, { actorId: actorId as string, kind: 'review', key: key(), body: { version: draft.version } });
+      let draft = await getDraft(project.id);
+      // 결정으로 요구가 바뀌면 초안이 낡아(STALE) 문장마다 재검토 표시가 붙어 저장이 422가 된다. 작업 공간에는 초안 문장
+      // 확인 칸이 없으므로 저장 전에 저장된 결정으로 초안을 다시 만든다(모델 호출 없음, 사람 문장은 이관).
+      const stale = draft?.freshness?.status === 'STALE' || draft?.sections.some(part => part.sentences.some(row => row.needs_rereview));
+      if (draft && stale) draft = await sendCommand(project.id, { actorId: actorId as string, kind: 'regenerate', key: key(), body: { version: draft.version } }) as typeof draft;
+      return sendCommand(project.id, { actorId: actorId as string, kind: 'review', key: key(), body: { version: draft?.version ?? 0 } });
     },
     onSuccess: () => client.invalidateQueries({ queryKey: ['rfp-draft-reviews', actorId, project.id] }),
   });

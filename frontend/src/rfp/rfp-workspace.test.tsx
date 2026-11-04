@@ -347,6 +347,30 @@ describe('출력 탭 서버 출력 (KAN-221)', () => {
   const openOutput = () => { show('sales'); fireEvent.click(screen.getByRole('tab', { name: /출력/ })); };
   const saved = () => { const names: string[] = []; vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { names.push(this.download); }); vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: () => 'blob:x', revokeObjectURL: () => undefined })); return names; };
 
+  it('초안이 낡았으면 저장 전에 모델 없이 초안을 다시 만들고 그 판본으로 저장한다', async () => {
+    const f = server({ reviews: [] });
+    const base = f.getMockImplementation()!;
+    f.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/draft/regenerate')) return jsonResponse(200, { data: { project_id: 'p1', version: 6, sections: [] } });
+      if (url.endsWith('/draft/review-versions') && init?.method === 'POST') return jsonResponse(201, { data: { review_version: 1 } });
+      if (url.endsWith('/projects/p1/draft')) return jsonResponse(200, { data: { project_id: 'p1', version: 5, freshness: { status: 'STALE' }, sections: [] } });
+      return base(input, init);
+    });
+    const ready = { ...project, decision_gate: { undecided: 0, deviation_missing: 0, open_queries: 0, review_pending: 0 } } as ProjectDetail;
+    renderAt('/tft/projects/p1', 'tft/projects/:projectId', <Decide project={ready} documents={[]} rows={MOCK_WORKSPACE_REQUIREMENTS} role="sales" actorId="sales" />);
+    fireEvent.click(screen.getByRole('tab', { name: /출력/ }));
+    const save = screen.getByRole('button', { name: '검토본 저장' }) as HTMLButtonElement;
+    await waitFor(() => expect(save.disabled).toBe(false));
+    fireEvent.click(save);
+    const calls = f.mock.calls as unknown as [string, RequestInit][];
+    await waitFor(() => expect(calls.some(([u, i]) => u.endsWith('/draft/review-versions') && i?.method === 'POST')).toBe(true));
+    const order = calls.filter(([, i]) => i?.method === 'POST').map(([u]) => u.split('/').pop());
+    expect(order.indexOf('regenerate')).toBeLessThan(order.indexOf('review-versions'));
+    const body = JSON.parse(String(calls.find(([u, i]) => u.endsWith('/draft/review-versions') && i?.method === 'POST')![1].body));
+    expect(body.version).toBe(6);
+  });
+
   it('검토본이 없으면 버튼을 끄고 먼저 저장하라고 알린다', async () => {
     server({ reviews: [] });
     openOutput();
