@@ -100,6 +100,7 @@ export const businessRoutes = [
   ['/api/v1/tft/requirements/{uuid}/decision', ['POST'], []],
   ['/api/v1/tft/requirements/{uuid}/history', ['GET'], ['kind', 'actor', 'limit', 'cursor']],
   ['/api/v1/tft/projects/{uuid}/history', ['GET'], ['kind', 'actor', 'limit', 'cursor']],
+  ['/api/v1/tft/projects/{uuid}/equipment', ['GET'], []],
   ['/api/v1/tft/requirements/{uuid}/supplement-options', ['GET'], []],
   ['/api/v1/tft/requirements/{uuid}/supplement-selection', ['POST'], []],
   ['/api/v1/tft/projects/{uuid}/supplement-selections/batch', ['POST'], []],

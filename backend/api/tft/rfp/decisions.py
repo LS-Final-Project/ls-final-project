@@ -36,6 +36,7 @@ DECIDING = frozenset(
         "select_partner",
         "ask_rnd",
         "assign",
+        "confirm_drawing",
     }
 )
 VERDICT_WORDS = {
@@ -727,9 +728,12 @@ async def states(
     params = {"p": project_id, "ids": list(requirement_ids or [])}
     cursor = await conn.execute(
         "SELECT v.requirement_id, v.version, v.status, v.kind, v.task, v.attribute_key, v.operator, "
-        "v.value, v.unresolved, v.next_owner_field, req.derivation_kind = 'PROVIDED' AS manually_added "
+        "v.value, v.unresolved, v.next_owner_field, req.derivation_kind = 'PROVIDED' AS manually_added, "
+        # 도면 OCR 조항(worker_processor.is_ocr과 같은 접두). 검토용 OCR-REVIEW는 요구를 만들지 않는다.
+        "coalesce(c.clause_no LIKE 'OCR-DOCX-%%' OR c.clause_no LIKE 'OCR-PDF-P%%', false) AS drawing "
         "FROM tft.requirements req "
         "JOIN tft.requirement_versions v ON v.requirement_id = req.id AND v.version = req.latest_version "
+        "LEFT JOIN tft.clauses c ON c.id = v.clause_id "
         f"WHERE req.project_id = %(p)s{only}",
         params,
     )
@@ -794,7 +798,7 @@ async def states(
         out[row["requirement_id"]] = (
             verdict,
             s.DecisionState(
-                needed=verdict != "MET" and not excluded,
+                needed=(verdict != "MET" or row["drawing"]) and not excluded,
                 decided=current is not None,
                 decision_id=current["id"] if current else None,
                 action=current["action"] if current else None,
@@ -802,6 +806,7 @@ async def states(
                 decided_at=current["created_at"] if current else None,
                 reviewed=current is not None and str(current["id"]) in confirmed,
                 manually_added=row["manually_added"],
+                drawing_check=row["drawing"],
                 excluded=excluded,
                 excluded_reason=mark["detail"].get("reason") if mark and excluded else None,
                 change_id=change["id"] if change else None,
@@ -922,6 +927,25 @@ def revert(target: Row) -> Outcome:
     )
 
 
+async def confirm_drawing(
+    conn: AsyncConnection[Row],
+    project: Row,
+    requirement: Row,
+    principal: Principal,
+    payload: s.DecisionRequest,
+) -> Outcome:
+    """도면 값이 규격서와 맞음(KAN-227). 판단은 바꾸지 않고 결정 기록만 남긴다. 다르면 add_query로 질의한다."""
+    clause_no = requirement.get("clause_no") or ""
+    if not clause_no.startswith(("OCR-DOCX-", "OCR-PDF-P")):
+        raise ApplicationError(
+            422,
+            "VALIDATION_ERROR",
+            "Only a requirement read from a drawing can be confirmed against the drawing.",
+            details=[{"field": "action", "reason": "not a drawing requirement"}],
+        )
+    return "도면과 일치 확인", {"clause_no": clause_no}, None, None, []
+
+
 ACTIONS: dict[str, Callable[..., Awaitable[Outcome]]] = {
     "confirm_met": confirm_met,
     "record_deviation": record_deviation,
@@ -936,4 +960,5 @@ ACTIONS: dict[str, Callable[..., Awaitable[Outcome]]] = {
     "review_return": review_return,
     "exclude_requirement": exclude,
     "restore_requirement": restore,
+    "confirm_drawing": confirm_drawing,
 }

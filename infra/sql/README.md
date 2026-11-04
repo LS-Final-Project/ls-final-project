@@ -465,3 +465,9 @@ TFT `20261123_KAN-221_xlsx_exports.sql`은 `20261122_KAN-225_manual_requirements
 `exports.format` CHECK에 `XLSX`를 더하고(KAN-182만 정의하므로 이전 재적용이 다시 좁히지 않는다), 내보내기 worker
 (tft_worker)에 `requirement_decisions`·`deviations`·`question_withdrawals` SELECT를 준다. `20261104_KAN-199_tft_worker.sql`
 재적용도 같은 권한을 복구한다. 표·행은 더하거나 지우지 않는다.
+
+## KAN-227 도면 확인 결정
+
+TFT `20261124_KAN-227_drawing_check.sql`은 `20261123_KAN-221_xlsx_exports.sql` 뒤에 적용한다.
+`requirement_decisions`의 연산 CHECK에 `confirm_drawing`을 더한다(KAN-225와 같은 방식, KAN-218만 정의하므로 이전 재적용이
+다시 좁히지 않는다). 표·행·권한은 바꾸지 않는다.
