@@ -86,8 +86,8 @@
 .ls-root .kv .td3.ir3 .tag-box{display:inline-flex;align-items:center;gap:7px;border:1px solid #c9cfda;background:#fff;padding:3px 9px;font-size:12.5px;white-space:nowrap}
 .ls-root .kv .td3.ir3 .tag-box small{display:inline;font-size:11px;color:#7a8394}
 .ls-root .kv .td3.ir3 .tag-box b{font-weight:700;color:#1d2433;font-variant-numeric:tabular-nums}
-.ls-root .kv .td3.ir3 .tag-box.sys{border-color:#dcd5f7;background:#f6f4fe}
-.ls-root .kv .td3.ir3 .tag-box.sys b{color:#5b3fd0}
+.ls-root .kv .td3.ir3 .tag-box.sys{border-color:#cfdcf2;background:#f2f6fc}
+.ls-root .kv .td3.ir3 .tag-box.sys b{color:#2a5bb5}
 .ls-root .kv .td3.ir3 .facts{display:flex;flex-direction:column;gap:8px;border-top:1px solid #e6e9ee;padding-top:10px}
 .ls-root .kv .td3.ir3 .fact-row{display:grid;grid-template-columns:88px 1fr;gap:8px;align-items:start}
 .ls-root .kv .td3.ir3 .fact-row>.k{color:#6b7385;font-size:12.5px;padding-top:6px;white-space:nowrap}
@@ -153,7 +153,7 @@
 .ls-root .kv .td3.ir3 .pager .gap{color:#9aa2b1;padding:0 2px}
 /* 단계 바 물결 펄스는 문의 처리와 함께 ticket-detail-v3.css에 있다. */
 /* 부서별 질문 상자: 다른 내용 상자와 같은 모양, 보라(AI) 계열 */
-.ls-root .kv .td3.ir3 .fact-box.ask{border-color:#dcd5f7;background:#f6f4fe;color:#3b2a8f}
+.ls-root .kv .td3.ir3 .fact-box.ask{border-color:#cfdcf2;background:#f2f6fc;color:#1f3d73}
 /* 요청 내용 상자는 스크롤 없이 끝까지 펼친다 */
 .ls-root .kv .td3.ir3 .cols>.pane.ir-content>.pb{max-height:none;overflow:visible}
 /* 요청 내용 목록 상자: 앞 점 없이 */
