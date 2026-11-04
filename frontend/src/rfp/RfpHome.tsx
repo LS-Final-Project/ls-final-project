@@ -49,7 +49,7 @@ export default function RfpHome() {
     const mine = led.filter(p => (p.sales_user_id ?? '') === sales);
     return { sales, projects: mine.length, left: mine.reduce((n, p) => n + (p.decisions_remaining ?? 0), 0), wait: mine.reduce((n, p) => n + (p.review_pending ?? 0), 0) };
   });
-  return <main>
+  return <main className="rfp-ui">
     <KvTitle path="제안 지원" title="업무 홈" code="TF0001"><Link className="kb primary" to="/tft/projects/new">새 RFP</Link></KvTitle>
     {projects.isError ? <ErrorState error={projects.error} onRetry={() => projects.refetch()} /> : projects.isPending ? <Loading /> : <>
       <section className="kv-box"><h2>오늘 할 일<small>{tasks.length}건</small></h2>
