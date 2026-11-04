@@ -3,12 +3,14 @@ import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setApiMode } from '../api/client';
 import { errorBody, jsonResponse, renderApp } from '../test/render';
+import { dueText, progressOf } from './RfpList';
 
 const project = (id: string, name: string, output_status = 'ANALYZING', extra: Record<string, unknown> = {}) => ({
   id, name, status: 'COMPOSING', external_id: 'P26-0001', company_code: 'HOST', data_origin: 'synthetic', derivation_kind: 'ASSUMED',
   responsible_user_id: null, sales_user_id: 's', created_at: '2026-10-20T09:00:00Z', known_at: '2026-10-20T09:00:00Z', version: 1,
   client_name: '가상 고객', output_status, judgement_status: 'CONDITION_CHECK', requirements_count: 48, unresolved_mandatory_count: 3,
-  pending_proposals_count: 4, open_questions_count: 2, strategic_customer: null, integration_responsibility: { holder: 'UNRESOLVED' }, ...extra,
+  pending_proposals_count: 4, open_questions_count: 2, strategic_customer: null, integration_responsibility: { holder: 'UNRESOLVED' },
+  decisions_remaining: 21, review_pending: 1, submission_due_at: '2099-11-20', ...extra,
 });
 const isList = (url: string) => /\/tft\/projects(\?|$)/.test(url);
 const page = (items: unknown[], next_cursor: string | null = null, total = next_cursor ? 20 : items.length) =>
@@ -32,7 +34,9 @@ describe('RFP 검토 목록 (KAN-222)', () => {
     expect(link.getAttribute('href')).toBe('/tft/projects/33333333-3333-4333-8333-333333333333');
     const table = screen.getByRole('table', { name: 'RFP 검토' });
     expect(within(table).getAllByRole('columnheader').map(h => h.textContent)).toEqual(['No', '프로젝트', '진행 상태', '제안 마감', '책임자', '다음 행동']);
-    expect(within(table).getByText('미해결 필수 3건')).toBeTruthy();
+    expect(within(table).getByText('결정 21건 남음')).toBeTruthy();
+    expect(within(table).getByText(/^2099-11-20 \(\d+일 남음\)$/)).toBeTruthy();
+    expect(within(table).getByRole('link', { name: '결정 이어서 하기' })).toBeTruthy();
     expect(screen.getByRole('link', { name: '새 RFP' }).getAttribute('href')).toBe('/tft/projects/new');
     expect(screen.getByRole('tab', { selected: true }).textContent).toContain('RFP 검토');
   });
@@ -40,7 +44,7 @@ describe('RFP 검토 목록 (KAN-222)', () => {
   it('요구가 없으면 분석 대기와 분석 시작, 미해결이 없으면 출력 가능', async () => {
     live(url => isList(url) ? page([
       project('1', '가', 'INTAKE', { requirements_count: 0, unresolved_mandatory_count: 0 }),
-      project('2', '나', 'ANALYZING', { unresolved_mandatory_count: 0 }),
+      project('2', '나', 'ANALYZING', { unresolved_mandatory_count: 0, decisions_remaining: 0 }),
     ]) : jsonResponse(401, errorBody('X', '세션')));
     renderApp('/tft/projects');
     const first = (await screen.findByRole('link', { name: /가/ })).closest('tr')!;
@@ -85,9 +89,9 @@ describe('RFP 검토 목록 (KAN-222)', () => {
 
 describe('업무 홈 (KAN-222)', () => {
   it('프로젝트를 넘나드는 오늘 할 일만 보여 준다', async () => {
-    live(url => url.includes('/projects') ? page([project('1', '가'), project('2', '나', 'ANALYZING', { requirements_count: 10, pending_proposals_count: 0, open_questions_count: 0, unresolved_mandatory_count: 0 }), project('3', '다', 'INTAKE', { requirements_count: 0 })]) : jsonResponse(401, errorBody('X', '세션')));
+    live(url => url.includes('/projects') ? page([project('1', '가'), project('2', '나', 'ANALYZING', { requirements_count: 10, pending_proposals_count: 0, open_questions_count: 0, unresolved_mandatory_count: 0, decisions_remaining: 0 }), project('3', '다', 'INTAKE', { requirements_count: 0 })]) : jsonResponse(401, errorBody('X', '세션')));
     renderApp('/tft');
-    await screen.findAllByText('미해결 필수 3건');
+    await screen.findAllByText(/^결정 21건 남음 \(마감 \d+일 전\)$/);
     expect(screen.getByRole('table', { name: '최근 프로젝트' })).toBeTruthy();
     expect(screen.getByText('회신 기다리는 질의 2건')).toBeTruthy();
     expect(screen.getByText('승인 대기 4건')).toBeTruthy();
@@ -102,4 +106,14 @@ describe('업무 홈 (KAN-222)', () => {
     await screen.findByRole('alert');
     expect(screen.queryByText(/오늘 할 일/)).toBeNull();
   });
+});
+
+it('책임자 진행 상태에는 확인 대기를 붙이고, 마감은 한국 날짜로 남은 날수를 센다', () => {
+  const p = project('1', '가') as never;
+  expect(progressOf(p, true)).toEqual({ text: '결정 21건 남음, 확인 대기 1', action: '확인하기' });
+  expect(progressOf(p)).toEqual({ text: '결정 21건 남음', action: '결정 이어서 하기' });
+  const now = new Date('2026-11-04T16:00:00Z'); // 한국 11월 5일 01시
+  expect(dueText('2026-11-20', now)).toBe('2026-11-20 (15일 남음)');
+  expect(dueText('2026-11-05', now)).toBe('2026-11-05 (오늘)');
+  expect(dueText(null, now)).toBe('─');
 });

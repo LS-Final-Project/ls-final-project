@@ -1,7 +1,7 @@
 import type { RequirementSummary } from '../api/rfp';
 
 // 개발 모의 모드 전용. RFP-91 합성 시연 패키지(artifacts/kan188-demo-rfp)의 31건과 격리 시험 판정 분포를 따른다.
-// [코드, 설비, 속성, 요구값, 입찰 판정]
+// [코드, 설비, 속성, 요구값, 입찰 판정]. 보드와 같은 31건 + 도면 확인 4건.
 const ROWS: [string, string, string, string | null, NonNullable<RequirementSummary['bid_verdict']>][] = [
   ['제6조.1', 'MV-SWG-01', '형식', '인출형 VCB, metal-clad', 'CONFIRM'],
   ['제6조.2', 'MV-SWG-01', '정격 최대전압', '≥ 12 kV', 'MET'],
@@ -35,12 +35,26 @@ const ROWS: [string, string, string, string | null, NonNullable<RequirementSumma
   ['제11조.3', '공통', '운전, 유지보수 설명서', '출하 전', 'ASSIGN'],
   ['제4조.2', '공통', '현장 도착 납기', '2027-04-30', 'ASSIGN'],
 ];
+// 도면(4쪽 단선도) OCR 조항 요구. 판정은 충족이어도 도면 확인 결정이 필요하다(decision.drawing_check).
+const DRAWING: [string, string, string, string][] = [
+  ['OCR-DOCX-4.1', 'TR-01', '용량, 결선', '630 kVA(AN), 11/0.415 kV Dyn11'],
+  ['OCR-DOCX-4.2', 'MV-SWG-01', '구성', '인입 VCB, 변압기 VCB, PT·계량반'],
+  ['OCR-DOCX-4.3', 'LV-SWB-01', '인입 ACB', '인입 ACB 1,250 A 이상, 피더 MCCB 8회로'],
+  ['OCR-DOCX-4.4', '공통', '공급 범위 경계', '11 kV 케이블 발주처 시공(공급 제외), 버스덕트 공급 범위 포함'],
+];
 
-export const MOCK_WORKSPACE_REQUIREMENTS: RequirementSummary[] = ROWS.map(([code, equipment, attribute, value, verdict], index) => ({
+export const MOCK_WORKSPACE_REQUIREMENTS: RequirementSummary[] = ROWS.map(([code, equipment, attribute, value, verdict], index): RequirementSummary => ({
   requirement_id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
   code, version: 1, equipment, attribute, attribute_key: null, value_text: value, task: null,
   status: verdict === 'MET' ? 'EVIDENCE_FOUND' : verdict === 'CONFIRM' || verdict === 'DEVIATION' ? 'CONDITIONAL' : 'INSUFFICIENT_EVIDENCE',
   necessity: 'MANDATORY', provenance_kind: 'ai_draft', needs_rereview: false, needs_review: false, open_questions: 0,
   path: null, rnd_check: 'NOT_REQUIRED', is_designated_item: false, bid_verdict: verdict,
-  decision: { needed: verdict !== 'MET', decided: false, reviewed: false, excluded: false, manually_added: false, change_reviewed: false },
-}));
+  own_value: attribute === '임피던스' ? { product_code: 'TRF-DRY-630', variant: null, value: '6 % @120 °C', unit: null, conditions: [], result: 'DIFFERS' } : null,
+  decision: { needed: verdict !== 'MET', decided: false, reviewed: false, excluded: false, manually_added: false, change_reviewed: false, drawing_check: false },
+})).concat(DRAWING.map(([code, equipment, attribute, value], index): RequirementSummary => ({
+  requirement_id: `00000000-0000-4000-8000-${String(ROWS.length + index + 1).padStart(12, '0')}`,
+  code, version: 1, equipment, attribute, attribute_key: null, value_text: value, task: null, status: 'EVIDENCE_FOUND' as const,
+  necessity: 'MANDATORY' as const, provenance_kind: 'ai_draft' as const, needs_rereview: false, needs_review: false, open_questions: 0,
+  path: null, rnd_check: 'NOT_REQUIRED' as const, is_designated_item: false, bid_verdict: 'MET' as const, own_value: null,
+  decision: { needed: true, decided: false, reviewed: false, excluded: false, manually_added: false, change_reviewed: false, drawing_check: true },
+})));

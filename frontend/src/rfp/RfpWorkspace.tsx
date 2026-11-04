@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState, type ReactNode, type UIEvent } from 'reac
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ApiError, getApiMode } from '../api/client';
 import {
-  addRequirement, approveProposal, createProject, listClauses, listProjectHistory, type Clause, type ManualRequirementRequest, listRequirementHistory, type HistoryItem, type HistoryKind, type HistoryPage, createProposal, createQuestion, decideRequirement, getComparison, getRequirement, listDocuments, listQuestions, listRequirements, recompareRequirement, startProcess, uploadDocument,
+  addRequirement, approveProposal, bulkDecide, listEquipment, markQuestionsSent, undoBulk, type BulkDecisionItem, createProject, listClauses, listProjectHistory, type Clause, type ManualRequirementRequest, listRequirementHistory, type HistoryItem, type HistoryKind, type HistoryPage, createProposal, createQuestion, decideRequirement, getComparison, getRequirement, listDocuments, listQuestions, listRequirements, recompareRequirement, startProcess, uploadDocument,
   type BidVerdict, type DecisionRequest, type DocumentVersion, type Proposal, type ProposalCreate, type Question, type QuestionCreate, type RequirementDetail, type RequirementSummary,
 } from '../api/rfp';
 import { activeRfpJob, type RfpWatch } from '../api/rfp-job-events';
@@ -26,10 +26,13 @@ import { constraintsBody, emptyConstraints } from './ProjectConstraintsForm';
 import './RfpWorkspace.css';
 
 // 통합 작업 공간(KAN-222, 사본 캔버스 "RFP 검토 화면 개편안" 1번 보드): 올리기 → 분석 시작 → 분석 중 → 결정 + 출력.
-export const VERDICT: Record<BidVerdict, string> = { DEVIATION: '편차', QUERY: '질의', SUPPLEMENT: '보완', ASSIGN: '배정', CONFIRM: '충족 확인', MET: '충족' };
-// 결정할 것 묶음 순서(사용자 확정): 질의 → 편차 → 보완 → 배정 → 충족 확인. 도면 확인은 서버 판정이 아직 없다.
-export const DECIDE_ORDER: BidVerdict[] = ['QUERY', 'DEVIATION', 'SUPPLEMENT', 'ASSIGN', 'CONFIRM'];
-const ROW_ACTION: Partial<Record<BidVerdict, string>> = { DEVIATION: '편차 기재', QUERY: '질의서에 넣기', SUPPLEMENT: '협력사 선정', ASSIGN: '배정', CONFIRM: '충족 확정' };
+// 묶음 종류: 입찰 판정 + 도면 확인. 도면 OCR 조항 요구는 판정과 관계없이 decision.drawing_check로 "도면 확인" 묶음에 모은다(KAN-227).
+export type Kind = BidVerdict | 'DRAWING';
+export const VERDICT: Record<Kind, string> = { DEVIATION: '편차', QUERY: '질의', SUPPLEMENT: '보완', ASSIGN: '배정', CONFIRM: '충족 확인', MET: '충족', DRAWING: '도면 확인' };
+// 결정할 것 묶음 순서(사용자 확정): 질의 → 편차 → 보완 → 배정 → 충족 확인 → 도면 확인.
+export const DECIDE_ORDER: Kind[] = ['QUERY', 'DEVIATION', 'SUPPLEMENT', 'ASSIGN', 'CONFIRM', 'DRAWING'];
+export const kindOf = (r: Pick<RequirementSummary, 'bid_verdict' | 'decision'>): Kind => r.decision?.drawing_check ? 'DRAWING' : r.bid_verdict as BidVerdict;
+const ROW_ACTION: Partial<Record<Kind, string>> = { DEVIATION: '편차 기재', QUERY: '질의서에 넣기', SUPPLEMENT: '협력사 선정', ASSIGN: '배정', CONFIRM: '충족 확정', DRAWING: '도면 대조' };
 const STEPS = ['parse', 'extract', 'search', 'compare', 'supplement', 'candidates', 'draft'];
 const STEP_LABEL: Record<string, string> = { parse: '원문 읽기', extract: '요구 뽑기', search: '자사 자료 찾기', compare: '자사 제품 비교', supplement: '보완 경로', candidates: '협력사 후보', draft: '검토본 초안' };
 const NEW = 'new';
@@ -221,9 +224,10 @@ function Skeleton({ count }: { count?: number }) {
 }
 
 type Row = RequirementSummary & { bid_verdict: BidVerdict };
-const needed = (r: RequirementSummary) => !!r.bid_verdict && r.bid_verdict !== 'MET';
+// 결정이 필요한지는 서버의 decision.needed가 정한다(도면 확인은 판정이 충족이어도 필요). 없으면 판정으로 판단한다.
+const needed = (r: RequirementSummary) => r.decision?.needed ?? (!!r.bid_verdict && r.bid_verdict !== 'MET');
 
-type Line = { kind: 'group'; title: string; verdict?: BidVerdict; rows: Row[] } | { kind: 'row'; row: Row } | { kind: 'fold'; n: number };
+type Line = { kind: 'group'; title: string; verdict?: Kind; rows: Row[] } | { kind: 'row'; row: Row } | { kind: 'fold'; n: number };
 const ROW_H = 34;
 // 수백 건이어도 보이는 행만 그린다. 묶음 제목·접힘 줄도 같은 높이의 한 줄로 센다.
 function useWindow(total: number, height = 680) {
@@ -233,7 +237,7 @@ function useWindow(total: number, height = 680) {
   return { first, last, onScroll: (event: UIEvent<HTMLDivElement>) => setTop(event.currentTarget.scrollTop) };
 }
 
-const BULK_ACTION: Partial<Record<BidVerdict, { label: string; body: Omit<DecisionRequest, 'version'> }>> = {
+const BULK_ACTION: Partial<Record<Kind, { label: string; body: Omit<DecisionRequest, 'version'> }>> = {
   CONFIRM: { label: '모두 충족 확정', body: { action: 'confirm_met' } },
 };
 
@@ -243,14 +247,14 @@ export function Decide({ project, documents, rows, role, actorId, log }: { proje
   const client = useQueryClient();
   const responsible = role === 'responsible';
   const [tab, setTab] = useState<'review' | 'output'>(responsible ? 'output' : 'review');
-  const [filter, setFilter] = useState<'todo' | 'all' | BidVerdict>('todo');
+  const [filter, setFilter] = useState<'todo' | 'all' | Kind>('todo');
   const [showMet, setShowMet] = useState(false);
   const [q, setQ] = useState('');
   const [eq, setEq] = useState('');
   const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
   const [bulkOwner, setBulkOwner] = useState('기술');
-  const [asking, setAsking] = useState<BidVerdict>();
-  const [lastBulk, setLastBulk] = useState<{ ids: string[] }>();
+  const [asking, setAsking] = useState<Kind>();
+  const [lastBulk, setLastBulk] = useState<{ batchId: string; n: number }>();
   const [similar, setSimilar] = useState<{ body: Omit<DecisionRequest, 'version'>; rows: Row[] }>();
   const verdictRows = rows.filter((r): r is Row => !!r.bid_verdict);
   const open = (r: Row) => needed(r) && !r.decision?.decided;
@@ -262,10 +266,10 @@ export function Decide({ project, documents, rows, role, actorId, log }: { proje
   const text = q.trim().toLowerCase();
   const visible = verdictRows.filter(r => (!eq || (r.equipment ?? '공통') === eq)
     && (!text || [r.code, r.attribute, r.value_text, r.equipment].some(v => v?.toLowerCase().includes(text))));
-  const count = (v: BidVerdict) => visible.filter(r => r.bid_verdict === v).length;
+  const count = (v: Kind) => visible.filter(r => kindOf(r) === v).length;
   const groups = filter === 'todo' && !byEq
-    ? [...DECIDE_ORDER, ...(showMet ? ['MET' as const] : [])].map(v => ({ title: VERDICT[v], verdict: v, rows: visible.filter(r => r.bid_verdict === v) })).filter(g => g.rows.length)
-    : equipments.map(e => ({ title: e, verdict: undefined, rows: visible.filter(r => (r.equipment ?? '공통') === e && (filter === 'all' || (filter === 'todo' ? open(r) : r.bid_verdict === filter))) })).filter(g => g.rows.length);
+    ? [...DECIDE_ORDER, ...(showMet ? ['MET' as const] : [])].map(v => ({ title: VERDICT[v], verdict: v, rows: visible.filter(r => kindOf(r) === v) })).filter(g => g.rows.length)
+    : equipments.map(e => ({ title: e, verdict: undefined, rows: visible.filter(r => (r.equipment ?? '공통') === e && (filter === 'all' || (filter === 'todo' ? open(r) : kindOf(r) === filter))) })).filter(g => g.rows.length);
   const lines: Line[] = groups.flatMap(g => [{ kind: 'group' as const, ...g }, ...g.rows.map(row => ({ kind: 'row' as const, row }))]);
   if (filter === 'todo' && !byEq && !showMet && count('MET') > 0) lines.push({ kind: 'fold', n: count('MET') });
   const order = groups.flatMap(g => g.rows);
@@ -273,22 +277,15 @@ export function Decide({ project, documents, rows, role, actorId, log }: { proje
   const win = useWindow(lines.length);
   const refresh = () => { client.invalidateQueries({ queryKey: ['workspace-requirements'] }); client.invalidateQueries({ queryKey: ['projects'] }); };
   // 일괄 결정은 서버 일괄 경로가 없어 결정 경로를 건별로 부른다. 중간에 실패하면 거기서 멈추고 앞의 결정은 남는다.
+  // 일괄 결정은 서버 일괄 경로 한 번이다. 한 건이라도 실패하면 아무것도 저장되지 않고 첫 실패 건이 온다. 되돌리기는 묶음 되돌리기.
   const bulk = useMutation({
-    mutationFn: async ({ targets, body }: { targets: Row[]; body: Omit<DecisionRequest, 'version'> }) => {
-      const done: string[] = [];
-      for (const r of targets) { await decideRequirement(r.requirement_id, { version: r.version, ...body } as DecisionRequest, key()); done.push(r.requirement_id); }
-      return done;
-    },
-    onSuccess: ids => { setLastBulk({ ids }); setChecked(new Set()); setAsking(undefined); setSimilar(undefined); },
+    mutationFn: ({ targets, body }: { targets: Row[]; body: Omit<DecisionRequest, 'version'> }) =>
+      bulkDecide(project.id, targets.map(r => ({ requirement_id: r.requirement_id, version: r.version, ...body }) as BulkDecisionItem), key()),
+    onSuccess: result => { setLastBulk({ batchId: result.data.batch_id, n: result.data.items.length }); setChecked(new Set()); setAsking(undefined); setSimilar(undefined); },
     onSettled: refresh,
   });
-  const undoBulk = useMutation({
-    mutationFn: async (ids: string[]) => {
-      for (const id of ids) {
-        const r = rows.find(x => x.requirement_id === id);
-        if (r?.decision?.decision_id) await decideRequirement(id, { version: r.version, action: 'undo', decision_id: r.decision.decision_id } as DecisionRequest, key());
-      }
-    },
+  const undoBulkMutation = useMutation({
+    mutationFn: (batchId: string) => undoBulk(project.id, batchId, key()),
     onSuccess: () => setLastBulk(undefined),
     onSettled: refresh,
   });
@@ -339,8 +336,9 @@ export function Decide({ project, documents, rows, role, actorId, log }: { proje
           {filter === 'todo' && <button className={byEq ? 'ws-chip on' : 'ws-chip'} aria-pressed={byEq} onClick={() => setByEq(!byEq)}>설비별로 보기</button>}
           <button className="kb" onClick={() => downloadCsv(`${project.external_id ?? 'RFP'} 요구.csv`, order)}>엑셀</button>
         </div>
-        {lastBulk && <p className="ws-bulkline">{lastBulk.ids.length}건을 한 번에 결정했습니다. <button className="ws-link" disabled={undoBulk.isPending} onClick={() => undoBulk.mutate(lastBulk.ids)}>한 번에 되돌리기</button></p>}
-        {(bulk.isError || undoBulk.isError) && <p role="alert" className="ws-alert">{failureText(bulk.error ?? undoBulk.error)} 앞에서 처리한 결정은 남아 있습니다.</p>}
+        {lastBulk && <p className="ws-bulkline">{lastBulk.n}건을 한 번에 결정했습니다. <button className="ws-link" disabled={undoBulkMutation.isPending} onClick={() => undoBulkMutation.mutate(lastBulk.batchId)}>한 번에 되돌리기</button></p>}
+        {bulk.isError && <p role="alert" className="ws-alert">{bulkFailure(bulk.error, verdictRows)} 아무것도 저장하지 않았습니다.</p>}
+        {undoBulkMutation.isError && <p role="alert" className="ws-alert">{failureText(undoBulkMutation.error)} 되돌리지 않았습니다.</p>}
         {showExcluded && <ExcludedTable rows={excluded} responsible={responsible} />}
         <div className="ws-grid">
           <section className="ws-sec ws-left">
@@ -350,7 +348,7 @@ export function Decide({ project, documents, rows, role, actorId, log }: { proje
               <button className="kb primary" disabled={bulk.isPending} onClick={() => bulk.mutate({ targets: assignChecked, body: { action: 'assign', holder: 'OWN', owner: OWNER[bulkOwner] } })}>자사 수행으로 일괄 배정</button>
             </div>}
             <div className="ws-tbox" onScroll={win.onScroll}><table className="ws-table">
-              <thead><tr><th style={{ width: 28 }} aria-label="선택" /><th>설비</th><th>요구</th><th>요구값</th><th title="요구 목록 응답에 자사 보증값이 아직 없어 비워 둡니다">자사 보증값</th><th className="r">다음 행동</th></tr></thead>
+              <thead><tr><th style={{ width: 28 }} aria-label="선택" /><th>설비</th><th>요구</th><th>요구값</th><th>자사 보증값</th><th className="r">다음 행동</th></tr></thead>
               <tbody>
                 {win.first > 0 && <tr style={{ height: win.first * ROW_H }} aria-hidden="true" />}
                 {lines.slice(win.first, win.last).map((line, i) => line.kind === 'group'
@@ -387,10 +385,10 @@ function RowLine({ r, sel, onPick, responsible, checkable, checked, onCheck, rep
     <td className="tag">{r.equipment}</td>
     <td title={r.code}><button className="ws-rowbtn" onClick={() => onPick(r.requirement_id)}>{r.attribute ?? r.code}</button>{replied && !decided && <span className="ws-badge">회신 도착</span>}{r.decision?.manually_added && <span className="ws-badge gray">직접 추가</span>}</td>
     <td className={r.value_text ? '' : 'empty'}>{r.value_text ?? '빈 칸'}</td>
-    <td className="muted" />
-    <td className="r">{r.bid_verdict === 'QUERY' && queryText ? <span className="tag">{queryText}</span>
+    <td>{ownValueText(r.own_value)}{r.own_value && <small className="muted"> {r.own_value.product_code}</small>}</td>
+    <td className="r">{kindOf(r) === 'QUERY' && queryText ? <span className="tag">{queryText}</span>
       : decided ? <span className="tag">{r.decision?.summary ?? '결정함'}</span>
-      : !responsible && ROW_ACTION[r.bid_verdict] ? <button className="kb ws-act" onClick={event => { event.stopPropagation(); onPick(r.requirement_id); }}>{ROW_ACTION[r.bid_verdict]}</button> : null}</td>
+      : !responsible && ROW_ACTION[kindOf(r)] ? <button className="kb ws-act" onClick={event => { event.stopPropagation(); onPick(r.requirement_id); }}>{ROW_ACTION[kindOf(r)]}</button> : null}</td>
   </tr>;
 }
 
@@ -424,7 +422,7 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
     onSuccess: (_result, body) => { client.invalidateQueries({ queryKey: ['workspace-requirements'] }); client.invalidateQueries({ queryKey: ['projects'] }); if (body.action !== 'undo') onDecided(body); },
   });
   const own = comparison.data?.data.candidates.find(c => c.attribute_match?.our_value);
-  const ownText = own ? `${own.attribute_match?.our_value ?? ''} ${own.attribute_match?.our_unit ?? ''}`.trim() : '─';
+  const ownText = row.own_value ? ownValueText(row.own_value) : own ? `${own.attribute_match?.our_value ?? ''} ${own.attribute_match?.our_unit ?? ''}`.trim() : '─';
   const doc = documents.find(x => x.document_version_id === d?.origin?.document_version_id) ?? documents[0];
   const decided = row.decision?.decided;
   const idx = order.findIndex(r => r.requirement_id === row.requirement_id);
@@ -436,8 +434,8 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
   return <div className="ws-panel">
     {adding ? <AddRequirement projectId={projectId} quote={adding.quote} clause={adding.clause} equipment={row.equipment} onCancel={() => setAdding(undefined)} onDone={id => { setAdding(undefined); setPicked(''); onMove(id); }} />
     : <div className="ws-pick">
-      <div className="hd"><span className="name">{row.attribute ?? row.code}</span><span className="muted">{row.code} {row.equipment}</span><span className="sp" /><span>{decided ? '결정함' : VERDICT[row.bid_verdict]}</span>{!decided && <span className="dot" title="AI가 정한 판정입니다" aria-label="AI 판정" />}</div>
-      <div className="ws-cmp"><span className="k">요구</span><span className={row.value_text ? 'v' : 'v empty'}>{row.value_text ?? '빈 칸'}</span><span className="k">자사</span><span className="v">{ownText}{own && <small className="muted"> {own.product_code}</small>}</span></div>
+      <div className="hd"><span className="name">{row.attribute ?? row.code}</span><span className="muted">{row.code} {row.equipment}</span><span className="sp" /><span>{decided ? '결정함' : VERDICT[kindOf(row)]}</span>{!decided && <span className="dot" title="AI가 정한 판정입니다" aria-label="AI 판정" />}</div>
+      <div className="ws-cmp"><span className="k">요구</span><span className={row.value_text ? 'v' : 'v empty'}>{row.value_text ?? '빈 칸'}</span><span className="k">자사</span><span className="v">{ownText}{(row.own_value ?? own) && <small className="muted"> {row.own_value?.product_code ?? own?.product_code}</small>}</span></div>
       {reason && <p className="ws-why">{reason}</p>}
       {replied && d && !responsible && row.bid_verdict === 'QUERY' ? <>
         <div className="ws-decided"><span>회신 받음</span><span className="sp" />{row.decision?.decision_id && <button className="ws-link" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'undo', decision_id: row.decision?.decision_id })}>되돌리기</button>}</div>
@@ -446,7 +444,7 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
         {!responsible && row.decision?.decision_id && <button className="ws-link" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'undo', decision_id: row.decision?.decision_id })}>되돌리기</button>}</div>
         : responsible ? <p className="muted ws-note">결정은 담당자가 합니다.</p>
           : <div className="ws-form">
-            {row.bid_verdict === 'DEVIATION' && <>
+            {kindOf(row) === 'DEVIATION' && <>
               <div className="ws-opts" role="radiogroup" aria-label="편차 처리">
                 <label><input type="radio" checked={choice === 'deviate'} onChange={() => setChoice('deviate')} /> 편차로 기재</label>
                 <label><input type="radio" checked={choice === 'check'} onChange={() => setChoice('check')} /> 충족 근거 확인</label>
@@ -455,11 +453,11 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
               <label className="ws-field">{choice === 'deviate' ? '편차 내용' : '요청 내용'}<input value={value} onChange={event => setText(event.target.value)} /></label>
               <div className="ws-go"><button className="kb primary" disabled={!value.trim() || decide.isPending} onClick={() => decide.mutate(choice === 'deviate' ? { action: 'record_deviation', text: value.trim() } : { action: 'request_check', text: value.trim(), target_dept: dept })}>{choice === 'deviate' ? '편차표에 넣기' : '확인 요청 보내기'}</button></div>
             </>}
-            {row.bid_verdict === 'QUERY' && <>
+            {kindOf(row) === 'QUERY' && <>
               <label className="ws-field">고객 질의<input value={value} onChange={event => setText(event.target.value)} /></label>
               <div className="ws-go"><button className="kb primary" disabled={!value.trim() || decide.isPending} onClick={() => decide.mutate({ action: 'add_query', text: value.trim() })}>질의서에 넣기</button></div>
             </>}
-            {row.bid_verdict === 'SUPPLEMENT' && <>
+            {kindOf(row) === 'SUPPLEMENT' && <>
               <span className="ws-label">협력사</span>
               <div className="ws-plist" role="radiogroup" aria-label="협력사">
                 {candidates.length === 0 && <span className="muted">{live ? '후보가 없습니다' : '후보 목록은 서버에서 읽습니다'}</span>}
@@ -471,7 +469,7 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
               <div className="ws-go"><button className="kb primary" disabled={!partner || decide.isPending} onClick={() => decide.mutate({ action: 'select_partner', candidate_codes: [partner as string], text: (text ?? '').trim() || null })}>{partner ? `${partner} 선정` : '협력사 선정'}</button>
                 <button className="ws-link" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'ask_rnd' })}>R&amp;D에 개발 문의</button></div>
             </>}
-            {row.bid_verdict === 'ASSIGN' && <>
+            {kindOf(row) === 'ASSIGN' && <>
               <span className="ws-label">수행</span>
               <div className="ws-opts" role="radiogroup" aria-label="수행 주체">
                 <label><input type="radio" checked={holder === 'OWN'} onChange={() => setHolder('OWN')} /> 자사</label>
@@ -480,7 +478,13 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
               <div className="ws-go"><label className="ws-field inline">담당<select value={owner} onChange={event => setOwner(event.target.value)}>{Object.keys(OWNER).map(k => <option key={k}>{k}</option>)}</select></label>
                 <button className="kb primary" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'assign', holder, owner: OWNER[owner] })}>배정</button></div>
             </>}
-            {row.bid_verdict === 'CONFIRM' && <div className="ws-go">
+            {kindOf(row) === 'DRAWING' && <>
+              <p className="muted ws-note">도면에서 읽은 값입니다. 규격서 값과 대조해 맞으면 확정하고, 다르면 질의서에 넣습니다.</p>
+              <div className="ws-go"><button className="kb primary" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'confirm_drawing' })}>맞음</button></div>
+              <label className="ws-field">다르면 고객 질의<input value={text ?? `${row.equipment ?? ''} ${row.attribute ?? ''} 값이 도면과 규격서에서 다릅니다. 적용할 값을 알려 주십시오.`.trim()} onChange={event => setText(event.target.value)} /></label>
+              <div className="ws-go"><button className="kb" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'add_query', text: (text ?? `${row.equipment ?? ''} ${row.attribute ?? ''} 값이 도면과 규격서에서 다릅니다. 적용할 값을 알려 주십시오.`).trim() })}>다름, 질의서에 넣기</button></div>
+            </>}
+            {kindOf(row) === 'CONFIRM' && <div className="ws-go">
               <button className="kb primary" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'confirm_met' })}>충족 확정</button>
               <button className="ws-link" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'change_verdict', verdict: 'DEVIATION' })}>편차로 바꾸기</button>
             </div>}
@@ -509,7 +513,7 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
   </div>;
 }
 
-function Output({ project, rows, excluded = [], responsible, actorId, onJump, onPick }: { project: ProjectDetail; rows: Row[]; excluded?: Row[]; responsible: boolean; actorId?: string; onJump: (filter: 'todo' | BidVerdict) => void; onPick: (id: string) => void }) {
+function Output({ project, rows, excluded = [], responsible, actorId, onJump, onPick }: { project: ProjectDetail; rows: Row[]; excluded?: Row[]; responsible: boolean; actorId?: string; onJump: (filter: 'todo' | Kind) => void; onPick: (id: string) => void }) {
   const client = useQueryClient();
   const mode = getApiMode();
   const [doc, setDoc] = useState<'dev' | 'tq' | 'eq' | 'sum' | 'hist'>('dev');
@@ -541,6 +545,8 @@ function Output({ project, rows, excluded = [], responsible, actorId, onJump, on
     return { eq, items, open: items.filter(r => needed(r) && !r.decision?.decided).length };
   }), [rows]);
   const tq = questions.data?.data.items.filter(q => q.target === 'CUSTOMER') ?? [];
+  const unsent = tq.filter(q => q.status === 'OPEN' && !q.sent_at);
+  const sent = useMutation({ mutationFn: () => markQuestionsSent(project.id, unsent.map(q => q.question_id), key()), onSettled: () => client.invalidateQueries({ queryKey: ['questions'] }) });
   const reviewBlock = <section className="ws-sec ws-review" aria-label="책임자 확인">
     <h2>책임자 확인 <span className="muted">{name(project.responsible_user_id)} {pending.length}건</span>{responsible && pending.length > 0 && <button className="kb primary" disabled={review.isPending} onClick={() => review.mutate({ ids: pending, action: 'review_confirm' })}>모두 확인</button>}</h2>
     <table className="ws-table"><tbody>{pending.map(p => <tr key={p.decisionId}><td className="tag">{p.row.equipment}</td><td>{p.row.attribute ?? p.row.code}</td><td>{p.label}</td>
@@ -567,12 +573,14 @@ function Output({ project, rows, excluded = [], responsible, actorId, onJump, on
       {doc === 'dev' && <table className="ws-table"><thead><tr><th>조항</th><th>항목</th><th>요구</th><th>편차 내용</th></tr></thead>
         <tbody>{deviations.map(r => <tr key={r.requirement_id}><td>{r.code}</td><td>{r.equipment} {r.attribute}</td><td>{r.value_text}</td><td>{r.decision?.summary}</td></tr>)}
           {deviations.length === 0 && <tr><td colSpan={4} className="muted">편차로 결정한 요구가 없습니다.</td></tr>}</tbody></table>}
+      {doc === 'tq' && !responsible && unsent.length > 0 && <div className="ws-go ws-tqbar"><span className="muted">메일 화면에서 질의서를 보냈으면 보낸 것으로 기록하세요. 회신 기다림 날수가 그날부터 셉니다.</span>
+        <button className="kb" disabled={sent.isPending} onClick={() => sent.mutate()}>보낸 것으로 기록 {unsent.length}건</button>{sent.isError && <span role="alert">{failureText(sent.error)}</span>}</div>}
       {doc === 'tq' && <table className="ws-table"><thead><tr><th>No</th><th>질의</th><th>상태</th></tr></thead>
         <tbody>{tqNumbers(tq).map(({ q, no }) => <tr key={q.question_id}><td>{no}</td><td>{q.question_text}</td><td>{queryState(q)}</td></tr>)}
           {tq.length === 0 && <tr><td colSpan={3} className="muted">질의가 없습니다.</td></tr>}</tbody></table>}
       {doc === 'eq' && <table className="ws-table"><thead><tr><th>장비</th><th>요구</th><th>충족</th><th>남은 결정</th></tr></thead>
         <tbody>{byEq.map(e => <tr key={e.eq}><td>{e.eq}</td><td>{e.items.length}</td><td>{e.items.filter(r => r.bid_verdict === 'MET').length}</td><td>{e.open}</td></tr>)}</tbody></table>}
-      {doc === 'sum' && <div className="ws-sum"><p>요구 {rows.length}건. {(['MET', ...DECIDE_ORDER] as BidVerdict[]).map(v => `${VERDICT[v]} ${rows.filter(r => r.bid_verdict === v).length}`).join(', ')}.</p>
+      {doc === 'sum' && <div className="ws-sum"><p>요구 {rows.length}건. {(['MET', ...DECIDE_ORDER] as Kind[]).map(v => `${VERDICT[v]} ${rows.filter(r => kindOf(r) === v).length}`).join(', ')}.</p>
         <p>남은 결정 {gate.undecided}건, 회신 대기 질의 {gate.open_queries}건.</p></div>}
       {doc === 'hist' && <ProjectHistory projectId={project.id} codeOf={id => [...rows, ...excluded].find(r => r.requirement_id === id)?.code ?? '─'} onPick={onPick} />}
     </section>
@@ -584,11 +592,14 @@ const GateItem = ({ n, label, onClick }: { n: number; label: string; onClick?: (
   : <span className={n > 0 ? 'ws-gateitem warn' : 'ws-gateitem'}>{label} {n}</span>;
 
 // 질의 상태: 질의서에 넣음(초안) → 회신 기다림 n일째 → 회신 받음. 질문에 발송 기록이 없어 "보냄"을 따로 보이지 못한다.
-export function queryState(q: Pick<Question, 'status' | 'created_at'>, now = Date.now()) {
+// 질의 상태: 질의서에 넣음 → 보냄(메일), 회신 기다림 1일째 → 회신 기다림 n일째 → 회신 받음. 날수는 서버 waiting_days(보낸 날부터 한국 날짜).
+export function queryState(q: Pick<Question, 'status' | 'sent_at' | 'waiting_days'>) {
   if (q.status === 'REPLIED') return '회신 받음';
-  if (q.status === 'OPEN') return `회신 기다림 ${Math.max(1, Math.ceil((now - Date.parse(q.created_at)) / 86_400_000))}일째`;
+  if (q.status === 'OPEN' && q.sent_at) return (q.waiting_days ?? 1) <= 1 ? '보냄, 회신 기다림 1일째' : `회신 기다림 ${q.waiting_days}일째`;
   return '질의서에 넣음';
 }
+
+const ownValueText = (v: RequirementSummary['own_value']) => v ? [v.value, v.unit, ...(v.conditions ?? []).map(c => [c.value, c.unit].filter(Boolean).join(' '))].filter(Boolean).join(' ') : '';
 
 const RECOMPARED: Record<string, string> = { EVIDENCE_FOUND: '충족', CONDITIONAL: '충족 확인', SPEC_GAP: '편차', INSUFFICIENT_EVIDENCE: '확인 필요' };
 
@@ -745,7 +756,10 @@ export const clauseOf = <C extends Pick<Clause, 'clause_id' | 'clause_no' | 'tex
 function AddRequirement({ projectId, quote, clause, equipment, onDone, onCancel }: { projectId: string; quote: string; clause: Pick<Clause, 'clause_id' | 'clause_no'>; equipment?: string | null; onDone: (id: string) => void; onCancel: () => void }) {
   const client = useQueryClient();
   const [kind, setKind] = useState<keyof typeof KIND_LABEL>('SPEC');
-  const [eq, setEq] = useState(equipment ?? '');
+  const [eq, setEq] = useState(equipment && equipment !== '공통' ? equipment : '');
+  const equipmentList = useQuery({ queryKey: ['equipment', getApiMode(), projectId], queryFn: () => listEquipment(projectId), staleTime: 300_000 });
+  // 설비 선택 목록: 맥락 결과의 설비 묶음(태그 우선) 또는 요구 판본의 설비 칸. 고른 값은 태그(없으면 이름)로 보낸다.
+  const choices = [...new Set([...(equipmentList.data?.data.items ?? []).map(e => e.tag ?? e.name), ...(eq ? [eq] : [])])];
   const [attr, setAttr] = useState('');
   const [value, setValue] = useState('');
   const [unit, setUnit] = useState('');
@@ -768,7 +782,8 @@ function AddRequirement({ projectId, quote, clause, equipment, onDone, onCancel 
     <div className="hd"><span className="name">새 요구(직접 추가)</span><span className="sp" /><button className="ws-link" onClick={onCancel}>취소</button></div>
     <div className="ws-cmp"><span className="k">조항</span><span className="v">{clause.clause_no}</span><span className="k">인용</span><span className="v ws-quoteval">{quote}</span></div>
     <div className="ws-go">
-      <label className="ws-field inline">설비<input value={eq} size={10} onChange={event => setEq(event.target.value)} /></label>
+      <label className="ws-field inline">설비{choices.length ? <select value={eq} onChange={event => setEq(event.target.value)}><option value="">공통</option>{choices.map(c => <option key={c} value={c}>{c}</option>)}</select>
+        : <input value={eq} size={10} onChange={event => setEq(event.target.value)} />}</label>
       <label className="ws-field inline">종류<select value={kind} onChange={event => setKind(event.target.value as keyof typeof KIND_LABEL)}>{Object.entries(KIND_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
     </div>
     <label className="ws-field">속성<input value={attr} onChange={event => setAttr(event.target.value)} /></label>
@@ -853,8 +868,15 @@ const marked = (text: string, quote?: string | null) => {
 // 엑셀: 지금 보이는 순서의 요구를 CSV로 내려받는다(엑셀이 한글을 읽도록 BOM을 붙인다).
 function downloadCsv(name: string, rows: Row[]) {
   const cell = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const lines = [['설비', '조항', '요구', '요구값', '판정', '결정'], ...rows.map(r => [r.equipment, r.code, r.attribute, r.value_text, VERDICT[r.bid_verdict], r.decision?.summary])];
+  const lines = [['설비', '조항', '요구', '요구값', '판정', '결정'], ...rows.map(r => [r.equipment, r.code, r.attribute, r.value_text, VERDICT[kindOf(r)], r.decision?.summary])];
   const url = URL.createObjectURL(new Blob(['\uFEFF' + lines.map(l => l.map(cell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' }));
   const a = document.createElement('a'); a.href = url; a.download = name; a.click();
   setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+// 일괄 결정 실패: 서버가 details[0]에 첫 실패 건(index·requirement_id·reason)을 준다.
+function bulkFailure(error: unknown, rows: Row[]) {
+  const first = error instanceof ApiError && Array.isArray(error.details) ? error.details[0] as { index?: number; requirement_id?: string } | undefined : undefined;
+  const row = rows.find(r => r.requirement_id === first?.requirement_id);
+  return first && row ? `${(first.index ?? 0) + 1}번째 요구(${row.equipment ?? ''} ${row.attribute ?? row.code})에서 막혔습니다. ${failureText(error)}` : failureText(error);
 }

@@ -260,3 +260,21 @@ export type ManualRequirementRequest = Schemas['ManualRequirementRequest'];
 export const addRequirement = (projectId: string, body: ManualRequirementRequest, key: string) => request<Envelope<DecisionResult>>(
   `/api/v1/tft/projects/${encodeURIComponent(projectId)}/requirements`, json(key, body),
 );
+
+// 일괄 결정과 묶음 되돌리기. 한 건이라도 실패하면 아무것도 저장하지 않고 details[0]에 첫 실패 건(index·requirement_id·reason)이 온다.
+export type BulkDecisionItem = Schemas['BulkDecisionItem'];
+export type BulkDecisionResult = Schemas['BulkDecisionResult'];
+export const bulkDecide = (projectId: string, items: BulkDecisionItem[], key: string) => request<Envelope<BulkDecisionResult>>(
+  `/api/v1/tft/projects/${encodeURIComponent(projectId)}/decisions/bulk`, json(key, { items }),
+);
+export const undoBulk = (projectId: string, batchId: string, key: string) => request<Envelope<BulkDecisionResult>>(
+  `/api/v1/tft/projects/${encodeURIComponent(projectId)}/decisions/bulk/${encodeURIComponent(batchId)}/undo`, json(key, {}),
+);
+// 질의서를 메일로 보낸 기록. 질문마다 처음 보낸 시각만 남는다.
+export const markQuestionsSent = (projectId: string, questionIds: string[], key: string, mailRef?: string) => request<Envelope<unknown>>(
+  `/api/v1/tft/projects/${encodeURIComponent(projectId)}/questions/sent`, json(key, { question_ids: questionIds, mail_ref: mailRef ?? null }),
+);
+export type Equipment = Schemas['Equipment'];
+export const listEquipment = (projectId: string) => request<Envelope<Schemas['EquipmentList']>>(
+  `/api/v1/tft/projects/${encodeURIComponent(projectId)}/equipment`, { mockFallback: mock({ source: 'requirements', items: [] }) },
+);
