@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } fr
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ApiError, getApiMode } from '../api/client';
 import {
-  addRequirement, approveProposal, bulkDecide, listEquipment, markQuestionsSent, undoBulk, type BulkDecisionItem, createProject, listClauses, listProjectHistory, type Clause, type ManualRequirementRequest, listRequirementHistory, type HistoryItem, type HistoryKind, type HistoryPage, createProposal, createQuestion, decideRequirement, getComparison, getRequirement, listDocuments, listQuestions, listRequirements, recompareRequirement, startProcess, uploadDocument,
+  addRequirement, approveProposal, bulkDecide, listEquipment, markQuestionsSent, undoBulk, type BulkDecisionItem, createProject, listClauses, listProjectHistory, type Clause, type ManualRequirementRequest, listRequirementHistory, type HistoryItem, type HistoryKind, type HistoryPage, createProposal, createQuestion, decideRequirement, getComparison, getRequirement, listAllRequirements, listDocuments, listQuestions, recompareRequirement, startProcess, uploadDocument,
   type BidVerdict, type DecisionRequest, type DocumentVersion, type Proposal, type ProposalCreate, type Question, type QuestionCreate, type RequirementDetail, type RequirementSummary,
 } from '../api/rfp';
 import { activeRfpJob, type RfpWatch } from '../api/rfp-job-events';
@@ -73,7 +73,7 @@ export default function RfpWorkspace() {
   const documents = useQuery({ queryKey: ['documents', mode, projectId], queryFn: () => listDocuments(projectId), enabled: access.ready && !isNew });
   const requirements = useQuery({
     queryKey: ['workspace-requirements', mode, projectId],
-    queryFn: async () => mode === 'mock' ? MOCK_WORKSPACE_REQUIREMENTS : (await listRequirements(projectId, {}, 1000, undefined, { useMockFallback: false })).data.items,
+    queryFn: async ({ signal }) => mode === 'mock' ? MOCK_WORKSPACE_REQUIREMENTS : await listAllRequirements(projectId, {}, signal),
     enabled: access.ready && !isNew,
   });
   const jobId = project.data?.data.latest_job?.job_id;
@@ -302,8 +302,8 @@ export function Decide({ project, documents, rows, role, actorId, log }: { proje
   };
   const assignChecked = verdictRows.filter(r => checked.has(r.requirement_id));
   const [showExcluded, setShowExcluded] = useState(false);
-  const excludedQuery = useQuery({ queryKey: ['workspace-requirements', getApiMode(), project.id, 'excluded'], queryFn: () => listRequirements(project.id, { excluded: true }, 1000, undefined, { useMockFallback: false }), enabled: getApiMode() === 'live' });
-  const excluded = (excludedQuery.data?.data.items ?? []) as Row[];
+  const excludedQuery = useQuery({ queryKey: ['workspace-requirements', getApiMode(), project.id, 'excluded'], queryFn: ({ signal }) => listAllRequirements(project.id, { excluded: true }, signal), enabled: getApiMode() === 'live' });
+  const excluded = (excludedQuery.data ?? []) as Row[];
   const tqs = useQuery({ queryKey: ['questions', getApiMode(), project.id], queryFn: () => listQuestions(project.id, undefined, { useMockFallback: false }), enabled: getApiMode() === 'live' });
   const customerTq = (tqs.data?.data.items ?? []).filter(q => q.target === 'CUSTOMER');
   // 회신 알림은 새 알림 종류 없이 질의 행의 "회신 도착" 배지로만 보인다.
