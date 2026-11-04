@@ -82,6 +82,8 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
   const faultList = useQuery({ queryKey: ['cs-faults', mode, ticket.data?.data?.product_code], queryFn: ({ signal }) => listFaults(ticket.data!.data.product_code, signal), enabled: dialog === 'resolution' && !!ticket.data?.data?.product_code, retry: false, staleTime: 300000 });
   const mailboxes = useQuery({ queryKey: ['send-mailboxes', mode], queryFn: () => listMailboxes(), enabled: (dialog === 'draft' || sendStep) && mode === 'live', retry: false, staleTime: 0 });
   const [busy, setBusy] = useState(false);
+  // AI 요약을 만드는 동안 요약 상자에 회신 초안과 같은 줄 모양 로딩을 보인다.
+  const [summarizing, setSummarizing] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
   const [returnFormKey, setReturnFormKey] = useState(0);
   const [lang, setLang] = useState<'orig' | 'ko'>('orig');
@@ -446,25 +448,38 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
 
       <div className="cols">
         <div className="pane">
-          <div className="ph">고객 원문 <div className="r"><div className="seg">
+          <div className="ph">고객 원문 <div className="r">
+            {/* AI 요약 만들기는 원문/한국어 전환 옆에 둔다. 이미 요약이 있으면 단추를 숨긴다(같은 원문은 다시 만들어도 같은 결과). */}
+            {!summaryRecord && !summaryOff && canWrite && <button className="kb3 sm" disabled={busy || summary.isPending} title="모델을 한 번 호출합니다(비용)" onClick={() => { setSummarizing(true); void run('요약을 만들었습니다.', signal => createTicketSummary(ticketId, signal)).then(() => summary.refetch()).finally(() => setSummarizing(false)); }}>{summarizing ? '✦ 요약 중…' : '✦ AI 요약'}</button>}
+            <div className="seg">
             <button className={lang === 'orig' ? 'on' : ''} onClick={() => setLang('orig')}>원문</button>
             <button className={lang === 'ko' ? 'on' : ''} onClick={() => setLang('ko')}>한국어</button></div></div></div>
           <div className="pb">
             <div className="sum">
               <div className="h"><span className="ai">✦ AI 요약</span><span className="meta">{summaryRecord ? hm(summaryRecord.created_at) : ''}</span></div>
-              {summaryRecord ? summaryLines(summaryRecord.summary_ko).map((line, index) => <p key={index}><span className="n">{index + 1}</span>{line}</p>)
+              {summarizing && !summaryRecord ? <div className="sk-lines" aria-busy="true"><span>AI가 원문을 읽고 요약하는 중…</span><i /><i /><i /></div>
+                : summaryRecord ? summaryLines(summaryRecord.summary_ko).map((line, index) => <p key={index}><span className="n">{index + 1}</span>{line}</p>)
                 : summaryOff ? <p className="meta">요약 기능이 이 배포에서 꺼져 있습니다</p>
                 : summary.isPending ? <p className="meta">불러오는 중</p>
-                : <p className="meta" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>아직 요약이 없습니다
-                  {canWrite && <button className="kb3 sm" disabled={busy} title="모델을 한 번 호출합니다(비용)" onClick={() => void run('요약을 만들었습니다.', signal => createTicketSummary(ticketId, signal)).then(() => summary.refetch())}>요약 만들기</button>}</p>}
+                : <p className="meta">아직 요약이 없습니다{canWrite ? '. 위의 "✦ AI 요약"을 누르면 만듭니다.' : ''}</p>}
             </div>
             {lang === 'ko'
               ? <div className="meta">한국어 번역 기능은 아직 없습니다. 위 AI 요약이 한국어입니다.</div>
               : <>
-                <div className="meta">From: {wf?.mail_origin?.sender_address ?? data.customer_external_id} · {formatStamp(data.received_at)}</div>
-                <b>Subject: {data.subject || '(제목 없음)'}</b>
-                <div className="mail">{data.body}</div>
-                {(data.error_code_reported || data.fw_version_reported) && <div className="meta">보고된 오류 코드 {data.error_code_reported ?? '-'} · FW {data.fw_version_reported ?? '-'}</div>}
+                {/* 메일처럼 보이는 원문 카드: 보낸 사람·경로·시각, 제목, 본문, 고객이 적은 오류 코드·FW */}
+                <div className="mail-card">
+                  <div className="mail-head">
+                    <span className="avatar" aria-hidden="true">{(wf?.mail_origin?.sender_address ?? data.customer_external_id).slice(0, 1).toUpperCase()}</span>
+                    <div className="who"><b>{wf?.mail_origin?.sender_address ?? data.customer_external_id}</b><small>{CHANNEL_LABEL[data.channel as keyof typeof CHANNEL_LABEL] ?? data.channel} · {data.customer_external_id}</small></div>
+                    <span className="when">{formatStamp(data.received_at)}</span>
+                  </div>
+                  <div className="mail-subj">{data.subject || '(제목 없음)'}</div>
+                  <div className="mail">{data.body}</div>
+                  {(data.error_code_reported || data.fw_version_reported) && <div className="mail-tags">
+                    {data.error_code_reported && <span className="tag"><small>보고된 오류 코드</small>{data.error_code_reported}</span>}
+                    {data.fw_version_reported && <span className="tag"><small>FW</small>{data.fw_version_reported}</span>}
+                  </div>}
+                </div>
               </>}
             {wf && ((wf.customer_sends ?? []).length > 0 || (wf.customer_replies ?? []).length > 0) && <div className="thread">
               <div className="meta" style={{ marginBottom: 4 }}>이후 대화</div>
@@ -620,7 +635,7 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
           <div className="pane grow">
             <div className="ph">처리 기록</div>
             <div className="logwrap"><table className="log"><thead><tr><th style={{ width: 62 }}>일시</th><th style={{ width: 72 }}>처리자</th><th>내용</th></tr></thead>
-              <tbody>{logs.slice(0, 12).map(item => <tr key={item.key}><td title={formatStamp(item.at)}>{hm(item.at)}</td>
+              <tbody>{logs.slice(0, 12).map(item => <tr key={item.key} className={item.who === 'ai' ? 'by-ai' : undefined}><td title={formatStamp(item.at)}>{hm(item.at)}</td>
                 <td className={item.who === 'ai' ? 'ai' : ''}>{item.who === 'ai' ? '✦ AI' : item.who === 'system' ? '시스템' : item.who}</td><td>{item.text}</td></tr>)}</tbody></table></div>
           </div>
         </div>

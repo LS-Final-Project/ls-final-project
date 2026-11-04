@@ -26,7 +26,7 @@ test.each([
   vi.stubGlobal('fetch',fetch);const page=viewList();
   // 목록의 상태 조건은 기본으로 종결을 뺀다. 종결 시험은 전체를 고른다.
   if(state==='CLOSED'){await screen.findByRole('table',{name:'문의 목록'});fireEvent.change(screen.getByLabelText('상태'),{target:{value:''}});}
-  await screen.findByText(listLabel,{selector:'td'});
+  await screen.findByText(listLabel,{selector:'td .chip'});
   page.unmount();viewDetail();await screen.findByText(label,stateCell);
   expect(screen.queryByText(other==='CLOSED'?'종결':'접수',stateCell)).toBeNull();
   await waitFor(()=>expect(fetch.mock.calls.some(([url])=>String(url).endsWith('/workflow'))).toBe(true));
@@ -54,5 +54,5 @@ test('조회 중 반복 클릭을 막고 이탈 시 취소하며 재진입은 �
   }));
   const page=viewList();await waitFor(()=>expect(calls).toBe(1));const button=screen.getByRole('button',{name:/^조회/});
   expect((button as HTMLButtonElement).disabled).toBe(true);fireEvent.click(button);expect(calls).toBe(1);
-  page.unmount();expect(signal?.aborted).toBe(true);viewList();await screen.findByText('검토중',{selector:'td'});expect(calls).toBe(2);
+  page.unmount();expect(signal?.aborted).toBe(true);viewList();await screen.findByText('검토중',{selector:'td .chip'});expect(calls).toBe(2);
 });

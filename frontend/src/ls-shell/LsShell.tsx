@@ -23,7 +23,6 @@ const MENU: Group[] = [
     key: 'cs', label: 'C/S 관리', leaves: [
       { label: '업무 홈', to: '/cs', end: true },
       { label: '문의 조회', to: '/cs/tickets' },
-      { label: '문의 처리' },
       { label: '고객 이력', to: '/cs/customers' },
       { label: '개선요청', to: '/cs/improvements' },
     ],
