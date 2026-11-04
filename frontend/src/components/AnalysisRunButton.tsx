@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ApiError } from '../api/client';
 import { AnalysisUncertain, getAnalysisJob, startAnalysis, type AnalysisAttempt } from '../api/cs-analysis';
+import { ElloMark } from './Ello';
 
 type Note = (kind: 'ok' | 'error', text: string) => void;
 
@@ -56,6 +57,6 @@ export default function AnalysisRunButton({ actorId, ticketId, disabled, title, 
   }
 
   return <button className="kb3 sm" disabled={disabled || phase !== 'idle'} title={title ?? '분류·검색·초안을 다시 만듭니다. 모델 호출 비용이 듭니다'} onClick={() => void run()}>
-    {phase === 'sending' ? '접수 중…' : phase === 'running' ? '✦ 분석 중…' : '✦ AI 분석 실행'}
+    {phase !== 'sending' && <ElloMark />}{phase === 'sending' ? '접수 중…' : phase === 'running' ? '분석 중…' : 'AI 분석 실행'}
   </button>;
 }

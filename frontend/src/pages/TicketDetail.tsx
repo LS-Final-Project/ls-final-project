@@ -18,6 +18,7 @@ import AnalysisCorrection from '../components/AnalysisCorrection';
 import { KvGrid, KvModal, useHotkey, type KvColumn } from '../ls-shell/kv';
 import { CATEGORY_LABEL, CHANNEL_LABEL, LANGUAGE_LABEL, RETURN_STATED_LABEL, STATE_LABEL, assignmentText, formatStamp, infoName } from '../ls-shell/cs-labels';
 import './ticket-detail-v3.css';
+import { ElloMark, ElloWorking } from '../components/Ello';
 
 const MOCK_BLOCKED = '모의 응답 모드에서는 실행할 수 없습니다';
 const DEPT_LABEL: Record<DeptCode, string> = {
@@ -208,7 +209,7 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
   // 분석 값
   const fields = analysisData?.fields as Record<string, { effective_value?: unknown; corrected?: boolean; source?: string | null } | undefined> | undefined;
   const fv = (key: string) => fields?.[key]?.effective_value;
-  const tagOf = (key: string) => fields?.[key]?.corrected ? <span className="ok" title="사람이 정정한 값이 우선합니다. AI를 다시 실행해도 바뀌지 않습니다">✓ 사람 정정</span> : fields?.[key]?.source === 'ai_draft' ? <span className="ai2">✦ AI</span> : null;
+  const tagOf = (key: string) => fields?.[key]?.corrected ? <span className="ok" title="사람이 정정한 값이 우선합니다. AI를 다시 실행해도 바뀌지 않습니다">✓ 사람 정정</span> : fields?.[key]?.source === 'ai_draft' ? <span className="ai2"><ElloMark size={14} />AI</span> : null;
   const urgency = fv('urgency_flag') as string | undefined;
   const category = fv('category_code') as string | undefined;
   const provided = Array.isArray(fv('provided_info')) ? (fv('provided_info') as unknown[]).map(String) : [];
@@ -407,7 +408,7 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
   const translationRecord = translation.data?.data.translation;
   const translationOff = translation.error instanceof ApiError && translation.error.status === 404;
   const koSource = (data?.body_language ?? '').split('-')[0] === 'ko';
-  const translateButton = canWrite && <button className="kb3 sm" disabled={busy || translating || translation.isPending} title="모델을 한 번 호출합니다(비용)" onClick={() => { setTranslating(true); void run('번역을 만들었습니다.', signal => createTicketTranslation(ticketId, signal)).then(() => translation.refetch()).finally(() => setTranslating(false)); }}>✦ 한국어 번역</button>;
+  const translateButton = canWrite && <button className="kb3 sm" disabled={busy || translating || translation.isPending} title="모델을 한 번 호출합니다(비용)" onClick={() => { setTranslating(true); void run('번역을 만들었습니다.', signal => createTicketTranslation(ticketId, signal)).then(() => translation.refetch()).finally(() => setTranslating(false)); }}><ElloMark />한국어 번역</button>;
   const mailCard = (subject: string, body: string, when?: ReactNode) => data && <div className="mail-card">
     <div className="mail-head">
       <span className="avatar" aria-hidden="true">{(wf?.mail_origin?.sender_address ?? data.customer_external_id).slice(0, 1).toUpperCase()}</span>
@@ -477,22 +478,22 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
         <div className="pane">
           <div className="ph">고객 원문 <div className="r">
             {/* AI 요약 만들기는 한국어 번역 보기 옆에 둔다. 이미 요약이 있으면 단추를 숨긴다(같은 원문은 다시 만들어도 같은 결과). */}
-            {!summaryRecord && !summaryOff && canWrite && <button className="kb3 sm" disabled={busy || summary.isPending} title="모델을 한 번 호출합니다(비용)" onClick={() => { setSummarizing(true); void run('요약을 만들었습니다.', signal => createTicketSummary(ticketId, signal)).then(() => summary.refetch()).finally(() => setSummarizing(false)); }}>{summarizing ? '✦ 요약 중…' : '✦ AI 요약'}</button>}
+            {!summaryRecord && !summaryOff && canWrite && <button className="kb3 sm" disabled={busy || summary.isPending} title="모델을 한 번 호출합니다(비용)" onClick={() => { setSummarizing(true); void run('요약을 만들었습니다.', signal => createTicketSummary(ticketId, signal)).then(() => summary.refetch()).finally(() => setSummarizing(false)); }}><ElloMark />{summarizing ? '요약 중…' : 'AI 요약'}</button>}
             {!koSource && <button className={showKo ? 'kb3 sm on' : 'kb3 sm'} aria-pressed={showKo} onClick={() => setShowKo(value => !value)}>{showKo ? '한국어 번역 숨기기' : '한국어 번역 보기'}</button>}</div></div>
           <div className="pb">
             <div className="sum">
-              <div className="h"><span className="ai">✦ AI 요약</span><span className="meta">{summaryRecord ? hm(summaryRecord.created_at) : ''}</span></div>
-              {summarizing && !summaryRecord ? <div className="sk-lines" aria-busy="true"><span>AI가 원문을 읽고 요약하는 중…</span><i /><i /><i /></div>
+              <div className="h"><span className="ai"><ElloMark />AI 요약</span><span className="meta">{summaryRecord ? hm(summaryRecord.created_at) : ''}</span></div>
+              {summarizing && !summaryRecord ? <div className="sk-lines" aria-busy="true"><span><ElloWorking />AI가 원문을 읽고 요약하는 중…</span><i /><i /><i /></div>
                 : summaryRecord ? summaryLines(summaryRecord.summary_ko).map((line, index) => <p key={index}><span className="n">{index + 1}</span>{line}</p>)
                 : summaryOff ? <p className="meta">요약 기능이 이 배포에서 꺼져 있습니다</p>
                 : summary.isPending ? <p className="meta">불러오는 중</p>
-                : <p className="meta">아직 요약이 없습니다{canWrite ? '. 위의 "✦ AI 요약"을 누르면 만듭니다.' : ''}</p>}
+                : <p className="meta">아직 요약이 없습니다{canWrite ? '. 위의 "AI 요약"을 누르면 만듭니다.' : ''}</p>}
             </div>
             {showKo && !koSource && <div className="ko-add">
-              {translating ? <div className="sk-lines" aria-busy="true"><span>AI가 원문을 한국어로 옮기는 중…</span><i /><i /><i /></div>
+              {translating ? <div className="sk-lines" aria-busy="true"><span><ElloWorking />AI가 원문을 한국어로 옮기는 중…</span><i /><i /><i /></div>
                 : translationRecord ? <>
                   {translationRecord.stale && <div className="meta" style={{ marginBottom: 6 }}>원문이 바뀌어 다시 번역할 수 있습니다 {translateButton}</div>}
-                  {mailCard(translationRecord.subject_ko || '(제목 없음)', translationRecord.body_ko, <><span className="ai">✦ AI 번역</span> {hm(translationRecord.created_at)}</>)}
+                  {mailCard(translationRecord.subject_ko || '(제목 없음)', translationRecord.body_ko, <><span className="ai"><ElloMark />AI 번역</span> {hm(translationRecord.created_at)}</>)}
                   <div className="meta" style={{ marginTop: 6 }}>AI 번역은 참고용입니다. 숫자·코드·판단은 아래 원문이 기준입니다.</div>
                 </>
                 : translationOff ? <div className="meta">번역 기능이 이 배포에서 꺼져 있습니다</div>
@@ -518,14 +519,11 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
             <button className="kb3 sm" disabled={!analysisData || !canWrite || busy || !correctable} title={!analysisData ? 'AI 분류를 읽은 뒤에 정정할 수 있습니다' : !correctable ? (st === 'RECEIVED' ? '검토 시작 후 정정할 수 있습니다' : '종결된 문의는 정정할 수 없습니다') : 'AI 분류를 사유와 함께 정정합니다'} onClick={() => setDialog('correct')}>분류 정정</button></div></div>
           <div className="pb">
             {(analyzing || finished) && <div className={`ai-progress${analyzing ? '' : ' stopped'}${finished === 'fail' ? ' failed' : ''}`} role="status" aria-live="polite">
-              <span className="glint" aria-hidden="true">
-                <svg className="glint-core" viewBox="0 0 24 24"><path d="M12 1.5c.6 5.2 2.3 8.4 10.5 10.5C14.3 14.1 12.6 17.3 12 22.5 11.4 17.3 9.7 14.1 1.5 12 9.7 9.9 11.4 6.7 12 1.5Z" /></svg>
-                <span className="glint-orbit"><i /><i /><i /></span>
-              </span>
+              <ElloWorking still={!analyzing} />
               <b>{analyzing ? (stage === 0 ? 'AI가 문의를 읽고 분류하는 중' : stage === 1 ? '분류 완료 · 근거를 찾아 초안 쓰는 중' : '초안 완료 · 문장 근거를 검증하는 중') : finished === 'ok' ? 'AI 분석 완료' : 'AI 분석이 끝나지 못했습니다'}</b>
               <ol aria-label="분석 단계">{['분류', '초안', '검증'].map((name, index) => { const ok = finished === 'ok' || (stage !== null && index < stage); return <li key={name} className={ok ? 'done' : index === stage ? 'cur' : ''}>{ok ? '✓ ' : ''}{name}</li>; })}</ol>
             </div>}
-            {!run0 && !analyzing && <div className="meta">아직 AI 분석이 없습니다. 위의 "✦ AI 분석 실행"을 누르세요.</div>}
+            {!run0 && !analyzing && <div className="meta">아직 AI 분석이 없습니다. 위의 "AI 분석 실행"을 누르세요.</div>}
             <div className="fr"><span className="k">주분류</span>{waitingClass ? <div className="box sk" aria-busy="true"><i /></div> : <div className="box reveal" key={`c-${run0?.id}`} style={reveal(0)}>{category ? CATEGORY_LABEL[category] ?? category : '-'}{tagOf('category_code')}</div>}</div>
             <div className="fr"><span className="k">보조분류</span>{waitingClass ? <div className="box sk" aria-busy="true"><i /></div> : <div className="box reveal" key={`s-${run0?.id}`} style={reveal(1)}>{(fv('secondary_category') as string | null) ?? '-'}{tagOf('secondary_category')}</div>}</div>
             <div className="fr"><span className="k">긴급 여부</span>{waitingClass ? <div className="box sk" aria-busy="true"><i /></div> : <div className="box reveal" key={`u-${run0?.id}`} style={reveal(2)} title={rule ? `우선순위 ${rule.priority} · 첫 응답 기한 ${formatStamp(analysisData?.rules?.first_response_due?.effective ?? rule.first_response_due)}` : undefined}>{urgency ? (urgency === 'NONE' ? '아니오' : `예 · ${URGENCY_LABEL[urgency] ?? urgency}`) : '-'}{tagOf('urgency_flag')}</div>}</div>
@@ -604,9 +602,9 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
                 </div>
                 : <div className="draft">
                   <div className="meta">초안{chosen ? ` · ${OPTION_LABEL[chosen.label] ?? chosen.label}` : edited !== null ? ' · 직접 쓰기' : ''} <small>고객 언어: {LANG_LABEL[data.body_language] ?? data.body_language}{draftRun ? ` · AI ${hm(draftRun.created_at)}` : ''}</small></div>
-                  {staleDraft && <div className="stale">이 초안은 분류 정정 <b>전에</b> 만들어졌습니다. 묻는 정보가 지금 분류와 다를 수 있으니 "✦ AI 분석 실행"으로 새로 만드세요.</div>}
+                  {staleDraft && <div className="stale">이 초안은 분류 정정 <b>전에</b> 만들어졌습니다. 묻는 정보가 지금 분류와 다를 수 있으니 "AI 분석 실행"으로 새로 만드세요.</div>}
                   {waitingDraft && !editing
-                    ? <div className="prev sk-lines" aria-busy="true"><span>{classArrived ? '분류를 바탕으로 초안을 쓰는 중…' : '분류가 끝나면 초안을 씁니다'}</span><i /><i /><i /></div>
+                    ? <div className="prev sk-lines" aria-busy="true"><span><ElloWorking />{classArrived ? '분류를 바탕으로 초안을 쓰는 중…' : '분류가 끝나면 초안을 씁니다'}</span><i /><i /><i /></div>
                     : editing
                     ? <textarea className="edit-body" aria-label="보낼 내용" rows={7} value={bodyText} onChange={event => { setEdited(event.target.value); setApproved(false); }} />
                     : edited !== null ? <div className="prev">{edited}<div className="meta" style={{ marginTop: 4 }}>담당자가 고친 내용</div></div>
@@ -657,7 +655,7 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
             <div className="ph">처리 기록</div>
             <div className="logwrap"><table className="log"><thead><tr><th style={{ width: 62 }}>일시</th><th style={{ width: 72 }}>처리자</th><th>내용</th></tr></thead>
               <tbody>{logs.slice(0, 12).map(item => <tr key={item.key} className={item.who === 'ai' ? 'by-ai' : undefined}><td title={formatStamp(item.at)}>{hm(item.at)}</td>
-                <td className={item.who === 'ai' ? 'ai' : ''}>{item.who === 'ai' ? '✦ AI' : item.who === 'system' ? '시스템' : item.who}</td><td>{item.text}</td></tr>)}</tbody></table></div>
+                <td className={item.who === 'ai' ? 'ai' : ''}>{item.who === 'ai' ? <><ElloMark size={14} />AI</> : item.who === 'system' ? '시스템' : item.who}</td><td>{item.text}</td></tr>)}</tbody></table></div>
           </div>
         </div>
       </div>

@@ -181,7 +181,7 @@ test('AI 초안은 버튼으로 만들고, 검토 완료를 눌러야 저장과 
   if(path.endsWith('/ai-draft')){if(init?.method==='POST')made=true;return jsonResponse(init?.method==='POST'?201:200,{data:{request_id:id,provenance:'ai_draft',draft:made?draft:null,latest_attempt:null}});}
   return jsonResponse(200,base);
  });vi.stubGlobal('fetch',fetch);view();
- const run=await screen.findByRole('button',{name:'✦ AI 초안 작성'}) as HTMLButtonElement;
+ const run=await screen.findByRole('button',{name:'AI 초안 작성'}) as HTMLButtonElement;
  await waitFor(()=>expect(run.disabled).toBe(false));fireEvent.click(run);
  await screen.findByRole('heading',{name:'합성 AI 문제'});
  expect(screen.getByText('불일치 정보')).toBeTruthy();expect(screen.getByText('미확인 정보')).toBeTruthy();expect(screen.getByText('합성 질문')).toBeTruthy();

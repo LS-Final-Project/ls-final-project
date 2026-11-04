@@ -1,0 +1,6 @@
+.ello-mark{display:inline-block;vertical-align:-4px;margin-right:4px;border-radius:50%;background:#e3ecfa;box-shadow:0 0 0 1px #c9d8f0;object-fit:cover;flex:none}
+.ello-work{display:inline-block;flex:none;object-fit:contain;animation:ello-bob 1.1s ease-in-out infinite;transform-origin:50% 100%}
+.ello-work.still{animation:none}
+@keyframes ello-bob{0%,100%{transform:translateY(0) rotate(-3deg)}50%{transform:translateY(-4px) rotate(3deg)}}
+.ls-root .kv .td3 .sk-lines span{display:flex;align-items:center;gap:8px}
+@media (prefers-reduced-motion:reduce){.ello-work{animation:none}}
