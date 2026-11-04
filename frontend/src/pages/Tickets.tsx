@@ -104,9 +104,9 @@ export default function Tickets() {
       cell: item => <input type="checkbox" aria-label={`${number(item)} 선택`} checked={picked.has(item.id)} onChange={() => togglePick(item.id)} /> },
     { key: 'id', header: '문의번호', width: 110, cell: item => number(item) },
     { key: 'subject', header: '제목', className: 't', cell: item => <Link className="link" to={`/cs/tickets/${item.id}`} title={item.subject ?? undefined}>{item.subject || '(제목 없음)'}</Link> },
-    { key: 'channel', header: '접수 경로', width: 100, className: 'c', cell: item => <span className={`chip ch-${item.channel.toLowerCase()}`}>{CHANNEL_LABEL[item.channel] ?? item.channel}</span> },
-    { key: 'product', header: '제품', width: 160, cell: item => item.product_code },
     { key: 'state', header: '상태', width: 110, className: 'c', cell: item => <span className={item.workflow_state === 'CLOSED' ? 'chip st-closed' : 'chip st-open'}>{STATE_LABEL[item.workflow_state]}</span> },
+    { key: 'product', header: '제품', width: 160, cell: item => item.product_code },
+    { key: 'channel', header: '접수 경로', width: 100, className: 'c', cell: item => <span className={`chip ch-${item.channel.toLowerCase()}`}>{CHANNEL_LABEL[item.channel] ?? item.channel}</span> },
     // 정렬은 받은 목록 전체에 이미 적용했다(rows). sortValue는 머리 정렬 단추를 그리는 데만 쓴다.
     { key: 'age', header: '경과일', width: 76, className: 'c', sortValue: item => ageOf(item), cell: item => `${ageOf(item)}일` },
     { key: 'received', header: '접수일시', width: 140, className: 'c', sortValue: item => Date.parse(item.received_at), cell: item => formatStamp(item.received_at) },
