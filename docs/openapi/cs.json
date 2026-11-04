@@ -2482,6 +2482,18 @@
       },
       "CustomerReply": {
         "properties": {
+          "body": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Reply text from the mail, quoted history of earlier mail cut off.",
+            "title": "Body"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -2509,6 +2521,18 @@
           "reopened": {
             "title": "Reopened",
             "type": "boolean"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Reply subject from the mail.",
+            "title": "Subject"
           }
         },
         "required": [

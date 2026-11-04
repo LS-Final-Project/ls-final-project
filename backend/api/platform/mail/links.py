@@ -366,7 +366,9 @@ async def replies_for(
         return [dict(r) for r in await cursor.fetchall()]
 
 
-async def notify_cs_replies(settings: Settings, caller: Any, limit: int = 50) -> dict[str, int]:
+async def notify_cs_replies(
+    settings: Settings, caller: Any, limit: int = 50, store: Any | None = None
+) -> dict[str, int]:
     """C/S 문의에 연결된 회신 중 아직 알리지 않은 것을 C/S에 알린다(KAN-110). 업무 참조가
     문의 UUID인 연결만 대상이다. 실패한 연결은 표시가 없어 다음 실행에서 다시 알린다.
 
@@ -374,6 +376,8 @@ async def notify_cs_replies(settings: Settings, caller: Any, limit: int = 50) ->
         settings: 플랫폼 DB 설정.
         caller: C/S 내부 경로 클라이언트(`business.CsCaller`).
         limit: 한 번에 알릴 최대 수.
+        store: 원문 저장소(`ObjectReader`). 주면 회신 제목·본문(인용 제외)을 같이 보낸다(KAN-230).
+            원문을 읽거나 파싱하지 못하면 본문 없이 알리고 `without_text`로 센다. 없으면 본문 없이 알린다.
 
     Returns:
         dict[str, int]: `notified`(C/S가 받음), `missing`(C/S에 없는 문의, 다시 알리지 않음),
@@ -383,7 +387,8 @@ async def notify_cs_replies(settings: Settings, caller: Any, limit: int = 50) ->
 
     async with connection(settings) as conn:
         cursor = await conn.execute(
-            "SELECT l.id, l.message_id, l.business_ref, l.method, m.received_at "
+            "SELECT l.id, l.message_id, l.business_ref, l.method, m.received_at, "
+            "m.raw_storage_key, m.raw_sha256, m.raw_size "
             "FROM integration.mail_links l JOIN integration.mail_messages m ON m.id=l.message_id "
             "WHERE l.kind='REPLY' AND l.owner_service='cs' AND l.business_notified_at IS NULL "
             "AND l.business_ref ~ '^cs_ticket:[0-9a-f-]{36}$' ORDER BY l.created_at, l.id LIMIT %s",
@@ -391,13 +396,34 @@ async def notify_cs_replies(settings: Settings, caller: Any, limit: int = 50) ->
         )
         pending = await cursor.fetchall()
     counts = {"notified": 0, "missing": 0, "failed": 0}
+    if store is not None:
+        counts["without_text"] = 0
     for link in pending:
         ticket_id = link["business_ref"].removeprefix("cs_ticket:")
-        body = {
+        body: dict[str, Any] = {
             "message_id": str(link["message_id"]),
             "method": link["method"],
             "received_at": link["received_at"].isoformat(),
         }
+        if store is not None:
+            from backend.api.platform.mail.storage import StoredObject
+            from backend.engine.mail_triage.extract import reply_text
+
+            # 원문을 읽지 못하거나 파싱할 수 없으면 본문 없이 알린다. 저장소는 일시·영구 실패를
+            # 구분하지 않아(모두 MAIL_STORAGE_UNAVAILABLE), 재시도하면 지워진 원문이 뒤 회신의
+            # 통지를 막을 수 있다. 회신 기록과 재개가 본문보다 먼저다(화면은 메일 계정을 안내한다).
+            try:
+                raw = await store.get(
+                    StoredObject(link["raw_storage_key"], link["raw_sha256"], link["raw_size"])
+                )
+                subject, text = reply_text(raw)
+            except (ApplicationError, HTTPException, httpx.HTTPError, ValueError):
+                subject, text = None, None
+                counts["without_text"] += 1
+            if subject is not None:
+                body["subject"] = subject
+            if text is not None:
+                body["body"] = text
         try:
             response = await caller.post(REPLY_PATH.format(ticket_id=ticket_id), body)
         except (httpx.HTTPError, HTTPException, ApplicationError):
@@ -570,7 +596,11 @@ async def link_reply(
 
     caller = cs_caller(request)
     if caller is not None:
-        await notify_cs_replies(request.app.state.settings, caller)
+        # 원문 저장소가 있으면 회신 본문도 같이 알린다(KAN-230). intake가 이 모듈을 가져와 여기서 가져온다.
+        from backend.api.platform.mail.intake import raw_store
+
+        async with raw_store(request) as store:
+            await notify_cs_replies(request.app.state.settings, caller, store=store)
     return SuccessResponse(
         data=ReplyResult(message_id=message_id, outcome="LINKED", link=chosen),
         meta=ResponseMeta(request_id=request.state.request_id),
