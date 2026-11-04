@@ -443,3 +443,18 @@ null은 입력 전), `decisions_remaining`(= 상세 `decision_gate.undecided`), 
 응답 `{source, items: [{tag, name}]}`. `source=context`면 최신 맥락 결과의 설비 묶음(`kind=EQUIPMENT`, tag는 원문 제목의
 설비 태그 또는 null), 맥락이 없으면 `source=requirements`로 최신 요구 판본의 설비 칸을 모은다(tag null). 태그 있는 것 먼저,
 태그·이름 순.
+
+## 지난 분석 기록과 다시 분석 방식 (KAN-232, 2026-11-05)
+
+진행 이벤트(단계·요구 건수·needs_review·종료 상태)는 이미 플랫폼 `runtime.job_events`에 저장되고 지우지 않는다. 끝난 작업도
+`GET /api/v1/platform/jobs/{job_id}/events?after=0`이 처음부터 SSE로 재생한다(허용 payload 키만, 원문·프롬프트·모델 응답 없음).
+그래서 새 저장소를 두지 않고, 화면이 재생할 작업을 고를 수 있게 `GET /projects/{id}/analysis`만 더한다(권한은 프로젝트 열람과 같고
+범위 밖은 404 `TFT_PROJECT_NOT_FOUND`).
+
+응답 `{jobs: [{job_id, kind, requested_at, actor_user_id}], process_mode}`.
+- `jobs`: `tft.rfp_commands`의 처리(`project.process` → `rfp.process`)·맥락(`context.process` → `rfp.context`) 접수, 최신순 20건.
+  상태는 플랫폼 작업 조회가 낸다(tft는 runtime 스키마를 읽지 않는다). 프로젝트 상세 `latest_job`은 둘 중 가장 최근 하나뿐이라
+  맥락 정리 뒤에도 처리 작업 기록을 찾으려면 이 목록을 쓴다.
+- `process_mode`: 최신 판본의 규격 문서(RFP_SPEC·ADDENDUM·DRAWING)가 모두 조항을 가지면 `regrade`(처리 실행이 원문을 다시
+  읽지 않고 저장 요구를 모델 없이 재채점), 하나라도 없으면 `extract`(새 판본 추출, 모델 비용), 규격 문서가 없으면 null.
+  처리 함수의 `document_processed` 규칙과 같다. 새 판본 분석은 문서 올리기(새 판본) 뒤 처리 실행이다.
