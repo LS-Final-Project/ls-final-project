@@ -8,6 +8,7 @@ import { ErrorState, Loading } from '../components/states';
 import { KvGrid, KvTitle, type KvColumn } from '../ls-shell/kv';
 import { ProjectPagination } from './ProjectPagination';
 import { useNames } from './names';
+import './RfpWorkspace.css';
 
 // 진행 상태: 결정 남은 수(decisions_remaining)와 책임자 확인 대기(review_pending)로 말한다.
 export function progressOf(p: ProjectSummary, responsible = false) {
@@ -48,7 +49,7 @@ export default function RfpList() {
     { key: 'next', header: '다음 행동', width: 110, className: 'c', cell: p => <Link className="kb" to={`/tft/projects/${p.id}`}>{progressOf(p, mine(p)).action}</Link> },
   ];
   const search = text.trim();
-  return <main>
+  return <main className="rfp-ui">
     <KvTitle path="제안 지원" title="RFP 검토" code="TF0101"><Link className="kb primary" to="/tft/projects/new">새 RFP</Link></KvTitle>
     <form className="rfp-project-search" aria-label="프로젝트 검색" onSubmit={event => { event.preventDefault(); if (search.length !== 1) { setFilters({ ...filters, q: search || undefined }); setPage(1); } }}>
       <input aria-label="검색어" value={text} maxLength={100} placeholder="번호 또는 이름, 2자 이상" onChange={event => setText(event.target.value)} />

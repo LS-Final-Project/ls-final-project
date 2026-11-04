@@ -86,13 +86,13 @@ export default function RfpWorkspace() {
   }, [liveStatus, client, mode, projectId]);
   if (!access.ready) return <BusinessGate access={access} title="RFP 검토" />;
   if (isNew) return <NewProject />;
-  if (project.isError) return <main><KvTitle path="제안 지원" title="RFP 검토" /><ErrorState error={project.error} onRetry={() => project.refetch()} /></main>;
-  if (!project.data || !documents.data || !requirements.data) return <main><KvTitle path="제안 지원" title="RFP 검토" /><Loading /></main>;
+  if (project.isError) return <main className="rfp-ui"><KvTitle path="제안 지원" title="RFP 검토" /><ErrorState error={project.error} onRetry={() => project.refetch()} /></main>;
+  if (!project.data || !documents.data || !requirements.data) return <main className="rfp-ui"><KvTitle path="제안 지원" title="RFP 검토" /><Loading /></main>;
   const p = project.data.data;
   const docs = latestVersions(documents.data.data.items);
   const status = live?.job?.status ?? p.latest_job?.status;
   const phase = workspacePhase(docs.length, requirements.data.length, status ?? undefined);
-  return <main className="ws">
+  return <main className="ws rfp-ui">
     <KvTitle path="제안 지원 › RFP 검토" title={p.name} code={p.external_id ?? undefined}><Link className="kb" to={`/tft/projects/${projectId}/settings`}>프로젝트 설정</Link></KvTitle>
     {phase === 'running' || phase === 'failed'
       ? <AnalysisStrip projectId={projectId} documents={docs} live={live} failed={phase === 'failed'} />
@@ -134,7 +134,7 @@ function NewProject() {
     onSuccess: id => { client.invalidateQueries({ queryKey: ['projects'] }); navigate(`/tft/projects/${id}`); },
   });
   const ready = !!file && !problem && name.trim() !== '' && code.trim() !== '';
-  return <main className="ws">
+  return <main className="ws rfp-ui">
     <KvTitle path="제안 지원 › RFP 검토" title="새 RFP 검토" />
     <div className="ws-grid">
       <section className="ws-sec ws-left">
@@ -311,11 +311,12 @@ export function Decide({ project, documents, rows, role, actorId, log }: { proje
   // 질의 행의 다음 행동 자리에는 질의 상태(질의서에 넣음, 회신 기다림 n일째, 회신 받음)를 보인다.
   const tqOf = new Map(customerTq.filter(q => q.requirement_id).map(q => [q.requirement_id as string, queryState(q)]));
   const remainByEq = equipments.map(e => [e, verdictRows.filter(r => (r.equipment ?? '공통') === e && open(r)).length] as const).filter(([, n]) => n);
+  const remainText = remainByEq.map(([e, n]) => `${e} ${n}`).join(', ');
   return <>
     <div className="ws-strip">
       <span className="ws-strong">결정 {total}건 중 {total - todo}건 완료</span>
       <span className="ws-track" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={total - todo}><span style={{ width: `${total ? Math.round((total - todo) / total * 100) : 0}%` }} /></span>
-      <span className="muted ws-remain">{remainByEq.map(([e, n]) => `${e} ${n}`).join(', ')}</span>
+      <span className="muted ws-remain" title={remainText}>{remainText}</span>
       <span className="sp" />
       <button className="ws-link" aria-expanded={logOpen} onClick={() => setLogOpen(!logOpen)}>분석 기록</button>
     </div>
@@ -379,16 +380,19 @@ export function Decide({ project, documents, rows, role, actorId, log }: { proje
   </>;
 }
 
+// 출력 문서 표의 긴 글 칸: 두 줄에서 자르고 전체 글은 마우스를 올려 본다(행 높이를 고르게 둔다).
+const Clamp = ({ text }: { text?: string | null }) => <div className="ws-clamp" title={text ?? undefined}>{text}</div>;
+
 const Chip = ({ on, onClick, children }: { on: boolean; onClick: () => void; children: ReactNode }) => <button className={on ? 'ws-chip on' : 'ws-chip'} onClick={onClick}>{children}</button>;
 
 function RowLine({ r, sel, onPick, responsible, checkable, checked, onCheck, replied, queryText }: { r: Row; sel?: string; onPick: (id: string) => void; responsible: boolean; checkable: boolean; checked: boolean; onCheck: (on: boolean) => void; replied?: boolean; queryText?: string }) {
   const decided = r.decision?.decided;
   return <tr className={`row${r.requirement_id === sel ? ' sel' : ''}${decided ? ' decided' : ''}`} onClick={() => onPick(r.requirement_id)}>
     <td>{checkable && <input type="checkbox" aria-label={`${r.attribute ?? r.code} 선택`} checked={checked} onClick={event => event.stopPropagation()} onChange={event => onCheck(event.target.checked)} />}</td>
-    <td className="tag">{r.equipment}</td>
-    <td title={r.code}><button className="ws-rowbtn" onClick={() => onPick(r.requirement_id)}>{r.attribute ?? r.code}</button>{replied && !decided && <span className="ws-badge">회신 도착</span>}{r.decision?.manually_added && <span className="ws-badge gray">직접 추가</span>}</td>
-    <td className={r.value_text ? '' : 'empty'}>{r.value_text ?? '빈 칸'}</td>
-    <td>{ownValueText(r.own_value)}{r.own_value && <small className="muted"> {r.own_value.product_code}</small>}</td>
+    <td className="tag" title={r.equipment ?? undefined}>{r.equipment}</td>
+    <td title={[r.attribute, r.code].filter(Boolean).join(' · ')}><button className="ws-rowbtn" onClick={() => onPick(r.requirement_id)}>{r.attribute ?? r.code}</button>{replied && !decided && <span className="ws-badge">회신 도착</span>}{r.decision?.manually_added && <span className="ws-badge gray">직접 추가</span>}</td>
+    <td className={r.value_text ? '' : 'empty'} title={r.value_text ?? undefined}>{r.value_text ?? '빈 칸'}</td>
+    <td title={r.own_value ? `${ownValueText(r.own_value)} ${r.own_value.product_code}` : undefined}>{ownValueText(r.own_value)}{r.own_value && <small className="muted"> {r.own_value.product_code}</small>}</td>
     <td className="r">{kindOf(r) === 'QUERY' && queryText ? <span className="tag">{queryText}</span>
       : decided ? <span className="tag">{r.decision?.summary ?? '결정함'}</span>
       : !responsible && ROW_ACTION[kindOf(r)] ? <button className="kb ws-act" onClick={event => { event.stopPropagation(); onPick(r.requirement_id); }}>{ROW_ACTION[kindOf(r)]}</button> : null}</td>
@@ -609,15 +613,15 @@ function Output({ project, rows, excluded = [], responsible, actorId, onJump, on
         <button key={k} role="tab" aria-selected={doc === k} className={doc === k ? 'on' : ''} onClick={() => setDoc(k)}>{l} <span className="muted">{n}</span></button>)}
     </div>
     <section className="ws-sec ws-doc">
-      {doc === 'dev' && <table className="ws-table"><thead><tr><th>조항</th><th>항목</th><th>요구</th><th>편차 내용</th></tr></thead>
-        <tbody>{deviations.map(r => <tr key={r.requirement_id}><td>{r.code}</td><td>{r.equipment} {r.attribute}</td><td>{r.value_text}</td><td>{r.decision?.summary}</td></tr>)}
+      {doc === 'dev' && <table className="ws-table ws-otbl two"><colgroup><col style={{ width: 150 }} /><col style={{ width: 200 }} /><col style={{ width: 160 }} /><col /></colgroup><thead><tr><th>조항</th><th>항목</th><th>요구</th><th>편차 내용</th></tr></thead>
+        <tbody>{deviations.map(r => <tr key={r.requirement_id}><td title={r.code}>{r.code}</td><td title={`${r.equipment ?? ''} ${r.attribute ?? ''}`}>{r.equipment} {r.attribute}</td><td title={r.value_text ?? undefined}>{r.value_text}</td><td className="wrap"><Clamp text={r.decision?.summary} /></td></tr>)}
           {deviations.length === 0 && <tr><td colSpan={4} className="muted">편차로 결정한 요구가 없습니다.</td></tr>}</tbody></table>}
       {doc === 'tq' && !responsible && unsent.length > 0 && <div className="ws-go ws-tqbar"><span className="muted">메일 화면에서 질의서를 보냈으면 보낸 것으로 기록하세요. 회신 기다림 날수가 그날부터 셉니다.</span>
         <button className="kb" disabled={sent.isPending} onClick={() => sent.mutate()}>보낸 것으로 기록 {unsent.length}건</button>{sent.isError && <span role="alert">{failureText(sent.error)}</span>}</div>}
-      {doc === 'tq' && <table className="ws-table"><thead><tr><th>No</th><th>질의</th><th>상태</th></tr></thead>
-        <tbody>{tqNumbers(tq).map(({ q, no }) => <tr key={q.question_id}><td>{no}</td><td>{q.question_text}</td><td>{queryState(q)}</td></tr>)}
+      {doc === 'tq' && <table className="ws-table ws-otbl two"><colgroup><col style={{ width: 80 }} /><col /><col style={{ width: 160 }} /></colgroup><thead><tr><th>No</th><th>질의</th><th>상태</th></tr></thead>
+        <tbody>{tqNumbers(tq).map(({ q, no }) => <tr key={q.question_id}><td>{no}</td><td className="wrap"><Clamp text={q.question_text} /></td><td>{queryState(q)}</td></tr>)}
           {tq.length === 0 && <tr><td colSpan={3} className="muted">질의가 없습니다.</td></tr>}</tbody></table>}
-      {doc === 'eq' && <table className="ws-table"><thead><tr><th>장비</th><th>요구</th><th>충족</th><th>남은 결정</th></tr></thead>
+      {doc === 'eq' && <table className="ws-table ws-otbl"><thead><tr><th>장비</th><th>요구</th><th>충족</th><th>남은 결정</th></tr></thead>
         <tbody>{byEq.map(e => <tr key={e.eq}><td>{e.eq}</td><td>{e.items.length}</td><td>{e.items.filter(r => r.bid_verdict === 'MET').length}</td><td>{e.open}</td></tr>)}</tbody></table>}
       {doc === 'sum' && <div className="ws-sum"><p>요구 {rows.length}건. {(['MET', ...DECIDE_ORDER] as Kind[]).map(v => `${VERDICT[v]} ${rows.filter(r => kindOf(r) === v).length}`).join(', ')}.</p>
         <p>남은 결정 {gate.undecided}건, 회신 대기 질의 {gate.open_queries}건.</p></div>}
@@ -759,11 +763,12 @@ function ProjectHistory({ projectId, codeOf, onPick }: { projectId: string; code
       <span className="sp" />
       <label className="ws-field inline">사람<select value={actor} onChange={event => setActor(event.target.value)}><option value="">전체</option>{actors.map(a => <option key={a} value={a}>{name(a) || a.slice(0, 8)}</option>)}</select></label>
     </div>
-    {pages.isError ? <p role="alert">{failureText(pages.error)}</p> : <table className="ws-table ws-histtable">
+    {pages.isError ? <p role="alert">{failureText(pages.error)}</p> : <table className="ws-table ws-histtable ws-otbl">
+      <colgroup><col style={{ width: 100 }} /><col style={{ width: 80 }} /><col style={{ width: 170 }} /><col style={{ width: 300 }} /><col /><col /></colgroup>
       <thead><tr><th>시각</th><th>사람</th><th>요구</th><th>무엇을</th><th>전</th><th>후</th></tr></thead>
       <tbody>{items.map(h => <tr key={h.id} className="row" onClick={() => h.requirement_id && onPick(h.requirement_id)}>
         <td className="muted">{when(h.at)}</td><td>{name(h.actor_user_id) || (h.kind === 'ai_verdict' ? 'AI' : '시스템')}</td>
-        <td>{codeOf(h.requirement_id)}</td><td>{historyText(h).head}</td><td className="muted">{historyText(h).before}</td><td>{historyText(h).after}</td></tr>)}
+        <td title={codeOf(h.requirement_id)}>{codeOf(h.requirement_id)}</td><td title={historyText(h).head}>{historyText(h).head}</td><td className="muted" title={historyText(h).before}>{historyText(h).before}</td><td title={historyText(h).after}>{historyText(h).after}</td></tr>)}
         {!pages.isPending && items.length === 0 && <tr><td colSpan={6} className="muted">기록이 없습니다.</td></tr>}</tbody>
     </table>}
     {pages.hasNextPage && <button className="ws-link" disabled={pages.isFetchingNextPage} onClick={() => pages.fetchNextPage()}>더 보기</button>}
@@ -863,7 +868,7 @@ function ExcludedTable({ rows, responsible }: { rows: Row[]; responsible: boolea
   return <section className="ws-sec ws-review" aria-label="뺀 요구">
     <h2>뺀 요구 <span className="muted">{rows.length}건</span></h2>
     <table className="ws-table"><thead><tr><th>설비</th><th>요구</th><th>요구값</th><th>뺀 사유</th><th className="r" /></tr></thead>
-      <tbody>{rows.map(r => <tr key={r.requirement_id}><td className="tag">{r.equipment}</td><td>{r.attribute ?? r.code}</td><td>{r.value_text ?? '빈 칸'}</td><td>{r.decision?.excluded_reason}</td>
+      <tbody>{rows.map(r => <tr key={r.requirement_id}><td className="tag">{r.equipment}</td><td>{r.attribute ?? r.code}</td><td title={r.value_text ?? undefined}>{r.value_text ?? '빈 칸'}</td><td title={r.decision?.excluded_reason ?? undefined}>{r.decision?.excluded_reason}</td>
         <td className="r">{!responsible && <button className="kb" disabled={restore.isPending} onClick={() => restore.mutate(r)}>되살리기</button>}</td></tr>)}
         {rows.length === 0 && <tr><td colSpan={5} className="muted">뺀 요구가 없습니다.</td></tr>}</tbody></table>
     {restore.isError && <p role="alert">{failureText(restore.error)}</p>}

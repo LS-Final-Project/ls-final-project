@@ -156,3 +156,69 @@ button.ws-gateitem{color:#24518a;cursor:pointer}
 .ws-form p{margin:4px 0}
 .ws-table td small{white-space:nowrap}
 .ws-outnote{margin:6px 16px}
+
+/* 보드 재현(2026-11-05, 사본 캔버스 "RFP 검토 화면 개편안" v1793805582). 글꼴·굵기·크기·표 치수는 보드 CSS 값을 그대로 쓴다.
+   보드는 Pretendard를 싣지 않아 Google Fonts의 Noto Sans KR로 그려지므로 RFP 화면도 같은 글꼴을 먼저 쓴다(index.html에서 같은 주소로 싣는다).
+   .rfp-ui는 업무 홈·RFP 목록·작업 공간의 <main>에만 붙는다. 셸(메뉴·상단)과 다른 업무 화면은 바꾸지 않는다. */
+.ls-root .kv .rfp-ui{--rfp-font:"Noto Sans KR","Pretendard Variable",Pretendard,system-ui,sans-serif;font-size:13px;font-weight:300;line-height:normal;color:#1f2a37}
+.ls-root .kv .rfp-ui,.ls-root .kv .rfp-ui :is(button,input,select,textarea,h1,h2,h3,th,td,a){font-family:var(--rfp-font)!important}
+.ls-root .kv .rfp-ui :is(button,input,select,textarea){font-weight:300}
+
+/* 머리(보드 .head): 16px 500 제목, 12px 회색 경로·화면 번호 */
+.ls-root .kv .rfp-ui .kv-title{height:auto;min-height:51px;padding:10px 16px;border-bottom-color:#e1e6ec}
+.ls-root .kv .rfp-ui .kv-path{gap:10px;font-size:12px;color:#6b7684;white-space:nowrap;min-width:0}
+.ls-root .kv .rfp-ui .kv-path h1{font-size:16px;font-weight:500;color:#1f2a37}
+.ls-root .kv .rfp-ui .kv-code{font-size:12px;color:#6b7684}
+
+/* 버튼(보드 .btn): 12px, 본문 굵기, 줄바꿈 없음 */
+.ls-root .kv .rfp-ui .kb{height:28px;padding:0 11px;font-size:12px;font-weight:300;white-space:nowrap;border-color:#c4ccd6;color:#1f2a37}
+.ls-root .kv .rfp-ui .kb.primary{background:#24518a;border-color:#24518a;color:#fff}
+.ls-root .kv .rfp-ui .kb.primary:hover{background:#1a3c68}
+.ls-root .kv .rfp-ui .kb.ws-act,.ls-root .kv .rfp-ui .kv-grid .kb{height:24px;min-width:0;padding:0 9px;border-color:#24518a;color:#1a3c68}
+.ls-root .kv .rfp-ui :is(.ws-chip,.ws-link,.ws-seg2 button,.ws-field,.ws-search){font-size:12px}
+.ls-root .kv .rfp-ui .ws-tabs button{font-size:13px;font-weight:300}
+.ls-root .kv .rfp-ui .ws-tabs button.on{font-weight:400}
+
+/* 진행 줄: 설비별 남은 건수는 한 줄에서 자른다(보드 .nowline) */
+.ls-root .kv .rfp-ui .ws-strip{flex-wrap:nowrap}
+.ls-root .kv .rfp-ui .ws-strip .ws-strong{font-weight:400;white-space:nowrap}
+.ls-root .kv .rfp-ui .ws-remain{flex:1 1 0;min-width:0;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ls-root .kv .rfp-ui .ws-strip .sp{flex:0 0 0}
+.ls-root .kv .rfp-ui .ws-strip>:is(button,a){flex:none;white-space:nowrap}
+
+/* 요구 표(보드 .grid): 12px, 머리 30px, 행 34px, 묶음 행 30px, 셀은 한 줄에서 줄임표 */
+.ls-root .kv .rfp-ui .ws-table{font-size:12px;border-collapse:collapse}
+.ls-root .kv .rfp-ui .ws-table th{font-size:12px;font-weight:400;color:#4b5563;background:#f3f5f8;border-bottom:1px solid #dde2e8;height:30px;padding:0 8px;line-height:normal;white-space:nowrap;vertical-align:middle}
+.ls-root .kv .rfp-ui .ws-table td{font-size:12px;font-weight:300;height:34px;padding:0 8px;line-height:normal;border-top:0;border-bottom:1px solid #edf0f3;vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;overflow-wrap:normal;word-break:normal}
+.ls-root .kv .rfp-ui .ws-table tr.g td{height:30px;font-weight:400;color:#2d3846;max-width:none;overflow:visible}
+.ls-root .kv .rfp-ui .ws-table tr.decided td{color:#9aa3ae}
+.ls-root .kv .rfp-ui .ws-table .tag,.ls-root .kv .rfp-ui .ws-table td.tag{font-size:11px;color:#6b7684}
+.ls-root .kv .rfp-ui .ws-table td small{font-size:11px}
+.ls-root .kv .rfp-ui .ws-rowbtn{font-size:inherit;font-weight:inherit;white-space:nowrap}
+.ls-root .kv .rfp-ui .ws-table td.r{max-width:none}
+
+/* 출력 문서 표(보드 .otbl): 12.5px, 칸 여백 7px 10px, 줄높이 1.5, 고정 폭. 긴 글 칸만 두 줄에서 자르고 그 표의 모든 행은 두 줄 높이로 고르게 둔다. */
+.ls-root .kv .rfp-ui .ws-otbl{table-layout:fixed;width:100%;font-size:12.5px}
+.ls-root .kv .rfp-ui .ws-otbl th{padding:7px 10px;height:auto}
+.ls-root .kv .rfp-ui .ws-otbl td{font-size:12.5px;padding:7px 10px;line-height:1.5;height:33px;max-width:none}
+.ls-root .kv .rfp-ui .ws-otbl.two td{height:52px}
+.ls-root .kv .rfp-ui .ws-otbl td.wrap{white-space:normal}
+.ws-clamp{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;line-height:1.5;word-break:keep-all;overflow-wrap:anywhere}
+
+/* 업무 홈 오늘 할 일(보드 .todo): 행 44px, 할 일 14px 400, 프로젝트 260px, 버튼 150px */
+.ls-root .kv .rfp-ui .rfp-today li{grid-template-columns:minmax(0,1fr) 260px 150px;min-height:44px;padding:0 12px;gap:0}
+.ls-root .kv .rfp-ui .rfp-today li>span:first-child{font-size:14px;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ls-root .kv .rfp-ui .rfp-today li>span.muted{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ls-root .kv .rfp-ui .rfp-today li>.kb{justify-self:end;height:24px;padding:0 9px;border-color:#24518a;color:#1a3c68}
+.ls-root .kv .rfp-ui .kv-box>h2{font-size:13px!important;font-weight:500!important}
+
+/* 업무 홈·목록 표(보드 .grid): 12px, 행 30px, 머리 400 */
+.ls-root .kv .rfp-ui .kv-grid th{font-size:12px;height:30px!important;line-height:30px;color:#4b5563;background:#f3f5f8}
+.ls-root .kv .rfp-ui .kv-grid td{font-size:12px;height:30px!important;line-height:30px;font-weight:300}
+.ls-root .kv .rfp-ui .ws-rowbtn{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
+/* 거르기 줄은 보드처럼 한 줄: 검색 칸과 설비 선택 폭을 줄인다 */
+.ls-root .kv .rfp-ui .ws-filters{flex-wrap:nowrap;white-space:nowrap}
+.ls-root .kv .rfp-ui .ws-filters input.ws-search{flex:0 1 170px;width:170px;min-width:100px}
+.ls-root .kv .rfp-ui .ws-filters .ws-field.inline select{max-width:130px}
+.ls-root .kv .rfp-ui .ws-filters>*{flex-shrink:0}
+.ls-root .kv .rfp-ui .ws-filters>.sp{flex:1 1 0;min-width:4px}

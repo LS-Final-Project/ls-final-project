@@ -327,9 +327,9 @@
 /* 단계 막대 (RFP) */
 .ls-root .stage i.now { background: var(--red); }
 .ls-root .kv { padding-left: 20px; display: flex; flex-direction: column; justify-content: center; gap: 14px; }
-.ls-root .kv div b:where(:not(.ls-legacy *)) { font-size: 26px; font-weight: 800; }
-.ls-root .kv div b small { font-size: 13px; color: var(--muted); font-weight: 600; margin-left: 3px; }
-.ls-root .kv div span:where(:not(.ls-legacy *)) { display: block; font-size: 12px; color: var(--muted); font-weight: 600; }
+.ls-root .kv div b:where(:not(.ls-legacy *, .rfp-ui *)) { font-size: 26px; font-weight: 800; }
+.ls-root .kv div b:where(:not(.rfp-ui *)) small { font-size: 13px; color: var(--muted); font-weight: 600; margin-left: 3px; }
+.ls-root .kv div span:where(:not(.ls-legacy *, .rfp-ui *)) { display: block; font-size: 12px; color: var(--muted); font-weight: 600; }
 .ls-root .mini .bar i.d { background: var(--navy); }
 .ls-root .mini .bar i.now { background: var(--red); }
 
