@@ -176,6 +176,8 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ("/api/v1/tft/requirements/{uuid}/history", ("GET",), ("kind", "actor", "limit", "cursor")),
     ("/api/v1/tft/projects/{uuid}/history", ("GET",), ("kind", "actor", "limit", "cursor")),
     ("/api/v1/tft/projects/{uuid}/equipment", ("GET",), ()),
+    ("/api/v1/tft/projects/{uuid}/decisions/bulk", ("POST",), ()),
+    ("/api/v1/tft/projects/{uuid}/decisions/bulk/{uuid}/undo", ("POST",), ()),
     ("/api/v1/tft/requirements/{uuid}/supplement-options", ("GET",), ()),
     ("/api/v1/tft/requirements/{uuid}/supplement-selection", ("POST",), ()),
     ("/api/v1/tft/projects/{uuid}/supplement-selections/batch", ("POST",), ()),
@@ -186,6 +188,7 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
         ("status", "requirement_id", "target", "target_dept"),
     ),
     ("/api/v1/tft/projects/{uuid}/questions/batch", ("POST",), ()),
+    ("/api/v1/tft/projects/{uuid}/questions/sent", ("POST",), ()),
     ("/api/v1/tft/projects/{uuid}/questions/{uuid}/confirm", ("POST",), ()),
     ("/api/v1/tft/questions/{uuid}/reply", ("POST",), ()),
     (

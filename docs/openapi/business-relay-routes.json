@@ -630,6 +630,20 @@
       "query": []
     },
     {
+      "path": "/api/v1/tft/projects/{uuid}/decisions/bulk",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/decisions/bulk/{uuid}/undo",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
       "path": "/api/v1/tft/requirements/{uuid}/supplement-options",
       "methods": [
         "GET"
@@ -674,6 +688,13 @@
     },
     {
       "path": "/api/v1/tft/projects/{uuid}/questions/batch",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/questions/sent",
       "methods": [
         "POST"
       ],
@@ -1484,6 +1505,27 @@
       "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/equipment",
       "forward": false,
       "status": 405
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/decisions/bulk",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/decisions/bulk/11111111-1111-4111-8111-111111111111/undo",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/decisions/bulk",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/questions/sent",
+      "forward": true
     }
   ]
 }
