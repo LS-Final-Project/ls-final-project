@@ -39,6 +39,18 @@ export type RequirementFilters = {
   excluded?: boolean;
 };
 
+// 서버 목록 상한은 100건이다. 작업 공간은 모든 요구가 필요하므로 커서를 따라 끝까지 읽는다.
+export async function listAllRequirements(projectId: string, filters: RequirementFilters, signal?: AbortSignal) {
+  const items: Schemas['RequirementList']['items'] = [];
+  let cursor: string | undefined;
+  do {
+    const page = (await listRequirements(projectId, filters, 100, cursor, { useMockFallback: false, signal })).data;
+    items.push(...page.items);
+    cursor = page.next_cursor ?? undefined;
+  } while (cursor);
+  return items;
+}
+
 export function listRequirements(projectId: string, filters: RequirementFilters, limit: number, cursor?: string, options: { useMockFallback?: boolean; signal?: AbortSignal } = {}) {
   const query = new URLSearchParams({ limit: String(limit) });
   for (const [key, value] of Object.entries(filters)) if (value !== undefined) query.set(key, String(value));
