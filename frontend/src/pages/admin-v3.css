@@ -98,3 +98,8 @@
 .ls-root .kv .td3.as3 .load i.ok{background:#2f7d4f}
 .ls-root .kv .td3.as3 .load b{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
 @media (max-width:1200px){.ls-root .kv .td3.as3 .sla-grid{grid-template-columns:1fr}.ls-root .kv .td3.as3 .pipe{grid-template-columns:repeat(2,minmax(0,1fr))}}
+/* 두 칸 상자는 높이를 맞춘다(옆 상자와 같은 높이·너비). 내용이 적은 쪽은 본문이 남는 높이를 채운다. */
+.ls-root .kv .td3.as3 .cols2{align-items:stretch}
+.ls-root .kv .td3.as3 .cols2>.pane{height:100%}
+.ls-root .kv .td3.as3 .cols2>.pane>.pb{flex:1;display:flex;flex-direction:column}
+.ls-root .kv .td3.as3 .cols2>.pane .pipe{flex:1;grid-auto-rows:1fr}
