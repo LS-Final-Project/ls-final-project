@@ -664,6 +664,10 @@ def test_shared_cases_forward_or_reject_before_business_service(system, case):
     body = b"{}" if write else None
     if case["method"] == "PUT" and case["path"].endswith("/owner"):
         body = json.dumps({"version": 1, "owner_user_id": str(system["user_id"])}).encode()
+    if case["method"] == "POST" and case["path"].endswith("/assignments/apply"):
+        # KAN-214: the relay checks the proposed owners before forwarding, like /owner.
+        items = [{"ticket_id": str(system["user_id"]), "user_id": str(system["user_id"])}]
+        body = json.dumps({"rule_version": "cs-assign-v1", "items": items}).encode()
     result = system["client"].request(case["method"], case["path"], headers=headers, content=body)
     if case["forward"]:
         [(method, url, *_)] = system["calls"]

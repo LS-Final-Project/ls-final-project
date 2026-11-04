@@ -431,6 +431,27 @@
       ]
     },
     {
+      "path": "/api/v1/cs/assignments/agents",
+      "methods": [
+        "GET"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/assignments/preview",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/assignments/apply",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
       "path": "/api/v1/tft/projects",
       "methods": [
         "GET",
@@ -1088,6 +1109,39 @@
       "path": "/api/v1/cs/faults?fault_id=FLT-020",
       "forward": false,
       "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/assignments/agents",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/assignments/agents?limit=5",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/assignments/preview",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/assignments/preview",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/assignments/apply",
+      "forward": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/cs/assignments/apply",
+      "forward": false,
+      "status": 405
     },
     {
       "method": "GET",

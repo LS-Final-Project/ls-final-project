@@ -11,7 +11,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, Request
 from requests.exceptions import RequestException
 from starlette.responses import Response
 
-from backend.api.platform.assignees.routes import validate_owner
+from backend.api.platform.assignees.routes import validate_assignment_apply, validate_owner
 from backend.api.platform.auth.context import load_session_principal
 from backend.api.platform.auth.http import CSRF_HEADER, SESSION_COOKIE, configuration, csrf_token
 from backend.shared.access import PRINCIPAL_HEADER
@@ -124,6 +124,9 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     ("/api/v1/cs/condition-comparisons", ("GET",), ("product_code", "fault_id", "version")),
     ("/api/v1/cs/faults", ("GET",), ("product_code",)),
+    ("/api/v1/cs/assignments/agents", ("GET",), ()),
+    ("/api/v1/cs/assignments/preview", ("POST",), ()),
+    ("/api/v1/cs/assignments/apply", ("POST",), ()),
     (
         "/api/v1/tft/projects",
         ("GET", "POST"),
@@ -405,6 +408,8 @@ async def relay(request: Request, path: str) -> Response:
         path,
     ):
         await validate_owner(settings, principal, body)
+    if request.method == "POST" and path == "/api/v1/cs/assignments/apply":
+        await validate_assignment_apply(settings, principal, body)
     target = (
         settings.business_cs_url if path.startswith("/api/v1/cs/") else settings.business_tft_url
     )

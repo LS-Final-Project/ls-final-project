@@ -67,6 +67,39 @@ async def validate_owner(settings: Settings, principal: Principal, body: bytes) 
             raise ApplicationError(422, "CS_INVALID_OWNER", "Select an active C/S agent.")
 
 
+class AssignmentItem(BaseModel):
+    ticket_id: UUID
+    user_id: UUID | None
+
+
+class AssignmentApply(BaseModel):
+    """Only the fields the platform checks; the C/S service validates the rest."""
+
+    items: list[AssignmentItem] = Field(min_length=1, max_length=200)
+
+
+async def validate_assignment_apply(settings: Settings, principal: Principal, body: bytes) -> None:
+    """자동 배정 적용(KAN-214) 전 C/S 관리 권한과 제안된 담당이 모두 활성 cs_agent인지 확인한다.
+
+    배정 기준표(cs.agent_skills)는 C/S가 읽고 identity는 플랫폼만 읽으므로, 비활성화된
+    계정이 기준표에 남아 있어도 중계 경로로는 그 사람에게 배정되지 않는다.
+    """
+    require_cs_manager(principal.roles, principal.managed_departments)
+    try:
+        change = AssignmentApply.model_validate_json(body)
+    except ValidationError:
+        raise ApplicationError(422, "VALIDATION_ERROR", "Invalid assignment apply.") from None
+    wanted = {item.user_id for item in change.items if item.user_id is not None}
+    if not wanted:
+        return
+    async with connection(settings) as conn:
+        cursor = await conn.execute(
+            "SELECT u.id " + ACTIVE_CS + " AND u.id=ANY(%s)", (list(wanted),)
+        )
+        if {row["id"] for row in await cursor.fetchall()} != wanted:
+            raise ApplicationError(422, "CS_INVALID_OWNER", "Select an active C/S agent.")
+
+
 @router.get(
     "/assignees",
     response_model=SuccessResponse[AssigneeList],

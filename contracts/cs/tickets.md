@@ -78,7 +78,7 @@ real을 선택한다. 인증 환경이나 요청의 출처 필드로 실제 여�
   - **응답 `Workflow`**: `return_responsibility`·`return_cause_type`·`return_non_manufacturing_reason`·`return_response_note`·`return_subtype_confirmed`·`return_subtype_confirmed_by`·`return_subtype_confirmed_at`. 책임 구분·대응 내용·확정자·시각은 함께 있거나 함께 null이다(DB CHECK).
   - **규칙 입력은 파생값**: `return_subtype_confirmed`는 책임 구분에서 서버가 만든다. `MANUFACTURING`→`DEFECT`, `NON_MANUFACTURING`→`NON_DEFECT`, `UNDETERMINED`→null(확정 없음: 규칙은 주장값과 그 사람 확인 사유를 그대로 쓴다). DB CHECK가 둘의 일치를 지킨다. `route()`와 enum은 바뀌지 않는다.
   - **이전 행**: 첫 판(`return_subtype`·`reason`)으로 확정된 행은 `DEFECT`→`MANUFACTURING`, `NON_DEFECT`→`NON_MANUFACTURING`, 사유→대응 내용으로 옮긴다. `return_subtype_confirmed_reason` 열은 더 쓰지 않는다(새 확정은 null). 마이그레이션은 `20261030_KAN-193_return_subtype_confirmed.sql`(C11), `20261031_KAN-193_return_responsibility.sql`(C17)이다.
-- **담당자**: C/S 서비스는 identity 스키마를 직접 읽지 않는다. 운영 플랫폼 중계는 재배정 전에 새 담당자가 활성 cs_agent인지 확인한다(KAN-195, 아니면 422 CS_INVALID_OWNER). 화면은 GET /api/v1/platform/assignees?role=cs_agent로 후보를 읽는다. 로컬에서 C/S 서비스를 직접 호출하는 경로는 이 플랫폼 검증을 거치지 않는다.
+- **담당자**: C/S 서비스는 identity 스키마를 직접 읽지 않는다. 운영 플랫폼 중계는 재배정 전에 새 담당자가 활성 cs_agent인지 확인한다(KAN-195, 아니면 422 CS_INVALID_OWNER). 화면은 GET /api/v1/platform/assignees?role=cs_agent로 후보를 읽는다. 로컬에서 C/S 서비스를 직접 호출하는 경로는 이 플랫폼 검증을 거치지 않는다. 새 문의의 규칙 기반 자동 배정과 관리자 일괄 배정은 [자동 배정 계약](assignment.md)(KAN-214)을 따른다.
 - **부서 코드**: `backend/shared/departments.py`가 `identity.departments`와 같은 목록을 두고, 테스트가 두 목록이 같은지 확인한다.
 - 서비스 계정(cs_app)은 업무 상태·이관·부서 결과 행을 삭제할 수 없다. 문의당 열린 이관은 하나다(부분 유일 인덱스).
 

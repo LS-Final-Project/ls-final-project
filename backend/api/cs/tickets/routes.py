@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Query, Request
 
+from backend.api.cs.assignments.service import assign_on_intake
 from backend.api.cs.tickets import repository
 from backend.api.cs.tickets.access import (
     require_ticket_list,
@@ -313,6 +314,8 @@ async def create_ticket(
         await repository.insert_audit(
             conn, uuid4(), values["id"], "create", 1, principal.user_id, created
         )
+    # KAN-214: after the ticket is committed. Never fails the intake.
+    await assign_on_intake(settings, values["id"])
     return respond(request, detail({**values, "version": 1, "workflow_state": "RECEIVED"}, None))
 
 

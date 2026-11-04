@@ -1,0 +1,209 @@
+"""Manager batch assignment and the agent skill table (contracts/cs/assignment.md).
+
+Preview writes nothing. Apply takes the previewed pairs, decides the same tickets again in the
+same order with the current loads and writes only the pairs that still come out the same, so a
+manager never applies something other than what they saw. Skills are read-only here: they are
+set by the local seed or the operator script, never through the API.
+"""
+
+from typing import Any
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+
+from backend.api.cs.assignments import repository
+from backend.api.cs.assignments.schemas import (
+    AgentList,
+    AgentSkill,
+    ApplyRequest,
+    ApplyResponse,
+    ApplyResult,
+    Preview,
+    PreviewRequest,
+    Proposal,
+)
+from backend.api.cs.assignments.service import agents_from, priority_of, record, ticket_input
+from backend.api.cs.tickets.access import sees_all_tickets
+from backend.api.cs.tickets.routes import PARTIAL, respond
+from backend.api.cs.workflow.service import lock
+from backend.engine.cs.assignment import ASSIGNMENT_RULES_VERSION, Decision, assign_batch
+from backend.shared.access import Principal, current_principal
+from backend.shared.database import connection
+from backend.shared.departments import CS_DEPARTMENT
+from backend.shared.errors import ApplicationError
+from backend.shared.models import ErrorResponse, SuccessResponse
+
+router = APIRouter(
+    prefix="/api/v1/cs/assignments",
+    tags=["assignments"],
+    responses={
+        401: {"model": ErrorResponse, "description": "No valid user context"},
+        403: {"model": ErrorResponse, "description": "The role may not take this action"},
+        503: {"model": ErrorResponse},
+    },
+)
+Row = dict[str, Any]
+
+
+def require_cs_manager(principal: Principal) -> None:
+    """Same check as reassigning an owner (PUT /workflow/owner)."""
+    if not (principal.has("manager") and CS_DEPARTMENT in principal.managed_departments):
+        raise HTTPException(403)
+
+
+async def proposals(conn: Any, rows: list[Row]) -> list[Proposal]:
+    """Decides `rows` as one batch with the current agents and loads."""
+    agents = agents_from(await repository.list_agents(conn))
+    inputs = [ticket_input(r, await priority_of(conn, r["id"])) for r in rows]
+    by_id = {r["id"]: r for r in rows}
+    priority = {t.ticket_id: t.priority for t in inputs}
+    return [
+        Proposal(
+            ticket_id=d.ticket_id,
+            external_id=by_id[d.ticket_id]["external_id"],
+            subject=by_id[d.ticket_id]["subject"],
+            product_code=by_id[d.ticket_id]["product_code"],
+            body_language=by_id[d.ticket_id]["body_language"],
+            received_at=by_id[d.ticket_id]["received_at"],
+            priority=priority[d.ticket_id],
+            user_id=d.user_id,
+            reason_code=d.reason,
+            matched_language=d.matched_language,
+            matched_family=d.matched_family,
+            candidate_count=d.candidate_count,
+            chosen_open_count=d.chosen_open_count,
+        )
+        for d in assign_batch(inputs, agents)
+    ]
+
+
+@router.get(
+    "/agents",
+    response_model=SuccessResponse[AgentList],
+    operation_id="cs_list_assignment_agents",
+    openapi_extra=PARTIAL,
+)
+async def list_agents(
+    request: Request, principal: Principal = Depends(current_principal)
+) -> SuccessResponse[AgentList]:
+    """The agent skill table (assumed data) with each agent's open tickets. Names are not
+    here: the C/S service cannot read identity, so the screen reads them from the platform."""
+    if not sees_all_tickets(principal):
+        raise HTTPException(403)
+    async with connection(request.app.state.settings) as conn:
+        rows = await repository.list_agents(conn)
+    return respond(
+        request,
+        AgentList(
+            rule_version=ASSIGNMENT_RULES_VERSION,
+            items=[AgentSkill.model_validate(r) for r in rows],
+        ),
+    )
+
+
+@router.post(
+    "/preview",
+    response_model=SuccessResponse[Preview],
+    operation_id="cs_preview_assignments",
+    openapi_extra=PARTIAL,
+)
+async def preview(
+    payload: PreviewRequest, request: Request, principal: Principal = Depends(current_principal)
+) -> SuccessResponse[Preview]:
+    """Proposed owners for the oldest unassigned RECEIVED tickets. Writes nothing."""
+    require_cs_manager(principal)
+    async with connection(request.app.state.settings) as conn:
+        rows = await repository.unassigned_tickets(conn, payload.limit)
+        items = await proposals(conn, rows)
+    return respond(request, Preview(rule_version=ASSIGNMENT_RULES_VERSION, items=items))
+
+
+@router.post(
+    "/apply",
+    response_model=SuccessResponse[ApplyResponse],
+    operation_id="cs_apply_assignments",
+    responses={
+        409: {"model": ErrorResponse, "description": "The rules changed since the preview"},
+        422: {"model": ErrorResponse},
+    },
+    openapi_extra=PARTIAL,
+)
+async def apply(
+    payload: ApplyRequest, request: Request, principal: Principal = Depends(current_principal)
+) -> SuccessResponse[ApplyResponse]:
+    """Writes the previewed owners that the rules still give. Running it again changes nothing.
+
+    Each ticket is locked and must still be RECEIVED without an owner. A ticket whose decision
+    now differs from the preview (another agent's load or skills changed) is not written and
+    comes back as PREVIEW_CHANGED with the new proposal; preview again to see it.
+    """
+    require_cs_manager(principal)
+    if payload.rule_version != ASSIGNMENT_RULES_VERSION:
+        raise ApplicationError(
+            409, "CS_ASSIGNMENT_RULES_CHANGED", "The assignment rules changed. Preview again."
+        )
+    wanted = {item.ticket_id: item.user_id for item in payload.items}
+    if len(wanted) != len(payload.items):
+        raise ApplicationError(422, "VALIDATION_ERROR", "A ticket appears twice.")
+    results: dict[UUID, ApplyResult] = {}
+    async with connection(request.app.state.settings) as conn:
+        # Lock in a fixed order so two managers applying at once cannot deadlock.
+        for ticket_id in sorted(wanted, key=str):
+            try:
+                await lock(conn, ticket_id)
+            except ApplicationError:
+                results[ticket_id] = ApplyResult(
+                    ticket_id=ticket_id, outcome="NOT_FOUND", user_id=None, reason_code=None
+                )
+        rows = await repository.tickets_by_ids(conn, list(wanted))
+        open_rows = []
+        for row in rows:
+            if row["owner_user_id"] is not None:
+                outcome = "ALREADY_ASSIGNED"
+            elif row["state"] != "RECEIVED":
+                outcome = "NOT_RECEIVED"
+            else:
+                open_rows.append(row)
+                continue
+            results[row["id"]] = ApplyResult(
+                ticket_id=row["id"], outcome=outcome, user_id=row["owner_user_id"], reason_code=None
+            )
+        items = await proposals(conn, open_rows)
+        for item in items:
+            if item.user_id != wanted[item.ticket_id]:
+                outcome = "PREVIEW_CHANGED"
+            elif item.user_id is None:
+                outcome = "NO_MATCH"
+            else:
+                workflow = await lock(conn, item.ticket_id)
+                await record(conn, workflow, decision_of(item), "BATCH", principal.user_id)
+                outcome = "ASSIGNED"
+            results[item.ticket_id] = ApplyResult(
+                ticket_id=item.ticket_id,
+                outcome=outcome,
+                user_id=item.user_id,
+                reason_code=item.reason_code,
+            )
+    ordered = [results[item.ticket_id] for item in payload.items]
+    assigned = sum(r.outcome == "ASSIGNED" for r in ordered)
+    return respond(
+        request,
+        ApplyResponse(
+            rule_version=ASSIGNMENT_RULES_VERSION,
+            assigned=assigned,
+            skipped=len(ordered) - assigned,
+            items=ordered,
+        ),
+    )
+
+
+def decision_of(item: Proposal) -> Decision:
+    return Decision(
+        ticket_id=item.ticket_id,
+        user_id=item.user_id,
+        reason=item.reason_code,
+        matched_language=item.matched_language,
+        matched_family=item.matched_family,
+        candidate_count=item.candidate_count,
+        chosen_open_count=item.chosen_open_count,
+    )
