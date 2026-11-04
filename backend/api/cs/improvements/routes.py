@@ -184,6 +184,21 @@ async def shown_tickets(conn: Any, principal: Principal, ticket_ids: list[UUID])
     return await visible_tickets(conn, ticket_ids, transfer_departments(principal))
 
 
+# Ticket values a limited evidence row leaves out (case comparison of a received request).
+LIMITED = {"customer_external_id": None, "ticket_subject": None, "limited": True}
+
+
+async def received_request(conn: Any, principal: Principal, request_id: UUID) -> bool:
+    """Whether the request was sent to one of the viewer's departments, in any round.
+
+    Proposed but not sent is not enough. Viewers who see every ticket have no limited rows.
+    """
+    if sees_all_tickets(principal):
+        return False
+    departments = sorted(transfer_departments(principal))
+    return bool(departments) and await repository.visible_to(conn, request_id, departments, False)
+
+
 # Ticket values on an evidence link. Outside the viewer's scope they stay null, as the case
 # comparison drops those rows.
 TICKET_VALUES = ("ticket_subject", "ticket_received_at", "customer_external_id")
@@ -438,6 +453,13 @@ async def case_comparison(
         rows = await repository.evidence_cases(conn, request_id)
         allowed = await shown_tickets(conn, principal, [r["ticket_id"] for r in rows])
         shown = [r for r in rows if r["ticket_id"] in allowed]
+        # A department the request was sent to reviews its evidence: the resolution records are
+        # shown, the customer and the ticket subject of tickets it never received are not.
+        limited = (
+            [{**r, **LIMITED} for r in rows if r["ticket_id"] not in allowed]
+            if await received_request(conn, principal, request_id)
+            else []
+        )
         candidates = []
         # Candidates name other customers' records (require_candidates in candidates.py).
         if include_candidates and sees_all_tickets(principal):
@@ -446,9 +468,9 @@ async def case_comparison(
         request,
         CaseComparison(
             request_id=request_id,
-            items=[CaseRow.model_validate(r) for r in shown]
+            items=[CaseRow.model_validate(r) for r in shown + limited]
             + [CaseRow.model_validate({**r, "row_kind": "CANDIDATE"}) for r in candidates],
-            hidden_case_count=len(rows) - len(shown),
+            hidden_case_count=len(rows) - len(shown) - len(limited),
         ),
     )
 

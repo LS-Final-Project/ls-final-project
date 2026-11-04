@@ -1355,7 +1355,7 @@
       "CaseComparison": {
         "properties": {
           "hidden_case_count": {
-            "description": "Active evidence outside the viewer's scope. Candidate rows never count.",
+            "description": "Active evidence outside the viewer's scope and not shown. Limited rows and candidate rows never count.",
             "title": "Hidden Case Count",
             "type": "integer"
           },
@@ -1418,8 +1418,16 @@
             "title": "Case Id"
           },
           "customer_external_id": {
-            "title": "Customer External Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null on a limited row (the viewer may not read that ticket).",
+            "title": "Customer External Id"
           },
           "fw_version_at_issue": {
             "anyOf": [
@@ -1444,6 +1452,12 @@
               }
             ],
             "title": "Known At"
+          },
+          "limited": {
+            "default": false,
+            "description": "Evidence of a request sent to the viewer's department whose ticket the viewer may not read: the resolution record is shown, the customer and the ticket subject are not.",
+            "title": "Limited",
+            "type": "boolean"
           },
           "onsite_visit": {
             "anyOf": [
