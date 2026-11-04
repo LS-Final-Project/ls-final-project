@@ -63,6 +63,27 @@ async def insert_assignment(conn: AsyncConnection[Row], values: Row) -> None:
     )
 
 
+async def unmatched_tickets(conn: AsyncConnection[Row], limit: int) -> list[Row]:
+    """지금 미배정·RECEIVED이고 최신 배정 판단이 NO_MATCH인 문의, 최근 접수 순 `limit`건.
+
+    배정을 거치지 않은 과거 적재 문의는 판단 기록이 없어 여기 들어오지 않는다(KAN-234).
+    """
+    cursor = await conn.execute(
+        "WITH latest AS (SELECT DISTINCT ON (ticket_id) ticket_id, reason_code, "
+        "matched_language, matched_family, trigger, created_at FROM cs.ticket_assignments "
+        "ORDER BY ticket_id, created_at DESC, id DESC) "
+        "SELECT t.id, t.external_id, t.subject, t.channel, t.product_code, t.body_language, "
+        "t.received_at, a.reason_code, a.matched_language AS language, "
+        "a.matched_family AS family, a.trigger, a.created_at AS decided_at "
+        "FROM latest a JOIN cs.tickets t ON t.id = a.ticket_id "
+        "LEFT JOIN cs.ticket_workflows w ON w.ticket_id = t.id "
+        f"WHERE a.reason_code = 'NO_MATCH' AND {UNASSIGNED} "
+        "ORDER BY t.received_at DESC, t.id DESC LIMIT %s",
+        (limit,),
+    )
+    return await cursor.fetchall()
+
+
 async def latest_assignment(conn: AsyncConnection[Row], ticket_id: UUID) -> Row | None:
     """The newest rule assignment of the ticket, or None.
 
@@ -73,8 +94,9 @@ async def latest_assignment(conn: AsyncConnection[Row], ticket_id: UUID) -> Row 
     try:
         async with conn.transaction():
             cursor = await conn.execute(
+                # NO_MATCH(KAN-234)는 담당을 정하지 않은 판단이라 배정 근거가 아니다.
                 f"SELECT {ASSIGNMENT_COLUMNS} FROM cs.ticket_assignments WHERE ticket_id = %s "
-                "ORDER BY created_at DESC, id DESC LIMIT 1",
+                "AND reason_code <> 'NO_MATCH' ORDER BY created_at DESC, id DESC LIMIT 1",
                 (ticket_id,),
             )
             return await cursor.fetchone()
@@ -128,3 +150,19 @@ async def insert_request_assignment(conn: AsyncConnection[Row], values: Row) -> 
         f"VALUES ({', '.join(['%s'] * len(values))})",
         tuple(values.values()),
     )
+
+
+async def unmatched_requests(conn: AsyncConnection[Row], limit: int) -> list[Row]:
+    """지금 C/S 담당이 없는 진행 개선요청 중 최신 배정 판단이 NO_MATCH인 것, 최근 생성 순."""
+    cursor = await conn.execute(
+        "WITH latest AS (SELECT DISTINCT ON (request_id) request_id, reason_code, trigger, "
+        "created_at FROM cs.improvement_assignments "
+        "ORDER BY request_id, created_at DESC, id DESC) "
+        "SELECT r.id, r.request_type, r.product_code, r.fault_id, r.status, r.created_at, "
+        "a.reason_code, a.trigger, a.created_at AS decided_at "
+        "FROM latest a JOIN cs.improvement_requests r ON r.id = a.request_id "
+        f"WHERE a.reason_code = 'NO_MATCH' AND r.cs_owner IS NULL AND {OPEN_REQUEST} "
+        "ORDER BY r.created_at DESC, r.id DESC LIMIT %s",
+        (limit,),
+    )
+    return await cursor.fetchall()

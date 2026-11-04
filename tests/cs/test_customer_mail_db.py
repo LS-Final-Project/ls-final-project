@@ -490,6 +490,8 @@ def test_mail_registered_ticket_answers_its_sender_and_hides_mail_from_departmen
             "ticket_customer_replies",
             "ticket_transfers",
             "ticket_workflows",
+            # 접수 자동 배정의 NO_MATCH 판단 기록(KAN-234).
+            "ticket_assignments",
             "audit_events",
         ):
             column = "entity_id" if table == "audit_events" else "ticket_id"

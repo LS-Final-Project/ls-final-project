@@ -153,9 +153,28 @@ def test_no_match_is_recorded_and_the_reviewer_becomes_owner(client, admin, agen
     request_id, owner, _ = stored(admin, "PLC-XGI-CPUU", f)
     assert owner is None
     assert decisions(admin, request_id) == [(None, "NO_MATCH", None, "CANDIDATE", None)]
+    # KAN-234: the manager list shows it with the family nobody handles.
+    [item] = unmatched(client, request_id)
+    assert (item["product_code"], item["family"], item["reason_code"], item["trigger"]) == (
+        "PLC-XGI-CPUU",
+        "PLC",
+        "NO_MATCH",
+        "CANDIDATE",
+    )
     reviewed = client.post(f"{REQUESTS}/{request_id}/review", json={"version": 1})
     assert reviewed.status_code == 200, reviewed.text
     assert reviewed.json()["data"]["request"]["cs_owner"] == str(AGENT.user_id)
+    assert unmatched(client, request_id) == []
+
+
+def unmatched(client, request_id):
+    response = client.get(
+        "/api/v1/cs/assignments/improvements/unmatched",
+        params={"limit": 200},
+        headers=principal_header(CS_MANAGER),
+    )
+    assert response.status_code == 200, response.text
+    return [i for i in response.json()["data"]["items"] if i["request_id"] == str(request_id)]
 
 
 def test_manual_request_keeps_its_writer(client, admin, agents):

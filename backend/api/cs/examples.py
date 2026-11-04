@@ -6,7 +6,15 @@ Values come from the provided training data (CSV1-000044 / RC-0007, gasket leak 
 from datetime import UTC, date, datetime
 from uuid import UUID
 
-from backend.api.cs.assignments.schemas import AgentList, AgentSkill, AssignmentRecord
+from backend.api.cs.assignments.schemas import (
+    AgentList,
+    AgentSkill,
+    AssignmentRecord,
+    UnmatchedRequest,
+    UnmatchedRequests,
+    UnmatchedTicket,
+    UnmatchedTickets,
+)
 from backend.api.cs.comparisons.examples import response as comparison_response
 from backend.api.cs.improvements.schemas import (
     Evidence,
@@ -320,6 +328,62 @@ def assignment_agents_example() -> dict:
     }
 
 
+def unmatched_examples() -> list[dict]:
+    """맞는 담당자 없는 문의·개선요청(KAN-234). 헝가리어 문의의 미등록 제품, PLC 개선요청."""
+    decided = datetime(2026, 11, 5, 9, 0, tzinfo=UTC)
+    tickets = UnmatchedTickets(
+        items=[
+            UnmatchedTicket(
+                ticket_id=UUID("22222222-2222-4222-8222-222222222234"),
+                external_id="MAIL-20261105-0007",
+                subject="A PLC nem indul újra áramszünet után",
+                subject_ko=None,
+                channel="EMAIL",
+                product_code="PLC-NX-32",
+                body_language="hu",
+                received_at=decided,
+                reason_code="NO_MATCH",
+                language="hu",
+                family=None,
+                trigger="INTAKE",
+                decided_at=decided,
+            )
+        ],
+        has_more=False,
+    )
+    requests = UnmatchedRequests(
+        items=[
+            UnmatchedRequest(
+                request_id=UUID("66666666-6666-4666-8666-666666666634"),
+                request_type="FAULT",
+                product_code="PLC-XGI-CPUU",
+                fault_id="FLT-031",
+                status="DRAFT",
+                created_at=decided,
+                reason_code="NO_MATCH",
+                family="PLC",
+                trigger="CANDIDATE",
+                decided_at=decided,
+            )
+        ],
+        has_more=False,
+    )
+    return [
+        {
+            "method": "GET",
+            "path": "/api/v1/cs/assignments/unmatched",
+            "status": 200,
+            "body": SuccessResponse(data=tickets, meta=META).model_dump(mode="json"),
+        },
+        {
+            "method": "GET",
+            "path": "/api/v1/cs/assignments/improvements/unmatched",
+            "status": 200,
+            "body": SuccessResponse(data=requests, meta=META).model_dump(mode="json"),
+        },
+    ]
+
+
 def case_example() -> dict:
     """The case a C/S agent registers after closing, from the accepted department result."""
     registered_at = datetime(2025, 10, 7, 9, 0, 0, tzinfo=UTC)
@@ -625,7 +689,7 @@ def examples() -> list[dict]:
         + write_examples()
         + unit_examples()
         + [workflow_example(), case_example(), improvement_example(), stats_example()]
-        + [assignment_agents_example()]
+        + [assignment_agents_example(), *unmatched_examples()]
         + [
             {
                 "method": "GET",
