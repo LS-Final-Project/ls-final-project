@@ -75,10 +75,10 @@ function HomeView() {
 
     <div className="body">
       <div className="hello">
-        <div><small>{today}</small><h2>{name ? `${name}님, ` : ''}오늘 할 일 <b>{fresh.isPending || (myId && mine.isPending) ? '…' : `${total}${fresh.data?.data.next_cursor ? '+' : ''}건`}</b></h2></div>
+        <div><small>{today}</small><h2>{name ? `${name}님, ` : ''}오늘 할 일 <b>{fresh.isPending || (myId && mine.isPending) ? '…' : `${total}${fresh.data?.data.next_cursor || mine.data?.data.next_cursor ? '+' : ''}건`}</b></h2></div>
         {late > 0 && <span className="late">7일 넘은 문의 {late}건부터 처리하세요</span>}
       </div>
-      {identity.isSuccess && !myId && <div className="stale">로그인 정보를 확인하지 못해 내 담당 문의는 비워 둡니다. 다시 로그인하세요.</div>}
+      {(identity.isError || (identity.isSuccess && !myId)) && <div className="stale">로그인 정보를 확인하지 못해 내 담당 문의는 비워 둡니다. 다시 로그인하세요.</div>}
       {failed && <ErrorState error={failed} onRetry={refresh} />}
 
       {!failed && <div className="cards">
@@ -91,8 +91,8 @@ function HomeView() {
           <span>{mineItems.filter(item => item.workflow_state === 'ANSWERED').length}건은 종결 여부만 확인</span>
         </Link>
         <Link className="card calm" to="/cs/tickets">
-          <small>답을 기다리는 문의</small><b>{!myId ? '-' : waiting.isPending ? '…' : countText(waitItems.length, !!waiting.data?.data.next_cursor)}</b>
-          <span>부서 {waitItems.filter(item => item.workflow_state === 'TRANSFERRED').length} · 고객 {waitItems.filter(item => item.workflow_state === 'WAITING_CUSTOMER').length} · 답이 오면 다시 내 차례</span>
+          <small>답을 기다리는 문의</small><b>{!myId ? '-' : waiting.isPending ? '…' : waiting.isError ? '!' : countText(waitItems.length, !!waiting.data?.data.next_cursor)}</b>
+          <span>{waiting.isError ? '불러오지 못함 · 새로고침하세요' : <>부서 {waitItems.filter(item => item.workflow_state === 'TRANSFERRED').length} · 고객 {waitItems.filter(item => item.workflow_state === 'WAITING_CUSTOMER').length} · 답이 오면 다시 내 차례</>}</span>
         </Link>
         <Link className="card req" to="/cs/improvements">
           <small>개선요청 할 일</small><b>{requests.isPending ? '…' : reqUrgent}</b>
