@@ -82,9 +82,11 @@ function CustomersView() {
       {filters.customer !== '' && !history.isFetching && history.isError && <ErrorState error={history.error instanceof ApiError ? history.error : history.error} onRetry={() => void history.refetch()} />}
 
       {data && <>
-        {/* 상태별 문의 건수를 큰 숫자로 보인다. 진행 중 상태는 주황, 종결은 초록. */}
+        {/* 상태별 문의 건수를 큰 숫자로 보인다. 진행 중 상태는 주황, 종결은 초록. 정해진 6가지 밖의 상태가 오면 뒤에 카드를 더해 건수를 빠뜨리지 않는다.
+            기간 내 접수 합계는 아래 '기간 내 문의 N건' 머리에 있다. 미확인 지표(unconfirmed)는 이 화면에 두지 않는다: 통계 API가 늘 같은 두 값(SLA 기한·규칙상 담당 부서)을 알리는 칸이라
+            고객별 상태 건수와 관계가 없고, 사용자 결정(2026-11-04)으로 위쪽 정보 칸과 함께 뺐다. */}
         <div className="state-cards" aria-label="상태별 문의">
-          {STATE_ORDER.map(key => <div key={key} className={`state-card${key === 'CLOSED' ? ' closed' : (data.by_state[key] ?? 0) > 0 ? ' open' : ''}`}>
+          {[...STATE_ORDER, ...Object.keys(data.by_state).filter(key => !STATE_ORDER.includes(key))].map(key => <div key={key} className={`state-card${key === 'CLOSED' ? ' closed' : (data.by_state[key] ?? 0) > 0 ? ' open' : ''}`}>
             <small>{stateName(key)}</small><b>{data.by_state[key] ?? 0}</b><span>건</span>
           </div>)}
         </div>

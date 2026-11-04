@@ -8,8 +8,6 @@
 .ls-root .kv .td3.cu3 .cond em{font-style:normal;color:#7a8394}
 .ls-root .kv .td3.cu3 .cond .hint{font-size:11.5px;color:#7a8394}
 .ls-root .kv .td3.cu3 .cond .clear{margin-left:auto;color:#1f4fbf;font-size:12px;text-decoration:none}
-.ls-root .kv .td3.cu3 .info .ell{display:block;line-height:32px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ls-root .kv .td3.cu3 .info .open{color:#8a5a00;background:#fdf3dc;padding:1px 7px}
 .ls-root .kv .td3.cu3 .cu-cols{display:grid;grid-template-columns:1.35fr 1fr;gap:10px;align-items:stretch;flex:1;min-height:0}
 .ls-root .kv .td3.cu3 .cu-cols>.pane,.ls-root .kv .td3.cu3 .cu-cols>.stack>.pane{min-height:0}
 .ls-root .kv .td3.cu3 .cu-cols>.pane .logwrap{flex:1;max-height:calc(100vh - 290px)}
@@ -25,18 +23,8 @@
 .ls-root .kv .td3.cu3 .empty small{margin-top:4px;color:#7a8394}
 @media (max-width:1200px){.ls-root .kv .td3.cu3 .cu-cols{grid-template-columns:1fr}.ls-root .kv .td3.cu3 .cu-cols>.pane .logwrap,.ls-root .kv .td3.cu3 .logwrap.short{max-height:none}}
 @media print{.ls-root .kv .td3.cu3 .btns,.ls-root .kv .td3.cu3 .cond{display:none}.ls-root .kv .td3.cu3 .logwrap{max-height:none!important;overflow:visible}}
-/* 칸 이름·칩은 한 줄로 둔다(기간 내 접수, 미확인 지표, 가정 자료 등) */
-.ls-root .kv .td3.cu3 .info{grid-template-columns:92px 1fr 92px 1fr 92px 1fr 92px 1fr}
-.ls-root .kv .td3.cu3 .info .k,.ls-root .kv .td3.cu3 .info .v,.ls-root .kv .td3.cu3 .chip,.ls-root .kv .td3.cu3 .log th{white-space:nowrap}
-@media (max-width:1200px){.ls-root .kv .td3.cu3 .info{grid-template-columns:92px 1fr 92px 1fr}}
-/* 제품별·상태별은 자르지 않고 줄을 넘겨 모두 보인다 */
-.ls-root .kv .td3.cu3 .info .v.wrap{white-space:normal;line-height:1.45;padding-top:6px;padding-bottom:6px;word-break:keep-all}
-/* 진행 중(주황)·종결(초록) 건수 상자 */
-.ls-root .kv .td3.cu3 .info .cnt{padding:1px 8px}
-.ls-root .kv .td3.cu3 .info .cnt.open{color:#8a5a00;background:#fdf3dc}
-.ls-root .kv .td3.cu3 .info .cnt.closed{color:#2f7d4f;background:#eaf5ee}
 /* 상태별 문의 카드: 정보 칸 대신 큰 숫자 */
-.ls-root .kv .td3.cu3 .state-cards{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px}
+.ls-root .kv .td3.cu3 .state-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
 .ls-root .kv .td3.cu3 .state-card{background:#fff;border:1px solid #d9dde4;padding:12px 14px;display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;column-gap:4px;align-items:baseline}
 .ls-root .kv .td3.cu3 .state-card small{grid-column:1/-1;font-size:12.5px;color:#6b7385}
 .ls-root .kv .td3.cu3 .state-card b{font-size:30px;font-weight:700;line-height:1.15;color:#1d2433;font-variant-numeric:tabular-nums}
@@ -45,7 +33,8 @@
 .ls-root .kv .td3.cu3 .state-card.open b{color:#8a5a00}
 .ls-root .kv .td3.cu3 .state-card.closed{border-color:#bfe0c9;background:#eef6f0}
 .ls-root .kv .td3.cu3 .state-card.closed b{color:#2f7d4f}
-@media (max-width:1200px){.ls-root .kv .td3.cu3 .state-cards{grid-template-columns:repeat(3,minmax(0,1fr))}}
 /* 기간 내 문의 표의 상태 칩: 위 카드와 같은 색(진행 주황, 종결 초록) */
 .ls-root .kv .td3.cu3 .chip.st-open{background:#fdf3dc;color:#8a5a00}
 .ls-root .kv .td3.cu3 .chip.st-closed{background:#eaf5ee;color:#2f7d4f}
+/* 칩·표 머리는 한 줄로 */
+.ls-root .kv .td3.cu3 .chip,.ls-root .kv .td3.cu3 .log th{white-space:nowrap}

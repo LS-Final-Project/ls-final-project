@@ -115,9 +115,11 @@ test('고객 이력의 고객 ID를 입력만 하고 조회하지 않으면 미�
 
 test.each([401, 403, 503])('고객 이력 갱신 %i는 이전 이력을 숨긴다', async status => {
   let fail = false;
-  vi.stubGlobal('fetch', vi.fn(async () => fail ? jsonResponse(status, errorBody('FAIL', '합성 실패')) : jsonResponse(200, { data: { customer_external_id: 'C1', received: 2, unconfirmed: [], by_state: { CLOSED: 1, IN_REVIEW: 1 }, by_product: { P1: 2 }, tickets: [], units: [], improvement_requests: [] } })));
+  vi.stubGlobal('fetch', vi.fn(async () => fail ? jsonResponse(status, errorBody('FAIL', '합성 실패')) : jsonResponse(200, { data: { customer_external_id: 'C1', received: 2, unconfirmed: [], by_state: { CLOSED: 1, IN_REVIEW: 1, NEW_STATE: 1 }, by_product: { P1: 2 }, tickets: [], units: [], improvement_requests: [] } })));
   customers(); fireEvent.change(screen.getByLabelText('고객 ID'), { target: { value: 'C1' } }); fireEvent.click(screen.getByRole('button', { name: '조회' }));
   await screen.findByLabelText('상태별 문의'); expect(screen.getByText('검토중')).toBeTruthy(); expect(screen.queryByText('미확인 지표')).toBeNull();
+  // 정해진 상태 밖의 값도 카드로 보인다.
+  expect(screen.getByText('NEW_STATE')).toBeTruthy();
   fail = true; fireEvent.click(screen.getByRole('button', { name: '조회' })); await screen.findByRole('alert');
   expect(screen.queryByLabelText('상태별 문의')).toBeNull();
 });
