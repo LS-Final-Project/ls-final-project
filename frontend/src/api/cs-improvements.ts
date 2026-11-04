@@ -59,3 +59,18 @@ export const resendImprovement = (id:string,code:string,body:ResendBody,signal:A
 export const reviewImprovementRejection = (id:string,code:string,body:VersionBody,signal:AbortSignal) => write(dept(id,code,'review-rejection'),body,signal,'cs_agent');
 
 export const getFollowupSignals = (id:string,signal:AbortSignal) => request<FollowupSignals>(path(id,'/followup-signals'),{signal});
+
+// KAN-115 AI 작성 초안. GET은 저장본만 읽는다(비용 없음). POST는 모델을 한 번 부른다(비용). 같은 근거의 성공한 초안이 있으면 그대로 돌려준다.
+// 초안은 요청을 바꾸지 않는다. 사람이 updateImprovement로 반영해야 새 판본이 된다. 기능이 꺼진 배포는 404다.
+export type ImprovementAiDraft = paths['/api/v1/cs/improvement-requests/{request_id}/ai-draft']['get']['responses'][200]['content']['application/json'];
+export type AiDraftRecord = NonNullable<ImprovementAiDraft['data']['draft']>;
+export const getImprovementAiDraft = (id:string,signal:AbortSignal) => request<ImprovementAiDraft>(path(id,'/ai-draft'),{signal,mockFallback:()=>({data:{request_id:id,provenance:'ai_draft',draft:null,latest_attempt:null}})});
+export async function createImprovementAiDraft(id:string,signal:AbortSignal):Promise<ImprovementAiDraft>{
+  if(getApiMode()!=='live')throw new ApiError(403,'모의 응답에서는 AI 초안을 만들지 않습니다.');
+  const identity=await me();
+  if(signal.aborted)throw new DOMException('Aborted','AbortError');
+  if(!identity?.data?.roles?.includes('cs_agent'))throw new ApiError(403,'C/S 담당자 세션이 필요합니다.');
+  const token=sessionCsrfToken();
+  if(!token)throw new ApiError(403,'세션 보호 정보를 확인할 수 없습니다. 다시 로그인해 주세요.');
+  return request<ImprovementAiDraft>(path(id,'/ai-draft'),{method:'POST',signal,headers:{'X-CSRF-Token':token}});
+}

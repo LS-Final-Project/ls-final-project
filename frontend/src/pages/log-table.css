@@ -10,3 +10,8 @@
 .ls-root .kv .td3 .log tr.sel,.ls-root .kv .td3 .log tr.sel:hover{background:#f6f4fe}
 .ls-root .kv .td3 .log tr.sel td:first-child{box-shadow:inset 2px 0 0 #6a55d6}
 .ls-root .kv .td3 .log input[type=checkbox]{accent-color:#1a3a7a}
+/* 정렬 머리(문의 조회와 같은 ▲▼) */
+.ls-root .kv .td3 .log th .sorter{font:inherit;color:inherit;padding:0;border:0;background:none;cursor:pointer;white-space:nowrap}
+.ls-root .kv .td3 .log th[aria-sort=ascending] .sorter::after{content:" ▲";font-size:9px}
+.ls-root .kv .td3 .log th[aria-sort=descending] .sorter::after{content:" ▼";font-size:9px}
+.ls-root .kv .td3 .log th[aria-sort=none] .sorter:hover::after{content:" ▲";font-size:9px;color:#9aa3b2}

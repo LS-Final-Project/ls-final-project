@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useParams } from 'react-router-dom';
 import Layout from './components/Layout';
 import { NotFoundPage } from './components/states';
 import DevCheck from './pages/DevCheck';
@@ -12,7 +12,6 @@ import Tickets from './pages/Tickets';
 import CsCustomers from './pages/CsCustomers';
 import CsAdmin from './pages/CsAdmin';
 import CsImprovements from './pages/CsImprovements';
-import CsRepeatCases from './pages/CsRepeatCases';
 import TicketDetail from './pages/TicketDetail';
 import Evaluations from './pages/Evaluations';
 import LsShell from './ls-shell/LsShell';
@@ -38,7 +37,7 @@ export default function App() {
       <Route path="cs" element={<CsHome />} />
       <Route path="cs/improvements" element={<CsImprovements />} />
       <Route path="cs/improvements/:requestId" element={<CsImprovements />} />
-      <Route path="cs/repeat-cases/:requestId?" element={<CsRepeatCases />} />
+      <Route path="cs/repeat-cases/:requestId?" element={<RepeatCasesMoved />} />
       <Route path="dept/inbox" element={<DeptInbox />} />
       <Route path="dept/result/:ticketId" element={<DeptResult />} />
       <Route path="mail/inbox" element={<MailInbox />} />
@@ -58,4 +57,10 @@ export default function App() {
       <Route path="tft/projects/:projectId" element={<RfpIntake />} />
     </Route>
   </Routes>;
+}
+
+// 반복 사례 모음(CS0201)은 개선요청 상세의 근거 비교로 합쳤다. 예전 주소는 같은 요청 상세로 보낸다.
+function RepeatCasesMoved() {
+  const { requestId } = useParams();
+  return <Navigate to={requestId ? `/cs/improvements/${encodeURIComponent(requestId)}` : '/cs/improvements'} replace />;
 }
