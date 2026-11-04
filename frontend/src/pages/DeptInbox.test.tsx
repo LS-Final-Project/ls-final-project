@@ -22,7 +22,7 @@ test('소속 부서로 목록을 읽어 차수·요청일시·상태·경과일�
   const fetch = serve([ticket(1, 2, 'OPEN', 0), ticket(2, 1, 'OPEN', 8), ticket(3, 1, 'OPEN', 13)]);
   vi.stubGlobal('fetch', fetch);
   show();
-  const table = await screen.findByRole('table', { name: '받은 요청' });
+  const table = await screen.findByRole('table', { name: '문의 검토' });
   const rows = within(table).getAllByRole('row').slice(1);
   expect(rows).toHaveLength(3);
   expect(rows[0].textContent).toContain('CS26-1001');
@@ -39,7 +39,7 @@ test('상태를 바꾸면 서버에 그 상태만 요청하고 전체는 상태 
   const fetch = serve([ticket(1, 1, 'RESULT_SUBMITTED', 3)]);
   vi.stubGlobal('fetch', fetch);
   show();
-  await screen.findByRole('table', { name: '받은 요청' });
+  await screen.findByRole('table', { name: '문의 검토' });
   fireEvent.change(screen.getByLabelText('상태'), { target: { value: 'RESULT_SUBMITTED' } });
   await waitFor(() => expect(listCalls(fetch).some(url => url.endsWith('dept=QA_CLAIM&transfer_status=RESULT_SUBMITTED'))).toBe(true));
   fireEvent.change(screen.getByLabelText('상태'), { target: { value: '' } });
@@ -49,9 +49,9 @@ test('상태를 바꾸면 서버에 그 상태만 요청하고 전체는 상태 
 test('차수와 요청일자는 받아 온 목록에서 거르고 범위가 거꾸로면 표를 비운다', async () => {
   vi.stubGlobal('fetch', serve([ticket(1, 2, 'OPEN', 1), ticket(2, 1, 'OPEN', 5)]));
   show();
-  await screen.findByRole('table', { name: '받은 요청' });
+  await screen.findByRole('table', { name: '문의 검토' });
   fireEvent.change(screen.getByLabelText('차수'), { target: { value: '2+' } });
-  expect(within(screen.getByRole('table', { name: '받은 요청' })).getAllByRole('row')).toHaveLength(2);
+  expect(within(screen.getByRole('table', { name: '문의 검토' })).getAllByRole('row')).toHaveLength(2);
   expect(screen.getByText('합성 문의 1')).toBeTruthy();
   expect(screen.queryByText('합성 문의 2')).toBeNull();
   fireEvent.change(screen.getByLabelText('시작일'), { target: { value: '2026-12-02' } });
@@ -64,8 +64,8 @@ test('이관 정보가 없는 항목은 표에 넣지 않고 더 보기는 다�
   const fetch = serve([ticket(1, 1, 'OPEN', 1), { ...ticket(2, 1, 'OPEN', 1), transfer: null }], identity(), 'next-1');
   vi.stubGlobal('fetch', fetch);
   show();
-  await screen.findByRole('table', { name: '받은 요청' });
-  expect(within(screen.getByRole('table', { name: '받은 요청' })).getAllByRole('row')).toHaveLength(2);
+  await screen.findByRole('table', { name: '문의 검토' });
+  expect(within(screen.getByRole('table', { name: '문의 검토' })).getAllByRole('row')).toHaveLength(2);
   fireEvent.click(screen.getByRole('button', { name: '더 보기' }));
   await waitFor(() => expect(listCalls(fetch).some(url => url.includes('cursor=next-1'))).toBe(true));
 });

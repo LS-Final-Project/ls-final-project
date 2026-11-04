@@ -39,6 +39,9 @@ export default function App() {
       <Route path="cs/improvements/:requestId" element={<CsImprovements />} />
       <Route path="cs/repeat-cases/:requestId?" element={<RepeatCasesMoved />} />
       <Route path="dept/inbox" element={<DeptInbox />} />
+      {/* 부서 담당자의 개선 요청: C/S 개선요청 화면을 부서 경로로 연다(목록은 서버가 우리 부서로 보낸 요청만 준다). */}
+      <Route path="dept/improvements" element={<CsImprovements />} />
+      <Route path="dept/improvements/:requestId" element={<CsImprovements />} />
       <Route path="dept/result/:ticketId" element={<DeptResult />} />
       <Route path="mail/inbox" element={<MailInbox />} />
       <Route path="mail/account" element={<MailAccount />} />

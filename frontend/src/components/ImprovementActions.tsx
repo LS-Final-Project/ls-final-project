@@ -178,7 +178,7 @@ export default function ImprovementActions({data,onSaved,onReload,onEditingChang
     case 'review':return <>{deptBoxes(r.request_type==='FAULT'?'제안 부서 (1개 이상 필수)':'제안 부서 (미확인 가능)')}<p>검토 기록만 남깁니다. 부서 전달은 따로 기록합니다.</p></>;
     case 'send':return <>{r.proposed_depts.length>0&&!pickDepts
       ?<div className="fr"><span className="k">받는 부서</span><span className="chips">{depts.map(code=><span key={code} className="dept-chip">{deptLabel(code)}</span>)}<button type="button" className="mini" onClick={()=>setPickDepts(true)}>받는 부서 바꾸기</button></span></div>
-      :deptBoxes('받는 부서 (1개 이상 필수)')}{!depts.length&&<p>받는 부서를 고르세요.</p>}<p className="meta">전달하면 받는 부서 담당자 화면의 "받은 요청"에 올라갑니다. 메일은 따로 보내지 않습니다.</p></>;
+      :deptBoxes('받는 부서 (1개 이상 필수)')}{!depts.length&&<p>받는 부서를 고르세요.</p>}<p className="meta">전달하면 받는 부서 담당자 화면의 "개선 요청"에 올라갑니다. 메일은 따로 보내지 않습니다.</p></>;
     case 'resend':return <><label>다시 요청하는 이유<textarea required maxLength={2000} value={v('reason')} onChange={set('reason')}/></label><p>반려 뒤 다시 요청할 때는 반려 사유와 다른 새 근거를 먼저 추가해야 합니다.</p></>;
     case 'review-rejection':return <p>부서의 반려 회신을 확인했다고 기록합니다. 부서 상태는 반려 그대로입니다.</p>;
     case 'plan':return <label>후속 확인 계획<textarea required maxLength={10000} value={v('followup_plan')} onChange={set('followup_plan')}/></label>;

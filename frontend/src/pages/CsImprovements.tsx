@@ -5,7 +5,7 @@ import ImprovementActions, { FollowupSignals, type ActionControl, type ActionRow
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { listFaults } from '../components/ResolutionCaseForm';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import { ApiError, getApiMode } from '../api/client';
 import { getImprovement, listImprovements, type ImprovementDetail } from '../api/cs-improvements';
 import { ErrorState, Loading } from '../components/states';
@@ -218,8 +218,11 @@ export default function CsImprovements(){
 }
 function ImprovementView(){
   const client=useQueryClient();
-  const navigate=useNavigate();
   const {requestId}=useParams();
+  const {pathname}=useLocation();
+  // 부서 담당자는 부서 검토 메뉴의 '개선 요청'(/dept/improvements)으로 같은 화면을 연다. 목록·상세 링크도 그 경로에 둔다.
+  const inDept=pathname.startsWith('/dept/');
+  const base=inDept?'/dept/improvements':'/cs/improvements';
   const mode=getApiMode();
   const [writing,setWriting]=useState(false);
   // 목록: 문의 조회처럼 머리를 눌러 정렬하고, 10건씩 쪽으로 나눠 본다. 기본은 최근 작성순.
@@ -255,7 +258,7 @@ function ImprovementView(){
   // 쓰기 응답은 서버가 돌려준 최신 상세다. 판본 이력·목록·재요청 신호는 다시 읽게 둔다.
   const saved=(result:ImprovementDetail)=>{client.setQueryData(['cs-improvements',mode,requestId],result);for(const key of ['cs-improvement-versions','cs-improvement-signals'])void client.invalidateQueries({queryKey:[key,mode,result.data.request.id]});void client.invalidateQueries({queryKey:['cs-improvements',mode,'list']});};
   const listColumns:LogColumn<RequestSummary>[]=[
-    {key:'title',header:'문제',className:'t',sortValue:item=>titleOf(item),cell:item=><Link className="link" to={`/cs/improvements/${encodeURIComponent(item.id)}`}>{titleOf(item)}</Link>},
+    {key:'title',header:'문제',className:'t',sortValue:item=>titleOf(item),cell:item=><Link className="link" to={`${base}/${encodeURIComponent(item.id)}`}>{titleOf(item)}</Link>},
     {key:'product',header:'제품',width:150,sortValue:item=>item.product_code,cell:item=>item.product_code},
     {key:'status',header:'상태',width:110,className:'c',sortValue:item=>STEP_OF[item.status]??-1,cell:item=><span className={`chip st-${item.status.toLowerCase()}`}>{REQUEST_STATUS_LABEL[item.status]??item.status}</span>},
     {key:'created',header:'작성일',width:96,className:'c',sortValue:item=>Date.parse(item.created_at),cell:item=>dayOf(item.created_at)},
@@ -265,10 +268,10 @@ function ImprovementView(){
   const done=(index:number)=>r?.status==='COMPLETED'?true:index<at;
   return <main className="td3 ir3">
     <div className="title">
-      <span className="path">C/S 관리 ›</span><h1>{`개선요청 ${requestId?'상세':'목록'}`}</h1><code className="kv-code">CS0301</code>
+      <span className="path">{inDept?'부서 검토 ›':'C/S 관리 ›'}</span><h1>{`개선요청 ${requestId?'상세':'목록'}`}</h1><code className="kv-code">CS0301</code>
       <div className="btns">
         {requestId
-          ? <>{control?.rows.filter(row=>row.kind==='owner').map(row=>actButton(row))}<Link className="kb3" to="/cs/improvements">개선요청 목록</Link></>
+          ? <>{control?.rows.filter(row=>row.kind==='owner').map(row=>actButton(row))}<Link className="kb3" to={base}>개선요청 목록</Link></>
           : null}
         {requestId&&<span className="vsep"/>}
         <button className="kb3 pri" disabled={active.isFetching||editing} onClick={refresh}>최신 요청 조회<kbd aria-hidden="true">F8</kbd></button>

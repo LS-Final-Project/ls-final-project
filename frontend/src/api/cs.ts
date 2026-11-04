@@ -21,7 +21,7 @@ export type TransferStatus = NonNullable<NonNullable<paths['/api/v1/cs/tickets']
 export type TicketItem = TicketListResponse['data']['items'][number];
 
 /**
- * 우리 부서로 이관된 적이 있는 문의 목록(부서 받은 요청). 항목의 transfer에 그 부서의 최신 이관이 온다.
+ * 우리 부서로 이관된 적이 있는 문의 목록(부서 문의 검토). 항목의 transfer에 그 부서의 최신 이관이 온다.
  * Args: dept는 소속 부서 코드, status를 주면 그 부서 최신 회차의 상태만, cursor는 다음 쪽.
  */
 export const listDeptRequests = (dept: DeptCode, status: TransferStatus | '', cursor?: string, signal?: AbortSignal) => {

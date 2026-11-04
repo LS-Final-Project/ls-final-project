@@ -15,11 +15,11 @@ type Transfer = NonNullable<TicketItem['transfer']>;
 type Row = TicketItem & { transfer: Transfer };
 const isDept = (value: string | null | undefined): value is DeptCode => !!value && DEPT_CODES.includes(value);
 
-// 받은 요청 CS0202(부서 창). 우리 부서로 이관된 문의를 문의 목록 API의 부서 필터(KAN-202)로 읽어 보인다.
+// 문의 검토 CS0202(부서 창). 우리 부서로 이관된 문의를 문의 목록 API의 부서 필터(KAN-202)로 읽어 보인다.
 // 부서 필터를 주면 항목의 transfer에 고객 ID와 요청 사유가 함께 온다. 개선요청 회신 표는 부서별 조회가 없어 넣지 않는다.
 export default function DeptInbox() {
   const access = useBusinessAccess('cs');
-  if (!access.ready) return <BusinessGate access={access} title="받은 요청" />;
+  if (!access.ready) return <BusinessGate access={access} title="문의 검토" />;
   return <InboxView />;
 }
 
@@ -71,7 +71,7 @@ function InboxView() {
     shown.map(row => [row.external_id ?? row.id, row.transfer.customer_external_id, row.subject ?? '', row.transfer.round, formatStamp(row.transfer.transferred_at), row.transfer.reason, STATUS_LABEL[row.transfer.status], row.transfer.status === 'OPEN' ? elapsed(row) : '']));
 
   return <main>
-    <KvTitle path="부서 검토" title="받은 요청" code="CS0202">
+    <KvTitle path="부서 검토" title="문의 검토" code="CS0202">
       <button className="kb primary" disabled={!dept || list.isFetching} onClick={fetchAgain}>조회<KvKey>F8</KvKey></button>
       <button className="kb" disabled={shown.length === 0} onClick={exportCsv}>엑셀</button>
     </KvTitle>
@@ -105,7 +105,7 @@ function InboxView() {
       {dept && list.isError && <ErrorState error={list.error} onRetry={fetchAgain} />}
       {dept && list.isSuccess && <>
         <div className="kv-gridhead"><span>문의 검토 요청 {shown.length}건. 문의별 최신 검토 요청을 표시</span></div>
-        <KvGrid label="받은 요청" columns={columns} rows={shown} rowKey={row => row.id} fallback="조건에 맞는 요청이 없습니다." />
+        <KvGrid label="문의 검토" columns={columns} rows={shown} rowKey={row => row.id} fallback="조건에 맞는 요청이 없습니다." />
         <KvFoot count={`표시 ${shown.length}건 / 받아 온 ${all.length}건`} more={list.hasNextPage ? <button className="kb" disabled={list.isFetchingNextPage} onClick={() => { void list.fetchNextPage(); }}>{list.isFetchingNextPage ? '불러오는 중' : '더 보기'}</button> : undefined} />
       </>}
     </>}
