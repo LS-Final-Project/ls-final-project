@@ -301,9 +301,78 @@ describe('보드 맞춤', () => {
     const create = vi.fn(() => 'blob:x'); vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: create, revokeObjectURL: vi.fn() }));
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
     show('sales');
-    fireEvent.click(screen.getByRole('button', { name: '엑셀' }));
+    fireEvent.click(screen.getByRole('button', { name: '보이는 요구 CSV' }));
     expect(create).toHaveBeenCalledTimes(1);
     expect(click).toHaveBeenCalledTimes(1);
     click.mockRestore();
+  });
+});
+
+describe('출력 탭 서버 출력 (KAN-221)', () => {
+  const EXPORT = '33333333-3333-4333-8333-333333333333', JOB = '22222222-2222-4222-8222-222222222222';
+  const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const server = ({ reviews = [{ review_version: 2 }], exports = [] as unknown[], job = 'SUCCEEDED' } = {}) => {
+    const f = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/platform/me')) return new Response(JSON.stringify({ data: { id: 'sales' } }), { headers: { 'X-CSRF-Token': 'csrf' } });
+      if (url.endsWith('/draft/review-versions')) return jsonResponse(200, { data: { items: reviews } });
+      if (url.endsWith('/draft/exports') && init?.method === 'POST') return jsonResponse(202, { data: { export_id: EXPORT, job_id: JOB, status: 'QUEUED', status_url: `/api/v1/platform/jobs/${JOB}` } });
+      if (url.endsWith('/draft/exports')) return jsonResponse(200, { data: { items: exports } });
+      if (url.endsWith(`/platform/jobs/${JOB}`)) return jsonResponse(200, { data: { job_id: JOB, project_id: 'p1', owner: 'tft', kind: 'rfp.export', status: job } });
+      if (url.endsWith(`/exports/${EXPORT}/file`)) return new Response('xlsx-bytes', { headers: { 'Content-Type': XLSX, 'Content-Disposition': "attachment; filename=\"x.xlsx\"; filename*=UTF-8''RFP-91%20%EB%8C%80%EC%9D%91%20%ED%98%84%ED%99%A9%ED%91%9C.xlsx" } });
+      return jsonResponse(200, { data: { items: [] } });
+    });
+    vi.stubGlobal('fetch', f);
+    setApiMode('live');
+    return f;
+  };
+  const posts = (f: ReturnType<typeof server>) => (f.mock.calls as unknown as [string, RequestInit][]).filter(([u, i]) => u.endsWith('/draft/exports') && i?.method === 'POST').map(([, i]) => JSON.parse(String(i.body)));
+  const openOutput = () => { show('sales'); fireEvent.click(screen.getByRole('tab', { name: /출력/ })); };
+  const saved = () => { const names: string[] = []; vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { names.push(this.download); }); vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: () => 'blob:x', revokeObjectURL: () => undefined })); return names; };
+
+  it('검토본이 없으면 버튼을 끄고 먼저 저장하라고 알린다', async () => {
+    server({ reviews: [] });
+    openOutput();
+    expect(await screen.findByText(/검토본을 먼저 저장하세요/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: '대응 현황표 XLSX' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: '요약서 DOCX' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('최신 검토본으로 내보내기를 만들고 끝나면 서버 파일 이름으로 내려받는다', async () => {
+    const f = server();
+    const names = saved();
+    openOutput();
+    const button = screen.getByRole('button', { name: '대응 현황표 XLSX' }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+    fireEvent.click(button);
+    await waitFor(() => expect(names).toEqual(['RFP-91 대응 현황표.xlsx']));
+    expect(posts(f)).toEqual([{ review_version: 2, format: 'XLSX' }]);
+    const post = (f.mock.calls as unknown as [string, RequestInit][]).find(([u, i]) => u.endsWith('/draft/exports') && i?.method === 'POST')!;
+    expect(new Headers(post[1].headers).get('Idempotency-Key')).toBeTruthy();
+    vi.restoreAllMocks();
+  });
+
+  it('같은 판본의 성공한 내보내기가 있으면 다시 만들지 않고 내려받는다', async () => {
+    const f = server({ exports: [{ export_id: EXPORT, review_version: 2, format: 'XLSX', status: 'SUCCEEDED', file_name: 'old.xlsx' }] });
+    const names = saved();
+    openOutput();
+    const button = screen.getByRole('button', { name: '대응 현황표 XLSX' }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+    fireEvent.click(button);
+    await waitFor(() => expect(names).toHaveLength(1));
+    expect(posts(f)).toEqual([]);
+    vi.restoreAllMocks();
+  });
+
+  it('작업이 실패하면 오류 문구를 보이고 파일을 받지 않는다', async () => {
+    server({ job: 'FAILED' });
+    const names = saved();
+    openOutput();
+    const button = screen.getByRole('button', { name: '요약서 DOCX' }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+    fireEvent.click(button);
+    expect((await screen.findByText(/DOCX 출력을 만들지 못했습니다/)).getAttribute('role')).toBe('alert');
+    expect(names).toEqual([]);
+    vi.restoreAllMocks();
   });
 });

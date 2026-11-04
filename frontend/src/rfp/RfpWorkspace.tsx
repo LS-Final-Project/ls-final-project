@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState, type ReactNode, type UIEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ApiError, getApiMode } from '../api/client';
 import {
@@ -8,7 +8,7 @@ import {
 } from '../api/rfp';
 import { activeRfpJob, type RfpWatch } from '../api/rfp-job-events';
 import { listSupplementCandidates } from '../api/rfp-supplement';
-import { getDraft, sendCommand } from '../api/rfp-draft';
+import { downloadExportFile, getDraft, getExportJob, getExports, getReviewVersions, sendCommand, type Accepted, type ExportRow } from '../api/rfp-draft';
 import { getProject, listProjects, type ProjectDetail } from '../api/tft';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ErrorState, Loading } from '../components/states';
@@ -36,6 +36,8 @@ const ROW_ACTION: Partial<Record<Kind, string>> = { DEVIATION: '편차 기재', 
 const STEPS = ['parse', 'extract', 'search', 'compare', 'supplement', 'candidates', 'draft'];
 const STEP_LABEL: Record<string, string> = { parse: '원문 읽기', extract: '요구 뽑기', search: '자사 자료 찾기', compare: '자사 제품 비교', supplement: '보완 경로', candidates: '협력사 후보', draft: '검토본 초안' };
 const NEW = 'new';
+// 내보내기 작업 상태를 묻는 간격. 시험에서 줄인다.
+export const EXPORT_POLL_MS = 1500;
 
 export type Phase = 'empty' | 'ready' | 'running' | 'failed' | 'none' | 'done';
 // 서버 상태에서 화면 단계를 정한다. 작업이 돌면 분석 중이 먼저다(요구가 일부 저장돼도 아직 결정 단계가 아니다).
@@ -58,7 +60,8 @@ export function viewerRole(actorId: string | undefined, project?: Pick<ProjectDe
 const key = () => crypto.randomUUID();
 const failureText = (error: unknown) => error instanceof ApiError
   ? error.code === 'TFT_JOB_IN_PROGRESS' ? '이미 분석 중입니다. 진행 화면으로 이어집니다.' : error.message
-  : '처리하지 못했습니다.';
+  // 화면이 만든 한국어 오류(내보내기 실패, 첨부 형식 확인 등)는 그대로 보인다. 그 밖의 예외는 일반 문구.
+  : error instanceof Error && /[가-힣]/.test(error.message) ? error.message : '처리하지 못했습니다.';
 
 export default function RfpWorkspace() {
   const { projectId = NEW } = useParams();
@@ -334,7 +337,7 @@ export function Decide({ project, documents, rows, role, actorId, log }: { proje
           <label className="ws-field inline">설비<select aria-label="설비" value={eq} onChange={event => setEq(event.target.value)}><option value="">전체</option>{equipments.map(e => <option key={e}>{e}</option>)}</select></label>
           <input className="ws-search" aria-label="요구 검색" placeholder="요구, 조항, 값 검색" value={q} onChange={event => setQ(event.target.value)} />
           {filter === 'todo' && <button className={byEq ? 'ws-chip on' : 'ws-chip'} aria-pressed={byEq} onClick={() => setByEq(!byEq)}>설비별로 보기</button>}
-          <button className="kb" onClick={() => downloadCsv(`${project.external_id ?? 'RFP'} 요구.csv`, order)}>엑셀</button>
+          <button className="kb" onClick={() => downloadCsv(`${project.external_id ?? 'RFP'} 요구.csv`, order)}>보이는 요구 CSV</button>
         </div>
         {lastBulk && <p className="ws-bulkline">{lastBulk.n}건을 한 번에 결정했습니다. <button className="ws-link" disabled={undoBulkMutation.isPending} onClick={() => undoBulkMutation.mutate(lastBulk.batchId)}>한 번에 되돌리기</button></p>}
         {bulk.isError && <p role="alert" className="ws-alert">{bulkFailure(bulk.error, verdictRows)} 아무것도 저장하지 않았습니다.</p>}
@@ -537,6 +540,37 @@ function Output({ project, rows, excluded = [], responsible, actorId, onJump, on
       const draft = await getDraft(project.id);
       return sendCommand(project.id, { actorId: actorId as string, kind: 'review', key: key(), body: { version: draft.version } });
     },
+    onSuccess: () => client.invalidateQueries({ queryKey: ['rfp-draft-reviews', actorId, project.id] }),
+  });
+  // 서버 출력(KAN-221): 저장한 최신 검토본으로 XLSX·DOCX를 만들고 내려받는다. 초안 화면(RfpDraft)과 같은 경로·함수를 쓴다.
+  const reviews = useQuery({ queryKey: ['rfp-draft-reviews', actorId, project.id], queryFn: ({ signal }) => getReviewVersions(project.id, signal), enabled: mode === 'live' && !!actorId, retry: false });
+  const latestReview = Math.max(0, ...(reviews.data ?? []).map(r => r.review_version));
+  const exportKeys = useRef(new Map<string, string>());
+  const fileOut = useMutation({
+    mutationFn: async (format: 'XLSX' | 'DOCX') => {
+      // 같은 검토본 판본의 성공한 내보내기가 있으면 다시 만들지 않는다.
+      let done = (await getExports(project.id)).find(e => e.review_version === latestReview && e.format === format && e.status === 'SUCCEEDED');
+      if (!done) {
+        const slot = `${format}:${latestReview}`;
+        if (!exportKeys.current.has(slot)) exportKeys.current.set(slot, key());
+        const accepted = await sendCommand(project.id, { actorId: actorId as string, kind: 'export', key: exportKeys.current.get(slot)!, body: { review_version: latestReview, format } }) as Accepted;
+        for (let tries = 0; ; tries++) {
+          const job = await getExportJob(project.id, accepted.job_id);
+          if (job.status === 'SUCCEEDED' || job.status === 'PARTIAL') break;
+          if (job.status === 'FAILED' || job.status === 'CANCELLED') throw new Error(`${format} 출력을 만들지 못했습니다. 잠시 뒤 다시 누르세요.`);
+          if (tries > 80) throw new Error(`${format} 출력이 아직 끝나지 않았습니다. 잠시 뒤 다시 누르면 이어서 받습니다.`);
+          await new Promise(resolve => setTimeout(resolve, EXPORT_POLL_MS));
+        }
+        exportKeys.current.delete(slot);
+        done = { export_id: accepted.export_id, file_name: null } as ExportRow;
+      }
+      const file = await downloadExportFile(project.id, done.export_id, format);
+      const url = URL.createObjectURL(file.blob); const link = document.createElement('a');
+      link.href = url; link.download = file.name ?? done.file_name ?? `${project.external_id ?? 'RFP'}.${format.toLowerCase()}`; link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      return format;
+    },
+    onSettled: () => client.invalidateQueries({ queryKey: ['rfp-draft-exports', actorId, project.id] }),
   });
   const ready = !gate.undecided && !gate.deviation_missing && !gate.open_queries && !gate.review_pending;
   const deviations = rows.filter(r => r.decision?.action === 'record_deviation');
@@ -561,7 +595,12 @@ function Output({ project, rows, excluded = [], responsible, actorId, onJump, on
       <GateItem n={gate.review_pending} label="책임자 확인 대기" />
       <span className="sp" />
       {!responsible && <button className="kb primary" disabled={!ready || save.isPending} onClick={() => save.mutate()}>검토본 저장</button>}
+      <button className="kb" disabled={!latestReview || fileOut.isPending} title={latestReview ? `검토본 ${latestReview}판` : '검토본을 먼저 저장하세요'} onClick={() => fileOut.mutate('XLSX')}>대응 현황표 XLSX</button>
+      <button className="kb" disabled={!latestReview || fileOut.isPending} title={latestReview ? `검토본 ${latestReview}판` : '검토본을 먼저 저장하세요'} onClick={() => fileOut.mutate('DOCX')}>요약서 DOCX</button>
     </div>
+    {!latestReview && reviews.isSuccess && <p className="muted ws-note ws-outnote">검토본을 먼저 저장하세요. 대응 현황표 XLSX와 요약서 DOCX는 저장한 검토본으로 만듭니다.</p>}
+    {fileOut.isPending && <p className="muted ws-note ws-outnote" role="status">{fileOut.variables} 출력을 만들고 있습니다.</p>}
+    {fileOut.isError && <p role="alert" className="ws-alert">{failureText(fileOut.error)}</p>}
     {save.isError && <p role="alert" className="ws-alert">{failureText(save.error)}</p>}
     {save.isSuccess && <p className="ws-alert">검토본을 저장했습니다.</p>}
     {reviewBlock}

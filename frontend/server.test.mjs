@@ -782,6 +782,19 @@ test('web relay preserves DOCX attachment on the exact RFP export file route', a
   }, async () => new Response('PK-docx', { headers: { 'Content-Type': mime, 'Content-Disposition': 'attachment; filename="review.docx"' } }), true);
 });
 
+test('web relay preserves XLSX attachment on the RFP export file route', async () => {
+  const path = '/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/exports/22222222-2222-4222-8222-222222222222/file';
+  const mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const disposition = "attachment; filename=\"status.xlsx\"; filename*=UTF-8''RFP-91%20%ED%98%84%ED%99%A9%ED%91%9C.xlsx";
+  await fixture(async origin => {
+    const response = await fetch(origin + path);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), mime);
+    assert.equal(response.headers.get('content-disposition'), disposition);
+    assert.equal(await response.text(), 'PK-xlsx');
+  }, async () => new Response('PK-xlsx', { headers: { 'Content-Type': mime, 'Content-Disposition': disposition } }), true);
+});
+
 test('mail relay forwards only the reads and writes the mail screens use', async () => {
   const calls = [];
   const id = '11111111-1111-4111-8111-111111111111';
