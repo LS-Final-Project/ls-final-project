@@ -33,7 +33,7 @@ const MENU: Group[] = [
   {
     key: 'rfp', label: '제안 지원', leaves: [
       { label: '업무 홈', to: '/tft', end: true },
-      { label: 'RFP 검토', to: '/tft/projects', end: true, inProject: '', also: /\/(requirements\/|table(?:\/approvals)?$|supplement$)/ },
+      { label: 'RFP 검토', to: '/tft/projects', end: true, inProject: '', also: /\/(requirements\/|table(?:\/approvals)?$|supplement$|settings$)/ },
       { label: '초안 및 검토 이력', inProject: 'draft' },
     ],
   },

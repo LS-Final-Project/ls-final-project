@@ -19,10 +19,12 @@ import LsShell from './ls-shell/LsShell';
 import CsHome from './ls-shell/CsHome';
 import RfpHome from './rfp/RfpHome';
 import RfpIntake from './rfp/RfpIntake';
+import RfpList from './rfp/RfpList';
 import RfpRequirement from './rfp/RfpRequirement';
 import RfpReviewRedirect from './rfp/RfpReviewRedirect';
 import RfpApprovals from './rfp/RfpApprovals';
 import RfpDraft from './rfp/RfpDraft';
+import RfpWorkspace from './rfp/RfpWorkspace';
 
 export default function App() {
   return <Routes>
@@ -48,13 +50,16 @@ export default function App() {
       <Route path="cs/tickets" element={<Tickets />} />
       <Route path="cs/tickets/:ticketId" element={<TicketDetail />} />
       <Route path="tft" element={<RfpHome />} />
-      <Route path="tft/projects" element={<RfpIntake />} />
+      <Route path="tft/projects" element={<RfpList />} />
+      {/* 예전 대응표 북마크는 통합 작업 공간으로 보낸다(KAN-222). 승인·초안·요구 상세는 아직 작업 공간에 없는 기능이 있어 그대로 둔다. */}
       <Route path="tft/projects/:projectId/supplement" element={<RfpReviewRedirect />} />
       <Route path="tft/projects/:projectId/table" element={<RfpReviewRedirect />} />
       <Route path="tft/projects/:projectId/table/approvals" element={<RfpApprovals />} />
       <Route path="tft/projects/:projectId/draft" element={<RfpDraft />} />
       <Route path="tft/projects/:projectId/requirements/:requirementId" element={<RfpRequirement />} />
-      <Route path="tft/projects/:projectId" element={<RfpIntake />} />
+      {/* 프로젝트 설정: 문서 관리, 공급 조건, 통합 책임, 검토 부서, 도면 검토는 기존 화면을 그대로 쓴다. */}
+      <Route path="tft/projects/:projectId/settings" element={<RfpIntake />} />
+      <Route path="tft/projects/:projectId" element={<RfpWorkspace />} />
     </Route>
   </Routes>;
 }

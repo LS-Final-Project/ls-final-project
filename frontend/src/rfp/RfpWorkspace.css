@@ -1,0 +1,156 @@
+/* 통합 작업 공간(KAN-222). 국내 ERP 셸 안에서 쓴다. 상태 글자는 검은색, 강조는 네이비 한 색. */
+.ws{display:flex;flex-direction:column;gap:0}
+.ws .muted{color:#6b7684}
+.ws .sp{flex:1}
+.ws-strong{font-weight:400;color:#1f2a37}
+.ws-grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:12px;padding:12px 0}
+.ws-sec{background:#fff;border:1px solid #d5dbe3;min-width:0;display:flex;flex-direction:column}
+.ws-left{grid-column:span 7;min-height:640px}
+.ws-right{grid-column:span 5;min-height:640px}
+.ws-center{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:24px}
+.ws-drop{flex:1;margin:16px;border:1px dashed #9aa7b8;background:#fafbfc;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;cursor:pointer;min-height:300px}
+.ws-ready{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px}
+.ws-file{display:flex;align-items:center;gap:12px;padding:10px 14px;border:1px solid #d5dbe3;background:#fafbfc;min-width:420px}
+.ws-field{display:flex;flex-direction:column;gap:4px;font-size:12px;color:#6b7684;width:100%;max-width:440px}
+.ws-field.inline{flex-direction:row;align-items:center;gap:8px;width:auto}
+.ws-field input,.ws-field select{font:inherit;font-size:13px;color:#1f2a37;border:1px solid #c4ccd6;padding:5px 8px;min-height:30px;box-sizing:border-box}
+.ws-big{min-height:36px;padding:7px 18px}
+.ws-link{all:unset;cursor:pointer;color:#24518a;font-size:12px}
+.ws-link:focus-visible,.ws-rowbtn:focus-visible{outline:2px solid #24518a}
+.ws-link[disabled]{opacity:.5;cursor:default}
+.ws-alert{margin:6px 0}
+
+.ws-strip{display:flex;align-items:center;gap:12px;padding:9px 12px;background:#fff;border:1px solid #e1e6ec;flex-wrap:wrap;margin-top:12px}
+.ws-persona{width:30px;height:30px;display:inline-flex}
+.ws-persona>*{width:30px!important;height:30px!important}
+.ws-shim{font-size:14px;font-weight:400;background:linear-gradient(90deg,#1f2a37 0%,#1f2a37 38%,#a7b1be 50%,#1f2a37 62%,#1f2a37 100%);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:ws-shimmer 2.2s linear infinite}
+@keyframes ws-shimmer{from{background-position:100% 0}to{background-position:0 0}}
+.ws-seg{display:flex;gap:3px}
+.ws-seg i{display:block;width:14px;height:3px;background:#dfe5ee}
+.ws-seg i.done,.ws-seg i.now{background:#24518a}
+.ws-seg i.now{animation:ws-pulse 1.2s ease-in-out infinite}
+.ws-seg i.stop{background:#9aa3ae}
+@keyframes ws-pulse{50%{opacity:.35}}
+.ws-line{flex:1 1 300px;min-width:0;font-size:12px;color:#97a1ad;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ws-log{background:#fff;border:1px solid #e1e6ec;border-top:0;padding:8px 12px}
+.ws-track{flex:0 1 320px;height:6px;background:#e6eaf0;position:relative}
+.ws-track>span{position:absolute;left:0;top:0;bottom:0;background:#24518a;transition:width .3s}
+@media (prefers-reduced-motion:reduce){.ws-shim,.ws-seg i.now,.ws-skel .sk{animation:none}.ws-shim{color:#1f2a37;background:none}}
+
+.ws-skel{padding:16px;display:flex;flex-direction:column;gap:14px}
+.ws-skel .sk{display:block;height:10px;background:linear-gradient(90deg,#eef1f5 0%,#e2e7ee 50%,#eef1f5 100%);background-size:200% 100%;animation:ws-skel 1.4s linear infinite}
+@keyframes ws-skel{from{background-position:100% 0}to{background-position:-100% 0}}
+
+.ws-tabs{display:flex;gap:0;margin-top:12px}
+.ws-tabs button,.ws-dtabs button{font:inherit;font-size:13px;border:1px solid #d5dbe3;border-bottom:0;background:#eef1f5;color:#4b5563;padding:7px 16px;cursor:pointer;margin-right:-1px;min-height:34px}
+.ws-tabs button.on,.ws-dtabs button.on{background:#fff;color:#1f2a37;box-shadow:inset 0 2px 0 #24518a}
+.ws-filters{display:flex;align-items:center;gap:4px;padding:10px 0 0;flex-wrap:wrap}
+.ws-chip{font:inherit;font-size:12px;border:1px solid transparent;background:none;padding:4px 9px;cursor:pointer;color:#3b4654;min-height:28px}
+.ws-chip:hover{background:#eef2f7}
+.ws-chip.on{border-color:#24518a;background:#e9eff8;color:#1a3c68}
+.ws-vsep{width:1px;height:16px;background:#d5dbe3;margin:0 6px}
+
+.ws-tbox{height:680px;overflow:auto}
+.ws-table{width:100%;border-collapse:collapse;font-size:12px}
+.ws-table th{font-weight:400;background:#f3f5f8;color:#4b5563;border-bottom:1px solid #dde2e8;height:30px;padding:0 8px;text-align:left;position:sticky;top:0}
+.ws-table td{border-bottom:1px solid #edf0f3;height:34px;padding:0 8px}
+.ws-table .r{text-align:right}
+.ws-table tr.g td{background:#f6f8fb;height:30px;color:#2d3846}
+.ws-table tr.row{cursor:pointer}
+.ws-table tr.row:hover td{background:#f7f9fc}
+.ws-table tr.sel td{background:#e9f0fa}
+.ws-table tr.sel td:first-child{box-shadow:inset 3px 0 0 #24518a}
+.ws-table tr.decided td{color:#9aa3ae}
+.ws-table td.empty,.ws-cmp .v.empty{color:#9a6b00}
+.ws-table .tag{font-size:11px;color:#6b7684}
+.ws-rowbtn{all:unset;cursor:pointer}
+.ws-act{min-height:24px;padding:2px 9px}
+
+.ws-panel{display:flex;flex-direction:column;height:100%}
+.ws-pick{padding:10px 12px;border-bottom:1px solid #e1e6ec;display:flex;flex-direction:column;gap:8px}
+.ws-pick .hd{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ws-pick .name{font-size:14px;font-weight:500}
+.ws-pick .dot{width:7px;height:7px;border-radius:50%;background:#7d93b5;display:inline-block}
+.ws-cmp{display:grid;grid-template-columns:72px minmax(0,1fr);border:1px solid #e3e7ec}
+.ws-cmp>span{padding:7px 10px;border-bottom:1px solid #eef1f4}
+.ws-cmp .k{color:#6b7684;background:#f8f9fb;font-size:12px}
+.ws-cmp .v{font-size:14px}
+.ws-why{margin:0;font-size:12px;color:#6b7684;line-height:1.55}
+.ws-decided{display:flex;align-items:center;gap:10px;padding:8px 10px;background:#f3f6fa;border:1px solid #dfe5ee}
+.ws-note{margin:0;font-size:12px}
+.ws-form{display:flex;flex-direction:column;gap:8px}
+.ws-opts,.ws-plist{display:flex;gap:14px;flex-wrap:wrap}
+.ws-plist{flex-direction:column;gap:4px}
+.ws-plist label.off{color:#9aa3ae}
+.ws-label{font-size:12px;color:#6b7684}
+.ws-go{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.ws-change{margin-top:4px}
+.ws-srcbar{display:flex;align-items:center;gap:6px;padding:6px 12px;border-bottom:1px solid #e1e6ec;background:#f8f9fb}
+.ws-seg2{display:inline-flex}
+.ws-seg2 button{font:inherit;font-size:12px;border:1px solid #c4ccd6;background:#fff;padding:3px 9px;margin-left:-1px;cursor:pointer}
+.ws-seg2 button.on{background:#e9eff8;border-color:#24518a;color:#1a3c68}
+.ws-source{flex:1;overflow:auto;min-height:300px}
+.ws-quote{padding:12px 16px;line-height:1.75;margin:0;background:#fdf1c4}
+
+.ws-out{display:flex;flex-direction:column;gap:12px;padding:12px 0}
+.ws-gate{display:flex;align-items:center;gap:18px;padding:10px 12px;background:#fff;border:1px solid #e1e6ec;flex-wrap:wrap}
+.ws-gateitem{font:inherit;font-size:13px;background:none;border:0;padding:0;color:#1f2a37}
+button.ws-gateitem{color:#24518a;cursor:pointer}
+.ws-review h2,.ws-doc h2{margin:0;font-size:13px;font-weight:500;padding:8px 12px;border-bottom:1px solid #e1e6ec;background:#f8f9fb;display:flex;gap:8px;align-items:center}
+.ws-dtabs{display:flex}
+.ws-sum{padding:14px 18px;line-height:1.7}
+
+/* 업무 홈 오늘 할 일 */
+.rfp-today{list-style:none;margin:0;padding:0}
+.rfp-today li{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr) auto;align-items:center;gap:12px;padding:8px 12px;border-bottom:1px solid #edf0f3}
+.rfp-today .muted{color:#6b7684}
+.ws-search{font:inherit;font-size:12px;border:1px solid #c4ccd6;padding:4px 8px;min-height:28px;width:200px}
+.ws-remain{font-size:12px}
+.ws-bulk{margin-left:12px}
+.ws-confirm{margin-left:12px;font-size:12px}
+.ws-bulkbar{display:flex;align-items:center;gap:12px;padding:6px 10px;border-bottom:1px solid #e1e6ec;background:#f3f6fa;flex-wrap:wrap}
+.ws-bulkline,.ws-similar{margin:6px 0;font-size:12px;display:flex;align-items:center;gap:8px}
+.ws-similar{padding:6px 12px;border-bottom:1px solid #e1e6ec;background:#f3f6fa;margin:0}
+.ws-filters .sp{flex:1}
+.ws-filters .ws-field.inline select{width:auto;max-width:160px}
+.ws-filters input.ws-search{flex:0 0 200px;width:200px}
+.ws-table tr.g td .muted{display:inline;margin-left:4px}
+.ws-table td.r .kb{white-space:nowrap}
+.ws-histlink{display:block;margin:8px 12px;font-size:12px}
+.ws-hist{padding:6px 12px 10px;font-size:12px;border-top:1px solid #e1e6ec}
+.ws-hist ol{list-style:none;margin:0;padding:0}
+.ws-hist li{padding:3px 0;font-weight:300}
+.ws-histtable td{font-size:12px;font-weight:300}
+.ws-badge{margin-left:6px;font-size:11px;padding:1px 6px;border:1px solid #24518a;color:#24518a;white-space:nowrap}
+.ws-small{font-size:11px}
+.ws-quote-line{display:block;font-size:12px;margin-top:2px}
+.ws-drop input[type=file]{display:none}
+.ws-dtabs button .muted{display:inline;margin-left:4px}
+.ws-histfilter{padding:6px 12px}
+.ws-resume{margin:0 24px 24px;border-top:1px solid #e1e6ec;padding-top:10px;font-size:12px}
+.ws-resume p{display:flex;justify-content:space-between;gap:12px;margin:4px 0}
+.ws-dtabs button{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+.ws-badge.gray{border-color:#9aa4b1;color:#4b5563}
+.ws-quoteval{white-space:normal;line-height:1.5}
+.ws-exclude{padding:6px 12px}
+.ws-alert{color:#b42318}
+.ls-root .ws-table .ws-badge{display:inline-block;width:auto;line-height:16px;vertical-align:middle}
+.ws-field.inline{white-space:nowrap}
+.ws-field.inline input{width:auto;min-width:0}
+.ws-mark{background:#fff0a6;color:inherit;padding:0 1px}
+.ws-tabs button{white-space:nowrap}
+.ls-root .ws-opts label{display:inline-flex;align-items:center;gap:4px;margin-right:14px;width:auto}
+.ws-strip .ws-link{font-size:12px}
+.ls-root .ws-tabs button .muted{display:inline;margin-left:6px}
+.ls-root .ws-opts{display:flex;gap:14px;flex-wrap:wrap}
+.ls-root .ws-opts label{white-space:nowrap;flex:none}
+/* 작업 공간 원문 칸: 보드처럼 원문 막대 바로 아래에 문서를 두고, 고른 요구의 인용문이 칸 안 위쪽에 보이게 높이를 줄인다. */
+.ws-source .rfp-original-pane>header,.ws-source .rfp-review-help{display:none}
+.ws-source .rfp-docx-frame,.ws-source .rfp-pdf-scroll{height:420px;min-height:0}
+.ls-root .ws-field.inline input,.ls-root .ws-field.inline select{width:auto}
+.ws-form .ws-go{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.ws-reply{margin:6px 0 2px}
+/* 셸의 ".kv div span{display:block}"이 패널 글을 줄마다 끊지 않게 한다. */
+.ls-root .ws .ws-panel span:where(:not(.ws-quote-line)){display:inline}
+.ws-form{gap:6px}
+.ws-form p{margin:4px 0}

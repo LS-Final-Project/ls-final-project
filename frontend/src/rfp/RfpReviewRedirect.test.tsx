@@ -10,7 +10,7 @@ vi.mock('../ls-shell/LsShell', async () => {
   return { default: () => <Outlet /> };
 });
 function Review() { const location = useLocation(); const { projectId } = useParams(); return <div data-testid="review">{projectId}:{location.pathname}{location.search}{location.hash}</div>; }
-vi.mock('./RfpIntake', () => ({ default: () => <Review /> }));
+vi.mock('./RfpWorkspace', () => ({ default: () => <Review /> }));
 vi.mock('./RfpApprovals', () => ({ default: () => <p>기존 승인 화면</p> }));
 vi.mock('./RfpRequirement', () => ({ default: () => <p>기존 요구 수정 화면</p> }));
 afterEach(cleanup);

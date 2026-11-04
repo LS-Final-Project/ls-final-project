@@ -36,6 +36,7 @@ export type RequirementFilters = {
   has_open_question?: boolean;
   next_owner_field?: string;
   unresolved_mandatory?: boolean;
+  excluded?: boolean;
 };
 
 export function listRequirements(projectId: string, filters: RequirementFilters, limit: number, cursor?: string, options: { useMockFallback?: boolean; signal?: AbortSignal } = {}) {
@@ -222,4 +223,40 @@ export const unsupportedRoute = (error: unknown) => error instanceof ApiError &&
 // 저장된 근거만 재비교한다. 모델 호출과 판정 자동 승인은 하지 않는다.
 export const recompareRequirement = (id: string, version: number, key: string) => request<Envelope<{ comparison: Comparison; proposal: Proposal | null }>>(
   `/api/v1/tft/requirements/${encodeURIComponent(id)}/recompare`, json(key, { version }),
+);
+
+// KAN-219·220 결정 경로. 결정 하나를 제안 작성과 승인까지 한 번에 확정한다. 책임자 확인·되돌려 보내기도 같은 경로다.
+export type DecisionRequest = Schemas['DecisionRequest'];
+export type DecisionResult = Schemas['DecisionResult'];
+export type BidVerdict = NonNullable<RequirementSummary['bid_verdict']>;
+export const decideRequirement = (id: string, body: DecisionRequest, key: string) => request<Envelope<DecisionResult>>(
+  `/api/v1/tft/requirements/${encodeURIComponent(id)}/decision`, json(key, body),
+);
+
+// 변경 이력(KAN-226). kind는 쉼표로 잇는다(중계가 같은 키 반복을 막는다).
+export type HistoryItem = Schemas['HistoryEvent'];
+export type HistoryKind = HistoryItem['kind'];
+export type HistoryPage = Schemas['HistoryPage'];
+const historyQuery = (kinds: HistoryKind[] = [], actor?: string, cursor?: string | null) => {
+  const q = new URLSearchParams({ limit: '50' });
+  if (kinds.length) q.set('kind', kinds.join(','));
+  if (actor) q.set('actor', actor);
+  if (cursor) q.set('cursor', cursor);
+  return q.toString();
+};
+const MOCK_HISTORY: HistoryPage = { items: [
+  { id: 'h2', at: '2026-11-04T10:12:00Z', kind: 'decision', actor_user_id: null, requirement_id: '00000000-0000-4000-8000-000000000016', requirement_version: 2, summary: '편차 기재', before: null, after: { action: 'record_deviation' } },
+  { id: 'h1', at: '2026-11-04T09:00:00Z', kind: 'ai_verdict', actor_user_id: null, requirement_id: '00000000-0000-4000-8000-000000000016', requirement_version: 1, summary: 'AI 판정', before: null, after: { status: 'SPEC_GAP' } },
+], next_cursor: null };
+export const listRequirementHistory = (id: string, cursor?: string | null) => request<Envelope<HistoryPage>>(
+  `/api/v1/tft/requirements/${encodeURIComponent(id)}/history?${historyQuery([], undefined, cursor)}`, { mockFallback: mock(MOCK_HISTORY) },
+);
+export const listProjectHistory = (id: string, kinds: HistoryKind[], actor?: string, cursor?: string | null) => request<Envelope<HistoryPage>>(
+  `/api/v1/tft/projects/${encodeURIComponent(id)}/history?${historyQuery(kinds, actor, cursor)}`, { mockFallback: mock(MOCK_HISTORY) },
+);
+
+// 원문에서 요구 직접 추가(KAN-225). 422는 근거 불일치, 409는 같은 요구가 있음(allow_duplicate로 다시 보낸다).
+export type ManualRequirementRequest = Schemas['ManualRequirementRequest'];
+export const addRequirement = (projectId: string, body: ManualRequirementRequest, key: string) => request<Envelope<DecisionResult>>(
+  `/api/v1/tft/projects/${encodeURIComponent(projectId)}/requirements`, json(key, body),
 );
