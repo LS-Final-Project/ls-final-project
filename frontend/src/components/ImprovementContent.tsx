@@ -208,9 +208,9 @@ export default function ImprovementContent({ request: r, title, tags, locked, on
   }
 
   const busy = phase !== 'idle';
-  // 저장된 AI 초안이 있고 아직 내용에 반영하지 않았으면 초안을 보인다(새로고침해도 서버 저장본을 다시 읽어 보인다).
-  // 반영했으면(검토할 문제가 같음) 현재 내용을 보인다.
-  const showAi = !!draft && draft.problem_statement !== r.problem_statement;
+  // 저장된 AI 초안은 그 초안을 읽은 판본 그대로일 때만 보인다(새로고침해도 서버 저장본을 다시 읽어 보인다).
+  // 반영·직접 수정·근거 변경·검토 등 무엇이든 저장해 판본이 바뀌면 현재 내용을 보인다. 사람이 고친 내용을 초안이 가리지 않는다.
+  const showAi = !!draft && draft.request_version === r.version;
   const pending = showAi ? '반영하지 않은 AI 초안이 있습니다. 개선 요청 작성의 "검토 완료"나 "수정"으로 반영하세요.'
     : ruleOnly ? '요청 내용이 비어 있습니다. "✦ AI 초안 작성"으로 초안을 만들거나 "내용 수정"으로 직접 쓴 뒤 검토하세요.' : null;
   useEffect(() => { onPending?.(pending); }, [pending, onPending]);

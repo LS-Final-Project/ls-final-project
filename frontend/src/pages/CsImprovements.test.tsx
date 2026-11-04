@@ -1,6 +1,6 @@
 import { focusManager } from '@tanstack/react-query';
 import { afterEach, expect, test, vi } from 'vitest';
-import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { Route, Routes } from 'react-router-dom';
 import CsImprovements from './CsImprovements';
 import type { ImprovementDetail } from '../api/cs-improvements';
@@ -176,8 +176,8 @@ test('근거 비교에서 후보는 넣고 포함된 근거는 사유를 적어 
  // FW·현장 방문은 어느 근거에도 값이 없어 칸을 그리지 않는다.
  expect(table.textContent).not.toMatch(/고장 당시 FW|현장 방문/);
  const writes=()=>fetch.mock.calls.filter(([,init])=>init?.method==='POST');
- await waitFor(()=>expect((screen.getByRole('button',{name:'넣기'}) as HTMLButtonElement).disabled).toBe(false));
- fireEvent.click(screen.getByRole('button',{name:'넣기'}));
+ await waitFor(()=>expect((within(table).getByRole('button',{name:'넣기'}) as HTMLButtonElement).disabled).toBe(false));
+ fireEvent.click(within(table).getByRole('button',{name:'넣기'}));
  await waitFor(()=>expect(writes()).toHaveLength(1));
  expect(String(writes()[0][0])).toMatch(/\/evidence$/);expect(JSON.parse(writes()[0][1]!.body as string)).toEqual({ticket_id:'cccccccc-cccc-4ccc-8ccc-cccccccccccc',case_id:'44444444-4444-4444-8444-444444444499',version:base.data.request.version});
  await screen.findByText('CAND-1를 근거에 넣었습니다.');
@@ -239,7 +239,7 @@ test('규칙 값만 있는 시스템 초안은 칸을 비워(-) 보이고 AI 초
  await screen.findByText('사람이 쓴 사실');expect(screen.queryByText(/아직 요청 내용이 없습니다/)).toBeNull();
 });
 
-test('저장된 AI 초안이 있으면 새로 들어와도 초안을 보이고, 반영한 뒤에는 현재 내용을 보인다',async()=>{
+test('저장된 AI 초안은 그 판본 그대로일 때 새로 들어와도 보이고, 판본이 바뀌면 현재 내용을 보인다',async()=>{
  const base=structuredClone(source) as unknown as ImprovementDetail;const id=base.data.request.id;
  const draft={id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab',created_at:'2026-11-03T01:00:00Z',request_version:base.data.request.version,stale:false,input_version:'v1',prompt_version:'v1',requested_model:'m',model_version:null,
   problem_statement:'저장된 AI 문제',confirmed_facts:[],inconsistencies:[],missing_info:[],not_claimed:[],review_task:'',proposed_depts:[],dept_questions:[],evidence:[]};
@@ -247,7 +247,8 @@ test('저장된 AI 초안이 있으면 새로 들어와도 초안을 보이고, 
  vi.stubGlobal('fetch',fetch);view();
  await screen.findByRole('heading',{name:'저장된 AI 문제'});expect(screen.getByRole('button',{name:'검토 완료'})).toBeTruthy();
  expect(fetch.mock.calls.some(([url,init])=>String(url).endsWith('/ai-draft')&&init?.method==='POST')).toBe(false);
- cleanup();base.data.request.problem_statement='저장된 AI 문제';view();
+ // 반영(또는 직접 수정)으로 판본이 바뀌면 초안 대신 현재 내용을 보인다.
+ cleanup();base.data.request.problem_statement='저장된 AI 문제';base.data.request.version+=1;view();
  await screen.findByRole('heading',{name:'저장된 AI 문제'});expect(screen.queryByRole('button',{name:'검토 완료'})).toBeNull();
 });
 
@@ -296,4 +297,19 @@ test('단계 바는 지금 해야 할 단계를 표시하고, 근거 칸을 누�
  const fold=screen.getByRole('button',{name:/근거 비교/});expect(fold.getAttribute('aria-expanded')).toBe('false');
  fireEvent.click(screen.getByTitle('근거 비교 열기'));
  await waitFor(()=>expect(fold.getAttribute('aria-expanded')).toBe('true'));
+});
+
+test('문서 요청도 근거 비교에서 문의 ID로 근거를 직접 넣는다',async()=>{
+ const body=structuredClone(source) as unknown as ImprovementDetail;const r=body.data.request;r.request_type='DOCUMENT';r.fault_id=null;r.doc_signal='NOT_FOUND';
+ const fetch=vi.fn(async(url:RequestInfo|URL,_init?:RequestInit)=>{const path=String(url);
+  if(path.endsWith('/me'))return new Response(JSON.stringify({data:{roles:['cs_agent'],dept:null,managed_departments:[]}}),{headers:{'X-CSRF-Token':'synthetic'}});
+  if(path.includes('/case-comparison'))return jsonResponse(200,{data:{request_id:r.id,hidden_case_count:0,items:[]}});
+  return jsonResponse(200,body);});
+ vi.stubGlobal('fetch',fetch);view();
+ fireEvent.click(await screen.findByTitle('근거 비교 열기'));
+ const input=await screen.findByLabelText('추가할 문의 ID');expect(screen.queryByLabelText('추가할 해결 사례 ID')).toBeNull();
+ fireEvent.change(input,{target:{value:'22222222-2222-4222-8222-222222222299'}});
+ const add=screen.getAllByRole('button',{name:'넣기'}).find(b=>b.closest('.cmp-add'))!;await waitFor(()=>expect((add as HTMLButtonElement).disabled).toBe(false));fireEvent.click(add);
+ await waitFor(()=>expect(fetch.mock.calls.some(([url,init])=>String(url).endsWith('/evidence')&&init?.method==='POST')).toBe(true));
+ const call=fetch.mock.calls.find(([url])=>String(url).endsWith('/evidence'))!;expect(JSON.parse(call[1]!.body as string)).toEqual({ticket_id:'22222222-2222-4222-8222-222222222299',version:r.version});
 });

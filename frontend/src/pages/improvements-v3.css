@@ -198,3 +198,7 @@
 .ls-root .kv .td3.ir3 button.tag-box.link-box{font:inherit;cursor:pointer;border-color:#cfdcf2;background:#f4f7fc}
 .ls-root .kv .td3.ir3 button.tag-box.link-box b{color:#1f4fbf}
 .ls-root .kv .td3.ir3 button.tag-box.link-box:hover{border-color:#1f4fbf}
+/* 근거 비교: 문의 직접 추가 줄 */
+.ls-root .kv .td3.ir3 .cmp-add{flex-direction:row;align-items:center;gap:8px;border-top:1px solid #e6e9ee}
+.ls-root .kv .td3.ir3 .cmp-add .k{font-size:12.5px;color:#6b7385;white-space:nowrap}
+.ls-root .kv .td3.ir3 .cmp-add input{height:26px;width:300px;padding:0 8px;border:1px solid #c9cfda;font:inherit;font-size:12.5px}

@@ -111,16 +111,17 @@ function EvidenceCompare({ data, locked, onSaved, onEditingChange, openSignal = 
   useEffect(() => { onEditingChange(removing !== null); return () => onEditingChange(false); }, [removing, onEditingChange]);
   const writable = mode === 'live' && r.status !== 'COMPLETED' && !locked && !busy && !uncertain;
   const needsCase = r.request_type === 'FAULT';
-  const write = async (send: (signal: AbortSignal) => Promise<ImprovementDetail>, done: string) => {
-    if (controller.current) return;
+  const write = async (send: (signal: AbortSignal) => Promise<ImprovementDetail>, done: string): Promise<boolean> => {
+    if (controller.current) return false;
     const current = new AbortController(); controller.current = current;
     setBusy(true); setNotice(null);
     try {
       const result = await send(current.signal);
-      if (current.signal.aborted) return;
+      if (current.signal.aborted) return false;
       setRemoving(null); setNotice({ text: done, error: false }); onSaved(result);
+      return true;
     } catch (error) {
-      if (current.signal.aborted) return;
+      if (current.signal.aborted) return false;
       if (error instanceof ApiError && error.status !== 408 && error.status < 500) {
         setNotice({ text: error.status === 409 ? '다른 곳에서 요청이 먼저 바뀌었습니다. "최신 요청 조회"로 다시 읽은 뒤 확인하세요.' : error.message, error: true });
       } else {
@@ -131,7 +132,12 @@ function EvidenceCompare({ data, locked, onSaved, onEditingChange, openSignal = 
       if (controller.current === current) controller.current = null;
       if (!current.signal.aborted) setBusy(false);
     }
+    return false;
   };
+  const [direct, setDirect] = useState({ ticket: '', case: '' });
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const directOk = UUID.test(direct.ticket.trim()) && (!needsCase || UUID.test(direct.case.trim()));
+  const addDirect = () => { if (!directOk) return; void write(signal => addEvidence(r.id, { ticket_id: direct.ticket.trim(), ...(needsCase ? { case_id: direct.case.trim() } : {}), version: r.version }, signal), '문의를 근거에 넣었습니다.').then(ok => { if (ok) setDirect({ ticket: '', case: '' }); }); };
   const add = (row: CaseRow) => void write(signal => addEvidence(r.id, { ticket_id: row.ticket_id, case_id: row.case_id, version: r.version }, signal), `${row.ticket_external_id ?? '문의'}를 근거에 넣었습니다.`);
   const remove = () => { if (removing && removing.reason.trim()) void write(signal => removeEvidence(r.id, removing.evidence.id, { reason: removing.reason.trim(), version: r.version }, signal), `${removing.label}를 근거에서 뺐습니다.`); };
   const actor = (by: string | null) => by === null ? '시스템' : '담당자';
@@ -172,6 +178,13 @@ function EvidenceCompare({ data, locked, onSaved, onEditingChange, openSignal = 
           } },
         ]} />
       {comparison.data.data.hidden_case_count > 0 && <div className="pb"><p className="meta">볼 수 있는 범위 밖의 근거 {comparison.data.data.hidden_case_count}건은 비교표에서 뺐습니다.</p></div>}
+      {/* 후보 목록에 없는 문의를 직접 넣는다. 문서 요청은 후보가 없어 이 길로만 근거를 더한다(반려 뒤 새 근거 재요청 포함). */}
+      <form className="pb cmp-add" onSubmit={event => { event.preventDefault(); addDirect(); }}>
+        <span className="k">문의 직접 추가</span>
+        <input aria-label="추가할 문의 ID" placeholder="문의 시스템 ID" value={direct.ticket} disabled={!writable || removing !== null} onChange={event => setDirect({ ...direct, ticket: event.target.value })} />
+        {needsCase && <input aria-label="추가할 해결 사례 ID" placeholder="해결 사례 시스템 ID" value={direct.case} disabled={!writable || removing !== null} onChange={event => setDirect({ ...direct, case: event.target.value })} />}
+        <button className="kb3 sm" type="submit" disabled={!writable || removing !== null || !directOk}>넣기</button>
+      </form>
       {removing && <form className="pb sendbox cmp-remove" onSubmit={event => { event.preventDefault(); remove(); }}>
         <b>{removing.label} 근거에서 빼기</b>
         <label className="fr top"><span className="k">빼는 사유</span>
@@ -304,13 +317,13 @@ function ImprovementView(){
 
         <div className="irx ia-host"><ImprovementActions key={r.id} inline={false} reviewBlocked={reviewBlock} onControl={reportControl} onPrimary={reportPrimary} data={d} onEditingChange={setActing} onSaved={saved} onReload={refresh} uncertain={actionsUncertain} onUncertain={()=>setUncertainAt(detailUpdates)} locked={writing||sorting}/></div>
 
-        {r.request_type==='FAULT'&&<EvidenceCompare data={d} locked={writing||acting} onSaved={saved} onEditingChange={setSorting} openSignal={showEvidence}/>}
+        {<EvidenceCompare data={d} locked={writing||acting} onSaved={saved} onEditingChange={setSorting} openSignal={showEvidence}/>}
 
         <div className="cols">
-          <ImprovementContent key={`${r.id}:${r.version}`} request={r} title={titleOf(r)} ruleOnly={ruleOnly(r)} locked={acting||sorting} onSaved={saved} onReload={()=>{void detail.refetch();}} onEditingChange={setWriting} onPending={setReviewBlock} next={r.status==='REVIEWED'?control?.rows.filter(row=>row.kind==='send'&&!row.done).map(row=>actButton(row))[0]:undefined} tags={<div className="tags">
+          <ImprovementContent key={r.id} request={r} title={titleOf(r)} ruleOnly={ruleOnly(r)} locked={acting||sorting} onSaved={saved} onReload={()=>{void detail.refetch();}} onEditingChange={setWriting} onPending={setReviewBlock} next={r.status==='REVIEWED'?control?.rows.filter(row=>row.kind==='send'&&!row.done).map(row=>actButton(row))[0]:undefined} tags={<div className="tags">
             <span className="tag-box"><small>제품</small><b>{r.product_code}</b></span>
             {r.request_type==='FAULT'?<span className="tag-box"><small>고장</small><b>{r.fault_id??'미확인'}</b></span>:<span className="tag-box"><small>문서 신호</small><b>{r.doc_signal??'미확인'}</b></span>}
-            {r.request_type==='FAULT'?<button type="button" className="tag-box link-box" title="근거 비교 열기" onClick={()=>setShowEvidence(n=>n+1)}><small>근거</small><b>{d.evidence.filter(e=>!e.removed_at).length}건</b></button>:<span className="tag-box"><small>근거</small><b>{d.evidence.filter(e=>!e.removed_at).length}건</b></span>}
+            <button type="button" className="tag-box link-box" title="근거 비교 열기" onClick={()=>setShowEvidence(n=>n+1)}><small>근거</small><b>{d.evidence.filter(e=>!e.removed_at).length}건</b></button>
           </div>}/>
 
           <div className="stack">
