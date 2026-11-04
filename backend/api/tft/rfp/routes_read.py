@@ -377,15 +377,18 @@ async def list_requirements(
         page = rows[:limit]
         items = [await summary_of(conn, row) for row in page]
         from backend.api.tft.rfp.decisions import states
+        from backend.api.tft.rfp.grouping import marks
         from backend.api.tft.rfp.requirement_fields import own_values
 
         ids = [item.requirement_id for item in items]
-        found = await states(conn, project_id, ids)
+        marked = await marks(conn, project_id)
+        found = await states(conn, project_id, ids, marked)
         own = await own_values(conn, project_id, ids)
         for item in items:
             if item.requirement_id in found:
                 item.bid_verdict, item.decision = found[item.requirement_id]  # type: ignore[assignment]
             item.own_value = own.get(item.requirement_id)
+            marked.apply(item)
     more = len(rows) > limit
     return s.RequirementList(
         items=items,
@@ -537,13 +540,16 @@ async def requirement_out(
         requirement, parts, state=state, rnd_question=question, needs_rereview=rereview
     )
     from backend.api.tft.rfp.decisions import states
+    from backend.api.tft.rfp.grouping import marks
     from backend.api.tft.rfp.requirement_fields import own_values
 
-    found = await states(conn, requirement["project_id"], [requirement_id])
+    marked = await marks(conn, requirement["project_id"])
+    found = await states(conn, requirement["project_id"], [requirement_id], marked)
     if requirement_id in found:
         detail.bid_verdict, detail.decision = found[requirement_id]  # type: ignore[assignment]
     own = await own_values(conn, requirement["project_id"], [requirement_id])
     detail.own_value = own.get(requirement_id)
+    marked.apply(detail)
     return detail
 
 
