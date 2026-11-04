@@ -4,7 +4,23 @@ from collections import Counter
 from xml.etree import ElementTree as ET
 
 from backend.api.tft.rfp import docx_layout as layout
+from backend.api.tft.rfp.bid_outputs import clause_label, requirement_label
 from backend.api.tft.rfp.context_schemas import ContextResponse
+
+# 검토용 부록에도 내부 코드·영문 열거값을 그대로 쓰지 않는다(40444 흐름 점검, 검토본 DOCX).
+STATUS = {"CURRENT": "최신", "STALE": "원문·요구가 바뀌어 다시 정리 필요", "UNKNOWN": "확인 불가"}
+KIND = {"SYSTEM": "계통", "EQUIPMENT": "설비", "TASK": "업무", "COMMON": "공통"}
+RELATION = {
+    "SAME_EQUIPMENT": "같은 설비",
+    "PART_OF": "구성품",
+    "APPLIES_TO": "적용",
+    "RELATED": "관련",
+}
+
+
+def diagram_label(source_id: str) -> str:
+    return clause_label(source_id.rsplit(":", 1)[-1])
+
 
 CATEGORIES = {
     "EQUIPMENT": "설비·장비",
@@ -36,7 +52,7 @@ def append_context_report(body: ET.Element, snapshot: ContextResponse | None) ->
         return
     layout.paragraph(
         body,
-        f"문맥 판본 {snapshot.version or '없음'} / 검토본 저장 시 상태: {snapshot.status}",
+        f"문맥 판본 {snapshot.version or '없음'} / 검토본 저장 시 상태: {STATUS.get(snapshot.status, snapshot.status)}",
         "Meta",
     )
     layout.paragraph(
@@ -99,7 +115,7 @@ def append_context_report(body: ET.Element, snapshot: ContextResponse | None) ->
         parent = groups.get(group.parent_id or "")
         layout.paragraph(
             body,
-            f"{group.name} [{group.kind}] / 상위: {parent.name if parent else '없음·미지정'}",
+            f"{group.name} [{KIND.get(group.kind, group.kind)}] / 상위: {parent.name if parent else '없음·미지정'}",
             "Heading3",
         )
         layout.paragraph(
@@ -110,11 +126,18 @@ def append_context_report(body: ET.Element, snapshot: ContextResponse | None) ->
         layout.paragraph(
             body,
             "묶음 근거: "
-            + ", ".join(refs[r].code if r in refs else r for r in group.evidence_requirement_ids),
+            + ", ".join(
+                requirement_label(refs[r].code) if r in refs else r
+                for r in group.evidence_requirement_ids
+            ),
             "Meta",
         )
         if group.diagram_source_ids:
-            layout.paragraph(body, "도면 원본 참조: " + ", ".join(group.diagram_source_ids), "Meta")
+            layout.paragraph(
+                body,
+                "도면 원본 참조: " + ", ".join(diagram_label(d) for d in group.diagram_source_ids),
+                "Meta",
+            )
     layout.paragraph(body, "요구별 추적표 · 원문과 판단", "Heading2")
     widths = (1000, 1800, 2480, 4100)
     table = layout.table(
@@ -125,7 +148,7 @@ def append_context_report(body: ET.Element, snapshot: ContextResponse | None) ->
         cells = layout.table_row(table, widths)
         layout.paragraph(
             cells[0],
-            f"{ref.code if ref else row.requirement_id} / v{req.version if req else '미확인'}",
+            f"{requirement_label(ref.code) if ref else row.requirement_id} / v{req.version if req else '미확인'}",
             "TableText",
         )
         layout.paragraph(cells[1], CATEGORIES[row.primary_category], "TableText")
@@ -143,7 +166,7 @@ def append_context_report(body: ET.Element, snapshot: ContextResponse | None) ->
         for relation in row.relations:
             layout.paragraph(
                 cells[1],
-                f"관계 후보: {relation.relation} / {groups[relation.group_id].name if relation.group_id in groups else relation.group_id}",
+                f"관계 후보: {RELATION.get(relation.relation, relation.relation)} / {groups[relation.group_id].name if relation.group_id in groups else relation.group_id}",
                 "TableText",
             )
         layout.paragraph(
@@ -157,7 +180,7 @@ def append_context_report(body: ET.Element, snapshot: ContextResponse | None) ->
         if ref:
             layout.paragraph(
                 cells[3],
-                f"문서 {ref.document_id} / 판본 {ref.document_version_id} / 조항 {ref.clause_id or '미연결'} / 쪽 {ref.page or '미확인'}",
+                f"출처 {requirement_label(ref.code)} / 쪽 {ref.page or '미확인'}",
                 "TableText",
             )
             layout.paragraph(cells[3], ref.quote, "TableText")
@@ -167,12 +190,15 @@ def append_context_report(body: ET.Element, snapshot: ContextResponse | None) ->
         layout.paragraph(
             cells[3],
             "근거 요구: "
-            + ", ".join(refs[r].code if r in refs else r for r in row.evidence_requirement_ids),
+            + ", ".join(
+                requirement_label(refs[r].code) if r in refs else r
+                for r in row.evidence_requirement_ids
+            ),
             "TableText",
         )
     layout.paragraph(body, "미해결·확인할 사항", "Heading2")
     for issue in result.issues:
-        layout.paragraph(body, f"{issue.code}: {issue.message}", "Meta")
+        layout.paragraph(body, f"{issue.message}", "Meta")
         layout.paragraph(
             body,
             "대상 요구: "
