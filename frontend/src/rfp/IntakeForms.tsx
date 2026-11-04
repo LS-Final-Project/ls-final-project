@@ -156,7 +156,7 @@ export function ProcessForm({ projectId, documents, rerun, onCancel, onStarted }
   documents: DocumentVersion[];
   rerun: boolean;
   onCancel: () => void;
-  onStarted: (job: Pick<JobStatus, 'job_id'>) => void;
+  onStarted: (job: Pick<JobStatus, 'job_id'>, documentIds: string[]) => void;
 }) {
   const mode = getApiMode();
   const client = useQueryClient();
@@ -166,7 +166,7 @@ export function ProcessForm({ projectId, documents, rerun, onCancel, onStarted }
   const [key, nextKey] = useAttemptKey(JSON.stringify(body));
   const start = useMutation({
     mutationFn: () => startProcess(projectId, body, key),
-    onSuccess: result => { nextKey(); client.invalidateQueries({ queryKey: ['projects', mode] }); onStarted(result.data); },
+    onSuccess: result => { nextKey(); client.invalidateQueries({ queryKey: ['projects', mode] }); onStarted(result.data, body.document_version_ids); },
     onError: error => { if (settled(error)) nextKey(); },
   });
   const ready = latest.length > 0 && (!rerun || reason.trim() !== '');
