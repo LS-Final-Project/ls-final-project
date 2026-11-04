@@ -58,6 +58,7 @@ class Proposal(BaseModel):
     external_id: str | None
     subject: str | None
     product_code: str
+    family: str | None = Field(description="product_master family; null for an unknown product.")
     body_language: str
     received_at: datetime
     priority: str | None = Field(description="Rule priority from the latest analysis, if any.")

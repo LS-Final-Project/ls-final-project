@@ -57,12 +57,14 @@ async def proposals(conn: Any, rows: list[Row]) -> list[Proposal]:
     inputs = [ticket_input(r, await priority_of(conn, r["id"])) for r in rows]
     by_id = {r["id"]: r for r in rows}
     priority = {t.ticket_id: t.priority for t in inputs}
+    family = {t.ticket_id: t.family for t in inputs}
     return [
         Proposal(
             ticket_id=d.ticket_id,
             external_id=by_id[d.ticket_id]["external_id"],
             subject=by_id[d.ticket_id]["subject"],
             product_code=by_id[d.ticket_id]["product_code"],
+            family=family[d.ticket_id],
             body_language=by_id[d.ticket_id]["body_language"],
             received_at=by_id[d.ticket_id]["received_at"],
             priority=priority[d.ticket_id],

@@ -5866,6 +5866,18 @@
             ],
             "title": "External Id"
           },
+          "family": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "product_master family; null for an unknown product.",
+            "title": "Family"
+          },
           "matched_family": {
             "anyOf": [
               {
@@ -5960,6 +5972,7 @@
           "external_id",
           "subject",
           "product_code",
+          "family",
           "body_language",
           "received_at",
           "priority",

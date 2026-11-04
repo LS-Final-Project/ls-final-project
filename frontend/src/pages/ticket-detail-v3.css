@@ -28,6 +28,8 @@
 .ls-root .kv .td3 .link{color:#1f4fbf;text-decoration:none}
 .ls-root .kv .td3 .mini{margin-left:auto;font-size:11px;font-weight:500;color:#3a4558;border:1px solid #c9cfda;padding:1px 7px;background:#fff;cursor:pointer}
 .ls-root .kv .td3 .mini:disabled{color:#a3aab6;cursor:default}
+/* 자동 배정 근거(KAN-214): 담당 이름 옆 한 줄, 넘치면 말줄임(전체는 title). */
+.ls-root .kv .td3 .info .v .assign-why{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;font-weight:400;color:#6b7385}
 .ls-root .kv .td3 .steps{background:#fff;border:1px solid #d9dde4;min-height:52px;display:flex;align-items:center;padding:0 12px;flex-wrap:wrap}
 .ls-root .kv .td3 .sw{display:inline-flex;align-items:center}
 .ls-root .kv .td3 .st{display:inline-flex;align-items:center;gap:6px;color:#6b7385}
