@@ -50,6 +50,7 @@ MIGRATIONS = (
     "20261124_KAN-227_drawing_check.sql",
     "20261124_KAN-228_bulk_and_sends.sql",
     "20261125_KAN-224_reply_value_reads.sql",
+    "20261126_KAN-232_regrade.sql",
 )
 # 다시 적용해도 깨지지 않는 KAN-182 마이그레이션(매번 적용한다).
 RERUNNABLE = MIGRATIONS[2:]

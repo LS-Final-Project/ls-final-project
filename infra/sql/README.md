@@ -454,6 +454,12 @@ TFT `20261125_KAN-224_reply_value_reads.sql`은 `20261124_KAN-228_bulk_and_sends
 둘 다 다시 적용해도 깨지지 않는다. `20261104_KAN-199_tft_worker.sql` 재적용도 표가 있으면 같은 worker 권한을 복구한다.
 플랫폼 CHECK를 다시 정의하는 이전 파일(20261109·20261118)을 나중에 다시 적용하면 이 조합이 빠지므로 이 파일을 그 뒤에 다시 적용한다.
 
+## KAN-232 다시 채점의 자사 비교
+
+TFT `20261126_KAN-232_regrade.sql`은 `20261125_KAN-224_reply_value_reads.sql` 뒤에 적용한다. 표·행은 바꾸지 않고
+tft_worker에 `tft.requirements(latest_version)` UPDATE와 `tft.requirement_recomparisons` INSERT만 준다(다시 채점이 AI 판단의
+새 판본과 비교 사본을 쓴다). 다시 적용해도 깨지지 않는다. `20261104_KAN-199_tft_worker.sql` 재적용도 같은 권한을 복구한다.
+
 ## KAN-224 후속 질의 연결
 
 TFT `20261122_KAN-224_question_follow_up.sql`은 `20261121_KAN-218_decisions.sql` 뒤에 적용한다.

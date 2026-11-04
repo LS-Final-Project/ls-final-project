@@ -488,7 +488,7 @@ function RowLine({ r, sel, onPick, responsible, checkable, checked, onCheck, rep
     <td className="tag" title={r.equipment ?? undefined}>{r.equipment}</td>
     <td title={[r.attribute, codeLabel(r.code)].filter(Boolean).join(' · ')}><button className="ws-rowbtn" onClick={() => onPick(r.requirement_id)}>{r.attribute ?? codeLabel(r.code)}</button>{replied && !decided && <span className="ws-badge">회신 도착</span>}{r.decision?.manually_added && <span className="ws-badge gray">직접 추가</span>}{r.duplicate?.is_representative && <button className="ws-link ws-dup" aria-expanded={!!unfolded} onClick={event => { event.stopPropagation(); onUnfold?.(); }}>원문 {r.duplicate.member_count}곳</button>}</td>
     <td className={r.value_text ? '' : 'empty'} title={r.value_text ?? undefined}>{r.value_text ?? '빈 칸'}</td>
-    <td title={r.own_value ? `${ownValueText(r.own_value)} ${r.own_value.product_code}` : undefined}>{ownValueText(r.own_value)}{r.own_value && <small className="muted"> {r.own_value.product_code}</small>}</td>
+    <td title={r.own_value ? `${ownValueText(r.own_value)} ${r.own_value.product_code}` : undefined}>{ownValueText(r.own_value)}{r.own_value && <small className="muted"> {r.own_value.product_code}{r.own_value.note ? ` ${r.own_value.note}` : ''}</small>}</td>
     <td className="r">{member ? <span className="tag">대표를 따름</span> : kindOf(r) === 'QUERY' && queryText ? <span className="tag">{queryText}</span>
       : decided ? <span className="tag">{r.decision?.summary ?? '결정함'}</span>
       : !responsible && ROW_ACTION[kindOf(r)] ? <button className="kb ws-act" onClick={event => { event.stopPropagation(); onPick(r.requirement_id); }}>{ROW_ACTION[kindOf(r)]}</button> : null}</td>
@@ -538,7 +538,7 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
     {adding ? <AddRequirement projectId={projectId} quote={adding.quote} clause={adding.clause} equipment={row.equipment} onCancel={() => setAdding(undefined)} onDone={id => { setAdding(undefined); setPicked(''); onMove(id); }} />
     : <div className="ws-pick">
       <div className="hd"><span className="name">{row.attribute ?? codeLabel(row.code)}</span><span className="muted">{codeLabel(row.code)} {row.equipment}</span><span className="sp" /><span>{decided ? '결정함' : VERDICT[kindOf(row)]}</span>{!decided && <span className="dot" title="AI가 정한 판정입니다" aria-label="AI 판정" />}</div>
-      <div className="ws-cmp"><span className="k">요구</span><span className={row.value_text ? 'v' : 'v empty'}>{row.value_text ?? '빈 칸'}</span><span className="k">자사</span><span className="v">{ownText}{(row.own_value ?? own) && <small className="muted"> {row.own_value?.product_code ?? own?.product_code}</small>}</span></div>
+      <div className="ws-cmp"><span className="k">요구</span><span className={row.value_text ? 'v' : 'v empty'}>{row.value_text ?? '빈 칸'}</span><span className="k">자사</span><span className="v">{ownText}{(row.own_value ?? own) && <small className="muted"> {row.own_value?.product_code ?? own?.product_code}{row.own_value?.note ? ` ${row.own_value.note}` : ''}</small>}</span></div>
       {reason && <p className="ws-why">{reason}</p>}
       {followsOf(row) ? <div className="ws-decided"><span>원문 {row.duplicate?.member_count ?? 2}곳에 같은 요구가 있어 대표 요구에서 결정합니다.</span><span className="sp" /><button className="ws-link" onClick={() => onMove(followsOf(row) as string)}>대표로 이동</button></div>
       : replied && d && !responsible && row.bid_verdict === 'QUERY' ? <>
