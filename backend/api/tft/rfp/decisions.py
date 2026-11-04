@@ -9,12 +9,11 @@ from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 from uuid import UUID, uuid4
 
-from fastapi import HTTPException, Request
+from fastapi import Request
 from psycopg import AsyncConnection
 from psycopg.errors import UniqueViolation
 from psycopg.types.json import Jsonb
 
-from backend.api.tft.projects.access import can_decide_proposal
 from backend.api.tft.rfp import commands, repository
 from backend.api.tft.rfp import schemas as s
 from backend.api.tft.rfp.rnd import dept_kind, rnd_question_for
@@ -68,7 +67,9 @@ async def decide(
     payload: s.DecisionRequest,
     key: str,
 ) -> s.DecisionResult:
-    """결정 하나를 바로 확정한다. 권한은 제안 결정과 같다(담당 sales·책임자).
+    """결정 하나를 바로 확정한다. 결정은 담당 sales만, 책임자 확인·되돌려 보내기는 책임자만 한다.
+
+    결정한 사람과 확인한 사람이 같으면 확인이 의미를 잃으므로 책임자는 결정하지 않는다(2026-11-04 사용자 확정).
 
     Args:
         request: 요청(설정).
@@ -85,8 +86,7 @@ async def decide(
     )
     async with connection(request.app.state.settings) as conn:
         project = await requirement_project(conn, principal, requirement_id)
-        if not can_decide_proposal(principal, project):
-            raise HTTPException(403)
+        check_role(project, principal, payload.action)
         stored = await replay(conn, principal.user_id, key, digest)
         if stored is not None:
             return s.DecisionResult.model_validate(stored)
@@ -551,10 +551,22 @@ async def undo(
     )
 
 
-def require_responsible(project: Row, principal: Principal) -> None:
-    """책임자 확인·되돌려 보내기는 프로젝트 책임자만 한다."""
-    if project["responsible_user_id"] != principal.user_id:
-        raise HTTPException(403)
+REVIEW = frozenset({"review_confirm", "review_return"})
+
+
+def check_role(project: Row, principal: Principal, action: str) -> None:
+    """결정은 담당 sales만, 책임자 확인·되돌려 보내기는 책임자만 한다."""
+    if action in REVIEW:
+        if project["responsible_user_id"] != principal.user_id:
+            raise ApplicationError(
+                403,
+                "TFT_DECISION_RESPONSIBLE_ONLY",
+                "Only the project's responsible user can review decisions.",
+            )
+    elif project["sales_user_id"] != principal.user_id:
+        raise ApplicationError(
+            403, "TFT_DECISION_SALES_ONLY", "Only the project's sales owner can decide."
+        )
 
 
 async def current_decision(conn: AsyncConnection[Row], requirement: Row, decision_id: UUID) -> Row:
@@ -579,7 +591,6 @@ async def review_confirm(
     principal: Principal,
     payload: s.DecisionRequest,
 ) -> Outcome:
-    require_responsible(project, principal)
     assert payload.decision_id is not None
     target = await current_decision(conn, requirement, payload.decision_id)
     return "책임자 확인", {"decision_id": str(target["id"])}, None, None, []
@@ -592,7 +603,6 @@ async def review_return(
     principal: Principal,
     payload: s.DecisionRequest,
 ) -> Outcome:
-    require_responsible(project, principal)
     assert payload.decision_id is not None
     await current_decision(conn, requirement, payload.decision_id)
     summary, detail, undoes, question, after = await undo(
@@ -766,11 +776,17 @@ async def gate(conn: AsyncConnection[Row], project_id: UUID) -> s.DecisionGate:
         (project_id,),
     )
     row = await cursor.fetchone()
+    cursor = await conn.execute(
+        "SELECT sales_user_id = responsible_user_id AS same FROM tft.projects WHERE id = %s",
+        (project_id,),
+    )
+    same = await cursor.fetchone()
     return s.DecisionGate(
         undecided=sum(state.needed and not state.decided for _, state in found.values()),
         deviation_missing=len(missing | stale),
         open_queries=row["n"] if row else 0,
         review_pending=sum(state.decided and not state.reviewed for _, state in found.values()),
+        self_review=bool(same and same["same"]),
     )
 
 

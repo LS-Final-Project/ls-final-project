@@ -1141,6 +1141,8 @@ class DecisionGate(Model):
     deviation_missing: int = 0
     open_queries: int = 0
     review_pending: int = 0
+    # 담당 sales와 책임자가 같은 사람이면 결정한 사람이 확인도 한다. 확인 대기는 그대로 두고 화면에 "본인 결정"으로 표시한다.
+    self_review: bool = False
 
 
 RequirementSummary.model_rebuild()
