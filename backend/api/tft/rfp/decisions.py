@@ -14,7 +14,7 @@ from psycopg import AsyncConnection
 from psycopg.errors import UniqueViolation
 from psycopg.types.json import Jsonb
 
-from backend.api.tft.rfp import commands, repository
+from backend.api.tft.rfp import commands, grouping, repository
 from backend.api.tft.rfp import schemas as s
 from backend.api.tft.rfp.rnd import dept_kind, rnd_question_for
 from backend.api.tft.rfp.routes_proposals import apply_approval
@@ -127,6 +127,19 @@ async def decide_on(
         raise ApplicationError(
             409, "TFT_REQUIREMENT_EXCLUDED", "The requirement is excluded. Restore it first."
         )
+    if payload.action in DECIDING or payload.action == "change_verdict":
+        # 중복 구성원은 대표가 결정한다(KAN-231). 대표를 뺐으면 구성원이 다시 결정 대상이다.
+        # ponytail: 결정마다 맥락을 다시 읽는다. 일괄 결정이 느려지면 묶음 단위로 한 번 읽어 넘긴다.
+        representative = (await grouping.marks(conn, project["id"])).representative_of(
+            requirement_id
+        )
+        if representative is not None and not await is_excluded(conn, representative):
+            raise ApplicationError(
+                409,
+                "TFT_DUPLICATE_MEMBER",
+                "This requirement repeats another one. Decide the representative requirement.",
+                details=[{"field": "representative_id", "reason": str(representative)}],
+            )
     decision_id = uuid4()
     act = ACTIONS[payload.action]
     summary, detail, undoes, question_id, after = await act(
@@ -702,11 +715,32 @@ async def review_return(
     return summary.replace("되돌림", "책임자가 되돌림", 1), detail, undoes, question, after
 
 
-# 비교 사유가 남긴 확인 항목 중 조건 차이가 아닌 것(값을 못 읽음, 단위, 지속시간 환산).
-NOT_GAPS = ("값 확인:", "단위 확인:", "요구 지속시간의 시험값 확인", "정격 피크 확인")
+# 비교 사유가 남긴 확인 항목 중 조건 차이가 아닌 것(값을 못 읽음, 단위, 지속시간 환산, 도면 OCR 전사 확인).
+NOT_GAPS = (
+    "값 확인:",
+    "단위 확인:",
+    "요구 지속시간의 시험값 확인",
+    "정격 피크 확인",
+    # worker_processor.image_comparison_review: OCR 충족을 확정하지 않으려고 붙인 표시라 조건 차이가 아니다.
+    "이미지 전사 원문 확인 필요",
+)
+# 후보 근거에 그 조건이 없는 것(partners.grading._condition_gaps)은 다름이 아니라 자료 없음이다.
+MISSING_CONDITION = ", 후보 근거에 없음"
 
 
-def bid_verdict(row: Row, *, differs: bool, customer_question: bool, override: str | None) -> str:
+def is_gap(item: object) -> bool:
+    text = str(item)
+    return not text.startswith(NOT_GAPS) and not text.endswith(MISSING_CONDITION)
+
+
+def bid_verdict(
+    row: Row,
+    *,
+    differs: bool,
+    customer_question: bool,
+    override: str | None,
+    supplied: bool = False,
+) -> str:
     """요구 판본 → 입찰 판정. 규칙은 contracts/tft/rfp-data.md "입찰 판정"과 같다.
 
     Args:
@@ -714,6 +748,7 @@ def bid_verdict(row: Row, *, differs: bool, customer_question: bool, override: s
         differs: 최신 비교의 자사 후보가 모두 다른지(DIFFERS, 자료 없는 후보 제외).
         customer_question: 보내지 않기로 한 것을 뺀 고객 질문이 있는지.
         override: 지금 판본을 만든 "판정 바꾸기" 결정의 판정.
+        supplied: 보완 양식에 고를 경로가 있는지(제외되지 않은 협력사 등급, 지정품, 핵심 기기 부재).
 
     Returns:
         str: MET·CONFIRM·DEVIATION·QUERY·SUPPLEMENT·ASSIGN.
@@ -735,25 +770,33 @@ def bid_verdict(row: Row, *, differs: bool, customer_question: bool, override: s
             return "CONFIRM"
         if row["operator"] == "TEXT":
             return "DEVIATION"
-        if any(not str(item).startswith(NOT_GAPS) for item in row["unresolved"]):
+        if any(is_gap(item) for item in row["unresolved"]):
             return "DEVIATION"
         return "CONFIRM"
     if row["kind"] in ("TASK", "DOCUMENT") or row["task"]:
         return "ASSIGN"
     if row["value"] is None or customer_question or row["next_owner_field"] == "CUSTOMER":
         return "QUERY"
-    return "SUPPLEMENT"
+    # 보완은 보완 양식에 고를 경로가 있을 때만이다. 계열·속성을 못 정해 비교하지 않았거나 자사 자료에 근거가
+    # 없는 것은 협력사로 풀 일이 아니라 사람이 근거를 확인할 일이다(KAN-231, 2026-11-05 P26-0025 점검).
+    return "SUPPLEMENT" if supplied else "CONFIRM"
 
 
 async def states(
-    conn: AsyncConnection[Row], project_id: UUID, requirement_ids: Sequence[UUID] | None = None
+    conn: AsyncConnection[Row],
+    project_id: UUID,
+    requirement_ids: Sequence[UUID] | None = None,
+    marks: "grouping.Marks | None" = None,
 ) -> dict[UUID, tuple[str, s.DecisionState]]:
     """요구별 (입찰 판정, 결정 상태). 저장된 기록에서만 계산한다.
+
+    중복 묶음의 구성원(대표 아님)은 대표가 결정하므로 결정 대상이 아니다(대표를 뺐으면 다시 대상, KAN-231).
 
     Args:
         conn: dict_row 연결.
         project_id: 프로젝트 ID.
         requirement_ids: 이 요구만(없으면 프로젝트 전체).
+        marks: 이미 읽은 묶음·중복(없으면 여기서 읽는다).
 
     Returns:
         dict: 요구 ID → (판정, 결정 상태).
@@ -762,7 +805,8 @@ async def states(
     params = {"p": project_id, "ids": list(requirement_ids or [])}
     cursor = await conn.execute(
         "SELECT v.requirement_id, v.version, v.status, v.kind, v.task, v.attribute_key, v.operator, "
-        "v.value, v.unresolved, v.next_owner_field, req.derivation_kind = 'PROVIDED' AS manually_added, "
+        "v.value, v.unresolved, v.next_owner_field, v.designated_model, "
+        "req.derivation_kind = 'PROVIDED' AS manually_added, "
         # 도면 OCR 조항(worker_processor.is_ocr과 같은 접두). 검토용 OCR-REVIEW는 요구를 만들지 않는다.
         "coalesce(c.clause_no LIKE 'OCR-DOCX-%%' OR c.clause_no LIKE 'OCR-PDF-P%%', false) AS drawing "
         "FROM tft.requirements req "
@@ -792,6 +836,17 @@ async def states(
         params,
     )
     asked = {r["requirement_id"] for r in await cursor.fetchall()}
+    # 보완 양식(routes_supplement)에 고를 경로가 생기는 요구: 제외되지 않은 협력사 등급, 핵심 기기 부재·지정품 원인.
+    cursor = await conn.execute(
+        f"SELECT g.requirement_id FROM ({repository.LATEST_GRADES.format(project='%(p)s')}) g "
+        "WHERE g.grade <> 'EXCLUDED' UNION "
+        "SELECT o.requirement_id FROM tft.supplement_options o "
+        "JOIN tft.requirements req ON req.id = o.requirement_id "
+        "WHERE req.project_id = %(p)s AND o.deficiency_cause IN ('CORE_EQUIPMENT_MISSING', 'DESIGNATED_MODEL')",
+        params,
+    )
+    supplied = {r["requirement_id"] for r in await cursor.fetchall()}
+    marks = marks or await grouping.marks(conn, project_id)
     cursor = await conn.execute(
         "SELECT id, requirement_id, action, summary, result_version, detail, undoes, created_at "
         "FROM tft.requirement_decisions WHERE project_id = %(p)s ORDER BY created_at, id",
@@ -802,6 +857,12 @@ async def states(
     confirmed = {
         d["detail"].get("decision_id") for d in decisions if d["action"] == "review_confirm"
     }
+
+    def excluded_of(requirement_id: UUID) -> Row | None:
+        history = [d for d in decisions if d["requirement_id"] == requirement_id]
+        mark = next((d for d in reversed(history) if "excluded" in d["detail"]), None)
+        return mark if mark and mark["detail"]["excluded"] else None
+
     out: dict[UUID, tuple[str, s.DecisionState]] = {}
     for row in rows:
         mine = [
@@ -820,11 +881,14 @@ async def states(
             differs=row["requirement_id"] in differs,
             customer_question=row["requirement_id"] in asked,
             override=override,
+            supplied=row["requirement_id"] in supplied or row["designated_model"] is not None,
         )
         current = next((d for d in reversed(mine) if d["action"] in DECIDING), None)
         history = [d for d in decisions if d["requirement_id"] == row["requirement_id"]]
-        mark = next((d for d in reversed(history) if "excluded" in d["detail"]), None)
-        excluded = bool(mark and mark["detail"]["excluded"])
+        mark = excluded_of(row["requirement_id"])
+        excluded = mark is not None
+        representative = marks.representative_of(row["requirement_id"])
+        follows = representative if representative and excluded_of(representative) is None else None
         change = next(
             (d for d in reversed(history) if d["action"] in STRUCTURAL and d["id"] not in undone),
             None,
@@ -832,7 +896,7 @@ async def states(
         out[row["requirement_id"]] = (
             verdict,
             s.DecisionState(
-                needed=(verdict != "MET" or row["drawing"]) and not excluded,
+                needed=(verdict != "MET" or row["drawing"]) and not excluded and follows is None,
                 decided=current is not None,
                 decision_id=current["id"] if current else None,
                 action=current["action"] if current else None,
@@ -842,10 +906,11 @@ async def states(
                 manually_added=row["manually_added"],
                 drawing_check=row["drawing"],
                 excluded=excluded,
-                excluded_reason=mark["detail"].get("reason") if mark and excluded else None,
+                excluded_reason=mark["detail"].get("reason") if mark else None,
                 change_id=change["id"] if change else None,
                 change_action=change["action"] if change else None,
                 change_reviewed=change is not None and str(change["id"]) in confirmed,
+                follows=follows,
             ),
         )
     return out
@@ -879,6 +944,7 @@ async def gate(conn: AsyncConnection[Row], project_id: UUID) -> s.DecisionGate:
         for rid, (verdict, state) in found.items()
         if verdict == "DEVIATION"
         and not state.excluded
+        and state.follows is None
         and state.action not in ("record_deviation", "request_check")
     }
     cursor = await conn.execute(
