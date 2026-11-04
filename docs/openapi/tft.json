@@ -1326,6 +1326,11 @@
             "title": "Review Pending",
             "type": "integer"
           },
+          "self_review": {
+            "default": false,
+            "title": "Self Review",
+            "type": "boolean"
+          },
           "undecided": {
             "default": 0,
             "title": "Undecided",

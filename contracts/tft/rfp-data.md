@@ -241,8 +241,10 @@ T20의 지역·제조사명 CHECK는 API와 같은 Unicode 공백 제거 후 1~2
 ## 결정 패널 (KAN-218·219, 2026-11-04)
 
 `POST /requirements/{id}/decision`은 결정 하나를 바로 확정한다. 본문은 `{version, action, text?, target_dept?,
-candidate_codes?, holder?, owner?, verdict?, decision_id?}`이고 Idempotency-Key가 필수다. 권한은 제안 결정과 같다
-(담당 sales·책임자). 결정마다 `tft.requirement_decisions`에 한 행을 쓰고, 같은 사용자·키 재전송은 그 행의 결과를
+candidate_codes?, holder?, owner?, verdict?, decision_id?}`이고 Idempotency-Key가 필수다. 결정은 프로젝트 담당
+sales만 한다(책임자는 403 `TFT_DECISION_SALES_ONLY`). 책임자 확인·되돌려 보내기(`review_confirm`·`review_return`)는 책임자만
+한다(그 밖은 403 `TFT_DECISION_RESPONSIBLE_ONLY`). 결정한 사람과 확인한 사람이 같으면 확인이 의미를 잃기 때문이다(2026-11-04
+사용자 확정). 보완 선택(경로 16)·변경 제안 승인(23) 같은 기존 경로의 권한(담당 sales·책임자)은 그대로다. 결정마다 `tft.requirement_decisions`에 한 행을 쓰고, 같은 사용자·키 재전송은 그 행의 결과를
 돌려준다(본문이 다르면 409 IDEMPOTENCY_CONFLICT). 판단을 바꾸는 결정은 웹 제안을 쓰고 같은 트랜잭션에서 승인한다
 (감사 `proposal.create`·`proposal.approve`, 승인 대기로 남지 않는다).
 
@@ -290,3 +292,5 @@ candidate_codes?, holder?, owner?, verdict?, decision_id?}`이고 Idempotency-Ke
 확인 요청으로 결정하지 않은 요구와, 최신 편차 행이 RECORDED인데 그 판본이 최신이 아닌 요구), `open_queries`(보낼 고객 질문 중
 OPEN), `review_pending`(결정했는데 책임자 확인이 없는 요구). 책임자 확인·되돌려 보내기는 결정 경로의 `review_confirm`·
 `review_return`(대상 `decision_id`, 프로젝트 책임자만)이다. 되돌려 보내기는 되돌리기와 같은 반대 기록을 쓴다.
+담당 sales와 책임자가 같은 사람인 프로젝트는 그 사람이 결정도 확인도 한다. 이때 확인을 생략하지 않고 `review_pending`에 그대로
+남기며, `decision_gate.self_review=true`로 화면이 "본인 결정"을 표시한다(확인 기록은 출력 전 한 번 더 보는 절차로 남긴다).
