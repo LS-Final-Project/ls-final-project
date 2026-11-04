@@ -896,7 +896,10 @@ async def states(
         out[row["requirement_id"]] = (
             verdict,
             s.DecisionState(
-                needed=(verdict != "MET" or row["drawing"]) and not excluded and follows is None,
+                # 충족 확정처럼 결정이 판정을 MET로 바꿔도 결정한 요구는 결정 대상으로 남긴다(진행 분모·책임자 확인).
+                needed=(verdict != "MET" or row["drawing"] or current is not None)
+                and not excluded
+                and follows is None,
                 decided=current is not None,
                 decision_id=current["id"] if current else None,
                 action=current["action"] if current else None,

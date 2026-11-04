@@ -120,6 +120,8 @@ def test_confirm_met_approves_at_once_and_replays_the_same_key(client, chain, ad
     assert (first["summary"], first["requirement_version"]) == ("충족 확정", 2)
     assert latest(admin, chain)[:2] == (2, "EVIDENCE_FOUND")
     assert ok(decide(client, chain, "confirm_met", key=key)) == first
+    # 판정이 MET가 돼도 결정한 요구는 결정 대상으로 남아 진행 분모와 책임자 확인에 들어간다.
+    assert requirement_state(client, chain)[1]["needed"] is True
     conflict = decide(client, chain, "confirm_met", version=2, key=key)
     assert conflict.status_code == 409
     with psycopg.connect(admin) as conn:
