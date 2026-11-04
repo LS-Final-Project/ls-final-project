@@ -393,3 +393,15 @@ def test_intake_does_not_translate_when_the_feature_is_off(cs_database, admin):
     with TestClient(app, headers=principal_header(AGENT)) as off:
         ticket_id = intake(off)
     assert attempts(admin, ticket_id) == []
+
+
+def test_an_edited_ticket_drops_the_old_korean_subject_from_lists(client, model, admin):
+    """접수 뒤 본문을 고치면 목록은 옛 번역 제목 대신 원문 제목을 보이고, 다시 번역하면 다시 보인다."""
+    ticket_id = intake(client)
+    assert listed(client, ticket_id)["subject_ko"] == SUBJECT_KO
+    admin.execute(
+        "UPDATE cs.tickets SET body = body || ' Empezó ayer.' WHERE id = %s", (ticket_id,)
+    )
+    assert listed(client, ticket_id)["subject_ko"] is None
+    assert client.post(path(ticket_id)).status_code == 201
+    assert listed(client, ticket_id)["subject_ko"] == SUBJECT_KO

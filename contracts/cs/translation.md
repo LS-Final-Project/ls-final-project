@@ -44,7 +44,7 @@
 
 ## 목록의 한국어 제목
 
-- 문의 목록(`GET /api/v1/cs/tickets`)의 각 항목과 고객 이력(`GET /api/v1/cs/stats/customers/{id}`)의 `tickets[]`에 `subject_ko`(문의별 가장 최근의 성공한 번역 제목, 없으면 null)를 같이 준다. 원문은 바뀌지 않으므로 판본 차이로 숨기지 않는다. 번역 표(C28)가 없는 DB에서는 null이다(`CS_TRANSLATION_TABLE_MISSING` 로그).
+- 문의 목록(`GET /api/v1/cs/tickets`)의 각 항목과 고객 이력(`GET /api/v1/cs/stats/customers/{id}`)의 `tickets[]`에 `subject_ko`(지금 원문과 같은 입력으로 만든 가장 최근의 성공한 번역 제목, 없으면 null)를 같이 준다. 문의 처리 화면의 `stale`과 같은 기준이라, 접수 뒤 제목·본문을 고치면 옛 한국어 제목은 빠지고 원문 제목이 보인다(다시 번역하면 다시 보인다). 번역 표(C28)가 없는 DB에서는 null이다(`CS_TRANSLATION_TABLE_MISSING` 로그).
 - 화면은 한국어 제목을 먼저 보이고 원문 제목을 툴팁("원문: …")으로 남긴다. 검색은 두 제목을 모두 찾는다. 엑셀은 "제목(한국어)"와 "원문 제목"을 따로 낸다.
 
 ## 저장 (`cs.ticket_translations`, 추가만)
