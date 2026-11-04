@@ -96,6 +96,17 @@ OTHER_DEVICE_WORDS = (
     "arrester",
 )
 KOREAN_OTHER_DEVICE = re.compile(r"개폐기(?!반)|단로기|퓨즈|피뢰기")
+# 본체 설비(변압기·개폐반)에 딸린 부품(KAN-229). 붓싱 정격·변류기 비는 본체 제품 정격이 아니라 같은 계열 제품과 견주면
+# 안 된다(감사: 저압 붓싱을 1000 kVA 유입 변압기와 비교). 자사 자료에 이 부품 계열 제품이 없어 비교하지 않는다.
+# "탭"·"tap changer"는 변압기 자체 사양(탭 범위)이라 넣지 않는다.
+PART_WORDS = (
+    "bushing",
+    "current transformer",
+    "voltage transformer",
+    "potential transformer",
+    "instrument transformer",
+)
+KOREAN_PART = re.compile(r"붓싱|부싱|변류기|계기용\s*변(?:성|압)기")
 BREAKER_STANDARDS = (
     "IEC 62271-100",
     "IEC 60947-2",
@@ -583,6 +594,12 @@ def _is_other_device(requirement: Requirement) -> bool:
     )
 
 
+def _is_part(requirement: Requirement) -> bool:
+    """요구 장비가 본체 설비의 부품(붓싱·변류기·계기용 변성기)인지. 장비 이름(item)으로 가른다."""
+    item = requirement.item
+    return _has_word(item, PART_WORDS, plural=True) or bool(KOREAN_PART.search(item))
+
+
 def _is_breaker(product: Product) -> bool:
     """자사 제품이 차단기인지. 적용 규격이 모두 차단기 규격일 때다(변형 표기 "UL 489 (-U variant)"도 같은 규격)."""
     return bool(product.standards) and all(
@@ -978,6 +995,7 @@ def compare_in_family(
 ) -> Outcome:
     """요구 장비 계열의 자사 후보로만 비교한다(KAN-199). 다른 계열 제품의 같은 이름 속성은 근거로 쓰지 않는다.
 
+    부품 요구(`_is_part`: 붓싱·변류기·계기용 변성기)는 본체 제품과 견주지 않는다(KAN-229).
     계열을 모르면(None·"OTHER") 비교하지 않고 근거 부족이다. 속성을 자사 사양 항목에 연결하지 못한 요구
     (attribute "OTHER", 인증 요구 제외)도 비교하지 않는다. 지정 모델 요구는 계열과 무관하게 지정품 판정을 쓴다.
     과업·문서 요구(`_work_kind`)는 장비 사양이 아니라 이 두 검사 없이 `compare`로 간다(인증 요구는 인증 경로).
@@ -1010,6 +1028,11 @@ def compare_in_family(
     not_equipment = requirement.certification_standard is None and _work_kind(requirement)
     named = requirement.designated_model is not None or requirement.basis_of_design
     if not named and not not_equipment:
+        if _is_part(requirement):
+            return not_compared(
+                "부품 요구라 본체 제품과 비교하지 않음. 자사 자료에 이 부품 제품 없음.",
+                "부품 자료 확인",
+            )
         if family in (None, "OTHER"):
             return not_compared(
                 "요구 장비 계열을 정하지 못해 비교하지 않음.", "요구 장비 계열 확인"
