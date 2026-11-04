@@ -16,7 +16,7 @@ import { KvTitle } from '../ls-shell/kv';
 import { MOCK_WORKSPACE_REQUIREMENTS } from '../mocks/rfp-workspace';
 import { fileProblem, latestVersions } from './IntakeForms';
 import { OriginalDocument } from './OriginalDocument';
-import { label, NECESSITY_LABEL, OPERATOR_LABEL, PATH_LABEL, STATUS_LABEL } from './labels';
+import { ISSUE_LABEL, label, NECESSITY_LABEL, OPERATOR_LABEL, PATH_LABEL, STATUS_LABEL } from './labels';
 import { useNames } from './names';
 import { RfpPersona } from './RfpPersona';
 import { RfpReasoning, rfpStageDescription } from './RfpReasoning';
@@ -562,7 +562,7 @@ function Output({ project, rows, excluded = [], responsible, actorId, onJump, on
         <p>남은 결정 {gate.undecided}건, 회신 대기 질의 {gate.open_queries}건.</p></div>}
     </section>
     {!responsible && reviewBlock}
-    <ProjectHistory projectId={project.id} codeOf={id => rows.find(r => r.requirement_id === id)?.code ?? '─'} onPick={onPick} />
+    <ProjectHistory projectId={project.id} codeOf={id => [...rows, ...excluded].find(r => r.requirement_id === id)?.code ?? '─'} onPick={onPick} />
   </div>;
 }
 
@@ -622,10 +622,10 @@ function ReplyFlow({ projectId, detail, question, onDone }: { projectId: string;
   });
   const result = apply.data;
   return <div className="ws-form">
-    <p className="ws-reply"><span className="muted">회신 </span>{question.reply?.reply_text}</p>
+    <p className="ws-reply"><span className="muted">회신 </span>{marked(question.reply?.reply_text ?? '', read?.quote)}</p>
     {read ? <p className="ws-note">회신에서 읽은 값: {[read.value, read.unit].filter(Boolean).join(' ')}{read.conditions?.length ? `, ${read.conditions.map(c => [c.value, c.unit].filter(Boolean).join(' ')).join(', ')}` : ''}
       {read.method === 'ai' && <span className="muted ws-small"> AI가 읽음</span>}
-      {read.quote && <span className="muted ws-quote-line">{read.quote}</span>}</p>
+</p>
       : <p className="muted ws-note">{found?.reason ? `${REASON[found.reason] ?? '회신에서 값을 찾지 못했습니다'}. ` : '회신에서 값을 찾지 못했습니다. '}값을 직접 입력하거나 후속 질의를 보내세요.</p>}
     <div className="ws-go">
       <label className="ws-field inline">새 요구값<input value={value} placeholder="값을 직접 입력" onChange={event => setValue(event.target.value)} /></label>
@@ -757,7 +757,7 @@ function AddRequirement({ projectId, quote, clause, equipment, onDone, onCancel 
     </div>
     {!valueOk && <p role="alert" className="ws-alert">값이 고른 글에 없습니다. 고른 글에 있는 값만 넣을 수 있습니다.</p>}
     {dupe && <p role="status" className="ws-note">같은 설비·속성·값의 요구가 이미 있습니다. 그래도 추가하려면 다시 누르세요.</p>}
-    <div className="ws-go"><button className="kb primary" disabled={!attr.trim() || !valueOk || add.isPending} onClick={() => add.mutate()}>{dupe ? '그래도 추가' : '요구로 추가'}</button></div>
+    <div className="ws-go"><button className="kb primary" disabled={!attr.trim() || !valueOk || add.isPending} onClick={() => add.mutate()}>{dupe ? '그래도 추가' : '추가하고 비교'}</button></div>
     {failed && <p role="alert">{failureText(failed)}</p>}
   </div>;
 }
@@ -810,7 +810,15 @@ const fieldValue = (k: string, v: unknown) => v == null ? '없음' : k === 'stat
 // 이력 한 줄의 내용: 직접 추가·빼기·되살리기는 그 말로, 판본 변화는 바뀐 칸마다 전 → 후.
 export function historyText(h: HistoryItem) {
   const action = String(h.after?.action ?? '');
-  const head = h.kind === 'decision' && CHANGE_LABEL[action] ? `${CHANGE_LABEL[action]}: ${h.summary}` : h.summary;
+  // 서버 요약의 괄호 안 질의 종류 코드(예: 회신 기록 (EMPTY_VALUE))는 한국어로 바꾼다.
+  const summary = h.summary.replace(/\(([A-Z_]+)\)/g, (_m, code: string) => `(${label(ISSUE_LABEL, code)})`);
+  const head = h.kind === 'decision' && CHANGE_LABEL[action] ? `${CHANGE_LABEL[action]}: ${summary}` : summary;
   const keys = [...new Set([...Object.keys(h.before ?? {}), ...Object.keys(h.after ?? {})])].filter(k => FIELD_LABEL[k]);
   return { head, change: keys.map(k => `${FIELD_LABEL[k]} ${h.before ? fieldValue(k, h.before[k]) + ' → ' : ''}${fieldValue(k, h.after?.[k])}`).join(', ') };
 }
+
+// 회신 문장 안의 근거 문장을 강조한다. 근거가 문장에 그대로 없으면 강조하지 않는다.
+const marked = (text: string, quote?: string | null) => {
+  const at = quote ? text.indexOf(quote) : -1;
+  return at < 0 || !quote ? text : <>{text.slice(0, at)}<mark className="ws-mark">{quote}</mark>{text.slice(at + quote.length)}</>;
+};

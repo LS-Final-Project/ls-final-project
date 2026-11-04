@@ -141,10 +141,12 @@ const replied = (extra: Record<string, unknown>) => ({ question_id: 'q1', requir
 describe('고객 회신 반영', () => {
   it('규칙으로 읽은 값을 보여 주고 미리 채우되 자동 반영하지 않는다', async () => {
     const f = serve([replied({ value_candidate: { method: 'rule', value: '28', unit: 'kV', conditions: [{ name: 'duration', value: '1', unit: 'min' }], quote: '28 kV, 1분', reason: null } })]);
+    // 근거 문장은 회신 안에서 강조한다.
     show('sales');
     expect(await screen.findByText('회신 도착')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '질의서에 넣기' }));
     expect(await screen.findByText(/회신에서 읽은 값: 28 kV, 1 min/)).toBeTruthy();
+    expect(document.querySelector('mark.ws-mark')?.textContent).toBe('28 kV, 1분');
     expect((screen.getByLabelText('새 요구값') as HTMLInputElement).value).toBe('28');
     expect(screen.queryByText('AI가 읽음')).toBeNull();
     expect(f.mock.calls.some(([u]) => String(u).includes('/proposals'))).toBe(false);
@@ -188,10 +190,10 @@ describe('원문에서 요구 추가와 빼기 (KAN-225)', () => {
     fireEvent.change(within(form).getByLabelText('속성'), { target: { value: '정격전압' } });
     fireEvent.change(within(form).getByLabelText('값'), { target: { value: '13' } });
     expect(within(form).getByText(/값이 고른 글에 없습니다/)).toBeTruthy();
-    expect((within(form).getByRole('button', { name: '요구로 추가' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((within(form).getByRole('button', { name: '추가하고 비교' }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(within(form).getByLabelText('값'), { target: { value: '12' } });
     fireEvent.change(within(form).getByLabelText('단위'), { target: { value: 'kV' } });
-    fireEvent.click(within(form).getByRole('button', { name: '요구로 추가' }));
+    fireEvent.click(within(form).getByRole('button', { name: '추가하고 비교' }));
     fireEvent.click(await within(form).findByRole('button', { name: '그래도 추가' }));
     await waitFor(() => expect(bodies(f, '/projects/p1/requirements')).toHaveLength(2));
     expect(bodies(f, '/projects/p1/requirements')[1]).toMatchObject({ clause_id: 'c1', quote: '정격전압은  12 kV 이상', kind: 'SPEC', attribute: '정격전압', value: '12', unit: 'kV', allow_duplicate: true });

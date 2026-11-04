@@ -134,3 +134,7 @@ button.ws-gateitem{color:#24518a;cursor:pointer}
 .ws-quoteval{white-space:normal;line-height:1.5}
 .ws-exclude{padding:6px 12px}
 .ws-alert{color:#b42318}
+.ls-root .ws-table .ws-badge{display:inline-block;width:auto;line-height:16px;vertical-align:middle}
+.ws-field.inline{white-space:nowrap}
+.ws-field.inline input{width:auto;min-width:0}
+.ws-mark{background:#fff0a6;color:inherit;padding:0 1px}
