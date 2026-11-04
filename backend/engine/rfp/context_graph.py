@@ -461,8 +461,8 @@ def consolidate(
             }
         )
     by_tag = {key[1:]: g.entity_id for key, g in merged.items() if key[0] == "tag"}
-    for key, tag in sorted(tags.items(), key=lambda kv: kv[0]):
-        doc = rows[key].document_version_id
+    for requirement_id, tag in sorted(tags.items(), key=lambda kv: kv[0]):
+        doc = rows[requirement_id].document_version_id
         if tag and (doc, tag.casefold()) not in by_tag:
             entity = "tag:" + hashlib.sha256(f"{doc}:{tag}".encode()).hexdigest()[:24]
             members = [
