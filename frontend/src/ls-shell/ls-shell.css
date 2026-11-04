@@ -826,3 +826,22 @@
 .ls-root .kt-tabs .kt-tab.on .kt-x{height:18px;margin:0;background:none;box-shadow:none}
 .ls-root .kt-tabs .kt-tab.on .kt-x:hover{background:#fdecec;color:var(--ls-red)}
 .ls-root .kt-tab button[role=tab]:focus-visible,.ls-root .kt-tab .kt-x:focus-visible{outline:2px solid var(--ls-red);outline-offset:2px}
+
+/* 열린 화면 탭: 브라우저·ERP 문서 탭 방식. 회색 띠 위에 탭, 선택 탭은 흰색으로 아래 화면과 이어지고 위에 빨간 선. */
+.ls-root .kt-tabs{height:40px;align-items:flex-end;gap:2px;padding:6px 12px 0;background:#e9ecf1;border-bottom:0}
+.ls-root .kt-tabs .kt-tab,.ls-root .kt-tabs .kt-tab.on{position:relative;height:34px;margin:0;gap:2px;padding:0 6px 0 14px;border:0;border-radius:9px 9px 0 0;background:transparent;box-shadow:none;align-items:center;transition:background .15s}
+.ls-root .kt-tabs .kt-tab+.kt-tab::before{content:"";position:absolute;left:-1px;top:10px;bottom:10px;width:1px;background:#c9ced8}
+.ls-root .kt-tabs .kt-tab.on::before,.ls-root .kt-tabs .kt-tab.on+.kt-tab::before,.ls-root .kt-tabs .kt-tab:hover::before,.ls-root .kt-tabs .kt-tab:hover+.kt-tab::before{opacity:0}
+.ls-root .kt-tabs .kt-tab:hover{background:rgba(255,255,255,.55)}
+.ls-root .kt-tabs .kt-tab button[role=tab]{height:34px;font-size:12.5px;font-weight:500;color:#5b6475;letter-spacing:-.1px;white-space:nowrap}
+.ls-root .kt-tabs .kt-tab:hover button[role=tab]{color:#1d2433}
+.ls-root .kt-tabs .kt-tab.on{background:#fff;box-shadow:inset 0 2px 0 var(--ls-red),0 -1px 3px rgba(16,30,70,.06)}
+.ls-root .kt-tabs .kt-tab.on button[role=tab]{color:#1d2433;font-weight:700}
+/* 선택 탭 아래 양쪽 곡선(브라우저 탭 발) */
+.ls-root .kt-tabs .kt-tab.on::after{content:"";position:absolute;left:-9px;right:-9px;bottom:0;height:9px;border-radius:0;pointer-events:none;
+  background:radial-gradient(circle at 0 0,transparent 9px,#fff 9.5px) left bottom/9px 9px no-repeat,radial-gradient(circle at 100% 0,transparent 9px,#fff 9.5px) right bottom/9px 9px no-repeat}
+.ls-root .kt-tabs .kt-tab .kt-x,.ls-root .kt-tabs .kt-tab.on .kt-x{display:inline-grid;place-items:center;align-self:center;width:18px;height:18px!important;min-height:0!important;margin:0 0 0 4px;padding:0;border:0;border-radius:50%;background:none;box-shadow:none;color:#8a93a3;font-size:14px;line-height:1;opacity:0;transition:opacity .12s,background .12s}
+.ls-root .kt-tabs .kt-tab:hover .kt-x,.ls-root .kt-tabs .kt-tab.on .kt-x,.ls-root .kt-tabs .kt-tab .kt-x:focus-visible{opacity:1}
+.ls-root .kt-tabs .kt-tab .kt-x:hover{background:#e4e7ed;color:#1d2433}
+.ls-root .kt-tabs .kt-tab.on .kt-x:hover{background:#fdecec;color:var(--ls-red)}
+@media (prefers-reduced-motion:reduce){.ls-root .kt-tabs .kt-tab,.ls-root .kt-tabs .kt-x{transition:none}}

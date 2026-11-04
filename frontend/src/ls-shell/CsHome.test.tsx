@@ -12,23 +12,23 @@ const item = (id: string, state: string, daysAgo: number) => ({ id, subject: id,
 const view = () => { setApiMode('live'); return renderAt('/cs', '/cs', <CsHome />); };
 
 // 업무 홈은 상태·담당자 서버 필터로 오늘 할 일을 센다. URL의 state·owner로 응답을 나눈다.
-function serve(byState: Record<string, unknown[]>, requests: unknown[] = []) {
+function serve(byState: Record<string, unknown[]>, requests: unknown[] | 'error' = []) {
   return vi.fn(async (url: RequestInfo | URL) => {
     const u = new URL(String(url), 'http://x');
     if (u.pathname.endsWith('/platform/me')) return jsonResponse(200, { data: { id: 'u1', display_name: '김상담', roles: ['cs_agent'] } });
-    if (u.pathname.endsWith('/improvement-requests')) return jsonResponse(200, { data: { items: requests } });
+    if (u.pathname.endsWith('/improvement-requests')) return requests === 'error' ? jsonResponse(503, errorBody('UNAVAILABLE', '잠시 후')) : jsonResponse(200, { data: { items: requests } });
     const key = `${u.searchParams.get('state')}|${u.searchParams.get('owner') ?? ''}`;
     return jsonResponse(200, { data: { items: byState[key] ?? [], next_cursor: null } });
   });
 }
-const req = (id: string, status: string) => ({ id, status, request_type: 'FAULT', product_code: 'P1', fault_id: 'FLT-001', created_at: day(2), origin: 'SYSTEM_CANDIDATE', problem_statement: 'p', version: 1, evidence_count: 3, cs_owner: null });
+const req = (id: string, status: string, owner: string | null = 'u1') => ({ id, status, request_type: 'FAULT', product_code: 'P1', fault_id: 'FLT-001', created_at: day(2), origin: 'SYSTEM_CANDIDATE', problem_statement: 'p', version: 1, evidence_count: 3, cs_owner: owner });
 
 test('오늘 할 일은 새 문의와 내 담당 진행 문의를 세고, 오래된 순으로 할 일을 보인다', async () => {
   const fetch = serve({
     'RECEIVED|': [item('a', 'RECEIVED', 10)],
     'IN_REVIEW,ANSWERED|u1': [item('b', 'IN_REVIEW', 2), item('f', 'ANSWERED', 5)],
     'TRANSFERRED,WAITING_CUSTOMER|u1': [item('c', 'TRANSFERRED', 3)],
-  }, [req('r1', 'DRAFT'), req('r2', 'REVIEWED'), req('r3', 'COMPLETED')]);
+  }, [req('r1', 'DRAFT'), req('r2', 'REVIEWED'), req('r3', 'COMPLETED'), req('r4', 'REVIEWED', 'someone-else')]);
   vi.stubGlobal('fetch', fetch);
   view();
   const table = within(await screen.findByRole('table', { name: '처리할 문의' }));
@@ -36,14 +36,27 @@ test('오늘 할 일은 새 문의와 내 담당 진행 문의를 세고, 오래
   expect(table.getAllByRole('link').map(x => x.textContent)).toEqual(['ID-a', 'ID-f', 'ID-b']);
   expect(table.getByText('검토 시작')).toBeTruthy();expect(table.getByText('종결 여부 확인')).toBeTruthy();
   expect(table.queryByText('ID-c')).toBeNull();
-  // 오늘 할 일 = 새 1 + 내 담당 2 + 급한 개선요청 1(초안은 별도)
-  expect(await screen.findByText('4건')).toBeTruthy();
+  // 오늘 할 일 = 새 1 + 내 담당 2 + 내 개선요청 2(초안 검토 포함, 다른 사람 담당·완료는 빠짐)
+  expect(await screen.findByText('5건')).toBeTruthy();
+  expect(screen.getByText('내 담당만 · 초안 검토 1건 포함')).toBeTruthy();
+  expect(screen.getByText('검토 완료 기록')).toBeTruthy();
   expect(screen.getByText(/김상담님/)).toBeTruthy();
   expect(screen.getByText('7일 넘은 문의 1건부터 처리하세요')).toBeTruthy();
   expect(screen.getByText('부서 전달')).toBeTruthy();
   expect(screen.queryByText('용어 풀이')).toBeNull();expect(screen.queryByText('다음 할 일')).toBeNull();
   const urls = fetch.mock.calls.map(([url]) => String(url));
   expect(urls.some(url => url.includes('state=IN_REVIEW%2CANSWERED') && url.includes('owner=u1'))).toBe(true);
+  // 개선요청은 서버의 담당 필터로 내 것만 읽는다(팀 전체 목록을 받지 않는다).
+  expect(urls.filter(url => url.includes('/improvement-requests'))).toEqual(['/api/v1/cs/improvement-requests?owner=u1']);
+});
+
+test('개선요청을 못 읽으면 오류를 보이고 합계에 +와 빠진 이유를 붙인다', async () => {
+  vi.stubGlobal('fetch', serve({ 'RECEIVED|': [item('a', 'RECEIVED', 1)] }, 'error'));
+  view();
+  expect(await screen.findByText('1+건')).toBeTruthy();
+  expect(screen.getByText('개선요청을 불러오지 못해 합계에서 빠졌습니다')).toBeTruthy();
+  expect(screen.getByText('불러오지 못함 · 합계에서 빠짐')).toBeTruthy();
+  expect(screen.getByText('!')).toBeTruthy();
 });
 
 test('목록 조회가 거부되면 이전 값을 보이지 않고 오류를 안내한다', async () => {

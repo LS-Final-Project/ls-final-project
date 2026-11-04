@@ -4,6 +4,8 @@ import { me } from './platform';
 export type ImprovementList = paths['/api/v1/cs/improvement-requests']['get']['responses'][200]['content']['application/json'];
 export type ImprovementDetail = paths['/api/v1/cs/improvement-requests/{request_id}']['get']['responses'][200]['content']['application/json'];
 export const listImprovements = (signal:AbortSignal) => request<ImprovementList>('/api/v1/cs/improvement-requests',{signal});
+// C/S 담당(cs_owner)이 이 사용자인 요청만(서버 필터, 최신 순 최대 200건).
+export const listMyImprovements = (owner:string,signal:AbortSignal) => request<ImprovementList>(`/api/v1/cs/improvement-requests?owner=${encodeURIComponent(owner)}`,{signal});
 export const getImprovement = (id:string,signal:AbortSignal) => request<ImprovementDetail>(`/api/v1/cs/improvement-requests/${encodeURIComponent(id)}`,{signal});
 
 export type ImprovementVersions = paths['/api/v1/cs/improvement-requests/{request_id}/versions']['get']['responses'][200]['content']['application/json'];
