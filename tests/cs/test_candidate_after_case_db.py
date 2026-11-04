@@ -62,11 +62,13 @@ def test_the_third_customer_creates_the_candidate_and_later_ones_see_it(client, 
     assert third["improvement_candidate"]["outcome"] == "CREATED"
     request_id = third["improvement_candidate"]["request_id"]
     row = admin.execute(
-        "SELECT status, origin, product_code, fault_id, candidate_reason_code "
+        "SELECT status, origin, product_code, fault_id, candidate_reason_code, proposed_depts "
         "FROM cs.improvement_requests WHERE id = %s",
         (request_id,),
     ).fetchone()
     assert row[:4] == ("DRAFT", "SYSTEM_CANDIDATE", product, CASE["fault_id"])
+    # 원인 WEAR_PART → 품질보증. 해결 부서(FIELD_SVC)가 아니라 원인 유형으로 제안한다.
+    assert row[5] == ["QA_CLAIM"]
     evidence = admin.execute(
         "SELECT count(*) FROM cs.request_evidence WHERE request_id = %s", (request_id,)
     ).fetchone()
@@ -105,9 +107,11 @@ def test_a_judgement_failure_keeps_the_registration(client, admin, monkeypatch):
 
 def test_a_group_without_a_transfer_department_is_skipped_not_saved(client, admin):
     product = f"TRF-{uuid4().hex[:6].upper()}"
+    # 원인이 현장 조건이면 제품 기술지원을 제안하는데, 이 임의 제품은 제품군이 없어 제안할 부서가 없다.
+    body = {"resolved_by_dept": "GCS_L1", "root_cause_type": "SITE_CONDITION"}
     for customer in ("CUST-C001", "CUST-C002"):
-        register_closed(client, admin, product, customer, resolved_by_dept="GCS_L1")
-    third = register_closed(client, admin, product, "CUST-C003", resolved_by_dept="GCS_L1")
+        register_closed(client, admin, product, customer, **body)
+    third = register_closed(client, admin, product, "CUST-C003", **body)
     assert third["improvement_candidate"] == {"outcome": "SKIPPED", "request_id": None}
     assert admin.execute(
         "SELECT count(*) FROM cs.improvement_requests WHERE product_code = %s", (product,)
