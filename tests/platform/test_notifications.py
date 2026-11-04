@@ -90,6 +90,21 @@ def test_fixed_titles_safe_paths_and_scope_deduplication():
     )
 
 
+def test_assigned_kind_has_a_fixed_ticket_title_and_rejects_other_shapes():
+    """KAN-214 cs.assigned: one owner, ticket link, no caller text in the title."""
+    key = f"cs.assigned:{SUBJECT}:{USER}:1"
+    params = intent_values(**values(kind="cs.assigned", dedupe_key=key, actor_id=uuid4()))
+    assert params[1:5] == ("cs", "cs.assigned", "새 문의 배정", f"/cs/tickets/{SUBJECT}")
+    assert params[7] == key
+    for change in (
+        {"dedupe_key": f"cs.transfer:{SUBJECT}"},
+        {"needs_review": True},
+        {"dedupe_key": "cs.assigned:" + "x" * 200},
+    ):
+        with pytest.raises(ValueError):
+            intent_values(**values(kind="cs.assigned", dedupe_key=key) | change)
+
+
 def setup(monkeypatch, *, enabled=False, dev=True):
     client = client_for(enabled=enabled, dev=dev)
     user = Identity(

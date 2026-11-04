@@ -2274,7 +2274,8 @@
               "mail.unknown",
               "cs.transfer",
               "rfp.done",
-              "rfp.failed"
+              "rfp.failed",
+              "cs.assigned"
             ],
             "title": "Kind",
             "type": "string"

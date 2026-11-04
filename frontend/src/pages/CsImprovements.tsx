@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ImprovementCreator from '../components/ImprovementCreator';
+import ImprovementAssignDialog from '../components/ImprovementAssignDialog';
 import ImprovementContent from '../components/ImprovementContent';
 import ImprovementVersions from '../components/ImprovementVersions';
 import ImprovementActions, { FollowupSignals, type ActionControl, type ActionRow, type PrimaryAction } from '../components/ImprovementActions';
@@ -245,6 +246,11 @@ function ImprovementView(){
   // 처리 결과 불명·충돌 때의 상세 갱신 횟수. 그 뒤 서버 상세를 실제로 한 번 더 받아야(조회 성공 또는 저장 응답) 처리 동작을 다시 연다. 다시 읽기가 실패하면 횟수가 그대로라 막은 채로 둔다.
   const [uncertainAt,setUncertainAt]=useState<number|null>(null);
   const editing=writing||acting||sorting;
+  // KAN-214 미배정 자동 배정: C/S 관리자(manager + 관리 부서 GCS_L1)만. 문의 조회의 자동 배정과 같은 검사이며 서버도 확인한다.
+  const [assigning,setAssigning]=useState(false);
+  const identity=useQuery({queryKey:['cs-improvements-identity',mode],queryFn:me,enabled:mode==='live'&&!requestId,retry:false});
+  const isManager=identity.data?.data?.roles?.includes('manager')===true&&(identity.data?.data?.managed_departments??[]).includes('GCS_L1');
+  const managerReason=isManager?undefined:mode!=='live'?'실제 API 모드에서만 할 수 있습니다':identity.isPending?'세션을 확인하는 중입니다':identity.isError?'세션을 확인하지 못했습니다. 새로고침하세요':'C/S 부서 관리자만 자동 배정할 수 있습니다';
   const list=useQuery({queryKey:['cs-improvements',mode,'list'],queryFn:({signal})=>listImprovements(signal),enabled:!requestId&&!editing,retry:false,staleTime:0});
   const detail=useQuery({queryKey:['cs-improvements',mode,requestId],queryFn:({signal})=>getImprovement(requestId!,signal),enabled:!!requestId&&!editing,retry:false,staleTime:0});
   const active=requestId?detail:list;
@@ -271,7 +277,8 @@ function ImprovementView(){
       <div className="btns">
         {requestId
           ? <>{control?.rows.filter(row=>row.kind==='owner').map(row=>actButton(row))}<Link className="kb3" to="/cs/improvements">개선요청 목록</Link></>
-          : <button className="kb3" disabled={mode!=='live'||creating} title={mode!=='live'?'모의 응답에서는 새 요청을 저장하지 않습니다.':undefined} onClick={()=>setCreating(true)}>새 개선요청 작성</button>}
+          : <><button className="kb3" disabled={mode!=='live'||creating} title={mode!=='live'?'모의 응답에서는 새 요청을 저장하지 않습니다.':undefined} onClick={()=>setCreating(true)}>새 개선요청 작성</button>
+            <button className="kb3" disabled={!isManager||assigning} title={managerReason??'C/S 담당이 없는 진행 중 개선요청을 제품군 규칙으로 배정합니다(미리보기 뒤 적용)'} onClick={()=>setAssigning(true)}>미배정 자동 배정</button></>}
         <span className="vsep"/>
         <button className="kb3 pri" disabled={active.isFetching||editing} onClick={refresh}>최신 요청 조회<kbd aria-hidden="true">F8</kbd></button>
       </div>
@@ -305,7 +312,7 @@ function ImprovementView(){
               &&(!needle||`${titleOf(item)} ${item.problem_statement} ${item.product_code} ${item.fault_id??''}`.toLocaleLowerCase().includes(needle)));const pages=Math.max(1,Math.ceil(items.length/PAGE));const at=Math.min(page,pages-1);
             const shown=sortRows(items,listColumns,sort).slice(at*PAGE,at*PAGE+PAGE);
             return <>
-              <div className="ph">개선요청<div className="r"><span className="meta" title="최근 최대 200건을 받아 온 기준입니다">총 {faults.length}건 중 {items.length}건</span></div></div>
+              <div className="ph">개선요청<div className="r"><span className="meta" title="최근 최대 200건을 받아 온 기준입니다">총 {faults.length}건 중 {items.length}건</span><span className="meta" title="C/S 담당이 없는 진행 중 요청입니다(완료 제외). C/S 관리자가 미배정 자동 배정으로 채웁니다">미배정 {faults.filter(item=>!item.cs_owner&&item.status!=='COMPLETED').length}건</span></div></div>
               <LogTable label="개선요청 목록" columns={listColumns} rows={shown} rowKey={item=>item.id} fallback={faults.length?'조건에 맞는 개선요청이 없습니다. 조건 지우기로 조건을 비울 수 있습니다.':'조회 가능한 개선요청이 없습니다.'}
                 sort={sort} onSort={key=>{setPage(0);setSort(current=>current.key===key?{key,dir:current.dir==='asc'?'desc':'asc'}:{key,dir:key==='created'?'desc':'asc'});}}/>
               {pages>1&&<nav className="pager" aria-label="개선요청 쪽">
@@ -374,5 +381,6 @@ function ImprovementView(){
         <div className="pane irx"><ImprovementVersions key={r.id} requestId={r.id}/></div>
       </>}
     </div>
+    {assigning&&<ImprovementAssignDialog onClose={()=>setAssigning(false)} onDone={()=>{void list.refetch();}}/>}
   </main>;
 }

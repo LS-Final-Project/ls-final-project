@@ -17,6 +17,7 @@ Kind = Literal[
     "cs.transfer",
     "rfp.done",
     "rfp.failed",
+    "cs.assigned",
 ]
 # 제목·경로를 호출자 문자열에서 받지 않는다. 원문·고객명·오류 코드는 알림에 없다.
 EVENTS: dict[str, tuple[str, str, str]] = {
@@ -27,6 +28,7 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "cs.transfer": ("cs", "이관 문의 수신", "/cs/tickets/"),
     "rfp.done": ("tft", "RFP 처리 완료", "/tft/projects/"),
     "rfp.failed": ("tft", "RFP 처리 실패", "/tft/projects/"),
+    "cs.assigned": ("cs", "새 문의 배정", "/cs/tickets/"),
 }
 INSERT_INTENT = (
     "INSERT INTO notify.notification_intents "
