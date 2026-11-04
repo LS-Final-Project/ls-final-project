@@ -19,6 +19,7 @@ import { OriginalDocument } from './OriginalDocument';
 import { clauseLabel, codeLabel, ISSUE_LABEL, reasonText, label, NECESSITY_LABEL, OPERATOR_LABEL, PATH_LABEL, STATUS_LABEL } from './labels';
 import { useNames } from './names';
 import { focusText } from './RfpReasoning';
+import { ReplyForm } from './QuestionForms';
 import { useRfpJobEvents } from './useRfpJobEvents';
 import { DEPARTMENT_LABEL } from './labels';
 import { constraintsBody, emptyConstraints } from './ProjectConstraintsForm';
@@ -526,12 +527,15 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
   const live = mode === 'live';
   const detail = useQuery({ queryKey: ['requirement', mode, row.requirement_id], queryFn: () => getRequirement(row.requirement_id), enabled: live });
   const comparison = useQuery({ queryKey: ['comparison', mode, row.requirement_id], queryFn: () => getComparison(row.requirement_id, { useMockFallback: false }), enabled: live });
-  const questions = useQuery({ queryKey: ['questions', mode, projectId], queryFn: () => listQuestions(projectId, undefined, { useMockFallback: false }), enabled: live && row.bid_verdict === 'QUERY' });
+  const questions = useQuery({ queryKey: ['questions', mode, projectId], queryFn: () => listQuestions(projectId, undefined, { useMockFallback: false }), enabled: live });
   const partners = useQuery({ queryKey: ['partner-candidates', mode, row.requirement_id], queryFn: () => listSupplementCandidates(projectId, row.requirement_id), enabled: live && row.bid_verdict === 'SUPPLEMENT' });
   const d = detail.data?.data;
   const reason = d?.judgement?.reason ?? '';
   const draftQuestion = questions.data?.data.items.find(q => q.requirement_id === row.requirement_id && q.status === 'DRAFT')?.question_text;
   const replied = questions.data?.data.items.filter(q => q.requirement_id === row.requirement_id && q.status === 'REPLIED' && q.reply).at(-1);
+  // 메일 연결 없이도 회신을 넣을 수 있게(시연·전화 회신): 보낸 뒤 회신 기다리는 고객 질의.
+  const waiting = questions.data?.data.items.find(q => q.requirement_id === row.requirement_id && q.target === 'CUSTOMER' && q.status === 'OPEN');
+  const [replying, setReplying] = useState(false);
   const [text, setText] = useState<string>();
   const [choice, setChoice] = useState<'deviate' | 'check'>('deviate');
   const [dept, setDept] = useState('TS_TRF');
@@ -562,11 +566,14 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
       <div className="ws-cmp"><span className="k">요구</span><span className={row.value_text ? 'v' : 'v empty'}>{row.value_text ?? '빈 칸'}</span><span className="k">자사</span><span className="v">{ownText}{(row.own_value ?? own) && <small className="muted"> {row.own_value?.product_code ?? own?.product_code}</small>}</span></div>
       {reason && <p className="ws-why" title={reason}>{reasonText(reason)}</p>}
       {followsOf(row) ? <div className="ws-decided"><span>원문 {row.duplicate?.member_count ?? 2}곳에 같은 요구가 있어 대표 요구에서 결정합니다.</span><span className="sp" /><button className="ws-link" onClick={() => onMove(followsOf(row) as string)}>대표로 이동</button></div>
-      : replied && d && !responsible && row.bid_verdict === 'QUERY' ? <>
+      : replied && d && !responsible ? <>
         <div className="ws-decided"><span>회신 받음</span><span className="sp" />{row.decision?.decision_id && <button className="ws-link" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'undo', decision_id: row.decision?.decision_id })}>되돌리기</button>}</div>
         <ReplyFlow projectId={projectId} detail={d} question={replied} onDone={() => onDecided({ action: 'confirm_met' })} /></>
-        : decided ? <div className="ws-decided"><span>{row.decision?.summary ?? '결정함'}</span><span className="sp" />
+        : decided ? <><div className="ws-decided"><span>{row.decision?.summary ?? '결정함'}</span><span className="sp" />
+        {!responsible && waiting && !replying && <button className="ws-link" onClick={() => setReplying(true)}>회신 기록</button>}
         {!responsible && row.decision?.decision_id && <button className="ws-link" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'undo', decision_id: row.decision?.decision_id })}>되돌리기</button>}</div>
+        {replying && waiting && <ReplyForm question={waiting} onCancel={() => setReplying(false)} onReload={() => client.invalidateQueries({ queryKey: ['questions'] })}
+          onSaved={() => { setReplying(false); client.invalidateQueries({ queryKey: ['questions'] }); client.invalidateQueries({ queryKey: ['workspace-requirements'] }); }} />}</>
         : responsible ? <p className="muted ws-note">결정은 담당자가 합니다.</p>
           : <div className="ws-form">
             {kindOf(row) === 'DEVIATION' && <>
