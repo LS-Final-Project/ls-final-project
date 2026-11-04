@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ImprovementContent from '../components/ImprovementContent';
-import ImprovementVersions from '../components/ImprovementVersions';
 import ImprovementActions, { FollowupSignals, type ActionControl, type ActionRow, type PrimaryAction } from '../components/ImprovementActions';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -35,7 +34,7 @@ const TASK_LABEL: Record<string, string> = {
 const ACTOR_LABEL: Record<string, string> = { CS_OWNER: 'C/S 담당자', DEPARTMENT: '부서' };
 const taskName = (task: string) => TASK_LABEL[task] ?? task;
 // 부서 상태. 처리 칸에 할 차례인 처리가 없을 때(다른 역할로 보거나 부서가 끝냈을 때) 대신 보인다.
-const DEPT_STATUS: Record<string, string> = { SENT: '받음(확인 전)', ACKNOWLEDGED: '수신 확인', ADOPTED: '채택', INFO_REQUESTED: '추가 정보 요청', REJECTED: '반려', ACTION_TAKEN: '조치 기록' };
+const DEPT_STATUS: Record<string, string> = { SENT: '회신 대기', ACKNOWLEDGED: '회신 대기', ADOPTED: '채택', INFO_REQUESTED: '추가 정보 요청', REJECTED: '반려', ACTION_TAKEN: '조치 기록' };
 type Titled = { origin: string; request_type: string; product_code: string; fault_id: string | null; problem_statement: string };
 // 시스템 후보의 문제 문장은 "제품 고장ID: 판정 사유"다(candidates.draft). 화면 제목에는 판정 사유를 빼고 고장 증상을 보인다.
 // 사람이 쓴 문장(수동 요청이나 내용 수정)은 그대로 보인다.
@@ -100,11 +99,11 @@ function EvidenceCompare({ data, locked, onSaved, onEditingChange, openSignal = 
   const needsLook = (row: CaseRow) => stats.some(stat => stat.weight === 'split' && stat.differs(row));
   const active = data.evidence.filter(e => !e.removed_at);
   const evidenceOf = (row: CaseRow): Evidence | undefined => active.find(e => e.ticket_id === row.ticket_id && (e.case_id ?? null) === (row.case_id ?? null));
-  // 판단할 것(묶음을 가르는 조건의 차이나 넣을지 볼 후보)이 있을 때만 펼쳐 둔다. 담당자가 누르면 그 상태를 따른다.
+  // 항상 접힌 채로 시작한다(사용자 결정). 머리를 누르거나 근거 칸을 누르면 펼친다. 판단할 것은 머리의 칩으로 보인다.
   const [opened, setOpened] = useState<boolean | null>(null);
   const box = useRef<HTMLDivElement | null>(null);
   useEffect(() => { if (!openSignal) return; setOpened(true); box.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' }); }, [openSignal]);
-  const open = opened ?? (checks > 0 || candidates.length > 0);
+  const open = opened ?? false;
   const [removing, setRemoving] = useState<{ key: string; evidence: Evidence; label: string; reason: string } | null>(null);
   const [showLog, setShowLog] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -284,7 +283,6 @@ function ImprovementView(){
 
     <div className="body">
       {mode==='mock'&&<div className="tier-note" role="status">모의 응답 모드 — 계약 예시이며 실제 업무 기록이 아닙니다.</div>}
-      <div className="chan-note">저장된 요청을 조회합니다. 문의 종결, 부서 조치, 고객 적용 및 재발 확인은 서로 다른 기록입니다.</div>
       {editing&&<div className="stale">작성·수정 중에는 입력 보존을 위해 자동 조회를 잠시 멈춥니다. 저장·취소 후 최신 내용을 확인하세요.</div>}
       {requestId&&actionsUncertain&&<div className="stale" role="status">처리 결과를 확인하지 못했습니다. 최신 상세를 받기 전에는 검토·전달·부서 처리를 다시 시작하지 않습니다.</div>}
       {active.isFetching&&<Loading/>}{!active.isFetching&&active.isError&&<ErrorState error={active.error} onRetry={refresh}/>}
@@ -330,7 +328,7 @@ function ImprovementView(){
           <div className="k">고장</div><div className="v">{r.fault_id??'미확인'}</div>
           <div className="k">상태</div><div className="v"><strong className="ir-state">{REQUEST_STATUS_LABEL[r.status]??r.status}</strong></div>
           <div className="k">생성 사유</div><div className="v last">{r.origin==='SYSTEM_CANDIDATE'?REASON_LABEL[r.candidate_reason_code??'']??'시스템 후보':'직접 작성'}</div>
-          <div className="k nb">판본 / 회차</div><div className="v nb">{r.version} / {r.current_round}</div>
+          <div className="k nb">작성일</div><div className="v nb">{dayOf(r.created_at)}</div>
           <div className="k nb">조건 확인</div><div className="v nb">{r.condition_status==='UNKNOWN'?<span className="chip w">미확인</span>:r.condition_status}</div>
           <div className="k nb">수정 FW</div><div className="v nb">{r.fw_fixed_version??'미확인'} / {r.fw_released_on??'미확인'}</div>
           <div className="k nb">출처</div><div className="v nb last">{r.data_origin} · {r.derivation_kind}</div>
@@ -355,16 +353,16 @@ function ImprovementView(){
 
           <div className="stack">
             <div className="pane">
-              <div className="ph"><h2>수신 부서와 할 일</h2>{r.current_round>0&&<div className="r"><span className="meta">{r.current_round}회차</span></div>}</div>
+              <div className="ph"><h2>수신 부서와 할 일</h2></div>
               <div className="pb">
                 {d.departments.length?<table className="log"><thead><tr><th>부서</th><th>처리</th></tr></thead><tbody>{d.departments.map(x=>{
                   // 내가 그 부서에서 할 차례인 처리 하나(rowsFor가 수신 확인 → 회신 → 조치 기록 순으로 넣는다).
                   // 할 처리가 없으면(C/S 담당자가 보거나 부서가 끝냈을 때) 그 부서의 지금 상태를 보인다.
                   const next=(control?.rows??[]).find(row=>row.target===x.dept_code&&!row.done);
-                  return <tr key={`${x.round}-${x.dept_code}`}><td>{deptName(x.dept_code)}{x.carried_over&&<span className="chip x">이월</span>}</td><td className="acts">{next?actButton(next,SHORT[next.kind]):<span className="chip">{DEPT_STATUS[x.status]??x.status}</span>}</td></tr>;})}</tbody></table>
+                  return <tr key={`${x.round}-${x.dept_code}`}><td>{deptName(x.dept_code)}</td><td className="acts">{next?actButton(next,SHORT[next.kind]):<span className="chip">{DEPT_STATUS[x.status]??x.status}</span>}</td></tr>;})}</tbody></table>
                   :<p className="none">아직 부서에 전달하지 않았습니다.{r.proposed_depts.length>0&&` 전달하면 제안 부서(${r.proposed_depts.map(deptName).join(', ')})가 받습니다.`}</p>}
                 <div id="ia-slot-dept" className="irx ia-slot"/>
-                {d.replies.length>0&&<><h3>부서 회신</h3>{d.replies.map(x=><div key={x.id} className="dept-ans"><span className="meta">{deptName(x.dept_code)} · 회차 {x.round} · 판본 {x.request_version} · {x.reply_type}</span><div className="dept-body">{x.reason??'사유 기록 없음'}</div></div>)}</>}
+                {d.replies.length>0&&<><h3>부서 회신</h3>{d.replies.map(x=><div key={x.id} className="dept-ans"><span className="meta">{deptName(x.dept_code)} · {x.reply_type}</span><div className="dept-body">{x.reason??'사유 기록 없음'}</div></div>)}</>}
               </div>
             </div>
             <div className="pane">
@@ -372,14 +370,16 @@ function ImprovementView(){
               <div className="pb">
                 {d.actions.length?d.actions.map(x=><div key={x.id} className="dept-ans"><span className="meta">{deptName(x.dept_code)} · {x.action_date}</span><div className="dept-body">{x.action}</div><p className="meta">적용 대상: {x.action_scope}</p><p className="meta">근거: {x.action_evidence}</p></div>):<p className="none">조치 기록 없음</p>}
                 <h3>후속 확인</h3>
-                <p>계획: {r.followup_plan??'미기록'}</p><p>결과: {r.followup_result??'미기록'}</p>
+                <ol className="fu-steps">{([['계획',r.followup_plan,'부서 조치 뒤 C/S가 무엇을 언제 확인할지 적습니다.'],['결과',r.followup_result,'계획대로 확인한 결과를 적으면 요청이 완료됩니다.']] as const).map(([name,text,hint])=>
+                  <li key={name} className={text?'on':''}><span className="dot" aria-hidden="true">{text?'✓':''}</span>
+                    <div><div className="fu-h"><b>{name}</b><span className={`chip ${text?'st-adopted':'st-draft'}`}>{text?'기록됨':'미기록'}</span></div>
+                      {text?<p className="fu-body">{text}</p>:<p className="none">{hint}</p>}</div></li>)}</ol>
                 {r.request_type==='FAULT'&&!['DRAFT','REVIEWED'].includes(r.status)&&<div className="irx"><FollowupSignals data={d}/></div>}
               </div>
             </div>
           </div>
         </div>
 
-        <div className="pane irx"><ImprovementVersions key={r.id} requestId={r.id}/></div>
       </>}
     </div>
   </main>;

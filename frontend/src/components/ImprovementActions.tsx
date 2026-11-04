@@ -24,7 +24,7 @@ type Row = ActionRow;
 const DEPT_KINDS:Kind[]=['resend','review-rejection','acknowledge','reply','action'];
 const PRIMARY:Kind[]=['review','send','review-rejection','resend','plan','complete','acknowledge','reply','action'];
 
-const DEPT_STATUS:Record<string,string>={SENT:'받음(확인 전)',ACKNOWLEDGED:'수신 확인',ADOPTED:'채택',INFO_REQUESTED:'추가 정보 요청',REJECTED:'반려',ACTION_TAKEN:'조치 기록'};
+const DEPT_STATUS:Record<string,string>={SENT:'회신 대기',ACKNOWLEDGED:'회신 대기',ADOPTED:'채택',INFO_REQUESTED:'추가 정보 요청',REJECTED:'반려',ACTION_TAKEN:'조치 기록'};
 const REPLY_LABEL:Record<ReplyBody['reply_type'],string>={ADOPTED:'채택',INFO_REQUESTED:'추가 정보 요청',REJECTED:'반려'};
 const SCOPE_LABEL:Record<NonNullable<ActionBody['scope_kind']>,string>={OTHER:'그 밖(사람이 판단)',FIRMWARE_VERSION:'펌웨어 버전 이상',SHIPPED_FROM:'출하일 이후',LOT:'로트 목록'};
 const SCOPE_HINT:Record<NonNullable<ActionBody['scope_kind']>,string>={OTHER:'',FIRMWARE_VERSION:'예: 1.72',SHIPPED_FROM:'예: 2026-01-31',LOT:'쉼표로 구분'};
@@ -38,11 +38,11 @@ function rowsFor(data:Data,roles:string[],dept:string|null,managed:string[],now:
   const tasks=data.next_owners;
   const rejectionClosed=data.departments.length>0&&data.departments.every(x=>x.status==='REJECTED'&&!!x.rejection_reviewed_at);
   const deptClosed=r.status==='FOLLOW_UP'||completed||rejectionClosed;
-  const deptClosedReason=completed?'완료된 요청입니다.':r.status==='FOLLOW_UP'?'후속 확인 단계에서는 부서 처리를 바꾸지 않습니다.':'모든 부서의 반려를 확인해 종료된 회차입니다.';
+  const deptClosedReason=completed?'완료된 요청입니다.':r.status==='FOLLOW_UP'?'후속 확인 단계에서는 부서 처리를 바꾸지 않습니다.':'모든 부서의 반려를 확인해 종료된 요청입니다.';
   if(roles.includes('cs_agent')){
     const noDepts=quick&&r.request_type==='FAULT'&&!r.proposed_depts.length?'제안 부서가 없습니다. 개선 요청 작성의 "내용 수정"에서 제안 부서를 고르세요.':undefined;
     rows.push({kind:'review',label:'검토 완료 기록',targetLabel:'요청',reason:r.status==='DRAFT'?reviewBlocked??noDepts:'작성 중 상태에서만 검토를 기록할 수 있습니다.',done:r.status!=='DRAFT'});
-    const sendReason=r.status!=='REVIEWED'?(r.status==='DRAFT'?'검토를 먼저 기록해야 합니다.':'이미 부서에 전달한 요청입니다. 새 회차는 이 화면에서 열지 않습니다.'):quick&&!r.proposed_depts.length?'제안 부서가 없습니다. 개선 요청 작성의 "내용 수정"에서 제안 부서를 고르세요.':undefined;
+    const sendReason=r.status!=='REVIEWED'?(r.status==='DRAFT'?'검토를 먼저 기록해야 합니다.':'이미 부서에 전달한 요청입니다.'):quick&&!r.proposed_depts.length?'제안 부서가 없습니다. 개선 요청 작성의 "내용 수정"에서 제안 부서를 고르세요.':undefined;
     rows.push({kind:'send',label:'부서 전달',targetLabel:'요청',reason:sendReason,done:r.status!=='DRAFT'&&r.status!=='REVIEWED'});
     for(const x of data.departments){
       // 다시 요청은 기획서의 추가 정보 대기(자료 보완)와 반려(새 근거)만. 회신 기한·회신 재촉은 화면에서 쓰지 않는다(서버 기본 기한 7일만 보냄).
@@ -59,7 +59,7 @@ function rowsFor(data:Data,roles:string[],dept:string|null,managed:string[],now:
   }
   if(roles.includes('dept_staff')){
     const mine=dept?data.departments.find(x=>x.dept_code===dept):undefined;
-    if(!mine)rows.push({kind:'reply',label:'부서 처리',targetLabel:dept?deptLabel(dept):'내 부서',reason:'이 요청의 현재 회차에 내 부서가 받는 부서로 없습니다.'});
+    if(!mine)rows.push({kind:'reply',label:'부서 처리',targetLabel:dept?deptLabel(dept):'내 부서',reason:'이 요청을 받는 부서에 내 부서가 없습니다.'});
     else{
       const target=mine.dept_code;const targetLabel=deptLabel(target);
       const state=(need:string,what:string)=>deptClosed?deptClosedReason:mine.status===need?undefined:`부서 상태가 '${DEPT_STATUS[need]}'일 때만 ${what}할 수 있습니다. 지금은 '${DEPT_STATUS[mine.status]??'미확인'}'입니다.`;
@@ -102,6 +102,13 @@ export default function ImprovementActions({data,onSaved,onReload,onEditingChang
   const rows=identity.isSuccess?rowsFor(data,roles,dept,managed,Date.now(),reviewBlocked,!inline):[];
   const set=(key:string)=>(e:{target:{value:string}})=>setValues(v=>({...v,[key]:e.target.value}));
   const v=(key:string)=>values[key]??'';
+  // 조치 기록 칸을 미리 채운다(AI 없음). 조치 내용 = 그 부서가 이번 회차에 채택할 때 쓴 회신 사유,
+  // 적용 대상 = 요청의 제품·고장, 적용일 = 오늘. 조치 근거는 사람만 아는 값이라 비워 둔다. 모두 고친 뒤 저장한다.
+  const actionDefaults=(target?:string):Record<string,string>=>{
+    const adopted=[...data.replies].filter(x=>x.dept_code===target&&x.round===r.current_round&&x.reply_type==='ADOPTED').pop();
+    const d=new Date();const today=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    return {scope_kind:'OTHER',action:adopted?.reason??'',action_scope:`${r.product_code}${r.fault_id?` · ${r.fault_id}`:''}`,action_date:today,action_evidence:''};
+  };
   const start=(row:Row)=>{
     // 상세 화면(inline=false)의 부서 전달은 입력 없이 바로 보낸다: 받는 부서 = 제안 부서, 회신 기한 = 서버 기본 7일.
     if(!inline&&row.kind==='send'){void sendNow();return;}
@@ -109,7 +116,7 @@ export default function ImprovementActions({data,onSaved,onReload,onEditingChang
     if(!inline&&row.kind==='review'){void reviewNow();return;}
     if(busy||uncertain||locked)return;
     setOpen({kind:row.kind,target:row.target,version:r.version});setError('');setNotice('');
-    setValues(row.kind==='action'?{scope_kind:'OTHER'}:row.kind==='reply'?{reply_type:'ADOPTED'}:{});
+    setValues(row.kind==='action'?actionDefaults(row.target):row.kind==='reply'?{reply_type:'ADOPTED'}:{});
     setDepts(row.kind==='review'||row.kind==='send'?[...r.proposed_depts] as Dept[]:[]);setPickDepts(false);
     setTimeout(()=>document.getElementById('ia-form')?.scrollIntoView?.({block:'nearest',behavior:'smooth'}),0);
   };
@@ -148,7 +155,7 @@ export default function ImprovementActions({data,onSaved,onReload,onEditingChang
     if(controller.current||uncertain||!live||busy||locked||open)return;
     const current=new AbortController();controller.current=current;setBusy(true);setError('');setNotice('');
     const s=current.signal;
-    try{const result=await reviewImprovement(r.id,{version:r.version},s);if(!s.aborted){setNotice(`검토 완료를 기록했습니다(판본 ${result.data.request.version}). 다음은 부서 전달입니다.`);onSaved(result);}}
+    try{const result=await reviewImprovement(r.id,{version:r.version},s);if(!s.aborted){setNotice('검토 완료를 기록했습니다. 다음은 부서 전달입니다.');onSaved(result);}}
     catch(e){if(!s.aborted){
       setError(e instanceof ApiError?e.message:'검토 결과를 확인할 수 없습니다.');
       if(!(e instanceof ApiError)||e.status===408||e.status===409||e.status>=500)onUncertain?.();
@@ -159,7 +166,7 @@ export default function ImprovementActions({data,onSaved,onReload,onEditingChang
     if(controller.current||uncertain||!live||busy||locked||open)return;
     const current=new AbortController();controller.current=current;setBusy(true);setError('');setNotice('');
     const s=current.signal;
-    try{const result=await sendImprovement(r.id,{version:r.version,dept_codes:[...r.proposed_depts] as Dept[],reply_due_days:7},s);if(!s.aborted){setNotice(`${r.proposed_depts.map(deptLabel).join(', ')}에 전달했습니다(판본 ${result.data.request.version}).`);onSaved(result);}}
+    try{const result=await sendImprovement(r.id,{version:r.version,dept_codes:[...r.proposed_depts] as Dept[],reply_due_days:7},s);if(!s.aborted){setNotice(`${r.proposed_depts.map(deptLabel).join(', ')}에 전달했습니다.`);onSaved(result);}}
     catch(e){if(!s.aborted){
       setError(e instanceof ApiError?e.message:'전달 결과를 확인할 수 없습니다.');
       if(!(e instanceof ApiError)||e.status===408||e.status===409||e.status>=500)onUncertain?.();
@@ -183,7 +190,7 @@ export default function ImprovementActions({data,onSaved,onReload,onEditingChang
       case 'reply':return replyImprovement(id,target,{version,reply_type:v('reply_type') as ReplyBody['reply_type'],...(text('reason')?{reason:text('reason')}:{})},s);
       case 'action':return recordImprovementAction(id,target,{version,action:text('action'),action_scope:text('action_scope'),action_date:v('action_date'),action_evidence:text('action_evidence'),scope_kind:scope,...(scope==='OTHER'?{}:{scope_value:text('scope_value')})},s);
     }};
-    try{const result=await call();if(!s.aborted){setOpen(null);setNotice(`기록을 저장했습니다(판본 ${result.data.request.version}). 아래는 서버가 돌려준 현재 상태이며, 부서의 수용이나 고객 장비 적용을 뜻하지 않습니다.`);onSaved(result);}}
+    try{const result=await call();if(!s.aborted){setOpen(null);setNotice(`기록을 저장했습니다. 아래는 서버가 돌려준 현재 상태이며, 부서의 수용이나 고객 장비 적용을 뜻하지 않습니다.`);onSaved(result);}}
     catch(e){if(!s.aborted){
       const conflict=e instanceof ApiError&&e.status===409;
       setError(e instanceof ApiError?e.message:'처리 결과를 확인할 수 없습니다.');
@@ -217,6 +224,7 @@ export default function ImprovementActions({data,onSaved,onReload,onEditingChang
       {scope!=='OTHER'&&<label>적용 범위 값<input required maxLength={500} placeholder={SCOPE_HINT[scope]} value={v('scope_value')} onChange={set('scope_value')}/></label>}
       <label>실제 적용일<input type="date" required value={v('action_date')} onChange={set('action_date')}/></label>
       <label>조치 근거<textarea required maxLength={10000} value={v('action_evidence')} onChange={set('action_evidence')}/></label>
+      <p className="meta">조치 내용(채택 회신)·적용 대상(요청의 제품·고장)·적용일(오늘)은 미리 채운 값입니다. 실제 내용으로 고친 뒤 저장하세요. 조치 근거(변경 문서·ECN 번호 등)는 직접 적습니다.</p>
       <p>부서의 개선 조치만 기록합니다. 특정 고객 장비의 수리·적용 여부는 여기에 적지 않습니다.</p></>;
     default:return null;
   }};
@@ -231,8 +239,8 @@ export default function ImprovementActions({data,onSaved,onReload,onEditingChang
     <td>{row.reason?<span className="why-line">{row.reason}</span>:<button className={row===primaryRow?'kb3 sm pri':'kb3 sm'} disabled={blocked} onClick={()=>start(row)}>{row.label}</button>}</td>
   </tr>;
   const formNode=open&&<form id="ia-form" className="sendbox" aria-label={openRow?`${openRow.label} 입력`:'처리 입력'} aria-busy={busy} onSubmit={e=>{e.preventDefault();void submit();}}>
-      <div className="ia-head">{open.kind==='send'?<b>부서 전달 요청 사항</b>:<><b>{openRow?openRow.label:'처리 입력'}</b>{openRow&&<span className="chip x">{openRow.targetLabel}</span>}</>}<span className="meta">읽은 판본 {open.version}</span></div>
-      <p className="meta">{openRow?`${openRow.label} · ${openRow.targetLabel}`:''}. 읽은 판본: {open.version}. 그사이 다른 사람이 바꿨다면 저장하지 않고 다시 읽기를 안내합니다.</p>
+      <div className="ia-head">{open.kind==='send'?<b>부서 전달 요청 사항</b>:<><b>{openRow?openRow.label:'처리 입력'}</b>{openRow&&<span className="chip x">{openRow.targetLabel}</span>}</>}</div>
+      <p className="meta">{openRow?`${openRow.label} · ${openRow.targetLabel}. `:''}그사이 다른 사람이 바꿨다면 저장하지 않고 다시 읽기를 안내합니다.</p>
       <fieldset disabled={busy||uncertain}>{fields()}</fieldset>
       {error&&<p role="alert">{error}</p>}
       <div className="row2"><button className="kb3 sm" type="button" disabled={busy} onClick={close}>{open.kind==='send'?'전달 취소':'입력 취소'}</button><button className="kb3 sm pri" type="submit" disabled={busy||uncertain||!valid}>{open.kind==='send'?(busy?'전달 중':'전달'):(busy?'기록 중':'기록 저장')}</button></div>
@@ -272,7 +280,7 @@ const PHASE:Record<string,string>={NOT_SENT:'아직 부서에 전달 전',BEFORE
 const DECISION:Record<string,string>={REQUEST_AGAIN:'재요청 후보',RECURRENCE:'재발 후보',NONE:'후보 없음'};
 const REASON:Record<string,string>={NEW_RECORDS_3:'직전 전달 뒤 새 해결 기록 3건 이상',APPLIED_UNIT_RECURRENCE:'조치가 적용된 장비에서 다시 발생',BELOW_3:'새 해결 기록이 3건 미만',NO_RECURRENCE:'조치 뒤 재발 기록 없음',NOT_SENT:'전달 전이라 판정하지 않음',
   PRE_ACTION_UNIT_FIRMWARE:'펌웨어 수정판 미적용 장비',PRE_ACTION_UNIT_SHIPMENT:'기준일 전 출하 장비',PRE_ACTION_UNIT_LOT:'대상 로트 밖 장비',UNKNOWN_FW_VERSION:'고장 당시 펌웨어 버전 미확인',UNKNOWN_SHIP_DATE:'출하일 미확인',UNKNOWN_LOT:'로트 미확인',UNKNOWN_SCOPE:'적용 범위를 사람이 판단해야 함',SAME_DAY_AS_ACTION:'조치일과 같은 날 접수'};
-const CLASS:Record<string,string>={NEW_SINCE_SENT:'직전 전달 뒤 새 기록',RECURRENCE:'재발',PRE_ACTION_UNIT:'조치 전 장비',APPLICATION_UNKNOWN:'적용 여부 미확인',BEFORE_ACTION_DATE:'조치일 전 발생',IN_EARLIER_ROUND:'이전 회차에서 다룸'};
+const CLASS:Record<string,string>={NEW_SINCE_SENT:'직전 전달 뒤 새 기록',RECURRENCE:'재발',PRE_ACTION_UNIT:'조치 전 장비',APPLICATION_UNKNOWN:'적용 여부 미확인',BEFORE_ACTION_DATE:'조치일 전 발생',IN_EARLIER_ROUND:'이전 전달에서 다룸'};
 const label=(map:Record<string,string>,code:string|null|undefined)=>code?map[code]??'기타':'-';
 
 // KAN-117 판정은 읽을 때 계산하는 후보일 뿐 요청 상태를 바꾸지 않는다. 새 회차 열기는 이 화면에 없다.
@@ -283,18 +291,31 @@ export function FollowupSignals({data}:{data:Data}){
   const signals=useQuery({queryKey:['cs-improvement-signals',mode,r.id],queryFn:({signal})=>getFollowupSignals(r.id,signal),enabled:fault&&opened,retry:false,staleTime:0});
   const refresh=()=>{if(opened)void signals.refetch();else setOpened(true);};
   const s=signals.data?.data;
-  return <section className="sig"><h3>재요청·재발 신호</h3><p>같은 묶음의 새 해결 기록을 읽을 때 계산한 후보입니다. 요청 상태를 바꾸지 않고 자동으로 다시 보내지 않습니다.</p>
-    {fault&&<button className="kb3 sm" disabled={signals.isFetching} onClick={refresh}>{opened?'신호 새로고침':'신호 조회'}</button>}
+  const c=s?.counts;
+  const tone=s?.decision==='RECURRENCE'?'danger':s?.decision==='REQUEST_AGAIN'?'warn':'calm';
+  const pct=c&&c.threshold>0?Math.min(100,Math.round(c.new_since_sent/c.threshold*100)):0;
+  return <section className="sig">
+    <div className="sig-head"><h3>재요청·재발 신호</h3>
+      {fault&&<button className="kb3 sm" disabled={signals.isFetching} onClick={refresh}>{opened?'신호 새로고침':'신호 조회'}</button>}</div>
+    <p className="sig-note">같은 묶음의 새 해결 기록을 읽을 때 계산한 후보입니다. 요청 상태를 바꾸지 않고 자동으로 다시 보내지 않습니다.</p>
     {signals.isFetching&&<Loading/>}{opened&&!signals.isFetching&&signals.isError&&<ErrorState error={signals.error} onRetry={refresh}/>}
-    {opened&&!signals.isFetching&&signals.isSuccess&&s&&<>
-      <dl className="kvl"><dt>기준 시각</dt><dd>{stamp(s.as_of)}</dd><dt>단계</dt><dd>{label(PHASE,s.phase)}</dd><dt>판정</dt><dd>{label(DECISION,s.decision)} · {label(REASON,s.reason_code)}</dd>
-        <dt>재요청 진행</dt><dd>{s.counts.new_since_sent}/{s.counts.threshold}{s.counts.candidate_index?` (후보 ${s.counts.candidate_index}번)`:''}</dd>
-        <dt>재발 / 조치 전 장비 / 적용 미확인</dt><dd>{s.counts.recurrence}건 / {s.counts.pre_action_unit}건 / {s.counts.application_unknown}건</dd>
-        <dt>업데이트 안내 대상 고객</dt><dd>{s.update_notice_customers.length}명</dd></dl>
-      {s.next_action!=='NONE'&&<p>새 회차 후보입니다. 근거를 확인한 뒤 담당자가 새 회차를 열어야 하며, 이 화면에서는 새 회차를 열지 않습니다.</p>}
+    {opened&&!signals.isFetching&&signals.isSuccess&&s&&c&&<>
+      <div className={`sig-verdict ${tone}`}>
+        <span className="sig-ico" aria-hidden="true">{tone==='danger'?'!':tone==='warn'?'↻':'✓'}</span>
+        <div><b>{label(DECISION,s.decision)} · {label(REASON,s.reason_code)}</b><small>{label(PHASE,s.phase)} · 기준 {stamp(s.as_of)}</small></div>
+      </div>
+      <div className="sig-tiles">
+        <div className="sig-tile wide"><span className="k">재요청 진행</span><span className="v">{c.new_since_sent}/{c.threshold}{c.candidate_index?` (후보 ${c.candidate_index}번)`:''}</span>
+          <span className="bar" aria-hidden="true"><i style={{width:`${pct}%`}}/></span></div>
+        <div className={`sig-tile${c.recurrence?' hot':''}`}><span className="k">재발</span><span className="v">{c.recurrence}<small>건</small></span></div>
+        <div className="sig-tile"><span className="k">조치 전 장비</span><span className="v">{c.pre_action_unit}<small>건</small></span></div>
+        <div className="sig-tile"><span className="k">적용 미확인</span><span className="v">{c.application_unknown}<small>건</small></span></div>
+        <div className="sig-tile"><span className="k">안내 대상 고객</span><span className="v">{s.update_notice_customers.length}<small>명</small></span></div>
+      </div>
+      {s.next_action!=='NONE'&&<p className="sig-call">다시 요청할 후보입니다. 근거를 확인한 뒤 담당자가 판단하며, 이 화면에서 자동으로 다시 보내지 않습니다.</p>}
       {s.records.length?<table className="log"><thead><tr><th scope="col">문의</th><th scope="col">알려진 시각</th><th scope="col">분류</th><th scope="col">사유</th></tr></thead><tbody>
         {s.records.map((x,i)=><tr key={`${x.ticket_id}:${x.case_id}:${i}`}><td><Link to={`/cs/tickets/${encodeURIComponent(x.ticket_id)}`}>문의 보기</Link></td><td>{stamp(x.known_at)}</td><td>{label(CLASS,x.class)}</td><td>{label(REASON,x.reason_code)}</td></tr>)}
-      </tbody></table>:<p>판정에 쓴 기록이 없습니다.</p>}
+      </tbody></table>:<p className="none">판정에 쓴 기록이 없습니다.</p>}
     </>}
   </section>;
 }

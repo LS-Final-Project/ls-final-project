@@ -127,6 +127,8 @@ test('근거 비교는 해결 기록 칸을 나란히 두고 다수와 다른 �
  const items=[row('T-1','1.72','SETTING','TS_LV'),row('T-2','1.72','SETTING','TS_LV'),row('T-3','1.80','HARDWARE','TS_MV')];
  const fault=structuredClone(source) as unknown as ImprovementDetail;fault.data.request.request_type='FAULT';
  vi.stubGlobal('fetch',vi.fn(async(url:RequestInfo|URL)=>String(url).includes('/case-comparison')?jsonResponse(200,{data:{request_id:'test',hidden_case_count:0,items}}):jsonResponse(200,fault)));view();
+ // 근거 비교는 항상 접힌 채로 시작한다. 머리를 눌러 편다.
+ fireEvent.click(await screen.findByRole('button',{name:/근거 비교/}));
  const table=await screen.findByRole('table',{name:'근거 비교'});
  const rows=[...table.querySelectorAll('tbody tr')];
  expect(rows.map(r=>r.querySelector('td:nth-last-child(2)')!.textContent)).toEqual(['같음','같음','원문 확인']);
@@ -149,6 +151,8 @@ test('근거 비교에서 후보는 넣고 포함된 근거는 사유를 적어 
   if(path.includes('/case-comparison'))return jsonResponse(200,{data:{request_id:base.data.request.id,hidden_case_count:0,items}});
   return jsonResponse(200,base);
  });vi.stubGlobal('fetch',fetch);view();
+ // 근거 비교는 항상 접힌 채로 시작한다. 머리를 눌러 편다.
+ fireEvent.click(await screen.findByRole('button',{name:/근거 비교/}));
  const table=await screen.findByRole('table',{name:'근거 비교'});
  // FW·현장 방문은 어느 근거에도 값이 없어 칸을 그리지 않는다.
  expect(table.textContent).not.toMatch(/고장 당시 FW|현장 방문/);
@@ -316,7 +320,7 @@ test('처리할 것이 없는 사용자(C/S 담당자)에게는 부서 줄에 �
  body.data.departments=[dept('TS_TRF','SENT'),dept('QA_CLAIM','ADOPTED')] as typeof body.data.departments;
  vi.stubGlobal('fetch',vi.fn(async(url:RequestInfo|URL)=>String(url).endsWith('/me')?new Response(JSON.stringify({data:{roles:['cs_agent'],dept:null,managed_departments:[]}}),{headers:{'X-CSRF-Token':'synthetic'}}):jsonResponse(200,body)));view();
  await screen.findByText('수신 부서와 할 일');
- const cells=await waitFor(()=>{const found=[...document.querySelectorAll('td.acts')].map(td=>td.textContent);expect(found).toEqual(['받음(확인 전)','채택']);return found;});
+ const cells=await waitFor(()=>{const found=[...document.querySelectorAll('td.acts')].map(td=>td.textContent);expect(found).toEqual(['회신 대기','채택']);return found;});
  expect(cells).toHaveLength(2);
 });
 
@@ -347,4 +351,23 @@ test('작성 중이면 개선 요청 작성 상자에 검토 완료가 있고, �
  expect(screen.queryByRole('form',{name:/검토 완료 기록 입력/})).toBeNull();
  const send=await screen.findByRole('button',{name:'부서 전달'});
  expect(send.closest('.ai-apply')).toBeTruthy();
+});
+
+test('근거 비교는 판단할 것이 있어도 접힌 채로 시작하고 머리를 누르면 펼친다',async()=>{
+ const row=(ticket:string,fw:string)=>({row_kind:'EVIDENCE',ticket_id:`${ticket}-0000-4000-8000-000000000000`.slice(0,36),ticket_external_id:ticket,ticket_subject:null,ticket_received_at:'2026-09-01T00:00:00Z',customer_external_id:`C-${ticket}`,product_code:'P',case_id:null,case_external_id:null,symptom:null,root_cause_type:'SETTING',root_cause:null,action_taken:null,resolved_by_dept:'TS_LV',known_at:null,fw_version_at_issue:fw,onsite_visit:false});
+ const fault=structuredClone(source) as unknown as ImprovementDetail;fault.data.request.request_type='FAULT';
+ vi.stubGlobal('fetch',vi.fn(async(url:RequestInfo|URL)=>String(url).includes('/case-comparison')?jsonResponse(200,{data:{request_id:'test',hidden_case_count:0,items:[row('T-1','1.72'),row('T-2','1.72'),row('T-3','1.80')]}}):jsonResponse(200,fault)));view();
+ const head=await screen.findByRole('button',{name:/근거 비교/});
+ await screen.findByText(/판단 필요/);
+ expect(head.getAttribute('aria-expanded')).toBe('false');expect(screen.queryByRole('table',{name:'근거 비교'})).toBeNull();
+ fireEvent.click(head);expect(await screen.findByRole('table',{name:'근거 비교'})).toBeTruthy();
+});
+
+test('부서 담당자에게는 개선 요청 작성의 내용 수정·AI 초안 작성 단추가 없다(C/S가 보낸 요청서를 읽기만)',async()=>{
+ const body=structuredClone(source) as unknown as ImprovementDetail;const r=body.data.request;
+ r.status='SENT';r.version=3;r.current_round=1;body.data.departments=[{round:1,dept_code:'TS_TRF',status:'SENT',carried_over:false,sent_version:2,reply_due_at:'2999-01-01T00:00:00Z',rejection_reviewed_at:null,rejection_reviewed_by:null}];
+ vi.stubGlobal('fetch',vi.fn(async(url:RequestInfo|URL)=>String(url).endsWith('/me')?new Response(JSON.stringify({data:{roles:['dept_staff'],dept:'TS_TRF',managed_departments:[]}}),{headers:{'X-CSRF-Token':'synthetic'}}):jsonResponse(200,body)));view();
+ await screen.findByText('수신 부서와 할 일');
+ await waitFor(()=>expect(screen.queryByRole('button',{name:'내용 수정'})).toBeNull());
+ expect(screen.queryByRole('button',{name:/AI 초안 작성/})).toBeNull();
 });
