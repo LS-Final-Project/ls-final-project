@@ -30,10 +30,16 @@ function serve(me: object) {
     if (url.includes('/platform/assignees')) return jsonResponse(200, { data: { items: [{ user_id: 'u-th', display_name: '가정 상담원 3' }] } });
     if (url.includes('/assignments/agents')) return jsonResponse(200, { data: { rule_version: 'cs-assign-v1', items: [] } });
     if (url.includes('/cs/stats/')) return jsonResponse(503, { error: { code: 'X', message: '합성' } });
+    if (url.includes('/assignments/improvements/unmatched')) return jsonResponse(200, { data: { items: UNMATCHED_REQUESTS, has_more: false } });
+    if (url.includes('/assignments/unmatched')) return jsonResponse(200, { data: { items: UNMATCHED_TICKETS, has_more: true } });
     return jsonResponse(200, { data: { items: [ticket], next_cursor: null } });
   }));
   return calls;
 }
+// 맞는 담당자 없음 목록(KAN-234): 서버가 최신 판단이 NO_MATCH인 것만 사유 재료와 함께 준다.
+const unmatchedTicket = (id: string, extra: object) => ({ ticket_id: id, external_id: `MAIL-${id}`, subject: 'A PLC nem indul', subject_ko: null, channel: 'EMAIL', product_code: 'PLC-NX-32', body_language: 'hu', received_at: '2026-11-05T09:00:00Z', reason_code: 'NO_MATCH', language: 'hu', family: null, trigger: 'INTAKE', decided_at: '2026-11-05T09:00:00Z', ...extra });
+const UNMATCHED_TICKETS = [unmatchedTicket('u1', {}), unmatchedTicket('u2', { subject: 'Falownik', subject_ko: '인버터 고장', product_code: 'PLC-XGI-CPUU', body_language: 'pl-PL', language: 'pl', family: 'PLC' })];
+const UNMATCHED_REQUESTS = [{ request_id: 'r9', request_type: 'FAULT', product_code: 'PLC-XGI-CPUU', fault_id: 'FLT-031', status: 'DRAFT', created_at: '2026-11-05T00:00:00Z', reason_code: 'NO_MATCH', family: 'PLC', trigger: 'CANDIDATE', decided_at: '2026-11-05T00:00:00Z' }];
 const list = () => { setApiMode('live'); renderAt('/cs/tickets', '/cs/tickets', <Tickets />); };
 
 for (const [who, me] of [['C/S 담당자', { id: 'c', roles: ['cs_agent'], managed_departments: [] }], ['다른 부서 관리자', { id: 'm', roles: ['manager'], managed_departments: ['TS_TRF'] }]] as const) {
@@ -145,14 +151,23 @@ test('개선요청 목록은 누구에게나 미배정 건수(고장 요청, 담
 
 // 관리자 메뉴는 통계/보고서뿐이라 배정 기능을 업무 배정(CS0902)에 모았다.
 const admin = () => { setApiMode('live'); renderAt('/cs/admin/assign', '/cs/admin/assign', <CsAssign />); };
-test('업무 배정: 자동 배정 단추 없이 맞는 담당자 없는 문의를 보이고, 선택 담당 변경을 한다', async () => {
-  serve(CS_MANAGER); admin();
+test('업무 배정: 자동 배정 단추 없이 맞는 담당자 없는 문의를 서버 사유로 보이고, 선택 담당 변경을 한다', async () => {
+  const calls = serve(CS_MANAGER); admin();
   const section = within(await screen.findByRole('region', { name: '담당 배정' }));
   expect(await section.findByText('Breaker trips')).toBeTruthy();
-  // 과거 적재 자료(synthetic)는 '맞는 담당자 없는 문의'에 넣지 않는다.
+  // 맞는 담당자 없는 문의는 서버 목록 그대로다. 진행 문의(Breaker trips)는 판단 기록이 없어 들어오지 않는다.
   const unmatched = within(screen.getByRole('region', { name: '맞는 담당자 없는 문의' }));
+  expect(await unmatched.findByText('헝가리어 가능자 없음 · 미등록 제품 PLC-NX-32')).toBeTruthy();
+  expect(unmatched.getByText('폴란드어 가능자 없음 · PLC·영어 담당 없음')).toBeTruthy();
+  expect(unmatched.getByText('인버터 고장')).toBeTruthy();
+  expect(unmatched.getByText('헝가리어')).toBeTruthy();
   expect(unmatched.queryByText('Breaker trips')).toBeNull();
-  expect(await unmatched.findByText(/맞는 담당자가 없는 문의가 없습니다/)).toBeTruthy();
+  // 상한보다 많으면 건수에 +를 붙인다. 건별 상세 조회는 하지 않는다.
+  expect(screen.getByRole('tab', { name: /문의\s*2\+/ })).toBeTruthy();
+  expect(calls.some(c => /\/cs\/tickets\/u\d/.test(c.url))).toBe(false);
+  expect(calls.find(c => c.url.includes('/assignments/unmatched'))!.url).toContain('limit=100');
+  fireEvent.click(unmatched.getAllByRole('button', { name: '담당 지정' })[0]);
+  expect(await screen.findByText(/MAIL-u1/)).toBeTruthy();
   const change = section.getByRole('button', { name: /선택 담당 변경/ }) as HTMLButtonElement;
   expect(change.disabled).toBe(true);
   fireEvent.click(section.getByRole('checkbox', { name: 'ID-1 선택' }));
@@ -165,4 +180,10 @@ test('업무 배정의 담당 배정은 C/S 부서 관리자가 아니면 보이
   await screen.findByRole('heading', { name: /업무 배정/ });
   await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([u]) => String(u).endsWith('/platform/me'))).toBe(true));
   expect(screen.queryByRole('region', { name: '담당 배정' })).toBeNull();
+});
+test('업무 배정: 맞는 담당자 없는 개선요청은 서버 목록과 제품군 사유를 보인다', async () => {
+  serve(CS_MANAGER); setApiMode('live'); renderAt('/cs/admin/assign?tab=requests', '/cs/admin/assign', <CsAssign />);
+  const unmatched = within(await screen.findByRole('region', { name: '맞는 담당자 없는 개선요청' }));
+  expect(await unmatched.findByText('PLC 제품군 담당자 없음')).toBeTruthy();
+  expect(unmatched.getByRole('link', { name: 'PLC-XGI-CPUU · FLT-031' }).getAttribute('href')).toBe('/cs/improvements/r9');
 });

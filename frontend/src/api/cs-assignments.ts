@@ -33,3 +33,11 @@ export type RequestApplyResponse = paths[`${Base}/improvements/apply`]['post']['
 export type RequestApplyRow = RequestApplyResponse['data']['items'][number];
 export const previewRequestAssignments = (limit: number, signal: AbortSignal) => post<RequestPreviewResponse>('/api/v1/cs/assignments/improvements/preview', { limit }, signal);
 export const applyRequestAssignments = (body: RequestApplyBody, signal: AbortSignal) => post<RequestApplyResponse>('/api/v1/cs/assignments/improvements/apply', body, signal);
+
+// 맞는 담당자 없는 문의·개선요청(KAN-234): 지금 미배정이고 최신 배정 판단이 NO_MATCH인 것, 최신순. C/S 부서 관리자만.
+export type UnmatchedTicketsResponse = paths[`${Base}/unmatched`]['get']['responses'][200]['content']['application/json'];
+export type UnmatchedTicketRow = UnmatchedTicketsResponse['data']['items'][number];
+export type UnmatchedRequestsResponse = paths[`${Base}/improvements/unmatched`]['get']['responses'][200]['content']['application/json'];
+export type UnmatchedRequestRow = UnmatchedRequestsResponse['data']['items'][number];
+export const listUnmatchedTickets = (limit: number, signal?: AbortSignal) => request<UnmatchedTicketsResponse>(`/api/v1/cs/assignments/unmatched?limit=${limit}`, { signal });
+export const listUnmatchedRequests = (limit: number, signal?: AbortSignal) => request<UnmatchedRequestsResponse>(`/api/v1/cs/assignments/improvements/unmatched?limit=${limit}`, { signal });

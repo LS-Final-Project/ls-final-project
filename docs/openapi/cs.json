@@ -9742,6 +9742,38 @@
         "title": "SuccessResponse[UnitHistory]",
         "type": "object"
       },
+      "SuccessResponse_UnmatchedRequests_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/UnmatchedRequests"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[UnmatchedRequests]",
+        "type": "object"
+      },
+      "SuccessResponse_UnmatchedTickets_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/UnmatchedTickets"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[UnmatchedTickets]",
+        "type": "object"
+      },
       "SuccessResponse_Workflow_": {
         "properties": {
           "data": {
@@ -11191,6 +11223,248 @@
         "title": "UnitLinkWrite",
         "type": "object"
       },
+      "UnmatchedRequest": {
+        "description": "\ub9de\ub294 \ub2f4\ub2f9\uc790 \uc5c6\ub294 \uac1c\uc120\uc694\uccad \ud55c \uac74(KAN-234).",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decided_at": {
+            "format": "date-time",
+            "title": "Decided At",
+            "type": "string"
+          },
+          "family": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Family of the current product; null = product not in product_master.",
+            "title": "Family"
+          },
+          "fault_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fault Id"
+          },
+          "product_code": {
+            "title": "Product Code",
+            "type": "string"
+          },
+          "reason_code": {
+            "const": "NO_MATCH",
+            "title": "Reason Code",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "request_type": {
+            "title": "Request Type",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "trigger": {
+            "enum": [
+              "CANDIDATE",
+              "BATCH"
+            ],
+            "title": "Trigger",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "request_type",
+          "product_code",
+          "fault_id",
+          "status",
+          "created_at",
+          "reason_code",
+          "family",
+          "trigger",
+          "decided_at"
+        ],
+        "title": "UnmatchedRequest",
+        "type": "object"
+      },
+      "UnmatchedRequests": {
+        "properties": {
+          "has_more": {
+            "description": "More requests than `limit`.",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Newest created first.",
+            "items": {
+              "$ref": "#/components/schemas/UnmatchedRequest"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "has_more"
+        ],
+        "title": "UnmatchedRequests",
+        "type": "object"
+      },
+      "UnmatchedTicket": {
+        "description": "\ub9de\ub294 \ub2f4\ub2f9\uc790 \uc5c6\ub294 \ubb38\uc758 \ud55c \uac74(KAN-234). \uaddc\uce59 \uacb0\uacfc\uc774\uba70 AI \ucd9c\ub825\uc774 \uc544\ub2c8\ub2e4.",
+        "properties": {
+          "body_language": {
+            "title": "Body Language",
+            "type": "string"
+          },
+          "channel": {
+            "title": "Channel",
+            "type": "string"
+          },
+          "decided_at": {
+            "description": "When the newest (NO_MATCH) decision was made.",
+            "format": "date-time",
+            "title": "Decided At",
+            "type": "string"
+          },
+          "external_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Id"
+          },
+          "family": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Product family no agent covered with English; null = product not in product_master (unregistered product).",
+            "title": "Family"
+          },
+          "language": {
+            "description": "Primary language no active agent read when decided.",
+            "title": "Language",
+            "type": "string"
+          },
+          "product_code": {
+            "title": "Product Code",
+            "type": "string"
+          },
+          "reason_code": {
+            "const": "NO_MATCH",
+            "title": "Reason Code",
+            "type": "string"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          },
+          "subject_ko": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Current Korean subject translation, if any.",
+            "title": "Subject Ko"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          },
+          "trigger": {
+            "enum": [
+              "INTAKE",
+              "BATCH"
+            ],
+            "title": "Trigger",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "external_id",
+          "subject",
+          "subject_ko",
+          "channel",
+          "product_code",
+          "body_language",
+          "received_at",
+          "reason_code",
+          "language",
+          "family",
+          "trigger",
+          "decided_at"
+        ],
+        "title": "UnmatchedTicket",
+        "type": "object"
+      },
+      "UnmatchedTickets": {
+        "properties": {
+          "has_more": {
+            "description": "More tickets than `limit`.",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Newest received first.",
+            "items": {
+              "$ref": "#/components/schemas/UnmatchedTicket"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "has_more"
+        ],
+        "title": "UnmatchedTickets",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -11883,6 +12157,83 @@
         "x-implementation-status": "partial"
       }
     },
+    "/api/v1/cs/assignments/improvements/unmatched": {
+      "get": {
+        "description": "\ub9de\ub294 \ub2f4\ub2f9\uc790 \uc5c6\ub294 \uac1c\uc120\uc694\uccad(KAN-234): C/S \ub2f4\ub2f9 \uc5c6\ub294 \uc9c4\ud589 \uc694\uccad \uc911 \ucd5c\uc2e0 \ud310\ub2e8\uc774 NO_MATCH.\n\n\uc81c\ud488\uad70\uc740 \uc9c0\uae08 \uc81c\ud488 \ucf54\ub4dc\uc5d0\uc11c \ub2e4\uc2dc \uad6c\ud55c\ub2e4. \uac1c\uc120\uc694\uccad\uc758 NO_MATCH \uae30\ub85d\uc740 \uc81c\ud488\uad70\uc744 \uc801\uc9c0 \uc54a\uae30\n\ub54c\ubb38\uc774\ub2e4(null = product_master\uc5d0 \uc5c6\ub294 \uc81c\ud488).",
+        "operationId": "cs_list_unmatched_improvements",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_UnmatchedRequests_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Unmatched Requests",
+        "tags": [
+          "assignments"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
     "/api/v1/cs/assignments/preview": {
       "post": {
         "description": "Proposed owners for the oldest unassigned RECEIVED tickets. Writes nothing.",
@@ -11950,6 +12301,83 @@
           }
         },
         "summary": "Preview",
+        "tags": [
+          "assignments"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/assignments/unmatched": {
+      "get": {
+        "description": "\ub9de\ub294 \ub2f4\ub2f9\uc790 \uc5c6\ub294 \ubb38\uc758(KAN-234): \uc9c0\uae08 \ubbf8\ubc30\uc815\u00b7RECEIVED\uc774\uace0 \ucd5c\uc2e0 \ubc30\uc815 \ud310\ub2e8\uc774 NO_MATCH.\n\n\ucd5c\uadfc \uc811\uc218 \uc21c `limit`\uac74. \ubc30\uc815\uc744 \uac70\uce58\uc9c0 \uc54a\uc740 \uacfc\uac70 \uc801\uc7ac \ubb38\uc758\ub294 \ud310\ub2e8 \uae30\ub85d\uc774 \uc5c6\uc5b4 \ube60\uc9c4\ub2e4.",
+        "operationId": "cs_list_unmatched_tickets",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_UnmatchedTickets_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Unmatched Tickets",
         "tags": [
           "assignments"
         ],

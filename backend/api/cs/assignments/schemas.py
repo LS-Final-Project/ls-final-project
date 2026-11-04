@@ -107,6 +107,32 @@ class ApplyResponse(BaseModel):
     items: list[ApplyResult]
 
 
+class UnmatchedTicket(BaseModel):
+    """맞는 담당자 없는 문의 한 건(KAN-234). 규칙 결과이며 AI 출력이 아니다."""
+
+    ticket_id: UUID
+    external_id: str | None
+    subject: str | None
+    subject_ko: str | None = Field(description="Current Korean subject translation, if any.")
+    channel: str
+    product_code: str
+    body_language: str
+    received_at: datetime
+    reason_code: Literal["NO_MATCH"]
+    language: str = Field(description="Primary language no active agent read when decided.")
+    family: str | None = Field(
+        description="Product family no agent covered with English; null = product not in "
+        "product_master (unregistered product)."
+    )
+    trigger: Trigger
+    decided_at: datetime = Field(description="When the newest (NO_MATCH) decision was made.")
+
+
+class UnmatchedTickets(BaseModel):
+    items: list[UnmatchedTicket] = Field(description="Newest received first.")
+    has_more: bool = Field(description="More tickets than `limit`.")
+
+
 # --- Improvement requests (cs_owner) ------------------------------------------------------
 RequestApplyOutcome = Literal[
     "ASSIGNED", "ALREADY_ASSIGNED", "NOT_OPEN", "NOT_FOUND", "PREVIEW_CHANGED", "NO_MATCH"
@@ -159,3 +185,25 @@ class RequestApplyResponse(BaseModel):
     assigned: int
     skipped: int
     items: list[RequestApplyResult]
+
+
+class UnmatchedRequest(BaseModel):
+    """맞는 담당자 없는 개선요청 한 건(KAN-234)."""
+
+    request_id: UUID
+    request_type: str
+    product_code: str
+    fault_id: str | None
+    status: str
+    created_at: datetime
+    reason_code: Literal["NO_MATCH"]
+    family: str | None = Field(
+        description="Family of the current product; null = product not in product_master."
+    )
+    trigger: Literal["CANDIDATE", "BATCH"]
+    decided_at: datetime
+
+
+class UnmatchedRequests(BaseModel):
+    items: list[UnmatchedRequest] = Field(description="Newest created first.")
+    has_more: bool = Field(description="More requests than `limit`.")

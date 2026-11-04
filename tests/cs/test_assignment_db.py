@@ -28,6 +28,8 @@ THAI_TOO = UUID("00000000-0000-4000-8000-0000000214a2")
 ENGLISH = UUID("00000000-0000-4000-8000-0000000214a3")
 # Older than anything other test files insert, so a preview lists these first.
 BASE = datetime(1990, 1, 1, tzinfo=UTC)
+# Newer than anything other test files insert, so the newest-first unmatched list shows these first.
+LATE = datetime(2090, 1, 1, tzinfo=UTC)
 TABLES = ("ticket_assignments", "audit_events", "ticket_workflows")
 
 
@@ -65,9 +67,9 @@ def skills(admin):
     admin.execute("DELETE FROM cs.agent_skills WHERE user_id = ANY(%s)", ([r[0] for r in rows],))
 
 
-def stored_ticket(admin, created, language, product, minutes):
+def stored_ticket(admin, created, language, product, minutes, base=BASE):
     ticket_id = uuid4()
-    received = BASE + timedelta(minutes=minutes)
+    received = base + timedelta(minutes=minutes)
     admin.execute(
         "INSERT INTO cs.tickets (id, source, source_instance, external_id, data_origin, "
         "derivation_kind, received_at, known_at, channel, body_language, customer_external_id, "
@@ -171,16 +173,107 @@ def test_mail_intake_without_a_match_stays_unassigned_and_records_why(client, ad
     ticket_id = UUID(response.json()["data"]["id"])
     skills.append(ticket_id)
     admin.execute("DELETE FROM cs.ticket_mail_origins WHERE ticket_id = %s", (ticket_id,))
-    # Nobody reads Polish, nobody handles PLC: nothing is written, version stays 0, and the
-    # manager preview shows the reason.
+    # Nobody reads Polish, nobody handles PLC: the owner and version stay, only the decision
+    # is recorded with the language and family nobody covered (KAN-234).
     assert owner(admin, ticket_id) is None
     workflow = client.get(f"/api/v1/cs/tickets/{ticket_id}/workflow").json()["data"]
     assert (workflow["version"], workflow["assignment"]) == (0, None)
     assert admin.execute(
-        "SELECT count(*) FROM cs.ticket_assignments WHERE ticket_id = %s", (ticket_id,)
-    ).fetchone() == (0,)
+        "SELECT user_id, reason_code, matched_language, matched_family, candidate_count, "
+        "trigger, decided_by FROM cs.ticket_assignments WHERE ticket_id = %s",
+        (ticket_id,),
+    ).fetchall() == [(None, "NO_MATCH", "pl", "PLC", 0, "INTAKE", None)]
     [proposal] = mine(preview(client), [ticket_id])
     assert (proposal["user_id"], proposal["reason_code"]) == (None, "NO_MATCH")
+    [item] = unmatched_mine(client, [ticket_id])
+    assert {k: item[k] for k in ("reason_code", "language", "family", "trigger")} == {
+        "reason_code": "NO_MATCH",
+        "language": "pl",
+        "family": "PLC",
+        "trigger": "INTAKE",
+    }
+    assert (item["product_code"], item["body_language"], item["channel"]) == (
+        "PLC-XGI-CPUU",
+        "pl",
+        "EMAIL",
+    )
+    # A manager assigns it by hand: it leaves the list.
+    moved = client.put(
+        f"/api/v1/cs/tickets/{ticket_id}/workflow/owner",
+        json={"version": 0, "owner_user_id": str(ENGLISH)},
+        headers=principal_header(CS_MANAGER),
+    )
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["data"]["assignment"] is None
+    assert unmatched_mine(client, [ticket_id]) == []
+
+
+def unmatched(client, user=CS_MANAGER, limit=200, path="/api/v1/cs/assignments/unmatched"):
+    return client.get(path, params={"limit": limit}, headers=principal_header(user))
+
+
+def unmatched_mine(client, created):
+    response = unmatched(client)
+    assert response.status_code == 200, response.text
+    return [i for i in response.json()["data"]["items"] if UUID(i["ticket_id"]) in created]
+
+
+def test_unmatched_lists_only_tickets_whose_newest_decision_is_no_match(client, admin, skills):
+    # Loaded without assignment (no decision): not "unmatched", just never decided.
+    loaded = stored_ticket(admin, skills, "hu", "PLC-NX-32", 0, LATE)
+    older = stored_ticket(admin, skills, "hu", "PLC-NX-32", 1, LATE)
+    newer = stored_ticket(admin, skills, "pl", "PLC-XGI-CPUU", 2, LATE)
+    # The rules give nobody for either, so the apply re-decides NO_MATCH as "previewed".
+    body = [{"ticket_id": str(t), "user_id": None} for t in (older, newer)]
+    # Applied twice: two NO_MATCH rows each, still one line per ticket.
+    for _ in range(2):
+        data = apply(client, body).json()["data"]
+        assert [i["outcome"] for i in data["items"]] == ["NO_MATCH", "NO_MATCH"]
+    assert admin.execute(
+        "SELECT count(*) FROM cs.ticket_assignments WHERE ticket_id = ANY(%s)", ([older, newer],)
+    ).fetchone() == (4,)
+    assert all(owner(admin, t) is None for t in (older, newer))
+    listed = unmatched_mine(client, skills)
+    assert [UUID(i["ticket_id"]) for i in listed] == [newer, older]  # newest received first
+    assert (listed[1]["language"], listed[1]["family"]) == ("hu", None)  # unregistered product
+    assert (listed[1]["trigger"], loaded not in {UUID(i["ticket_id"]) for i in listed}) == (
+        "BATCH",
+        True,
+    )
+    assert admin.execute(
+        "SELECT DISTINCT decided_by FROM cs.ticket_assignments WHERE ticket_id = %s", (older,)
+    ).fetchall() == [(CS_MANAGER.user_id,)]
+    # The limit caps the list and says there is more.
+    capped = unmatched(client, limit=1).json()["data"]
+    assert (len(capped["items"]), capped["has_more"]) == (1, True)
+    # Review started (not RECEIVED any more): it leaves the list.
+    admin.execute(
+        "INSERT INTO cs.ticket_workflows (ticket_id, state, owner_user_id) "
+        "VALUES (%s, 'IN_REVIEW', NULL)",
+        (newer,),
+    )
+    assert [UUID(i["ticket_id"]) for i in unmatched_mine(client, skills)] == [older]
+
+
+def test_unmatched_lists_need_a_cs_manager(client):
+    for user in (AGENT, TRF_MANAGER):
+        assert unmatched(client, user).status_code == 403
+        path = "/api/v1/cs/assignments/improvements/unmatched"
+        assert unmatched(client, user, path=path).status_code == 403
+    assert unmatched(client, limit=0).status_code == 422
+    assert unmatched(client, limit=201).status_code == 422
+
+
+def test_no_match_rows_need_no_user_and_others_need_one(admin, skills):
+    ticket_id = stored_ticket(admin, skills, "hu", "PLC-NX-32", 0)
+    insert = (
+        "INSERT INTO cs.ticket_assignments (id, ticket_id, user_id, rule_version, reason_code, "
+        "candidate_count, trigger) VALUES (gen_random_uuid(), %s, %s, 'cs-assign-v1', %s, 0, "
+        "'INTAKE')"
+    )
+    for user_id, reason in ((THAI, "NO_MATCH"), (None, "LANGUAGE_ONLY"), (None, "OTHER")):
+        with pytest.raises(psycopg.errors.CheckViolation):
+            admin.execute(insert, (ticket_id, user_id, reason))
 
 
 def test_assignment_failure_never_fails_intake(client, admin, skills, monkeypatch):
@@ -284,9 +377,14 @@ def test_preview_writes_nothing_and_apply_spreads_the_batch(client, admin, skill
         0,
         ["ALREADY_ASSIGNED"] * 5,
     )
+    # Five assignments, plus the Polish NO_MATCH recorded by each apply (KAN-234).
     assert admin.execute(
         "SELECT count(*) FROM cs.ticket_assignments WHERE ticket_id = ANY(%s)", (skills,)
-    ).fetchone() == (5,)
+    ).fetchone() == (7,)
+    assert admin.execute(
+        "SELECT count(*) FROM cs.ticket_assignments WHERE ticket_id = %s AND user_id IS NULL",
+        (polish,),
+    ).fetchone() == (2,)
     assert [UUID(i["ticket_id"]) for i in mine(preview(client), skills)] == [polish]
 
 

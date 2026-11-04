@@ -23,6 +23,7 @@ from backend.engine.cs.assignment import (
     TicketInput,
     decide,
     decide_request,
+    primary_language,
 )
 from backend.engine.cs.rules import RuleInputError, product_family
 from backend.shared.database import connection
@@ -75,13 +76,17 @@ async def record(
     decision: Decision,
     trigger: str,
     actor: UUID | None,
+    ticket: TicketInput | None = None,
 ) -> Row:
     """Sets the owner the decision names, stores why and notifies the new owner
     (`cs.assigned`, same transaction). The ticket is locked.
 
-    NO_MATCH writes nothing: the ticket stays unassigned and the preview shows the reason.
+    NO_MATCH(KAN-234)는 판단 기록만 남기고 상태·담당·판본은 그대로 둔다. 사유 재료로 그때
+    아무도 맡지 않은 언어·제품군을 같이 적으므로 `ticket`(판단의 입력)이 필요하다.
     """
     if decision.user_id is None:
+        if ticket is not None:
+            await record_no_match(conn, decision, ticket, trigger, actor)
         return workflow
     assignment_id = uuid4()
     await repository.insert_assignment(
@@ -115,6 +120,33 @@ async def record(
     return saved
 
 
+async def record_no_match(
+    conn: AsyncConnection[Row],
+    decision: Decision,
+    ticket: TicketInput,
+    trigger: str,
+    actor: UUID | None,
+) -> None:
+    """NO_MATCH 판단 한 건. 같은 문의에 여러 번 쌓여도 조회는 최신 판단만 본다."""
+    await repository.insert_assignment(
+        conn,
+        {
+            "id": uuid4(),
+            "ticket_id": decision.ticket_id,
+            "user_id": None,
+            "rule_version": decision.rule_version,
+            "reason_code": "NO_MATCH",
+            # 맞춘 값이 아니라 아무도 맡지 않은 언어·제품군(제품군 null = 미등록 제품).
+            "matched_language": primary_language(ticket.language),
+            "matched_family": ticket.family,
+            "candidate_count": 0,
+            "chosen_open_count": None,
+            "trigger": trigger,
+            "decided_by": actor,
+        },
+    )
+
+
 async def assign_on_intake(settings: Settings, ticket_id: UUID) -> None:
     """Assigns a just-created ticket on its own connection, after the ticket is committed.
 
@@ -130,8 +162,9 @@ async def assign_on_intake(settings: Settings, ticket_id: UUID) -> None:
             agent_rows = await repository.list_agents(conn)
             agents = agents_from(agent_rows)
             loads = {a.user_id: a.open_count for a in agents}
-            decision = decide(ticket_input(rows[0]), agents, loads)
-            await record(conn, workflow, decision, "INTAKE", None)
+            ticket = ticket_input(rows[0])
+            decision = decide(ticket, agents, loads)
+            await record(conn, workflow, decision, "INTAKE", None, ticket)
     except Exception:  # noqa: BLE001 - 배정은 접수의 보조 단계라 접수를 실패로 바꾸지 않는다.
         logger.warning(
             "cs auto assignment failed",

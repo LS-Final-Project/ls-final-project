@@ -113,6 +113,14 @@ export const ASSIGN_REASON_LABEL: Record<string, string> = {
   FAMILY_ENGLISH_FALLBACK: '제품군·영어 담당(언어 담당 없음)', NO_MATCH: '맞는 담당자 없음',
 };
 
+// 맞는 담당자 없음(KAN-234)의 사유. 서버가 준 판단 재료(아무도 맡지 않은 언어·제품군)를 옮긴다.
+// 예: "헝가리어 가능자 없음 · 미등록 제품 PLC-NX-32", "폴란드어 가능자 없음 · PLC·영어 담당 없음"
+export const unmatchedTicketText = (item: { language: string; family?: string | null; product_code: string }) =>
+  `${languageName(item.language)} 가능자 없음 · ${item.family ? `${familyName(item.family)}·영어 담당 없음` : `미등록 제품 ${item.product_code}`}`;
+// 개선요청은 언어를 보지 않고 제품군만 본다. 예: "PLC 제품군 담당자 없음"
+export const unmatchedRequestText = (item: { family?: string | null; product_code: string }) =>
+  item.family ? `${familyName(item.family)} 제품군 담당자 없음` : `미등록 제품 ${item.product_code}`;
+
 type AssignmentLike = { reason_code: string; matched_language?: string | null; matched_family?: string | null; candidate_count: number; chosen_open_count?: number | null };
 // 예: "자동 배정: 태국어·저압 차단기 담당, 2명 중 진행 1건으로 가장 적음"
 export function assignmentText(item: AssignmentLike): string {

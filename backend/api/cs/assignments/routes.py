@@ -9,7 +9,7 @@ set by the local seed or the operator script, never through the API.
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from backend.api.cs.assignments import repository
 from backend.api.cs.assignments.schemas import (
@@ -26,6 +26,10 @@ from backend.api.cs.assignments.schemas import (
     RequestApplyResult,
     RequestPreview,
     RequestProposal,
+    UnmatchedRequest,
+    UnmatchedRequests,
+    UnmatchedTicket,
+    UnmatchedTickets,
 )
 from backend.api.cs.assignments.service import (
     RequestAssigner,
@@ -33,18 +37,21 @@ from backend.api.cs.assignments.service import (
     family_of,
     priority_of,
     record,
+    record_no_match,
     ticket_input,
 )
 from backend.api.cs.improvements import repository as improvements
 from backend.api.cs.improvements.routes import commit_version
 from backend.api.cs.tickets.access import sees_all_tickets
 from backend.api.cs.tickets.routes import PARTIAL, respond
+from backend.api.cs.translation import repository as translations
 from backend.api.cs.workflow.service import lock
 from backend.engine.cs.assignment import (
     ASSIGNMENT_RULES_VERSION,
     IMPROVEMENT_RULES_VERSION,
     Decision,
     RequestDecision,
+    TicketInput,
     assign_batch,
 )
 from backend.shared.access import Principal, current_principal
@@ -200,6 +207,10 @@ async def apply(
             if item.user_id != wanted[item.ticket_id]:
                 outcome = "PREVIEW_CHANGED"
             elif item.user_id is None:
+                # 관리자가 확인한 NO_MATCH도 판단 기록으로 남긴다(KAN-234). 상태·담당은 그대로.
+                await record_no_match(
+                    conn, decision_of(item), input_of(item), "BATCH", principal.user_id
+                )
                 outcome = "NO_MATCH"
             else:
                 workflow = await lock(conn, item.ticket_id)
@@ -236,7 +247,84 @@ def decision_of(item: Proposal) -> Decision:
     )
 
 
+def input_of(item: Proposal) -> TicketInput:
+    """미리보기 제안이 판단에 쓴 입력(언어·제품군)."""
+    return TicketInput(
+        ticket_id=item.ticket_id,
+        language=item.body_language,
+        family=item.family,
+        received_at=item.received_at,
+        priority=item.priority,
+    )
+
+
+@router.get(
+    "/unmatched",
+    response_model=SuccessResponse[UnmatchedTickets],
+    operation_id="cs_list_unmatched_tickets",
+    openapi_extra=PARTIAL,
+)
+async def unmatched_tickets(
+    request: Request,
+    principal: Principal = Depends(current_principal),
+    limit: int = Query(default=100, ge=1, le=200),
+) -> SuccessResponse[UnmatchedTickets]:
+    """맞는 담당자 없는 문의(KAN-234): 지금 미배정·RECEIVED이고 최신 배정 판단이 NO_MATCH.
+
+    최근 접수 순 `limit`건. 배정을 거치지 않은 과거 적재 문의는 판단 기록이 없어 빠진다.
+    """
+    require_cs_manager(principal)
+    async with connection(request.app.state.settings) as conn:
+        rows = await repository.unmatched_tickets(conn, limit + 1)
+        korean = await translations.korean_subjects(conn, [r["id"] for r in rows[:limit]])
+    return respond(
+        request,
+        UnmatchedTickets(
+            items=[
+                UnmatchedTicket.model_validate(
+                    {**r, "ticket_id": r["id"], "subject_ko": korean.get(r["id"])}
+                )
+                for r in rows[:limit]
+            ],
+            has_more=len(rows) > limit,
+        ),
+    )
+
+
 # --- Improvement requests (cs_owner) ------------------------------------------------------
+
+
+@router.get(
+    "/improvements/unmatched",
+    response_model=SuccessResponse[UnmatchedRequests],
+    operation_id="cs_list_unmatched_improvements",
+    openapi_extra=PARTIAL,
+)
+async def unmatched_requests(
+    request: Request,
+    principal: Principal = Depends(current_principal),
+    limit: int = Query(default=100, ge=1, le=200),
+) -> SuccessResponse[UnmatchedRequests]:
+    """맞는 담당자 없는 개선요청(KAN-234): C/S 담당 없는 진행 요청 중 최신 판단이 NO_MATCH.
+
+    제품군은 지금 제품 코드에서 다시 구한다. 개선요청의 NO_MATCH 기록은 제품군을 적지 않기
+    때문이다(null = product_master에 없는 제품).
+    """
+    require_cs_manager(principal)
+    async with connection(request.app.state.settings) as conn:
+        rows = await repository.unmatched_requests(conn, limit + 1)
+    return respond(
+        request,
+        UnmatchedRequests(
+            items=[
+                UnmatchedRequest.model_validate(
+                    {**r, "request_id": r["id"], "family": family_of(r["product_code"])}
+                )
+                for r in rows[:limit]
+            ],
+            has_more=len(rows) > limit,
+        ),
+    )
 
 
 def request_proposals(assigner: RequestAssigner, rows: list[Row]) -> list[RequestProposal]:
