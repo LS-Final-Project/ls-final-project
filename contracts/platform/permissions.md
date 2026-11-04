@@ -133,8 +133,8 @@ C/S에는 **문의(ticket) 상태**와 **개선요청(improvement request) 상�
 | 요청 | (생성) → `DRAFT` | 후보 기준 충족(시스템) / 수동 생성 | 시스템 / `cs_agent` | — | — |
 | 요청 | `DRAFT` → `REVIEWED` | 검토 완료, `cs_owner`·`reviewed_by` 기록, 제안 부서 수정 | `cs_agent` | — | 403 / 409 |
 | 요청 | `REVIEWED` → 첫 회차 | 전달(메일 발송 승인, `sent_at`). 대상 부서가 모두 `SENT`로 시작 | `cs_agent` | — | 403 / 409 |
-| 부서 | `SENT` → `ACKNOWLEDGED` | 수신 확인 | `dept_staff` | **수신 부서** | 403 / 409 |
-| 부서 | `ACKNOWLEDGED` → `ADOPTED` / `INFO_REQUESTED` / `REJECTED` | 부서 회신(`dept_replies.reply_type`). 반려는 사유 필수 | `dept_staff` | 수신 부서 | 403 / 409 / 422 |
+| 부서 | `SENT` → `ACKNOWLEDGED` | 수신 확인. 화면은 따로 묻지 않고 회신 때 함께 기록한다(2026-11-04). 경로는 남는다 | `dept_staff` | **수신 부서** | 403 / 409 |
+| 부서 | `SENT`·`ACKNOWLEDGED` → `ADOPTED` / `INFO_REQUESTED` / `REJECTED` | 부서 회신(`dept_replies.reply_type`). 반려는 사유 필수. `SENT`에서 회신하면 같은 트랜잭션에서 수신 확인(`ACKNOWLEDGED` 회신 행)을 먼저 남긴다 | `dept_staff` | 수신 부서 | 403 / 409 / 422 |
 | 부서 | `ADOPTED` → `ACTION_TAKEN` | 조치 등록(`action`, `action_scope`, `action_date`, `action_evidence`). 그 부서가 `ADOPTED`이면 다른 부서의 회신을 기다리지 않는다 | `dept_staff` | 수신 부서 | 403 / 409 / 422 |
 | 부서 | `INFO_REQUESTED` → `SENT` | 자료 보완 후 그 부서에 재전달(새 판본) | `cs_agent` | — | 403 / 409 |
 | 부서 | `REJECTED` → `SENT` | 반려 사유와 다른 새 근거로 그 부서에 재요청(새 판본). 다시 반려하면 반려 확인도 다시 한다 | `cs_agent` | — | 403 / 409 / 422 `EVIDENCE_REQUIRED` |

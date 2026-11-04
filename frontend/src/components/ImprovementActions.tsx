@@ -58,13 +58,17 @@ function rowsFor(data:Data,roles:string[],dept:string|null,managed:string[],now:
   }
   if(roles.includes('dept_staff')){
     const mine=dept?data.departments.find(x=>x.dept_code===dept):undefined;
-    if(!mine)rows.push({kind:'acknowledge',label:'부서 처리',targetLabel:dept?deptLabel(dept):'내 부서',reason:'이 요청의 현재 회차에 내 부서가 받는 부서로 없습니다.'});
+    if(!mine)rows.push({kind:'reply',label:'부서 처리',targetLabel:dept?deptLabel(dept):'내 부서',reason:'이 요청의 현재 회차에 내 부서가 받는 부서로 없습니다.'});
     else{
       const target=mine.dept_code;const targetLabel=deptLabel(target);
       const state=(need:string,what:string)=>deptClosed?deptClosedReason:mine.status===need?undefined:`부서 상태가 '${DEPT_STATUS[need]}'일 때만 ${what}할 수 있습니다. 지금은 '${DEPT_STATUS[mine.status]??'미확인'}'입니다.`;
-      rows.push({kind:'acknowledge',label:'수신 확인',target,targetLabel,reason:state('SENT','수신 확인')});
-      rows.push({kind:'reply',label:'회신(채택·추가 정보 요청·반려)',target,targetLabel,reason:state('ACKNOWLEDGED','회신')});
-      rows.push({kind:'action',label:'개선 조치 기록',target,targetLabel,reason:state('ADOPTED','조치를 기록')});
+      // 수신 확인은 따로 묻지 않는다. 받은 상태(SENT)에서 회신하면 서버가 수신 확인을 함께 남긴다(2026-11-04).
+      const replied=['ADOPTED','INFO_REQUESTED','REJECTED','ACTION_TAKEN'].includes(mine.status);
+      rows.push({kind:'reply',label:'회신(채택·추가 정보 요청·반려)',target,targetLabel,
+        reason:deptClosed?deptClosedReason:replied?'이미 회신했습니다.':undefined,done:replied});
+      // 조치는 채택한 부서만. 추가 정보 요청·반려로 회신했으면 할 조치가 없다.
+      rows.push({kind:'action',label:'개선 조치 기록',target,targetLabel,reason:state('ADOPTED','조치를 기록'),
+        done:mine.status==='ACTION_TAKEN'||mine.status==='INFO_REQUESTED'||mine.status==='REJECTED'});
     }
   }
   return rows;

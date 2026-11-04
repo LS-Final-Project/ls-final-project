@@ -242,12 +242,12 @@ test('처리 상자 없이 부서 동작은 수신 부서 줄에 두고 입력�
  body.data.departments=[{round:1,dept_code:'TS_TRF',status:'SENT',carried_over:false,sent_version:2,reply_due_at:'2999-01-01T00:00:00Z',rejection_reviewed_at:null,rejection_reviewed_by:null}];
  vi.stubGlobal('fetch',vi.fn(async(url:RequestInfo|URL)=>String(url).endsWith('/me')?new Response(JSON.stringify({data:{roles:['dept_staff'],dept:'TS_TRF',managed_departments:[]}}),{headers:{'X-CSRF-Token':'synthetic'}}):jsonResponse(200,body)));view();
  await screen.findByText('수신 부서와 할 일');expect(screen.queryByText('검토·전달·부서 처리')).toBeNull();
- // 부서 줄에는 지금 할 차례인 처리 하나만 보인다(수신 확인). 회신·조치 기록은 그 뒤에 나온다.
- const ack=(await screen.findAllByRole('button',{name:/^수신 확인/})).find(b=>b.closest('td.acts'))!;
- expect([...ack.closest('td.acts')!.querySelectorAll('button')].map(b=>b.textContent)).toEqual([ack.textContent]);
- expect(screen.queryByText('받음(확인 전)')).toBeNull();
- fireEvent.click(ack);
- const form=await screen.findByRole('form',{name:'수신 확인 입력'});expect(form.closest('#ia-slot-dept')).toBeTruthy();
+ // 부서 줄에는 지금 할 차례인 처리 하나만 보인다. 받은 상태에서는 회신(수신 확인은 회신에 합쳤다).
+ const next=(await screen.findAllByRole('button',{name:/^회신/})).find(b=>b.closest('td.acts'))!;
+ expect([...next.closest('td.acts')!.querySelectorAll('button')].map(b=>b.textContent)).toEqual([next.textContent]);
+ expect(screen.queryByRole('button',{name:/^수신 확인/})).toBeNull();
+ fireEvent.click(next);
+ const form=await screen.findByRole('form',{name:/회신.*입력/});expect(form.closest('#ia-slot-dept')).toBeTruthy();
 });
 
 test('검토를 마친 요청은 개선 요청 작성 상자의 부서 전달로 입력 없이 제안 부서에 바로 보낸다',async()=>{
@@ -323,4 +323,13 @@ test('처리할 것이 없는 사용자(C/S 담당자)에게는 부서 줄에 �
  await screen.findByText('수신 부서와 할 일');
  const cells=await waitFor(()=>{const found=[...document.querySelectorAll('td.acts')].map(td=>td.textContent);expect(found).toEqual(['받음(확인 전)','채택']);return found;});
  expect(cells).toHaveLength(2);
+});
+
+test('회신을 마친 부서 줄에는 지난 처리 대신 다음 처리(조치 기록)가 보인다',async()=>{
+ const body=structuredClone(source) as unknown as ImprovementDetail;const r=body.data.request;
+ r.status='ADOPTED';r.version=4;r.current_round=1;body.data.next_owners=[{actor:'DEPARTMENT',user_id:null,dept_code:'TS_TRF',task:'RECORD_ACTION'}];
+ body.data.departments=[{round:1,dept_code:'TS_TRF',status:'ADOPTED',carried_over:false,sent_version:2,reply_due_at:'2999-01-01T00:00:00Z',rejection_reviewed_at:null,rejection_reviewed_by:null}];
+ vi.stubGlobal('fetch',vi.fn(async(url:RequestInfo|URL)=>String(url).endsWith('/me')?new Response(JSON.stringify({data:{roles:['dept_staff'],dept:'TS_TRF',managed_departments:[]}}),{headers:{'X-CSRF-Token':'synthetic'}}):jsonResponse(200,body)));view();
+ await screen.findByText('수신 부서와 할 일');
+ await waitFor(()=>expect([...document.querySelectorAll('td.acts')].map(td=>td.textContent)).toEqual(['조치 기록']));
 });

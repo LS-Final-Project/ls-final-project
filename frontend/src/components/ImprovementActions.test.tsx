@@ -68,15 +68,17 @@ test('받는 부서가 없는 문서 요청은 부서를 고른 뒤에만 전달
   expect(writes()[0][0]).toMatch(/\/send$/);expect(JSON.parse(writes()[0][1].body as string)).toEqual({version:3,dept_codes:['TS_LV'],reply_due_days:7});
 });
 
-test('받는 부서 담당자는 자기 부서의 수신 확인만 할 수 있다',async()=>{
+test('받는 부서 담당자는 받은 상태에서 바로 회신한다(수신 확인은 회신에 합쳤다)',async()=>{
   const data=detail(d=>sent(d,dept('QA_CLAIM','SENT')));
   const {writes,saved}=setup(data,{roles:['dept_staff'],dept:'QA_CLAIM'});
-  fireEvent.click(await screen.findByRole('button',{name:'수신 확인'}));
-  expect(within(row('회신(채택·추가 정보 요청·반려)')).getByText(/'수신 확인'일 때만/)).toBeTruthy();
+  expect(await screen.findByRole('button',{name:'회신(채택·추가 정보 요청·반려)'})).toBeTruthy();
+  expect(screen.queryByRole('button',{name:'수신 확인'})).toBeNull();
   expect(within(row('개선 조치 기록')).queryByRole('button')).toBeNull();
   expect(screen.queryByText('검토 완료 기록')).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:'회신(채택·추가 정보 요청·반려)'}));
   save();await waitFor(()=>expect(saved).toHaveBeenCalled());
-  expect(writes()[0][0]).toBe(`/api/v1/cs/improvement-requests/${ID}/departments/QA_CLAIM/acknowledge`);expect(JSON.parse(writes()[0][1].body as string)).toEqual({version:3});
+  expect(writes()[0][0]).toBe(`/api/v1/cs/improvement-requests/${ID}/departments/QA_CLAIM/reply`);
+  expect(JSON.parse(writes()[0][1].body as string)).toMatchObject({version:3,reply_type:'ADOPTED'});
 });
 
 test.each([
@@ -154,9 +156,10 @@ test('후속 확인 계획은 서버가 알려준 다음 할 일이 있을 때�
   expect(second.writes()[0][0]).toMatch(/\/complete$/);expect(JSON.parse(second.writes()[0][1].body as string)).toEqual({version:3,followup_result:'합성 결과'});
 });
 
-test('후속 확인 중에는 부서 처리를 닫고 이유를 적는다',async()=>{
+test('후속 확인 중에는 부서에 남은 처리가 없다(회신·조치 기록이 끝난 줄은 보이지 않는다)',async()=>{
   setup(detail(d=>{sent(d,dept('QA_CLAIM','ACTION_TAKEN'));d.request.status='FOLLOW_UP';}),{roles:['dept_staff'],dept:'QA_CLAIM'});
-  expect((await screen.findAllByText(/후속 확인 단계에서는 부서 처리를 바꾸지 않습니다/)).length).toBe(3);
+  await waitFor(()=>expect(screen.queryByRole('button',{name:/개선 조치 기록/})).toBeNull());
+  expect(screen.queryByRole('button',{name:/회신\(채택/})).toBeNull();expect(screen.queryByRole('button',{name:'수신 확인'})).toBeNull();
 });
 
 test('C/S 부서 관리자는 후보 목록에서 담당자를 재배정한다',async()=>{
