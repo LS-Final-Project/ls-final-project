@@ -200,7 +200,7 @@ describe('고객 회신 반영', () => {
     show('sales');
     expect(await screen.findByText('회신 도착')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '상용주파 내전압' }));
-    expect(await screen.findByText(/회신에서 읽은 값: 28 kV, 1 min/)).toBeTruthy();
+    expect(await screen.findByText(/회신에서 읽은 값: 28 kV, 1분/)).toBeTruthy();
     expect(document.querySelector('mark.ws-mark')?.textContent).toBe('28 kV, 1분');
     expect((screen.getByLabelText('새 요구값') as HTMLInputElement).value).toBe('28');
     expect(screen.queryByText('AI가 읽음')).toBeNull();

@@ -767,7 +767,11 @@ export function queryState(q: Pick<Question, 'status' | 'sent_at' | 'waiting_day
   return '질의서에 넣음';
 }
 
-const ownValueText = (v: RequirementSummary['own_value']) => v ? [v.value, v.unit, ...(v.conditions ?? []).map(c => [c.value, c.unit].filter(Boolean).join(' '))].filter(Boolean).join(' ') : '';
+// 시간 단위는 화면에서 한글로(서버 정규형 min·s·h). 다른 단위(kV, A, °C)는 그대로.
+const TIME_UNIT: Record<string, string> = { min: '분', s: '초', h: '시간' };
+const unitText = (u?: string | null) => (u ? TIME_UNIT[u] ?? u : '');
+const amount = (value?: string | null, unit?: string | null) => (value && unit && TIME_UNIT[unit] ? `${value}${TIME_UNIT[unit]}` : [value, unitText(unit)].filter(Boolean).join(' '));
+const ownValueText = (v: RequirementSummary['own_value']) => v ? [amount(v.value, v.unit), ...(v.conditions ?? []).map(c => amount(c.value, c.unit))].filter(Boolean).join(' ') : '';
 
 const RECOMPARED: Record<string, string> = { EVIDENCE_FOUND: '충족', CONDITIONAL: '충족 확인', SPEC_GAP: '편차', INSUFFICIENT_EVIDENCE: '확인 필요' };
 
@@ -836,7 +840,7 @@ function ReplyFlow({ projectId, detail, question, onDone }: { projectId: string;
   return <div className="ws-form">
     <p className="ws-reply"><span className="muted">회신 </span>{marked(question.reply?.reply_text ?? '', read?.quote)}</p>
     {question.reply && <p className="muted ws-small">{[question.reply.source_ref, question.reply.received_at && `${question.reply.received_at.slice(0, 10)} 수신`].filter(Boolean).join(', ')}</p>}
-    {read ? <p className="ws-note">회신에서 읽은 값: {[read.value, read.unit].filter(Boolean).join(' ')}{read.conditions?.length ? `, ${read.conditions.map(c => [c.value, c.unit].filter(Boolean).join(' ')).join(', ')}` : ''}
+    {read ? <p className="ws-note">회신에서 읽은 값: {amount(read.value, read.unit)}{read.conditions?.length ? `, ${read.conditions.map(c => amount(c.value, c.unit)).join(', ')}` : ''}
       {read.method === 'ai' && <span className="muted ws-small"> AI가 읽음</span>}
 </p>
       : waiting ? <p className="muted ws-note">AI가 회신을 읽는 중입니다.</p>
