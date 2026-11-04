@@ -47,3 +47,13 @@ def cs_database():
 def admin(cs_database):
     with psycopg.connect(cs_database, autocommit=True) as conn:
         yield conn
+
+
+@pytest.fixture(autouse=True)
+def _fresh_stats_sla_cache():
+    """업무 통계는 SLA 입력을 30초 공유한다(KAN-233). 시험끼리 섞이지 않게 매번 비운다."""
+    from backend.api.cs.stats import routes as stats_routes
+
+    stats_routes._sla_rows.clear()
+    yield
+    stats_routes._sla_rows.clear()

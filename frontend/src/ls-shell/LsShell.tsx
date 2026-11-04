@@ -38,7 +38,7 @@ const MENU: Group[] = [
       { label: '초안 및 검토 이력', inProject: 'draft' },
     ],
   },
-  { key: 'stats', label: '통계/보고서', roles: ['manager'], leaves: [{ label: '운영 현황', to: '/cs/admin' }] },
+  { key: 'stats', label: '통계/보고서', roles: ['manager'], leaves: [{ label: '업무 통계', to: '/cs/admin', end: true }, { label: '업무 배정', to: '/cs/admin/assign' }] },
   { key: 'system', label: '시스템 관리', leaves: [{ label: '평가', to: '/evaluations', devOnly: true }] },
 ];
 
@@ -48,7 +48,8 @@ function tabOf(pathname: string) {
   if (pathname === '/cs/tickets') return { kind: 'tickets', name: '문의 조회' };
   if (pathname.startsWith('/cs/tickets/')) return { kind: 'ticket', name: '문의 처리' };
   if (pathname === '/cs/customers') return { kind: 'customers', name: '고객 이력' };
-  if (pathname === '/cs/admin') return { kind: 'admin', name: '운영 현황' };
+  if (pathname === '/cs/admin') return { kind: 'admin', name: '업무 통계' };
+  if (pathname === '/cs/admin/assign') return { kind: 'admin-assign', name: '업무 배정' };
   if (pathname === '/mail/inbox') return { kind: 'mail-inbox', name: '받은 메일 검토' };
   if (pathname.startsWith('/dept/result/')) return { kind: 'dept-result', name: '검토 답변' };
   if (pathname === '/dept/inbox') return { kind: 'dept-inbox', name: '문의 검토' };

@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ApiError, getApiMode } from '../api/client';
 import { getTicketWorkflow, isInvalidOwner, isVersionConflict, reassignOwner } from '../api/cs-workflow';
 import { listCsAssignees } from '../api/platform';
+import { assignImprovementOwner, getImprovement } from '../api/cs-improvements';
 import { KvModal } from '../ls-shell/kv';
 
 type Target = { id: string; label: string };
@@ -14,7 +15,9 @@ type Outcome = { id: string; label: string; result: '바꿈' | '건너뜀' | '�
  * 결과를 모르는 건(변경 요청을 보낸 뒤의 408·5xx·통신 오류)은 다시 보내지 않는다. 이미 그 담당이거나 종결된 문의는 보내지 않고 건너뛴다
  * (문의 처리 화면도 종결 문의의 담당 변경을 막는다). 대화상자가 사라지면 남은 건은 보내지 않는다.
  */
-export default function BatchOwnerDialog({ targets, onClose, onDone }: { targets: Target[]; onClose: () => void; onDone: () => void }) {
+// kind='request'는 개선요청의 C/S 담당을 바꾼다(PUT /improvement-requests/{id}/owner). 완료된 요청은 건너뛴다.
+export default function BatchOwnerDialog({ targets, onClose, onDone, kind = 'ticket' }: { targets: Target[]; onClose: () => void; onDone: () => void; kind?: 'ticket' | 'request' }) {
+  const noun = kind === 'request' ? '개선요청' : '문의';
   const mode = getApiMode();
   const assignees = useQuery({ queryKey: ['cs-assignees', mode], queryFn: ({ signal }) => listCsAssignees(signal), retry: false, staleTime: 0 });
   const [owner, setOwner] = useState('');
@@ -35,6 +38,17 @@ export default function BatchOwnerDialog({ targets, onClose, onDone }: { targets
       const base = { id: target.id, label: target.label };
       let sent = false;
       try {
+        if (kind === 'request') {
+          const detail = await getImprovement(target.id, signal);
+          const request = detail.data.request;
+          if (request.status === 'COMPLETED') { done.push({ ...base, result: '건너뜀', note: '완료된 개선요청입니다' }); continue; }
+          if (request.cs_owner === owner) { done.push({ ...base, result: '건너뜀', note: '이미 그 담당입니다' }); continue; }
+          if (!alive.current) return;
+          sent = true;
+          await assignImprovementOwner(target.id, { owner_user_id: owner, version: request.version }, signal);
+          done.push({ ...base, result: '바꿈', note: '' });
+          continue;
+        }
         const workflow = await getTicketWorkflow(target.id, signal);
         if (workflow.data.state === 'CLOSED') { done.push({ ...base, result: '건너뜀', note: '종결된 문의입니다' }); continue; }
         if (workflow.data.owner_user_id === owner) { done.push({ ...base, result: '건너뜀', note: '이미 그 담당입니다' }); continue; }
@@ -44,11 +58,11 @@ export default function BatchOwnerDialog({ targets, onClose, onDone }: { targets
         done.push({ ...base, result: '바꿈', note: '' });
       } catch (error) {
         const status = error instanceof ApiError ? error.status : 0;
-        done.push(isVersionConflict(error) ? { ...base, result: '실패', note: '그 사이 상태가 바뀌었습니다. 문의 처리 화면에서 다시 하세요' }
+        done.push(isVersionConflict(error) ? { ...base, result: '실패', note: `그 사이 상태가 바뀌었습니다. ${kind === 'request' ? '개선요청 상세' : '문의 처리 화면'}에서 다시 하세요` }
           : isInvalidOwner(error) ? { ...base, result: '실패', note: '활성 C/S 담당자가 아닙니다' }
             : status >= 400 && status < 500 && status !== 408 ? { ...base, result: '실패', note: (error as ApiError).message }
-              : !sent ? { ...base, result: '실패', note: '문의 상태를 읽지 못해 보내지 않았습니다' }
-                : { ...base, result: '결과 모름', note: '다시 보내지 않았습니다. 문의 처리 화면에서 담당을 확인하세요' });
+              : !sent ? { ...base, result: '실패', note: `${noun} 상태를 읽지 못해 보내지 않았습니다` }
+                : { ...base, result: '결과 모름', note: `다시 보내지 않았습니다. ${kind === 'request' ? '개선요청 상세' : '문의 처리 화면'}에서 담당을 확인하세요` });
       } finally {
         if (alive.current) setOutcomes([...done]);
       }
@@ -59,7 +73,7 @@ export default function BatchOwnerDialog({ targets, onClose, onDone }: { targets
 
   const counts = outcomes ? (['바꿈', '건너뜀', '실패', '결과 모름'] as const).map(kind => `${kind} ${outcomes.filter(item => item.result === kind).length}`).join(', ') : '';
   return <KvModal title={`담당 변경, ${targets.length}건`} onClose={() => !busy && onClose()}>
-    <div className="kv-sub" style={{ margin: '0 0 8px' }}>선택한 문의 {targets.length}건의 담당을 한 사람으로 바꿉니다. 상태는 바뀌지 않습니다. C/S 관리자만 할 수 있고 서버가 확인합니다.</div>
+    <div className="kv-sub" style={{ margin: '0 0 8px' }}>선택한 {noun} {targets.length}건의 {kind === 'request' ? 'C/S ' : ''}담당을 한 사람으로 바꿉니다. 상태는 바뀌지 않습니다. C/S 관리자만 할 수 있고 서버가 확인합니다.</div>
     <div className="kv-field"><span className="req">새 담당</span>
       {assignees.isPending ? <span className="ro">담당자 목록을 읽는 중입니다</span> : assignees.isError ? <span className="ro">담당자 목록을 불러오지 못했습니다</span>
         : <select aria-label="새 담당" value={owner} disabled={busy || !!outcomes} onChange={event => setOwner(event.target.value)}>

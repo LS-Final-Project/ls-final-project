@@ -20,8 +20,13 @@ from backend.api.cs.stats.schemas import (
     DepartmentCount,
     ImprovementCounts,
     OpenAge,
+    OverdueTicket,
     Overview,
     Period,
+    RecurrenceCount,
+    SlaCompliance,
+    SlaPriority,
+    SlaSummary,
     TicketCounts,
 )
 from backend.api.cs.tickets.schemas import (
@@ -477,6 +482,9 @@ def stats_example() -> dict:
                 results_submitted=3,
                 results_accepted=2,
                 returned_or_recalled=1,
+                waiting=1,
+                waiting_over_7_days=0,
+                avg_reply_days=2.4,
             )
         ],
         top_customers=[CustomerLoad(customer_external_id="CUST-0374", received=3, open=1)],
@@ -485,8 +493,38 @@ def stats_example() -> dict:
             by_type={"FAULT": 2, "DOCUMENT": 0},
             open=2,
             receiver_unconfirmed=0,
+            completed_in_period=0,
+            info_requested=0,
+            rejected=0,
+            reply_overdue=1,
+            recurrence_after_completion=RecurrenceCount(checked=0, recurrence=0, not_applicable=0),
         ),
-        unconfirmed=["SLA_DUE", "RULE_ASSIGNED_DEPT"],
+        unconfirmed=["RULE_ASSIGNED_DEPT"],
+        sla=SlaSummary(
+            measured_at=datetime(2026, 10, 1, tzinfo=UTC),
+            first_response=SlaCompliance(met=36, breached=4, pending=1, unrecorded=1),
+            resolution=SlaCompliance(met=31, breached=4),
+            at_risk=2,
+            overdue=1,
+            unknown=0,
+            by_priority=[
+                SlaPriority(priority="P1", met=3, breached=1, at_risk=1, overdue=1),
+                SlaPriority(priority="P2", met=6, breached=1, at_risk=0, overdue=0),
+                SlaPriority(priority="P3", met=18, breached=2, at_risk=1, overdue=0),
+                SlaPriority(priority="P4", met=4, breached=0, at_risk=0, overdue=0),
+            ],
+            overdue_tickets=[
+                OverdueTicket(
+                    ticket_id=TICKET_ID,
+                    external_id="CSV1-000044",
+                    subject="Oil leakage at gasket",
+                    priority="P1",
+                    resolution_due=datetime(2026, 9, 30, 9, tzinfo=UTC),
+                    overdue_hours=15.0,
+                    owner_user_id=None,
+                )
+            ],
+        ),
     )
     return {
         "method": "GET",

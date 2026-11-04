@@ -50,6 +50,17 @@ class DepartmentCount(BaseModel):
     results_submitted: int
     results_accepted: int
     returned_or_recalled: int
+    waiting: int | None = Field(
+        default=None, description="Of these transfers, still OPEN (no result, not ended) now."
+    )
+    waiting_over_7_days: int | None = Field(
+        default=None, description="Still OPEN now and transferred more than 7 days ago."
+    )
+    avg_reply_days: float | None = Field(
+        default=None,
+        description="Mean days from transfer to the department's submitted result, over the "
+        "transfers with a result. Null without any result.",
+    )
 
 
 class CustomerLoad(BaseModel):
@@ -58,11 +69,102 @@ class CustomerLoad(BaseModel):
     open: int
 
 
+class RecurrenceCount(BaseModel):
+    """KAN-117 recurrence signal of requests completed in the period (by completed_at),
+    computed on read (nothing stored)."""
+
+    checked: int = Field(description="Completed fault requests whose signal was computed.")
+    recurrence: int = Field(description="Of those, requests whose signal is RECURRENCE.")
+    not_applicable: int = Field(
+        description="Completed document requests: the signal applies to fault requests only."
+    )
+    limited: bool = Field(
+        default=False,
+        description="True when more completed fault requests exist than were checked "
+        "(only the most recent 200 by completion time are checked).",
+    )
+
+
 class ImprovementCounts(BaseModel):
     by_status: dict[str, int]
     by_type: dict[Literal["FAULT", "DOCUMENT"], int]
     open: int = Field(description="Not completed and not ended by rejection review.")
     receiver_unconfirmed: int
+    completed_in_period: int | None = Field(
+        default=None,
+        description="COMPLETED now with completed_at in the period, whenever created.",
+    )
+    info_requested: int | None = Field(
+        default=None,
+        description="Open requests with a current-round department in INFO_REQUESTED.",
+    )
+    rejected: int | None = Field(
+        default=None,
+        description="Requests with a current-round department in REJECTED (including ended "
+        "by rejection).",
+    )
+    reply_overdue: int | None = Field(
+        default=None,
+        description="Open requests with a current-round department past reply_due_at that "
+        "has not replied in that round.",
+    )
+    recurrence_after_completion: RecurrenceCount | None = Field(
+        default=None, description="Null when the signal could not be computed."
+    )
+
+
+class SlaCompliance(BaseModel):
+    met: int
+    breached: int
+    pending: int = Field(
+        default=0, description="First response only: no reply yet and not due yet."
+    )
+    unrecorded: int = Field(
+        default=0,
+        description="First response only: closed without any recorded customer message.",
+    )
+
+
+class SlaPriority(BaseModel):
+    priority: Literal["P1", "P2", "P3", "P4"]
+    met: int = Field(description="Closed in the period within the resolution deadline.")
+    breached: int = Field(description="Closed in the period after the resolution deadline.")
+    at_risk: int = Field(description="Open, 75% or more of the resolution target elapsed.")
+    overdue: int = Field(description="Open, past the resolution deadline.")
+
+
+class OverdueTicket(BaseModel):
+    ticket_id: UUID
+    external_id: str | None
+    subject: str | None = Field(
+        description="Null when the user may not open this ticket (aggregate-only scope)."
+    )
+    priority: Literal["P1", "P2", "P3", "P4"]
+    resolution_due: datetime
+    overdue_hours: float
+    owner_user_id: UUID | None
+
+
+class SlaSummary(BaseModel):
+    """Computed on read from rule inputs, the same deadlines as the analysis view (KAN-233)."""
+
+    measured_at: datetime = Field(description="Database time open tickets are measured at.")
+    first_response: SlaCompliance = Field(
+        description="Tickets received in the period. First response is the first customer "
+        "message (answer or information request) the mail platform accepted and the workflow "
+        "recorded."
+    )
+    resolution: SlaCompliance = Field(
+        description="Tickets closed in the period, closing time against the resolution deadline."
+    )
+    at_risk: int = Field(description="Open, received in the period, 75% or more elapsed.")
+    overdue: int = Field(description="Open, received in the period, past the resolution deadline.")
+    unknown: int = Field(
+        description="Received or closed in the period but without an SLA: no classification "
+        "or a value outside the policy. Not in any other count."
+    )
+    by_priority: list[SlaPriority]
+    overdue_tickets: list[OverdueTicket] = Field(description="Most overdue first, at most 10.")
 
 
 class Overview(BaseModel):
@@ -82,6 +184,7 @@ class Overview(BaseModel):
     unconfirmed: list[Unconfirmed] = Field(
         description="Metrics shown as unknown because their source is not stored yet."
     )
+    sla: SlaSummary | None = Field(default=None, description="SLA figures (KAN-233).")
 
 
 class OwnerLoad(BaseModel):
@@ -95,6 +198,19 @@ class OwnerLoad(BaseModel):
     by_state: dict[WorkflowState, int] = Field(
         description="Current state of the owner's tickets, whenever received (the period does "
         "not limit it). Every state is present."
+    )
+    due_today: int | None = Field(
+        default=None,
+        description="Open now with a resolution deadline later today (Asia/Seoul), not passed.",
+    )
+    overdue: int | None = Field(default=None, description="Open now, past the resolution deadline.")
+    sla_unknown: int | None = Field(default=None, description="Open now without an SLA.")
+    avg_handle_days: float | None = Field(
+        default=None,
+        description="Mean days from receipt to closing over tickets closed in the period.",
+    )
+    improvements_open: int | None = Field(
+        default=None, description="Open improvement requests whose cs_owner is this user, now."
     )
 
 
