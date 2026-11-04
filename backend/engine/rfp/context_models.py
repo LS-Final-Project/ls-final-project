@@ -86,6 +86,34 @@ class ContextIssue(Strict):
     message: str
 
 
+class DuplicateSet(Strict):
+    """같은 설비 태그·속성·값으로 여러 곳(표·본문·도면)에 반복된 요구. 원래 요구 행은 그대로 둔다(KAN-223)."""
+
+    canonical_requirement_id: str
+    requirement_ids: list[str] = Field(min_length=2)
+    tag: str
+    attribute: str
+    value: str
+    unit: str | None = None
+    clause_nos: list[str]
+
+
+class ConflictValue(Strict):
+    value: str
+    requirement_ids: list[str] = Field(min_length=1)
+    clause_nos: list[str]
+
+
+class ValueConflict(Strict):
+    """같은 태그·속성인데 값이 다른 요구. 합치지 않고 질의 대상으로 남긴다(drawing: 도면 출처 포함)."""
+
+    tag: str
+    attribute: str
+    unit: str | None = None
+    values: list[ConflictValue] = Field(min_length=2)
+    drawing: bool
+
+
 class ContextResult(Strict):
     schema_version: Literal["rfp-context-v1"] = "rfp-context-v1"
     outcome: Literal["VALID", "PARTIAL"]
@@ -93,6 +121,8 @@ class ContextResult(Strict):
     assignments: list[ContextAssignment] = Field(max_length=4000)
     issues: list[ContextIssue] = Field(default_factory=list)
     prompt_version: Literal["rfp-context-v1", "rfp-context-v2"] = "rfp-context-v2"
+    duplicates: list[DuplicateSet] = Field(default_factory=list)
+    value_conflicts: list[ValueConflict] = Field(default_factory=list)
 
 
 class ContextProposal(Strict):

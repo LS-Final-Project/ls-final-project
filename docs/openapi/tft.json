@@ -661,6 +661,37 @@
         "title": "Condition",
         "type": "object"
       },
+      "ConflictValue": {
+        "additionalProperties": false,
+        "properties": {
+          "clause_nos": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Clause Nos",
+            "type": "array"
+          },
+          "requirement_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Requirement Ids",
+            "type": "array"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "requirement_ids",
+          "clause_nos"
+        ],
+        "title": "ConflictValue",
+        "type": "object"
+      },
       "ContextAssignment": {
         "additionalProperties": false,
         "properties": {
@@ -1233,6 +1264,13 @@
             "title": "Assignments",
             "type": "array"
           },
+          "duplicates": {
+            "items": {
+              "$ref": "#/components/schemas/DuplicateSet"
+            },
+            "title": "Duplicates",
+            "type": "array"
+          },
           "groups": {
             "items": {
               "$ref": "#/components/schemas/ContextGroup"
@@ -1270,6 +1308,13 @@
             "default": "rfp-context-v1",
             "title": "Schema Version",
             "type": "string"
+          },
+          "value_conflicts": {
+            "items": {
+              "$ref": "#/components/schemas/ValueConflict"
+            },
+            "title": "Value Conflicts",
+            "type": "array"
           }
         },
         "required": [
@@ -2512,6 +2557,64 @@
           "version"
         ],
         "title": "DraftRewrite",
+        "type": "object"
+      },
+      "DuplicateSet": {
+        "additionalProperties": false,
+        "description": "\uac19\uc740 \uc124\ube44 \ud0dc\uadf8\u00b7\uc18d\uc131\u00b7\uac12\uc73c\ub85c \uc5ec\ub7ec \uacf3(\ud45c\u00b7\ubcf8\ubb38\u00b7\ub3c4\uba74)\uc5d0 \ubc18\ubcf5\ub41c \uc694\uad6c. \uc6d0\ub798 \uc694\uad6c \ud589\uc740 \uadf8\ub300\ub85c \ub454\ub2e4(KAN-223).",
+        "properties": {
+          "attribute": {
+            "title": "Attribute",
+            "type": "string"
+          },
+          "canonical_requirement_id": {
+            "title": "Canonical Requirement Id",
+            "type": "string"
+          },
+          "clause_nos": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Clause Nos",
+            "type": "array"
+          },
+          "requirement_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 2,
+            "title": "Requirement Ids",
+            "type": "array"
+          },
+          "tag": {
+            "title": "Tag",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "canonical_requirement_id",
+          "requirement_ids",
+          "tag",
+          "attribute",
+          "value",
+          "clause_nos"
+        ],
+        "title": "DuplicateSet",
         "type": "object"
       },
       "ErrorData": {
@@ -8543,6 +8646,51 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "ValueConflict": {
+        "additionalProperties": false,
+        "description": "\uac19\uc740 \ud0dc\uadf8\u00b7\uc18d\uc131\uc778\ub370 \uac12\uc774 \ub2e4\ub978 \uc694\uad6c. \ud569\uce58\uc9c0 \uc54a\uace0 \uc9c8\uc758 \ub300\uc0c1\uc73c\ub85c \ub0a8\uae34\ub2e4(drawing: \ub3c4\uba74 \ucd9c\ucc98 \ud3ec\ud568).",
+        "properties": {
+          "attribute": {
+            "title": "Attribute",
+            "type": "string"
+          },
+          "drawing": {
+            "title": "Drawing",
+            "type": "boolean"
+          },
+          "tag": {
+            "title": "Tag",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/ConflictValue"
+            },
+            "minItems": 2,
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tag",
+          "attribute",
+          "values",
+          "drawing"
+        ],
+        "title": "ValueConflict",
         "type": "object"
       }
     }

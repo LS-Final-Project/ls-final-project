@@ -565,7 +565,7 @@ def test_v1_validation_is_stable_for_human_edits_while_new_results_use_v2():
     )
 
 
-# KAN-216: 원문 제목 "이름 (태그)"로 설비 묶음을 합치고 요구를 연결한다.
+# KAN-216·KAN-223: 원문 제목 "이름 (태그)"로 묶음을 합치고, 같은 태그·속성·값 요구를 중복으로 묶는다.
 HEADINGS = graph.heading_tags(
     [
         {
@@ -625,6 +625,28 @@ def test_heading_tags_merge_split_groups_and_link_by_source_tag():
         tagged["TR-01"].entity_id
     ]  # 일반 이름 "변압기"는 선언된 이름 하나에만 들어간다
     assert linked["f"] == []  # 두 설비를 함께 말하는 요구는 정하지 않는다
+    dups = [set(d.requirement_ids) for d in after.duplicates]
+    assert {"a", "b"} in dups
+    assert {"c", "d"} in dups  # 0.415 kV와 415 V는 같은 값
+    assert after.duplicates[0].canonical_requirement_id != "b"  # 도면 OCR은 대표가 아니다
+    assert after.value_conflicts == []
+
+
+def test_numeric_value_difference_is_a_conflict_not_a_duplicate():
+    rows = [
+        kr("a", "제7조.2", "건식 변압기", "정격 용량", "630", "kVA"),
+        kr("b", "OCR-DOCX-0001.18", "TR-01", "정격 용량", "1000", "kVA"),
+        kr("c", "제7조.1", "건식 변압기", "형식", "몰드 건식"),
+        kr("d", "OCR-DOCX-0001.18", "TR-01", "형식", "몰드 변압기"),
+    ]
+    result = ContextResult(
+        outcome="PARTIAL", groups=[], assignments=[assignment(k) for k in "abcd"]
+    )
+    after = graph.consolidate(result, rows, HEADINGS)
+    assert after.duplicates == []
+    [conflict] = after.value_conflicts  # 문장형 값(형식) 차이는 충돌로 보지 않는다
+    assert conflict.tag == "TR-01" and conflict.drawing
+    assert {v.value for v in conflict.values} == {"630", "1000"}
 
 
 def test_documents_without_declared_tags_are_left_unchanged():

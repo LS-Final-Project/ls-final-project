@@ -15,6 +15,7 @@ from langgraph.graph import END, START, StateGraph
 from pydantic import ValidationError
 
 from backend.engine.rfp.context_models import (
+    ConflictValue,
     ContextAssignment,
     ContextGroup,
     ContextIssue,
@@ -22,6 +23,8 @@ from backend.engine.rfp.context_models import (
     ContextRelation,
     ContextRequirement,
     ContextResult,
+    DuplicateSet,
+    ValueConflict,
 )
 from backend.shared import ai
 from backend.shared.tracing import TRACING_BLOCKED, tracing_requested
@@ -381,14 +384,32 @@ def _tag_of(row: ContextRequirement, headings: Headings) -> str | None:
     return contains[0] if len(contains) == 1 and not mentioned else None
 
 
+def _value(text: str | None) -> str:
+    return re.sub(r"[\s,]|이상|이하|초과|미만|≥|≤|>=|<=", "", text or "").casefold()
+
+
+_UNIT = re.compile(r"^(k|M)?(V|A|VA|W|Hz)$")
+
+
+def _quantity(value: str | None, unit: str | None) -> tuple[str, str] | None:
+    """'0.415 kV'와 '415 V'를 같은 값으로 본다. 숫자 하나와 SI 접두 단위일 때만."""
+    number = re.fullmatch(r"[-+]?\d+(?:\.\d+)?", _value(value))
+    match = _UNIT.match((unit or "").strip())
+    if not number or not match:
+        return None
+    scale = {"k": 1e3, "M": 1e6}.get(match.group(1) or "", 1)
+    return match.group(2), f"{float(number.group()) * scale:g}"
+
+
 def consolidate(
     result: ContextResult, requirements: list[ContextRequirement], headings: Headings
 ) -> ContextResult:
-    """모델 묶음 뒤의 결정적 정리(KAN-216). 원문 제목의 태그로만 묶고, 새 사실은 만들지 않는다.
+    """모델 묶음 뒤의 결정적 정리(KAN-216, KAN-223). 원문 제목의 태그로만 묶고, 새 사실은 만들지 않는다.
 
     - 태그 없는 설비 묶음에 근거 요구들의 태그가 하나로 모이면 그 태그를 붙이고, 같은 문서·같은 태그 묶음은 합친다.
     - 태그 묶음이 없는 선언 태그에 요구가 있으면 원문 제목 이름으로 묶음을 만든다.
     - 묶음이 없는 요구는 태그가 정해지면 그 묶음에 APPLIES_TO로 붙인다.
+    - 같은 태그·속성·값 요구는 중복 묶음으로, 값이 다르면 값 충돌로 남긴다(요구 행은 지우지 않는다).
     """
     if not headings:
         return result
@@ -495,6 +516,7 @@ def consolidate(
         left = [r for r in issue.requirement_ids if r not in linked]
         if left:
             issues.append(issue.model_copy(update={"requirement_ids": left}))
+    duplicates, conflicts = _duplicates(rows, tags)
     partial = bool(issues) or any(a.needs_review for a in assignments)
     return result.model_copy(
         update={
@@ -502,8 +524,69 @@ def consolidate(
             "groups": groups,
             "assignments": assignments,
             "issues": issues,
+            "duplicates": duplicates,
+            "value_conflicts": conflicts,
         }
     )
+
+
+def _duplicates(
+    rows: dict[str, ContextRequirement], tags: dict[str, str | None]
+) -> tuple[list[DuplicateSet], list[ValueConflict]]:
+    buckets: dict[tuple[str, ...], dict[str, list[ContextRequirement]]] = {}
+    for key, row in rows.items():
+        tag = tags.get(key)
+        if not tag or not row.attribute or not row.value:
+            continue
+        quantity = _quantity(row.value, row.unit)
+        unit = quantity[0] if quantity else _norm(row.unit)
+        key = ("#" + quantity[1]) if quantity else _value(row.value)
+        bucket = (row.document_version_id, tag, _norm(row.attribute), unit)
+        buckets.setdefault(bucket, {}).setdefault(key, []).append(row)
+
+    def order(row: ContextRequirement) -> tuple[bool, int, str]:
+        # 본문 조항을 대표로: 도면 OCR이 아니고 더 깊은 조항.
+        return (row.clause_no.startswith("OCR-"), -len(row.section_path), row.clause_no)
+
+    duplicates: list[DuplicateSet] = []
+    conflicts: list[ValueConflict] = []
+    for (_, tag, _, _), by_value in sorted(buckets.items()):
+        for members in by_value.values():
+            if len(members) > 1:
+                members = sorted(members, key=order)
+                duplicates.append(
+                    DuplicateSet(
+                        canonical_requirement_id=members[0].requirement_id,
+                        requirement_ids=[m.requirement_id for m in members],
+                        tag=tag,
+                        attribute=members[0].attribute or "",
+                        value=members[0].value or "",
+                        unit=members[0].unit,
+                        clause_nos=[m.clause_no for m in members],
+                    )
+                )
+        # 값 충돌은 숫자 값만. 문장형 값(형식 등)은 표현 차이일 수 있어 충돌로 보지 않는다.
+        if len(by_value) > 1 and all(k.startswith("#") for k in by_value):
+            first = next(iter(by_value.values()))[0]
+            conflicts.append(
+                ValueConflict(
+                    tag=tag,
+                    attribute=first.attribute or "",
+                    unit=first.unit,
+                    values=[
+                        ConflictValue(
+                            value=sorted(m, key=order)[0].value or "",
+                            requirement_ids=[x.requirement_id for x in m],
+                            clause_nos=[x.clause_no for x in m],
+                        )
+                        for m in by_value.values()
+                    ],
+                    drawing=any(
+                        x.clause_no.startswith("OCR-") for m in by_value.values() for x in m
+                    ),
+                )
+            )
+    return duplicates, conflicts
 
 
 def build_input(row: ContextRequirement, *, inventory: bool = False) -> dict[str, Any]:
