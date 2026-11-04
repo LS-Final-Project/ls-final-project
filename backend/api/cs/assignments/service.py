@@ -14,7 +14,7 @@ from psycopg import AsyncConnection
 
 from backend.api.cs.analysis import service as analysis
 from backend.api.cs.assignments import repository
-from backend.api.cs.workflow.service import lock, save
+from backend.api.cs.workflow.service import lock, notify_assigned, save
 from backend.engine.cs.assignment import (
     Agent,
     Decision,
@@ -76,7 +76,8 @@ async def record(
     trigger: str,
     actor: UUID | None,
 ) -> Row:
-    """Sets the owner the decision names and stores why. The ticket is locked.
+    """Sets the owner the decision names, stores why and notifies the new owner
+    (`cs.assigned`, same transaction). The ticket is locked.
 
     NO_MATCH writes nothing: the ticket stays unassigned and the preview shows the reason.
     """
@@ -99,7 +100,7 @@ async def record(
             "decided_by": actor,
         },
     )
-    return await save(
+    saved = await save(
         conn,
         workflow,
         actor,
@@ -110,6 +111,8 @@ async def record(
         rule_version=decision.rule_version,
         trigger=trigger,
     )
+    await notify_assigned(conn, saved, actor)
+    return saved
 
 
 async def assign_on_intake(settings: Settings, ticket_id: UUID) -> None:

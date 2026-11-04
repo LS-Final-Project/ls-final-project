@@ -24,3 +24,12 @@ function post<T>(path: string, body: object, signal: AbortSignal): Promise<T> {
 export const previewAssignments = (limit: number, signal: AbortSignal) => post<PreviewResponse>('/api/v1/cs/assignments/preview', { limit }, signal);
 // 미리보기의 문의·담당 쌍을 그대로 보낸다. 서버가 다시 결정해 같은 것만 쓴다.
 export const applyAssignments = (body: ApplyBody, signal: AbortSignal) => post<ApplyResponse>('/api/v1/cs/assignments/apply', body, signal);
+
+// 개선요청 C/S 담당(cs_owner) 일괄 배정. 자동 배정 전에 만들어진 미배정 요청을 관리자가 채운다.
+export type RequestPreviewResponse = paths[`${Base}/improvements/preview`]['post']['responses'][200]['content']['application/json'];
+export type RequestProposalRow = RequestPreviewResponse['data']['items'][number];
+export type RequestApplyBody = paths[`${Base}/improvements/apply`]['post']['requestBody']['content']['application/json'];
+export type RequestApplyResponse = paths[`${Base}/improvements/apply`]['post']['responses'][200]['content']['application/json'];
+export type RequestApplyRow = RequestApplyResponse['data']['items'][number];
+export const previewRequestAssignments = (limit: number, signal: AbortSignal) => post<RequestPreviewResponse>('/api/v1/cs/assignments/improvements/preview', { limit }, signal);
+export const applyRequestAssignments = (body: RequestApplyBody, signal: AbortSignal) => post<RequestApplyResponse>('/api/v1/cs/assignments/improvements/apply', body, signal);
