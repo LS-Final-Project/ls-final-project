@@ -66,10 +66,9 @@ function CustomersView() {
       {mode === 'mock' && <div className="tier-note" role="status">모의 응답 모드 — 계약 예시이며 실제 업무 집계가 아닙니다. 고객별 예시가 없는 요청은 실패할 수 있습니다.</div>}
       <form className="cond" onSubmit={event => { event.preventDefault(); apply(); }}>
         <span className="k">고객코드</span>
-        <input type="text" aria-label="고객 ID" maxLength={64} placeholder="예: CUST-0565" autoComplete="off" value={draft.customer} onChange={event => setDraft({ ...draft, customer: event.target.value })} />
+        <input type="text" aria-label="고객 ID" maxLength={64} placeholder="CUST-" autoComplete="off" value={draft.customer} onChange={event => setDraft({ ...draft, customer: event.target.value })} />
         <span className="k">기간</span>
         <span className="range"><input type="date" aria-label="시작일" value={draft.start} onChange={event => setDraft({ ...draft, start: event.target.value })} /><em>~</em><input type="date" aria-label="종료일 (포함)" value={draft.end} onChange={event => setDraft({ ...draft, end: event.target.value })} /></span>
-        <span className="hint">제공 문의는 과거 자료라 2025-10-01~2026-09-30 안에 있습니다.</span>
         <a href="#clear" className="clear" onClick={event => { event.preventDefault(); reset(); }}>초기화</a>
         {/* 입력 칸이 여럿이면 제출 단추가 있어야 Enter로 조회된다. 보이는 조회 단추는 제목 줄에 있다. */}
         <button type="submit" hidden tabIndex={-1} aria-hidden="true" />
@@ -84,10 +83,10 @@ function CustomersView() {
         <div className="info">
           <div className="k">고객</div><div className="v">{data.customer_external_id}</div>
           <div className="k">기간 내 접수</div><div className="v">{data.received}건</div>
-          <div className="k">진행 중</div><div className="v">{open > 0 ? <span className="open">{open}건</span> : '0건'}</div>
-          <div className="k">종결</div><div className="v last">{closed}건</div>
-          <div className="k nb">제품별</div><div className="v nb ell" title={join(data.by_product, key => key)}>{join(data.by_product, key => key)}</div>
-          <div className="k nb">상태별</div><div className="v nb ell" title={join(data.by_state, stateName)}>{join(data.by_state, stateName)}</div>
+          <div className="k">진행 중</div><div className="v"><span className="cnt open">{open}건</span></div>
+          <div className="k">종결</div><div className="v last"><span className="cnt closed">{closed}건</span></div>
+          <div className="k nb">제품별</div><div className="v nb wrap">{join(data.by_product, key => key)}</div>
+          <div className="k nb">상태별</div><div className="v nb wrap">{join(data.by_state, stateName)}</div>
           <div className="k nb">개선요청</div><div className="v nb">연결 {data.improvement_requests.length}건</div>
           <div className="k nb">미확인 지표</div><div className="v nb last">{data.unconfirmed.length ? data.unconfirmed.map(key => UNCONFIRMED_LABEL[key] ?? `알 수 없는 지표 (${key})`).join(', ') : '없음'}</div>
         </div>
