@@ -25,6 +25,8 @@ const DEPT_KINDS:Kind[]=['resend','review-rejection','acknowledge','reply','acti
 const PRIMARY:Kind[]=['review','send','review-rejection','resend','plan','complete','acknowledge','reply','action'];
 
 const DEPT_STATUS:Record<string,string>={SENT:'회신 대기',ACKNOWLEDGED:'회신 대기',ADOPTED:'채택',INFO_REQUESTED:'추가 정보 요청',REJECTED:'반려',ACTION_TAKEN:'조치 기록'};
+// 처리할 수 없는 이유 안내에는 받음과 수신 확인을 나눠 쓴다(표시용 '회신 대기'는 둘을 합친다).
+const DEPT_STATUS_WHY:Record<string,string>={...DEPT_STATUS,SENT:'받음',ACKNOWLEDGED:'수신 확인'};
 const REPLY_LABEL:Record<ReplyBody['reply_type'],string>={ADOPTED:'채택',INFO_REQUESTED:'추가 정보 요청',REJECTED:'반려'};
 const SCOPE_LABEL:Record<NonNullable<ActionBody['scope_kind']>,string>={OTHER:'그 밖(사람이 판단)',FIRMWARE_VERSION:'펌웨어 버전 이상',SHIPPED_FROM:'출하일 이후',LOT:'로트 목록'};
 const SCOPE_HINT:Record<NonNullable<ActionBody['scope_kind']>,string>={OTHER:'',FIRMWARE_VERSION:'예: 1.72',SHIPPED_FROM:'예: 2026-01-31',LOT:'쉼표로 구분'};
@@ -62,7 +64,7 @@ function rowsFor(data:Data,roles:string[],dept:string|null,managed:string[],now:
     if(!mine)rows.push({kind:'reply',label:'부서 처리',targetLabel:dept?deptLabel(dept):'내 부서',reason:'이 요청을 받는 부서에 내 부서가 없습니다.'});
     else{
       const target=mine.dept_code;const targetLabel=deptLabel(target);
-      const state=(need:string,what:string)=>deptClosed?deptClosedReason:mine.status===need?undefined:`부서 상태가 '${DEPT_STATUS[need]}'일 때만 ${what}할 수 있습니다. 지금은 '${DEPT_STATUS[mine.status]??'미확인'}'입니다.`;
+      const state=(need:string,what:string)=>deptClosed?deptClosedReason:mine.status===need?undefined:`부서 상태가 '${DEPT_STATUS_WHY[need]}'일 때만 ${what}할 수 있습니다. 지금은 '${DEPT_STATUS_WHY[mine.status]??'미확인'}'입니다.`;
       // 수신 확인은 따로 묻지 않는다. 받은 상태(SENT)에서 회신하면 서버가 수신 확인을 함께 남긴다(2026-11-04).
       const replied=['ADOPTED','INFO_REQUESTED','REJECTED','ACTION_TAKEN'].includes(mine.status);
       rows.push({kind:'reply',label:'회신(채택·추가 정보 요청·반려)',target,targetLabel,
