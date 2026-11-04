@@ -563,3 +563,74 @@ def test_v1_validation_is_stable_for_human_edits_while_new_results_use_v2():
         asyncio.run(graph.run_context([requirement()], graph.fake_provider)).prompt_version
         == "rfp-context-v2"
     )
+
+
+# KAN-216: 원문 제목 "이름 (태그)"로 설비 묶음을 합치고 요구를 연결한다.
+HEADINGS = graph.heading_tags(
+    [
+        {
+            "document_version_id": "d1",
+            "clause_no": "제6조",
+            "title": None,
+            "text": "중전압 개폐반 (MV-SWG-01)",
+        },
+        {
+            "document_version_id": "d1",
+            "clause_no": "제7조",
+            "title": None,
+            "text": "건식 변압기 (TR-01)",
+        },
+        {"document_version_id": "d1", "clause_no": "제2조", "title": None, "text": "공급 범위"},
+    ]
+)
+
+
+def kr(key, clause, equipment, attribute=None, value=None, unit=None, quote="원문"):
+    return requirement(
+        key,
+        clause_no=clause,
+        section_path=["제1장", clause.split(".")[0], clause],
+        equipment=equipment,
+        attribute=attribute,
+        value=value,
+        unit=unit,
+        quote=quote,
+    )
+
+
+def test_heading_tags_merge_split_groups_and_link_by_source_tag():
+    rows = [
+        kr("a", "제7조.2", "건식 변압기", "정격 용량", "630", "kVA"),
+        kr("b", "OCR-DOCX-0001.18", "TR-01", "정격 용량", "630", "kVA"),
+        kr("c", "제1조.2", "변압기", "2차 전압", "0.415", "kV"),
+        kr("d", "제7조.3", None, "2차 전압", "415", "V"),
+        kr("e", "제6조.2", "중전압 개폐반", "정격 최고 전압", "12", "kV"),
+        kr("f", "제11조.2", "중전압 개폐반과 변압기", quote="중전압 개폐반과 변압기의 성적서"),
+    ]
+    result = ContextResult(
+        outcome="PARTIAL",
+        groups=[
+            group("g1", name="건식 변압기", evidence_requirement_ids=["a"]),
+            group("g2", name="TR-01", evidence_requirement_ids=["b"]),
+        ],
+        assignments=[assignment(k) for k in "abcdef"],
+    )
+    after = graph.consolidate(result, rows, HEADINGS)
+    tagged = {g.tag: g for g in after.groups if g.tag}
+    # 이름이 다른 두 묶음(건식 변압기, TR-01)이 TR-01 하나로 합쳐지고, MV-SWG-01 묶음은 제목에서 새로 생긴다.
+    assert set(tagged) == {"TR-01", "MV-SWG-01"}
+    assert tagged["TR-01"].name == "건식 변압기" and not tagged["TR-01"].needs_review
+    linked = {a.requirement_id: a.group_ids for a in after.assignments}
+    assert linked["c"] == [
+        tagged["TR-01"].entity_id
+    ]  # 일반 이름 "변압기"는 선언된 이름 하나에만 들어간다
+    assert linked["f"] == []  # 두 설비를 함께 말하는 요구는 정하지 않는다
+
+
+def test_documents_without_declared_tags_are_left_unchanged():
+    rows = [requirement("r1"), requirement("r2")]
+    result = ContextResult(
+        outcome="PARTIAL", groups=[group()], assignments=[assignment("r1"), assignment("r2")]
+    )
+    assert graph.consolidate(result, rows, {}) == result
+    assert graph.consolidate(result, rows, graph.heading_tags([])) == result
