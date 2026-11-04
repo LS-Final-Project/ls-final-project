@@ -245,6 +245,11 @@ def _eligible(req: ExtractedRequirement, clauses: dict[str, Clause]) -> bool:
     return current and value_present is not None
 
 
+def _excerpt(quote: str, limit: int = 30) -> str:
+    text = " ".join(quote.split())
+    return text if len(text) <= limit else text[:limit].rstrip() + "…"
+
+
 def generate_question_drafts(
     tree: ClauseTree, requirements: Sequence[ExtractedRequirement]
 ) -> list[QuestionDraft]:
@@ -267,7 +272,9 @@ def generate_question_drafts(
                 QuestionDraft(
                     kind="PLACEHOLDER",
                     sources=sources,
-                    question="표시된 미정 항목에 적용할 확정 값과 단위를 알려 주시겠습니까?",
+                    # 고객이 어느 항목인지 알 수 있게 조항 번호와 원문 앞부분을 붙인다(40444 흐름 점검).
+                    question=f'{clause.clause_no} "{_excerpt(sources[0].quote)}"의 미정 항목에 '
+                    "적용할 확정 값과 단위를 알려 주시겠습니까?",
                     pre_reply_note="미정: 고객 회신 전까지 해당 항목은 적합·부적합 판정에서 제외합니다.",
                 )
             )
