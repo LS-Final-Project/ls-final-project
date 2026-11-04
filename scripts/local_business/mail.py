@@ -36,10 +36,12 @@ log = logging.getLogger("local_business.mail")
 
 def allowed(address: str, allow: list[str]) -> bool:
     """`a@b.com` matches only itself; `@b.com` matches any address at that exact domain."""
-    address = address.strip().lower()
-    return "@" in address and any(
-        address == rule or (rule.startswith("@") and address.endswith(rule)) for rule in allow
-    )
+    # Checked as sent: no trimming, exactly one "@", and the domain compared whole.
+    if address.count("@") != 1 or address != address.strip():
+        return False
+    address = address.lower()
+    domain = "@" + address.rpartition("@")[2]
+    return any(address == rule or domain == rule for rule in allow)
 
 
 def private_file(path: Path) -> Path:
@@ -183,7 +185,7 @@ class LocalMailTransport(httpx.AsyncBaseTransport):
         when = task.get("scheduleTime")
         if when:
             due = datetime.fromisoformat(when.replace("Z", "+00:00"))
-            await asyncio.sleep(min(max((due - datetime.now(UTC)).total_seconds(), 0), 3600))
+            await asyncio.sleep(max((due - datetime.now(UTC)).total_seconds(), 0))
         await self.call(task["httpRequest"])
 
     async def call(self, http: dict, tries: int = 3) -> int | None:

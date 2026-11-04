@@ -105,6 +105,8 @@ def test_allow_list_matches_exact_address_or_exact_domain():
     assert not mail.allowed("x@sub.outlook.kr", allow)
     assert not mail.allowed("other@example.com", allow)
     assert not mail.allowed("outlook.kr", allow)
+    assert not mail.allowed("x@evil.com@outlook.kr", allow)
+    assert not mail.allowed(" csdesk-01@outlook.kr", allow)
 
 
 @pytest.mark.parametrize("sync,send", [(True, False), (False, True), (True, True)])
