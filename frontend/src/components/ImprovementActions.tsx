@@ -44,11 +44,9 @@ function rowsFor(data:Data,roles:string[],dept:string|null,managed:string[],now:
     const sendReason=r.status!=='REVIEWED'?(r.status==='DRAFT'?'검토를 먼저 기록해야 합니다.':'이미 부서에 전달한 요청입니다. 새 회차는 이 화면에서 열지 않습니다.'):quick&&!r.proposed_depts.length?'제안 부서가 없습니다. 개선 요청 작성의 "내용 수정"에서 제안 부서를 고르세요.':undefined;
     rows.push({kind:'send',label:'부서 전달',targetLabel:'요청',reason:sendReason,done:r.status!=='DRAFT'&&r.status!=='REVIEWED'});
     for(const x of data.departments){
-      if(x.status==='INFO_REQUESTED'||x.status==='REJECTED'||x.status==='SENT'||x.status==='ACKNOWLEDGED'){
-        const due=x.reply_due_at?Date.parse(x.reply_due_at):NaN;
-        const waiting=(x.status==='SENT'||x.status==='ACKNOWLEDGED')&&!(due<now);
-        rows.push({kind:'resend',label:x.status==='INFO_REQUESTED'?'자료 보완 후 다시 요청':x.status==='REJECTED'?'새 근거로 다시 요청':'회신 재촉',target:x.dept_code,targetLabel:deptLabel(x.dept_code),
-          reason:deptClosed?deptClosedReason:waiting?(x.reply_due_at?`회신 기한(${stamp(x.reply_due_at)})이 지난 뒤에만 재촉할 수 있습니다.`:'회신 기한을 확인할 수 없어 재촉할 수 없습니다.'):undefined});
+      // 다시 요청은 기획서의 추가 정보 대기(자료 보완)와 반려(새 근거)만. 회신 기한·회신 재촉은 화면에서 쓰지 않는다(서버 기본 기한 7일만 보냄).
+      if(x.status==='INFO_REQUESTED'||x.status==='REJECTED'){
+        rows.push({kind:'resend',label:x.status==='INFO_REQUESTED'?'자료 보완 후 다시 요청':'새 근거로 다시 요청',target:x.dept_code,targetLabel:deptLabel(x.dept_code),reason:deptClosed?deptClosedReason:undefined});
       }
       if(x.status==='REJECTED'&&!x.rejection_reviewed_at)rows.push({kind:'review-rejection',label:'반려 확인',target:x.dept_code,targetLabel:deptLabel(x.dept_code),reason:deptClosed?deptClosedReason:undefined});
     }
@@ -104,7 +102,7 @@ export default function ImprovementActions({data,onSaved,onReload,onEditingChang
     if(!inline&&row.kind==='send'){void sendNow();return;}
     if(busy||uncertain||locked)return;
     setOpen({kind:row.kind,target:row.target,version:r.version});setError('');setNotice('');
-    setValues(row.kind==='send'||row.kind==='resend'?{reply_due_days:'7'}:row.kind==='action'?{scope_kind:'OTHER'}:row.kind==='reply'?{reply_type:'ADOPTED'}:{});
+    setValues(row.kind==='action'?{scope_kind:'OTHER'}:row.kind==='reply'?{reply_type:'ADOPTED'}:{});
     setDepts(row.kind==='review'||row.kind==='send'?[...r.proposed_depts] as Dept[]:[]);setPickDepts(false);
     setTimeout(()=>document.getElementById('ia-form')?.scrollIntoView?.({block:'nearest',behavior:'smooth'}),0);
   };
@@ -122,7 +120,8 @@ export default function ImprovementActions({data,onSaved,onReload,onEditingChang
   useEffect(()=>{onControl?.({rows:rowsRef.current,blocked,start:row=>startRef.current(row)});},[controlKey,blocked,onControl]);
   useEffect(()=>()=>onControl?.(null),[onControl]);
   const close=()=>{if(busy)return;setOpen(null);setError('');};
-  const days=Number(v('reply_due_days'));const daysOk=Number.isInteger(days)&&days>=1&&days<=90;
+  // 회신 기한은 고르지 않는다. API가 받는 값으로 서버 기본과 같은 7일을 보낸다.
+  const days=7;const daysOk=true;
   const scope=(v('scope_kind')||'OTHER') as NonNullable<ActionBody['scope_kind']>;
   const valid=(():boolean=>{
     if(!open)return false;
@@ -175,13 +174,12 @@ export default function ImprovementActions({data,onSaved,onReload,onEditingChang
     finally{if(controller.current===current)controller.current=null;if(!s.aborted)setBusy(false);}
   };
   const deptBoxes=(legend:string)=><fieldset><legend>{legend}</legend>{DEPT_CODES.map(code=><label key={code}><input type="checkbox" checked={depts.includes(code as Dept)} onChange={e=>setDepts(c=>e.target.checked?[...c,code as Dept]:c.filter(x=>x!==code))}/>{deptLabel(code)}</label>)}</fieldset>;
-  const dueField=<label>회신 기한(일)<input type="number" min={1} max={90} required value={v('reply_due_days')} onChange={set('reply_due_days')}/></label>;
   const fields=():ReactNode=>{switch(open?.kind){
     case 'review':return <>{deptBoxes(r.request_type==='FAULT'?'제안 부서 (1개 이상 필수)':'제안 부서 (미확인 가능)')}<p>검토 기록만 남깁니다. 부서 전달은 따로 기록합니다.</p></>;
     case 'send':return <>{r.proposed_depts.length>0&&!pickDepts
       ?<div className="fr"><span className="k">받는 부서</span><span className="chips">{depts.map(code=><span key={code} className="dept-chip">{deptLabel(code)}</span>)}<button type="button" className="mini" onClick={()=>setPickDepts(true)}>받는 부서 바꾸기</button></span></div>
-      :deptBoxes('받는 부서 (1개 이상 필수)')}{!depts.length&&<p>받는 부서를 고르세요. 문서 요청은 받는 부서를 확인한 뒤 전달합니다.</p>}{dueField}<p className="meta">전달하면 받는 부서 담당자 화면의 "받은 요청"에 올라갑니다. 메일은 따로 보내지 않습니다.</p></>;
-    case 'resend':return <><label>다시 요청하는 이유<textarea required maxLength={2000} value={v('reason')} onChange={set('reason')}/></label>{dueField}<p>반려 뒤 다시 요청할 때는 반려 사유와 다른 새 근거를 먼저 추가해야 합니다.</p></>;
+      :deptBoxes('받는 부서 (1개 이상 필수)')}{!depts.length&&<p>받는 부서를 고르세요. 문서 요청은 받는 부서를 확인한 뒤 전달합니다.</p>}<p className="meta">전달하면 받는 부서 담당자 화면의 "받은 요청"에 올라갑니다. 메일은 따로 보내지 않습니다.</p></>;
+    case 'resend':return <><label>다시 요청하는 이유<textarea required maxLength={2000} value={v('reason')} onChange={set('reason')}/></label><p>반려 뒤 다시 요청할 때는 반려 사유와 다른 새 근거를 먼저 추가해야 합니다.</p></>;
     case 'review-rejection':return <p>부서의 반려 회신을 확인했다고 기록합니다. 부서 상태는 반려 그대로입니다.</p>;
     case 'plan':return <label>후속 확인 계획<textarea required maxLength={10000} value={v('followup_plan')} onChange={set('followup_plan')}/></label>;
     case 'complete':return <><label>후속 확인 결과<textarea required maxLength={10000} value={v('followup_result')} onChange={set('followup_result')}/></label><p>완료는 이 개선요청 기록을 닫을 뿐이며 고객별 적용·재발 여부를 확인했다는 뜻이 아닙니다.</p></>;

@@ -233,6 +233,24 @@ def test_a_rejected_output_is_stored_and_answered_502(
     )
 
 
+def test_an_error_text_that_is_not_a_bare_code_is_stored_as_invalid_output(
+    client, model, admin, request_with_evidence, monkeypatch
+):
+    """검사 오류 문장이 코드 형식과 전체가 같지 않으면(설명이 붙음) 일반 형식 오류로 남긴다."""
+    from backend.api.cs.improvements import ai_draft
+
+    def reject(*args, **kwargs):
+        raise ValueError("CS_FORBIDDEN_COMMITMENT: 승인 약속 문장")
+
+    monkeypatch.setattr(ai_draft, "validate_output", reject)
+    request, rows = request_with_evidence
+    model.next = answer([rows[0][2]])
+    failed = client.post(path(request["id"]))
+    assert failed.status_code == 502, failed.text
+    attempt = client.get(path(request["id"])).json()["data"]["latest_attempt"]
+    assert (attempt["outcome"], attempt["error_code"]) == ("INVALID_OUTPUT", "CS_INVALID_OUTPUT")
+
+
 def test_a_provider_error_keeps_the_usage_it_reports(client, model, admin, request_with_evidence):
     request, _ = request_with_evidence
     model.next = ClassificationCallError(

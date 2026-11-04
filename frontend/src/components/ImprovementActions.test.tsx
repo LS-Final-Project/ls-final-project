@@ -63,9 +63,9 @@ test('받는 부서가 없는 문서 요청은 부서를 고른 뒤에만 전달
   const {writes,saved}=setup(data,{roles:['cs_agent']});
   fireEvent.click(await screen.findByRole('button',{name:'부서 전달'}));
   expect(screen.getByText(/받는 부서를 고르세요/)).toBeTruthy();expect((screen.getByRole('button',{name:'전달'}) as HTMLButtonElement).disabled).toBe(true);
-  fireEvent.click(screen.getByLabelText(/저압기기 기술지원/));fireEvent.change(screen.getByLabelText('회신 기한(일)'),{target:{value:'91'}});expect((screen.getByRole('button',{name:'전달'}) as HTMLButtonElement).disabled).toBe(true);
-  fireEvent.change(screen.getByLabelText('회신 기한(일)'),{target:{value:'5'}});fireEvent.click(screen.getByRole('button',{name:'전달'}));await waitFor(()=>expect(saved).toHaveBeenCalled());
-  expect(writes()[0][0]).toMatch(/\/send$/);expect(JSON.parse(writes()[0][1].body as string)).toEqual({version:3,dept_codes:['TS_LV'],reply_due_days:5});
+  fireEvent.click(screen.getByLabelText(/저압기기 기술지원/));expect(screen.queryByLabelText('회신 기한(일)')).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:'전달'}));await waitFor(()=>expect(saved).toHaveBeenCalled());
+  expect(writes()[0][0]).toMatch(/\/send$/);expect(JSON.parse(writes()[0][1].body as string)).toEqual({version:3,dept_codes:['TS_LV'],reply_due_days:7});
 });
 
 test('받는 부서 담당자는 자기 부서의 수신 확인만 할 수 있다',async()=>{
@@ -127,13 +127,11 @@ test('채택한 부서는 적용 범위와 함께 조치를 기록한다',async(
   expect(JSON.parse(writes()[0][1].body as string)).toEqual({version:3,action:'합성 조치',action_scope:'합성 대상',action_date:'2026-10-30',action_evidence:'합성 근거',scope_kind:'FIRMWARE_VERSION',scope_value:'1.72'});
 });
 
-test('다시 요청은 보완·반려 부서에 열고 기한 전 재촉은 이유를 적는다',async()=>{
+test('다시 요청은 보완·반려 부서에만 열고 회신 재촉은 없다',async()=>{
   const data=detail(d=>sent(d,dept('QA_CLAIM','INFO_REQUESTED'),dept('TS_LV','SENT'),dept('TS_MV','ACKNOWLEDGED',{reply_due_at:'2000-01-01T00:00:00Z'}),dept('CERT','REJECTED')));
   const {writes,saved}=setup(data,{roles:['cs_agent']});
-  await screen.findByText(/이 지난 뒤에만 재촉/);
+  await screen.findAllByText(/자료 보완 후 다시 요청/);expect(screen.queryByText(/회신 재촉/)).toBeNull();
   const rows=screen.getAllByRole('row');const target=(name:RegExp)=>rows.find(r=>name.test(r.textContent??''))!;
-  expect(within(target(/저압기기 기술지원/)).queryByRole('button')).toBeNull();
-  expect(within(target(/회신 재촉중압기기/)).getByRole('button')).toBeTruthy();
   expect(within(target(/반려 확인인증/)).getByRole('button')).toBeTruthy();
   fireEvent.click(within(target(/자료 보완 후 다시 요청/)).getByRole('button'));
   fireEvent.change(screen.getByLabelText('다시 요청하는 이유'),{target:{value:'합성 보완 자료 첨부'}});save();await waitFor(()=>expect(saved).toHaveBeenCalled());
