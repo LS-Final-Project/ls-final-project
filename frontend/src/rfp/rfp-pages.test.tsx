@@ -24,50 +24,42 @@ const live = (respond: (url: string) => Response) => {
   return f;
 };
 
-describe('프로젝트 목록', () => {
-  it('목록을 셸 안에 그리고 상세로 잇는다', async () => {
+describe('RFP 검토 목록 (KAN-222)', () => {
+  it('다섯 열과 새 RFP를 셸 안에 그리고 작업 공간으로 잇는다', async () => {
+    live(url => isList(url) ? page([project('33333333-3333-4333-8333-333333333333', '해저케이블')]) : jsonResponse(401, errorBody('X', '세션')));
     renderApp('/tft/projects');
     const link = await screen.findByRole('link', { name: /해저케이블/ });
-    const table = screen.getByRole('table', { name: 'RFP 검토' });
     expect(link.getAttribute('href')).toBe('/tft/projects/33333333-3333-4333-8333-333333333333');
-    expect(within(table).getAllByRole('columnheader').map(h => h.textContent)).toEqual(
-      ['', 'No', '프로젝트', '프로젝트명', '고객', '진행', '판단', '요구', '미해결 필수', '승인 대기', '열린 질문', '담당', '책임자', '접수일'],
-    );
-    expect(within(table).getAllByText('접수').length).toBeGreaterThan(0);
-    expect(document.querySelector('.ls-root .ls-legacy')).toBeNull();
-    expect(table.classList.contains('free')).toBe(true); // C/S 목록의 앞 세 열 고정을 쓰지 않는다
+    const table = screen.getByRole('table', { name: 'RFP 검토' });
+    expect(within(table).getAllByRole('columnheader').map(h => h.textContent)).toEqual(['No', '프로젝트', '진행 상태', '제안 마감', '책임자', '다음 행동']);
+    expect(within(table).getByText('미해결 필수 3건')).toBeTruthy();
+    expect(screen.getByRole('link', { name: '새 RFP' }).getAttribute('href')).toBe('/tft/projects/new');
     expect(screen.getByRole('tab', { selected: true }).textContent).toContain('RFP 검토');
   });
 
-  it('접수일 내림차순임을 머리글에 알린다', async () => {
+  it('요구가 없으면 분석 대기와 분석 시작, 미해결이 없으면 출력 가능', async () => {
+    live(url => isList(url) ? page([
+      project('1', '가', 'INTAKE', { requirements_count: 0, unresolved_mandatory_count: 0 }),
+      project('2', '나', 'ANALYZING', { unresolved_mandatory_count: 0 }),
+    ]) : jsonResponse(401, errorBody('X', '세션')));
     renderApp('/tft/projects');
-    const table = await screen.findByRole('table', { name: 'RFP 검토' });
-    expect(within(table).getByRole('columnheader', { name: '접수일' }).getAttribute('aria-sort')).toBe('descending');
+    const first = (await screen.findByRole('link', { name: /가/ })).closest('tr')!;
+    expect(within(first).getByText('분석 대기')).toBeTruthy();
+    expect(within(first).getByRole('link', { name: '분석 시작' })).toBeTruthy();
+    const second = screen.getByRole('link', { name: /나/ }).closest('tr')!;
+    expect(within(second).getByText('출력 가능')).toBeTruthy();
   });
 
-  it('조건이나 쪽을 바꾸면 체크를 비운다', async () => {
-    live(url => isList(url) ? page([project('1', '첫째 쪽')], 'c/2') : jsonResponse(401, errorBody('X', '세션')));
-    renderApp('/tft/projects');
-    const box = () => screen.getByLabelText('첫째 쪽 선택') as HTMLInputElement;
-    await screen.findByText('첫째 쪽');
-    fireEvent.click(box());
-    fireEvent.click(screen.getByRole('button', { name: '다음' }));
-    await waitFor(() => expect(box().checked).toBe(false));
-    fireEvent.click(box());
-    fireEvent.change(screen.getByLabelText('진행'), { target: { value: 'INTAKE' } });
-    await waitFor(() => expect(box().checked).toBe(false));
-  });
-
-  it('번호로 다음 쪽을 부르고 이전 쪽으로 돌아온다', async () => {
+  it('번호로 다음 쪽을 부르고 검색어를 서버로 보낸다', async () => {
     const f = live(url => url.includes('page=2') ? page([project('2', '둘째 쪽')], null, 11) : isList(url) ? page([project('1', '첫째 쪽')], 'c/2') : jsonResponse(401, errorBody('X', '세션')));
     renderApp('/tft/projects');
-    await screen.findByText('첫째 쪽');
+    await screen.findByText(/첫째 쪽/);
     fireEvent.click(screen.getByRole('button', { name: '다음' }));
-    await screen.findByText('둘째 쪽');
+    await screen.findByText(/둘째 쪽/);
     expect(f.mock.calls.some(([u]) => String(u).includes('page=2&limit=10'))).toBe(true);
-    await waitFor(() => expect((screen.getByRole('button', { name: '다음' }) as HTMLButtonElement).disabled).toBe(true));
-    fireEvent.click(screen.getByRole('button', { name: '이전' }));
-    await screen.findByText('첫째 쪽');
+    fireEvent.change(screen.getByLabelText('검색어'), { target: { value: ' 변전 ' } });
+    fireEvent.submit(screen.getByRole('form', { name: '프로젝트 검색' }));
+    await waitFor(() => expect(f.mock.calls.some(([u]) => decodeURIComponent(String(u)).includes('q=변전'))).toBe(true));
   });
 
   it('빈 목록과 오류를 구분한다', async () => {
@@ -91,84 +83,23 @@ describe('프로젝트 목록', () => {
   });
 });
 
-describe('프로젝트 조회조건', () => {
-  const server = () => live(url => isList(url) ? page([project('1', '합성')]) : jsonResponse(401, errorBody('X', '세션')));
-
-  it('진행·판단·검색어를 서버로 보내고 첫 쪽으로 돌아간다', async () => {
-    const f = server();
-    renderApp('/tft/projects');
-    await screen.findByText('합성');
-    fireEvent.change(screen.getByLabelText('진행'), { target: { value: 'INTAKE' } });
-    fireEvent.change(screen.getByLabelText('판단'), { target: { value: 'NEEDS_REVIEW' } });
-    fireEvent.change(screen.getByLabelText('검색어'), { target: { value: ' 변전 ' } });
-    fireEvent.submit(screen.getByRole('form', { name: '조회조건' }));
-    await waitFor(() => expect(f.mock.calls.some(([u]) => String(u).includes('output_status=INTAKE') && String(u).includes('judgement_status=NEEDS_REVIEW') && decodeURIComponent(String(u)).includes('q=변전'))).toBe(true));
-    expect(screen.getByText('합성')).toBeTruthy(); // 새 응답을 기다리는 동안에도 표가 남는다
-  });
-
-  it('한 글자 검색어는 보내지 않고 알린다', async () => {
-    const f = server();
-    renderApp('/tft/projects');
-    await screen.findByText('합성');
-    fireEvent.change(screen.getByLabelText('검색어'), { target: { value: '변' } });
-    fireEvent.submit(screen.getByRole('form', { name: '조회조건' }));
-    expect(screen.getByText('검색어는 두 글자 이상 입력하세요.')).toBeTruthy();
-    expect((screen.getByRole('button', { name: '조회' }) as HTMLButtonElement).disabled).toBe(true);
-    expect(f.mock.calls.some(([u]) => String(u).includes('q='))).toBe(false);
-  });
-
-  it('요구가 없는 접수 단계는 건수를 0으로 보이지 않는다', async () => {
-    live(url => url.includes('/tft/projects') ? page([project('1', '합성', 'INTAKE', { requirements_count: 0, pending_proposals_count: 0, open_questions_count: 0, unresolved_mandatory_count: 0 })]) : jsonResponse(401, errorBody('X', '세션')));
-    renderApp('/tft/projects');
-    const row = (await screen.findByText('합성')).closest('tr')!;
-    expect(within(row).getByText('없음')).toBeTruthy();
-    expect(within(row).queryByText('0')).toBeNull();
-  });
-});
-
-describe('업무 홈', () => {
-  it('받아 온 목록을 상태별로 센다', async () => {
-    live(url => url.includes('/projects') ? page([project('1', '가'), project('2', '나', 'ANALYZING', { requirements_count: 10, pending_proposals_count: 0, open_questions_count: 0, unresolved_mandatory_count: 0 }), project('3', '다', 'INTAKE', { requirements_count: 0, pending_proposals_count: 0, open_questions_count: 0, unresolved_mandatory_count: 0 })]) : jsonResponse(401, errorBody('X', '세션')));
+describe('업무 홈 (KAN-222)', () => {
+  it('프로젝트를 넘나드는 오늘 할 일만 보여 준다', async () => {
+    live(url => url.includes('/projects') ? page([project('1', '가'), project('2', '나', 'ANALYZING', { requirements_count: 10, pending_proposals_count: 0, open_questions_count: 0, unresolved_mandatory_count: 0 }), project('3', '다', 'INTAKE', { requirements_count: 0 })]) : jsonResponse(401, errorBody('X', '세션')));
     renderApp('/tft');
-    await screen.findByRole('link', { name: '가' });
-    expect(screen.getByText(/현재 페이지 기준/)).toBeTruthy();
-    const steps = document.querySelector('.kv-steps')!.textContent!;
-    expect(steps).toContain('분석·검토 중 2');
-    expect(steps).toContain('접수 1');
-    expect(steps).toContain('검토본 작성 0');
-    expect(document.querySelector('.kv-next')?.textContent).toContain('현재 페이지 3건, 할 일 있는 프로젝트 2 | 미해결 필수 3, 승인 대기 4, 열린 질문 2');
-    const table = screen.getByRole('table', { name: '내 프로젝트' });
-    expect(within(table).getByText('승인 대기 4건 처리, 열린 질문 2건 회신 기록, 미해결 필수 3건 판단')).toBeTruthy();
-    expect(within(table).getByText('없음')).toBeTruthy();
-    expect(within(table).getByText('문서 올리기, 처리 실행')).toBeTruthy();
+    await screen.findAllByText('미해결 필수 3건');
+    expect(screen.getByRole('table', { name: '최근 프로젝트' })).toBeTruthy();
+    expect(screen.getByText('회신 기다리는 질의 2건')).toBeTruthy();
+    expect(screen.getByText('승인 대기 4건')).toBeTruthy();
+    expect(screen.getAllByText('분석 시작 전').length).toBe(1);
+    expect(screen.queryByText(/용어 풀이/)).toBeNull();
+    expect(screen.queryByRole('table', { name: '담당자별 진행' })).toBeNull();
   });
 
-  it('조회 전이나 실패 때 0건으로 보이지 않는다', async () => {
+  it('조회 실패를 0건으로 보이지 않는다', async () => {
     live(url => url.includes('/projects') ? jsonResponse(500, errorBody('TFT_X', '실패')) : jsonResponse(401, errorBody('X', '세션')));
     renderApp('/tft');
     await screen.findByRole('alert');
-    expect(document.querySelector('.kv-steps')!.textContent).not.toMatch(/\d/);
+    expect(screen.queryByText(/오늘 할 일/)).toBeNull();
   });
-});
-
-
-it.each(['/tft', '/tft/projects'])('번호/이름 검색과 전체 건수 페이지를 서버와 연결한다: %s', async path => {
-  const f = live(url => {
-    if (!isList(url)) return jsonResponse(401, errorBody('X', '세션'));
-    const params = new URL(url, 'http://test').searchParams;
-    return page([project('1', params.has('q') ? '검색된 프로젝트' : '목록 프로젝트')], null, params.has('q') ? 1 : 23);
-  });
-  renderApp(path);
-  await screen.findByText('목록 프로젝트');
-  fireEvent.click(screen.getByRole('button', { name: '3페이지' }));
-  await waitFor(() => expect(f.mock.calls.some(([u]) => String(u).includes('page=3&limit=10'))).toBe(true));
-  fireEvent.change(screen.getByLabelText('검색 기준'), { target: { value: 'external_id' } });
-  fireEvent.change(screen.getByLabelText('검색어'), { target: { value: ' P26-0023 ' } });
-  fireEvent.submit(screen.getByRole('form', { name: path === '/tft' ? '프로젝트 검색' : '조회조건' }));
-  await screen.findByText('검색된 프로젝트');
-  expect(f.mock.calls.some(([u]) => String(u).includes('search_field=external_id') && String(u).includes('q=P26-0023') && String(u).includes('page=1'))).toBe(true);
-  expect(screen.queryByRole('button', { name: '3페이지' })).toBeNull();
-  fireEvent.change(screen.getByLabelText('검색 기준'), { target: { value: 'name' } });
-  fireEvent.submit(screen.getByRole('form', { name: path === '/tft' ? '프로젝트 검색' : '조회조건' }));
-  await waitFor(() => expect(f.mock.calls.some(([u]) => String(u).includes('search_field=name') && String(u).includes('q=P26-0023'))).toBe(true));
 });

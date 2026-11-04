@@ -17,7 +17,7 @@ vi.mock('./OriginalDocument', () => ({ OriginalDocument: () => <div>원문 미�
 const read = (name: string) => readFileSync(new URL(name, import.meta.url), 'utf-8');
 const SERVER_DEPARTMENTS: string[] = JSON.parse(read('../../../docs/openapi/tft-department-codes.json'));
 const ID = '33333333-3333-4333-8333-333333333333';
-const PATH = `/tft/projects/${ID}`;
+const PATH = `/tft/projects/${ID}/settings`;
 const ok = (data: unknown, status = 200) => jsonResponse(status, { data, meta: { request_id: 'x' } });
 const doc = (document_id: string, version: number, title: string) => ({
   document_id, document_version_id: `${document_id}-v${version}`, version, title, kind: 'RFP_SPEC', base_document_id: null,
@@ -77,7 +77,7 @@ describe('프로젝트 화면', () => {
     expect(screen.getAllByText('조건 확인 필요').length).toBeGreaterThan(0);
     expect(screen.getByText('구매팀')).toBeTruthy();
     expect(next()).toContain('검토할 설비·업무를 고르고');
-    expect(screen.getByRole('link', {name:'판정 변경 검토 4건'}).getAttribute('href')).toBe(`${PATH}/table/approvals`);
+    expect(screen.getByRole('link', {name:'판정 변경 검토 4건'}).getAttribute('href')).toBe(`/tft/projects/${ID}/table/approvals`);
     fireEvent.click(screen.getByRole('button',{name:'전체 질문 보기'}));
     expect(await screen.findByText('값을 확인해 주세요')).toBeTruthy();
     expect(screen.getByRole('link', { name: '검토 대상 보기' }).getAttribute('href')).toBe('#rfp-document-review');
@@ -191,22 +191,6 @@ describe('목록과 고른 프로젝트 한 화면', () => {
     }));
   };
 
-  it('경로에 프로젝트가 없으면 첫 프로젝트를 고른다', async () => {
-    listing(id => ({ ...base, id, name: '첫째 상세' }));
-    renderApp('/tft/projects');
-    await screen.findByText('첫째 상세');
-    expect(screen.getByRole('table', { name: 'RFP 검토' }).querySelector('tr.sel')?.textContent).toContain('첫째');
-  });
-
-  it('행을 누르면 같은 화면에서 그 프로젝트로 바뀐다', async () => {
-    listing(id => ({ ...base, id, name: id === 'p2' ? '둘째 상세' : '첫째 상세' }));
-    renderApp('/tft/projects');
-    await screen.findByText('첫째 상세');
-    fireEvent.click(screen.getByText('둘째').closest('tr') as HTMLElement);
-    await screen.findByText('둘째 상세');
-    expect(screen.getByRole('table', { name: 'RFP 검토' })).toBeTruthy();
-  });
-
   it('문서 표에 조항·삭제 값을 보이고 이전 판본은 흐리게 비운다', async () => {
     listing(id => ({ ...base, id }));
     renderApp(PATH);
@@ -267,22 +251,6 @@ describe('목록과 고른 프로젝트 한 화면', () => {
     await waitFor(() => expect(lists()).toBeGreaterThan(before));
   });
 
-  it('엑셀은 고른 프로젝트만, 고르지 않으면 표시한 행 전체를 CSV로 낸다', async () => {
-    const created: Blob[] = [];
-    URL.createObjectURL = vi.fn((blob: Blob) => { created.push(blob); return 'blob:x'; });
-    URL.revokeObjectURL = vi.fn();
-    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-    listing(id => ({ ...base, id }));
-    renderApp('/tft/projects');
-    await screen.findByLabelText('둘째 선택');
-    fireEvent.click(screen.getByRole('button', { name: '엑셀' }));
-    expect(await created[0].text()).toContain('둘째');
-    fireEvent.click(screen.getByLabelText('첫째 선택'));
-    fireEvent.click(screen.getByRole('button', { name: '엑셀' }));
-    expect(await created[1].text()).not.toContain('둘째');
-    expect(click).toHaveBeenCalledTimes(2);
-    click.mockRestore();
-  });
 });
 
 describe('문서 올리기', () => {
@@ -431,49 +399,17 @@ describe('처리 실행', () => {
 });
 
 describe('프로젝트 접수', () => {
-  it('필수 칸이 차야 접수되고 만든 프로젝트로 간다', async () => {
-    post = () => ok({ id: ID }, 201);
-    renderApp('/tft/projects');
-    fireEvent.click(await screen.findByRole('button', { name: '접수' }));
-    const submit = screen.getAllByRole('button', { name: '접수' })[1] as HTMLButtonElement;
-    expect(submit.disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText('프로젝트명'), { target: { value: ' 합성 ' } });
-    fireEvent.change(screen.getByLabelText('고객 코드'), { target: { value: 'HOST' } });
-    const options = screen.getByText('검토 조건 미리 설정 (선택)').closest('details')!;
-    expect(options.open).toBe(false);
-    fireEvent.click(screen.getByText('검토 조건 미리 설정 (선택)'));
-    fireEvent.click(screen.getByLabelText('구매팀'));
-    fireEvent.click(submit);
-    await waitFor(() => expect(posts('/tft/projects')).toHaveLength(1));
-    expect(posts('/tft/projects')[0].body).toEqual({
-      supply_region: null, customer_manufacturer_list: null, off_list_permission: 'UNSTATED',
-      name: '합성', company_code: 'HOST', client_name: null, customer_goal: null, review_departments: ['SCM'], data_origin: 'synthetic', purpose: 'INITIAL_PROPOSAL',
-    });
-    await showMetadata();
-    await screen.findByRole('table', { name: '문서와 판본' });
-  });
-
   it('검토 부서는 서버가 받는 코드 전부를 고를 수 있다', () => {
     expect(Object.keys(DEPARTMENT_LABEL).sort()).toEqual(SERVER_DEPARTMENTS);
   });
 
-  it('실패하면 입력을 지킨다', async () => {
-    post = () => jsonResponse(403, errorBody('X', '권한 없음'));
-    renderApp('/tft/projects');
-    fireEvent.click(await screen.findByRole('button', { name: '접수' }));
-    fireEvent.change(screen.getByLabelText('프로젝트명'), { target: { value: '합성' } });
-    fireEvent.change(screen.getByLabelText('고객 코드'), { target: { value: 'HOST' } });
-    fireEvent.click(screen.getAllByRole('button', { name: '접수' })[1]);
-    await screen.findByRole('alert');
-    expect((screen.getByLabelText('프로젝트명') as HTMLInputElement).value).toBe('합성');
-  });
 });
 
 describe('경로 안에서 프로젝트 이동', () => {
   it('이 화면에서 시작한 작업이 다른 프로젝트로 따라오지 않는다', async () => {
     const other = '44444444-4444-4444-8444-444444444444';
     project = { ...base, requirements_count: 0 };
-    renderAt(PATH, 'tft/projects/:projectId', <><Link to={`/tft/projects/${other}`}>다른 프로젝트</Link><RfpIntake /></>);
+    renderAt(PATH, 'tft/projects/:projectId/settings', <><Link to={`/tft/projects/${other}/settings`}>다른 프로젝트</Link><RfpIntake /></>);
     await showMetadata();
     await screen.findByRole('cell', { name: '공문' });
     fireEvent.click(screen.getByRole('button', { name: '처리 실행' }));

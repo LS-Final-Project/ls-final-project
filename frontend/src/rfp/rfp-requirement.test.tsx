@@ -7,7 +7,7 @@ import { errorBody, jsonResponse, renderApp } from '../test/render';
 
 // The return destination is covered by the unified review integration tests.
 // Keep these tests focused on detail editing and verify the real route parameter.
-vi.mock('./RfpIntake', async () => {
+vi.mock('./RfpWorkspace', async () => {
   const { useParams } = await import('react-router-dom');
   return { default: function ReviewDestination() { const { projectId } = useParams(); return <p data-testid="review-destination">{projectId}</p>; } };
 });
