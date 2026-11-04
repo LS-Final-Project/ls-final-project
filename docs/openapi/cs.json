@@ -3259,6 +3259,18 @@
       },
       "DepartmentCount": {
         "properties": {
+          "avg_reply_days": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Mean days from transfer to the department's submitted result, over the transfers with a result. Null without any result.",
+            "title": "Avg Reply Days"
+          },
           "dept_code": {
             "title": "Dept Code",
             "type": "string"
@@ -3278,6 +3290,30 @@
           "transferred": {
             "title": "Transferred",
             "type": "integer"
+          },
+          "waiting": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Of these transfers, still OPEN (no result, not ended) now.",
+            "title": "Waiting"
+          },
+          "waiting_over_7_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Still OPEN now and transferred more than 7 days ago.",
+            "title": "Waiting Over 7 Days"
           }
         },
         "required": [
@@ -4552,6 +4588,30 @@
             "title": "By Type",
             "type": "object"
           },
+          "completed_in_period": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "COMPLETED now with completed_at in the period, whenever created.",
+            "title": "Completed In Period"
+          },
+          "info_requested": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Open requests with a current-round department in INFO_REQUESTED.",
+            "title": "Info Requested"
+          },
           "open": {
             "description": "Not completed and not ended by rejection review.",
             "title": "Open",
@@ -4560,6 +4620,41 @@
           "receiver_unconfirmed": {
             "title": "Receiver Unconfirmed",
             "type": "integer"
+          },
+          "recurrence_after_completion": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecurrenceCount"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the signal could not be computed."
+          },
+          "rejected": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Requests with a current-round department in REJECTED (including ended by rejection).",
+            "title": "Rejected"
+          },
+          "reply_overdue": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Open requests with a current-round department past reply_due_at that has not replied in that round.",
+            "title": "Reply Overdue"
           }
         },
         "required": [
@@ -5707,6 +5802,80 @@
         "title": "OpenAge",
         "type": "object"
       },
+      "OverdueTicket": {
+        "properties": {
+          "external_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Id"
+          },
+          "overdue_hours": {
+            "title": "Overdue Hours",
+            "type": "number"
+          },
+          "owner_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner User Id"
+          },
+          "priority": {
+            "enum": [
+              "P1",
+              "P2",
+              "P3",
+              "P4"
+            ],
+            "title": "Priority",
+            "type": "string"
+          },
+          "resolution_due": {
+            "format": "date-time",
+            "title": "Resolution Due",
+            "type": "string"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the user may not open this ticket (aggregate-only scope).",
+            "title": "Subject"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "external_id",
+          "subject",
+          "priority",
+          "resolution_due",
+          "overdue_hours",
+          "owner_user_id"
+        ],
+        "title": "OverdueTicket",
+        "type": "object"
+      },
       "Overview": {
         "properties": {
           "customer_external_id": {
@@ -5764,6 +5933,17 @@
             ],
             "title": "Scope",
             "type": "string"
+          },
+          "sla": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SlaSummary"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SLA figures (KAN-233)."
           },
           "tickets": {
             "$ref": "#/components/schemas/TicketCounts"
@@ -5826,6 +6006,18 @@
       },
       "OwnerLoad": {
         "properties": {
+          "avg_handle_days": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Mean days from receipt to closing over tickets closed in the period.",
+            "title": "Avg Handle Days"
+          },
           "by_state": {
             "additionalProperties": {
               "type": "integer"
@@ -5849,10 +6041,46 @@
             "title": "Closed",
             "type": "integer"
           },
+          "due_today": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Open now with a resolution deadline later today (Asia/Seoul), not passed.",
+            "title": "Due Today"
+          },
+          "improvements_open": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Open improvement requests whose cs_owner is this user, now.",
+            "title": "Improvements Open"
+          },
           "open": {
             "description": "Not closed now, whenever received: the owner's current load. Unlike the overview's open count, the period does not limit it.",
             "title": "Open",
             "type": "integer"
+          },
+          "overdue": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Open now, past the resolution deadline.",
+            "title": "Overdue"
           },
           "owner_user_id": {
             "anyOf": [
@@ -5871,6 +6099,18 @@
             "description": "Received in the period.",
             "title": "Received",
             "type": "integer"
+          },
+          "sla_unknown": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Open now without an SLA.",
+            "title": "Sla Unknown"
           }
         },
         "required": [
@@ -6340,6 +6580,33 @@
           "basis"
         ],
         "title": "RecordView",
+        "type": "object"
+      },
+      "RecurrenceCount": {
+        "description": "KAN-117 recurrence signal of completed requests, computed on read (nothing stored).",
+        "properties": {
+          "checked": {
+            "description": "Completed fault requests whose signal was computed.",
+            "title": "Checked",
+            "type": "integer"
+          },
+          "not_applicable": {
+            "description": "Completed document requests: the signal applies to fault requests only.",
+            "title": "Not Applicable",
+            "type": "integer"
+          },
+          "recurrence": {
+            "description": "Of those, requests whose signal is RECURRENCE.",
+            "title": "Recurrence",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "checked",
+          "recurrence",
+          "not_applicable"
+        ],
+        "title": "RecurrenceCount",
         "type": "object"
       },
       "ReplyAnalysisAttempt": {
@@ -8821,6 +9088,140 @@
           "next_action"
         ],
         "title": "Signal",
+        "type": "object"
+      },
+      "SlaCompliance": {
+        "properties": {
+          "breached": {
+            "title": "Breached",
+            "type": "integer"
+          },
+          "met": {
+            "title": "Met",
+            "type": "integer"
+          },
+          "pending": {
+            "default": 0,
+            "description": "First response only: no reply yet and not due yet.",
+            "title": "Pending",
+            "type": "integer"
+          },
+          "unrecorded": {
+            "default": 0,
+            "description": "First response only: closed without any recorded customer message.",
+            "title": "Unrecorded",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "met",
+          "breached"
+        ],
+        "title": "SlaCompliance",
+        "type": "object"
+      },
+      "SlaPriority": {
+        "properties": {
+          "at_risk": {
+            "description": "Open, 75% or more of the resolution target elapsed.",
+            "title": "At Risk",
+            "type": "integer"
+          },
+          "breached": {
+            "description": "Closed in the period after the resolution deadline.",
+            "title": "Breached",
+            "type": "integer"
+          },
+          "met": {
+            "description": "Closed in the period within the resolution deadline.",
+            "title": "Met",
+            "type": "integer"
+          },
+          "overdue": {
+            "description": "Open, past the resolution deadline.",
+            "title": "Overdue",
+            "type": "integer"
+          },
+          "priority": {
+            "enum": [
+              "P1",
+              "P2",
+              "P3",
+              "P4"
+            ],
+            "title": "Priority",
+            "type": "string"
+          }
+        },
+        "required": [
+          "priority",
+          "met",
+          "breached",
+          "at_risk",
+          "overdue"
+        ],
+        "title": "SlaPriority",
+        "type": "object"
+      },
+      "SlaSummary": {
+        "description": "Computed on read from rule inputs, the same deadlines as the analysis view (KAN-233).",
+        "properties": {
+          "at_risk": {
+            "description": "Open, received in the period, 75% or more elapsed.",
+            "title": "At Risk",
+            "type": "integer"
+          },
+          "by_priority": {
+            "items": {
+              "$ref": "#/components/schemas/SlaPriority"
+            },
+            "title": "By Priority",
+            "type": "array"
+          },
+          "first_response": {
+            "$ref": "#/components/schemas/SlaCompliance",
+            "description": "Tickets received in the period. First response is the first customer message (answer or information request) the mail platform accepted and the workflow recorded."
+          },
+          "measured_at": {
+            "description": "Database time open tickets are measured at.",
+            "format": "date-time",
+            "title": "Measured At",
+            "type": "string"
+          },
+          "overdue": {
+            "description": "Open, received in the period, past the resolution deadline.",
+            "title": "Overdue",
+            "type": "integer"
+          },
+          "overdue_tickets": {
+            "description": "Most overdue first, at most 10.",
+            "items": {
+              "$ref": "#/components/schemas/OverdueTicket"
+            },
+            "title": "Overdue Tickets",
+            "type": "array"
+          },
+          "resolution": {
+            "$ref": "#/components/schemas/SlaCompliance",
+            "description": "Tickets closed in the period, closing time against the resolution deadline."
+          },
+          "unknown": {
+            "description": "Received or closed in the period but without an SLA: no classification or a value outside the policy. Not in any other count.",
+            "title": "Unknown",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "measured_at",
+          "first_response",
+          "resolution",
+          "at_risk",
+          "overdue",
+          "unknown",
+          "by_priority",
+          "overdue_tickets"
+        ],
+        "title": "SlaSummary",
         "type": "object"
       },
       "SuccessResponse_AgentList_": {
