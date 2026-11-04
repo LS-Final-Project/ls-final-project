@@ -120,27 +120,39 @@ function HomeView() {
     <div className="body">
       <div className="hello">
         <div><small>{today}</small><h2>{name ? `${name}님, ` : ''}오늘 할 일 <b>{fresh.isPending || (myId && mine.isPending) ? '…' : `${total}${totalMore ? '+' : ''}건`}</b></h2>{requests.isError && <small className="req-miss" role="status">개선요청을 불러오지 못해 합계에서 빠졌습니다</small>}</div>
-        {(overdue + dueToday + p1) > 0 && <span className="late">{[overdue && `기한 넘긴 ${overdue}건`, dueToday && `오늘 기한 ${dueToday}건`, p1 && `긴급 ${p1}건`].filter(Boolean).join(' · ')}부터 처리하세요</span>}
+        {(overdue + dueToday + p1) > 0 && <div className="alerts" role="status">
+          {overdue > 0 && <span className="al red"><i aria-hidden="true" />기한 넘긴 {overdue}건</span>}
+          {dueToday > 0 && <span className="al amber"><i aria-hidden="true" />오늘 기한 {dueToday}건</span>}
+          {p1 > 0 && <span className="al red solid">긴급 {p1}건</span>}
+          <small>부터 처리하세요</small>
+        </div>}
       </div>
       {(identity.isError || (identity.isSuccess && !myId)) && <div className="stale">로그인 정보를 확인하지 못해 내 담당 문의는 비워 둡니다. 다시 로그인하세요.</div>}
       {failed && <ErrorState error={failed} onRetry={refresh} />}
 
       {!failed && <div className="cards">
-        <Link className="card hot" to="/cs/tickets">
-          <small>새로 접수된 문의</small><b>{fresh.isPending ? '…' : countText(newItems.length, !!fresh.data?.data.next_cursor)}</b>
-          <span>{newItems.length ? `가장 오래된 건 ${ageOf(newItems[0])}일째 · 검토 시작` : '검토할 새 문의 없음'}</span>
+        <Link className="card t-red" to="/cs/tickets">
+          <div className="ct"><span className="ic" aria-hidden="true">{ICON.inbox}</span><small>새로 접수된 문의</small></div>
+          <b>{num(fresh.isPending ? '…' : countText(newItems.length, !!fresh.data?.data.next_cursor))}</b>
+          <div className="cf">{newItems.length
+            ? <><span className={`pill ${ageOf(newItems[0]) >= 3 ? 'warn' : ''}`}>가장 오래된 건 {ageOf(newItems[0])}일째</span><span>검토 시작</span></>
+            : <span>검토할 새 문의 없음</span>}</div>
         </Link>
-        <Link className="card" to="/cs/tickets">
-          <small>내가 처리 중인 문의</small><b>{!myId ? '-' : mine.isPending ? '…' : countText(mineItems.length, !!mine.data?.data.next_cursor)}</b>
-          <span>{mineItems.filter(item => item.workflow_state === 'ANSWERED').length}건은 종결 여부만 확인</span>
+        <Link className="card t-navy" to="/cs/tickets">
+          <div className="ct"><span className="ic" aria-hidden="true">{ICON.work}</span><small>내가 처리 중인 문의</small></div>
+          <b>{num(!myId ? '-' : mine.isPending ? '…' : countText(mineItems.length, !!mine.data?.data.next_cursor))}</b>
+          <Split parts={[['검토 중', mineItems.filter(item => item.workflow_state === 'IN_REVIEW').length, 'navy'], ['종결 확인', mineItems.filter(item => item.workflow_state === 'ANSWERED').length, 'green']]} />
         </Link>
-        <Link className="card calm" to="/cs/tickets">
-          <small>답을 기다리는 문의</small><b>{!myId ? '-' : waiting.isPending ? '…' : waiting.isError ? '!' : countText(waitItems.length, !!waiting.data?.data.next_cursor)}<em>건</em></b>
-          <span>{waiting.isError ? '대기 목록을 불러오지 못함 · 새로고침하세요' : <>부서 {waitItems.filter(item => item.workflow_state === 'TRANSFERRED').length} · 고객 {waitItems.filter(item => item.workflow_state === 'WAITING_CUSTOMER').length} · 답이 오면 다시 내 차례</>}</span>
+        <Link className="card t-blue" to="/cs/tickets">
+          <div className="ct"><span className="ic" aria-hidden="true">{ICON.clock}</span><small>답을 기다리는 문의</small></div>
+          <b>{num(!myId ? '-' : waiting.isPending ? '…' : waiting.isError ? '!' : countText(waitItems.length, !!waiting.data?.data.next_cursor))}</b>
+          {waiting.isError ? <div className="cf"><span className="pill bad">대기 목록을 불러오지 못함 · 새로고침하세요</span></div>
+            : <Split parts={[['부서 회신', waitItems.filter(item => item.workflow_state === 'TRANSFERRED').length, 'blue'], ['고객 답장', waitItems.filter(item => item.workflow_state === 'WAITING_CUSTOMER').length, 'gray']]} />}
         </Link>
-        <Link className="card req" to="/cs/improvements">
-          <small>내 개선요청 할 일</small><b>{!myId ? '-' : requests.isPending ? '…' : requests.isError ? '!' : countText(reqTodo.length, reqMore)}</b>
-          <span>{requests.isError ? '불러오지 못함 · 합계에서 빠짐' : `내 담당만 · 초안 검토 ${reqDraft}건 포함`}</span>
+        <Link className="card t-green" to="/cs/improvements">
+          <div className="ct"><span className="ic" aria-hidden="true">{ICON.doc}</span><small>내 개선요청 할 일</small></div>
+          <b>{num(!myId ? '-' : requests.isPending ? '…' : requests.isError ? '!' : countText(reqTodo.length, reqMore))}</b>
+          <div className="cf">{requests.isError ? <span className="pill bad">불러오지 못함 · 합계에서 빠짐</span> : <span className="pill">{`내 담당만 · 초안 검토 ${reqDraft}건 포함`}</span>}</div>
         </Link>
       </div>}
 
@@ -184,6 +196,27 @@ function HomeView() {
       </div>}
     </div>
   </main>;
+}
+
+// 숫자일 때만 '건'을 붙인다('-'·'…'·'!' 같은 상태 표시는 그대로).
+const num = (v: string) => <>{v}{/\d/.test(v) && <em>건</em>}</>;
+
+// 카드 아이콘(선 아이콘, 외부 의존성 없음).
+const svg = (d: string) => <svg viewBox="0 0 20 20"><path d={d} fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+const ICON = {
+  inbox: svg('M3 11l2-6h10l2 6v4H3v-4zm0 0h4l1 2h4l1-2h4'),
+  work: svg('M4 16l1-4 8-8 3 3-8 8-4 1zM11 6l3 3'),
+  clock: svg('M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14zm0 3v4l3 2'),
+  doc: svg('M6 3h6l3 3v11H6V3zm6 0v3h3M8 10h5M8 13h5'),
+};
+
+// 카드 안 구성 막대: 건수 비율 막대 + 항목별 건수.
+function Split({ parts }: { parts: [string, number, string][] }) {
+  const sum = parts.reduce((n, [, v]) => n + v, 0);
+  return <div className="split">
+    <div className="bar" aria-hidden="true">{sum > 0 && parts.map(([name, v, tone]) => v > 0 && <i key={name} className={tone} style={{ flexGrow: v }} />)}</div>
+    <div className="legend">{parts.map(([name, v, tone]) => <span key={name}><i className={tone} aria-hidden="true" />{name} <b>{v}</b></span>)}</div>
+  </div>;
 }
 
 type Signal = { priority: string | null; dueDays: number; ready: { text: string; tone: string } };
