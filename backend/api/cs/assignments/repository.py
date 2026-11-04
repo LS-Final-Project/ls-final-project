@@ -1,13 +1,16 @@
 """Queries for agent skills and assignment decisions (infra/migrations/cs C29)."""
 
+import logging
 from typing import Any
 from uuid import UUID
 
+import psycopg
 from psycopg import AsyncConnection
 
 from backend.api.cs.stats.repository import REJECTION_ENDED
 
 Row = dict[str, Any]
+logger = logging.getLogger(__name__)
 
 ASSIGNMENT_COLUMNS = (
     "id, user_id, rule_version, reason_code, matched_language, matched_family, "
@@ -61,12 +64,23 @@ async def insert_assignment(conn: AsyncConnection[Row], values: Row) -> None:
 
 
 async def latest_assignment(conn: AsyncConnection[Row], ticket_id: UUID) -> Row | None:
-    cursor = await conn.execute(
-        f"SELECT {ASSIGNMENT_COLUMNS} FROM cs.ticket_assignments WHERE ticket_id = %s "
-        "ORDER BY created_at DESC, id DESC LIMIT 1",
-        (ticket_id,),
-    )
-    return await cursor.fetchone()
+    """The newest rule assignment of the ticket, or None.
+
+    Read by every workflow view, so a database without C29 (the release order puts C29 before
+    this code, but a missed step must not break ticket screens) reads as "no assignment". The
+    savepoint keeps the caller's transaction usable; only a missing table is tolerated.
+    """
+    try:
+        async with conn.transaction():
+            cursor = await conn.execute(
+                f"SELECT {ASSIGNMENT_COLUMNS} FROM cs.ticket_assignments WHERE ticket_id = %s "
+                "ORDER BY created_at DESC, id DESC LIMIT 1",
+                (ticket_id,),
+            )
+            return await cursor.fetchone()
+    except psycopg.errors.UndefinedTable:
+        logger.warning("cs assignment table missing", extra={"code": "CS_ASSIGNMENT_TABLE_MISSING"})
+        return None
 
 
 # --- Improvement requests (cs_owner) ------------------------------------------------------

@@ -60,7 +60,7 @@ docker pull pgvector/pgvector:0.8.7-pg17-trixie
 
 ## 2. 새 setup과 일반 기동
 
-**새 namespace에 한 번만** 실행한다. 이 명령은 새 로컬 DB·스키마·개발 계정 4개·worker 로그인·로컬 인증 키·TLS 인증서를 만든다. 문의/프로젝트/분석·비교 결과를 사전 seed하지 않는다.
+**새 namespace에 한 번만** 실행한다. 이 명령은 새 로컬 DB·스키마·개발 계정 4개(와 자동 배정용 가정 상담원 6명·배정 기준표)·worker 로그인·로컬 인증 키·TLS 인증서를 만든다. 문의/프로젝트/분석·비교 결과를 사전 seed하지 않는다.
 
 ```bash
 uv run --frozen --python 3.12 python -m scripts.local_business setup \

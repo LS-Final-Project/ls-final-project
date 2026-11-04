@@ -289,7 +289,8 @@ def fresh(namespace: str, *, runtime_image: str, web_image: str, web_port: int =
         .decode()
         .splitlines()
     )
-    if counts != ["BEGIN", "0", "0", "4", "COMMIT"]:
+    # Seed accounts (infra/local/seed_demo.sql): 4 demo logins + 6 assumed C/S agents (KAN-214).
+    if counts != ["BEGIN", "0", "0", "10", "COMMIT"]:
         raise RuntimeError("LOCAL_SETUP_UNEXPECTED_BUSINESS_DATA")
     for file in ("caller-key.pem", "tls-key.pem"):
         subprocess.run(
