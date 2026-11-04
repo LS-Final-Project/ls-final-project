@@ -52,8 +52,8 @@ KAN-112는 **저장 구조와 작성 API**다. 검토 완료·전달·부서 회
 | --- | --- | --- |
 | `POST /review` (`version`, `proposed_depts`?) | cs_agent | `DRAFT` → `REVIEWED`. `reviewed_by`·`reviewed_at`, 담당자 없으면 실행한 사람. 제안 부서 수정 가능 |
 | `POST /send` (`version`, `dept_codes`?, `reply_due_days`=7) | cs_agent | `REVIEWED` → 1회차. 대상 부서(기본 제안 부서)가 모두 `SENT`, `sent_version`·`reply_due_at`, 요청 `sent_at`. 대상이 없으면 422 `CS_DEPARTMENT_REQUIRED`(문서 요청은 받는 부서 확인 먼저). 부서 메일 발송은 이 서비스가 하지 않는다 |
-| `POST /departments/{dept}/acknowledge` (`version`) | 그 부서 dept_staff | 부서 `SENT` → `ACKNOWLEDGED`. 회신 이력에 `ACKNOWLEDGED` |
-| `POST /departments/{dept}/reply` (`version`, `reply_type`, `reason`) | 그 부서 dept_staff | 부서 `ACKNOWLEDGED` → `ADOPTED`·`INFO_REQUESTED`·`REJECTED`. 회신은 답한 요청 판본(`request_version`)을 남긴다. 반려는 사유 필수(422) |
+| `POST /departments/{dept}/acknowledge` (`version`) | 그 부서 dept_staff | 부서 `SENT` → `ACKNOWLEDGED`. 회신 이력에 `ACKNOWLEDGED`. 화면은 쓰지 않는다(회신이 함께 기록, 2026-11-04) |
+| `POST /departments/{dept}/reply` (`version`, `reply_type`, `reason`) | 그 부서 dept_staff | 부서 `SENT`·`ACKNOWLEDGED` → `ADOPTED`·`INFO_REQUESTED`·`REJECTED`. `SENT`에서 회신하면 수신 확인(`ACKNOWLEDGED` 회신 행)을 먼저 남긴다. 회신은 답한 요청 판본(`request_version`)을 남긴다. 반려는 사유 필수(422) |
 | `POST /departments/{dept}/action` (`version`, `action`, `action_scope`, `action_date`, `action_evidence`) | 그 부서 dept_staff | 부서 `ADOPTED` → `ACTION_TAKEN`. 다른 부서를 기다리지 않는다. 조치는 고객 한 명의 수리와 분리 적용 범위 `scope_kind`·`scope_value`(KAN-117, 기본 `OTHER`)를 함께 받는다 |
 | `POST /departments/{dept}/resend` (`version`, `reason`, `reply_due_days`=7) | cs_agent | 회차 안에서 그 부서만 `SENT`로. `INFO_REQUESTED`(자료 보완), `REJECTED`(반려 뒤 **새 근거**가 있어야 함, 없으면 422 `CS_EVIDENCE_REQUIRED`), `SENT`·`ACKNOWLEDGED`(회신 기한이 지난 뒤에만 재촉, 아니면 409) |
 | `POST /departments/{dept}/review-rejection` (`version`) | cs_agent | 반려 확인. 부서 상태 그대로, `rejection_reviewed_*` 기록. 모든 부서가 반려·확인되면 **반려 종료**(열린 요청 집계 제외) |

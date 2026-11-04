@@ -241,7 +241,7 @@ def test_department_scope_and_writers(client, admin):
     )
     sent = ok(client.get(path, headers=as_(QA_STAFF)))
     assert [(n["actor"], n["dept_code"], n["task"]) for n in sent["next_owners"]] == [
-        ("DEPARTMENT", "QA_CLAIM", "ACKNOWLEDGE")
+        ("DEPARTMENT", "QA_CLAIM", "REPLY")
     ]
     assert (
         client.patch(

@@ -13851,7 +13851,7 @@
     },
     "/api/v1/cs/improvement-requests/{request_id}/departments/{dept_code}/reply": {
       "post": {
-        "description": "Department ACKNOWLEDGED \u2192 ADOPTED / INFO_REQUESTED / REJECTED. A rejection needs a reason.\n\nThe reply names the request version it answered. A reply is a claim, not a result:\nnothing here completes the request.",
+        "description": "Department SENT / ACKNOWLEDGED \u2192 ADOPTED / INFO_REQUESTED / REJECTED. A rejection needs a\nreason.\n\nReplying to a request the department has not acknowledged yet acknowledges it first, in the\nsame transaction: a reply means it was received (2026-11-04 decision, one step for the\ndepartment). The reply names the request version it answered. A reply is a claim, not a\nresult: nothing here completes the request.",
         "operationId": "cs_reply_improvement_request",
         "parameters": [
           {

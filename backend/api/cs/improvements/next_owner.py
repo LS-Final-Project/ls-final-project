@@ -12,7 +12,9 @@ from backend.api.cs.improvements.schemas import NextOwner
 
 Row = dict[str, Any]
 
-_DEPARTMENT_TASKS = {"SENT": "ACKNOWLEDGE", "ACKNOWLEDGED": "REPLY", "ADOPTED": "RECORD_ACTION"}
+# A department replies straight from SENT (the reply acknowledges it). ACKNOWLEDGE stays a
+# valid task name for older clients but is no longer produced.
+_DEPARTMENT_TASKS = {"SENT": "REPLY", "ACKNOWLEDGED": "REPLY", "ADOPTED": "RECORD_ACTION"}
 _CS_TASKS = {"INFO_REQUESTED": "SUPPLEMENT"}
 
 
