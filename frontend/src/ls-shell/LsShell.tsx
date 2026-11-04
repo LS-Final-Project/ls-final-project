@@ -19,7 +19,7 @@ type Group = { key: string; label: string; leaves: Leaf[]; roles?: string[] };
 
 // 경로가 아직 없는 항목은 링크 없이 자리만 둔다. 화면이 생기면 to만 채운다.
 const MENU: Group[] = [
-  { key: 'mail', label: '메일', leaves: [{ label: '메일함', to: '/mail/inbox' }, { label: '메일 계정', to: '/mail/account' }] },
+  { key: 'mail', label: '메일', leaves: [{ label: '메일함', to: '/mail/inbox' }, { label: '발송 상태', to: '/mail/sent' }, { label: '메일 계정', to: '/mail/account' }] },
   {
     key: 'cs', label: 'C/S 관리', roles: ['cs_agent'], leaves: [
       { label: '업무 홈', to: '/cs', end: true },
@@ -55,6 +55,7 @@ function tabOf(pathname: string) {
   if (pathname === '/dept/inbox') return { kind: 'dept-inbox', name: '문의 검토' };
   if (pathname.startsWith('/dept/improvements')) return { kind: 'dept-improvements', name: '개선 요청' };
   if (pathname === '/mail/account') return { kind: 'mail-account', name: '메일 계정' };
+  if (pathname === '/mail/sent') return { kind: 'mail-sent', name: '발송 상태' };
   if (pathname.startsWith('/cs/improvements')) return { kind: 'improvements', name: '개선요청' };
   if (pathname === '/account') return { kind: 'account', name: '내 정보' };
   if (pathname.endsWith('/draft')) return { kind: 'draft', name: '초안 및 검토 이력' };

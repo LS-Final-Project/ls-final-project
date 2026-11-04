@@ -53,6 +53,7 @@ function BoxView() {
   const [memo, setMemo] = useState('');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
+  const [formFor, setFormFor] = useState<string | undefined>(undefined);
 
   const list = useQuery({ queryKey: ['reply-reviews', mode], queryFn: ({ signal }) => listReplyReviews(signal), retry: false, staleTime: 0 });
   const fetchAgain = () => { void list.refetch(); };
@@ -63,6 +64,8 @@ function BoxView() {
   const match = (r: Review, f: Filter) => f === 'ALL' || r.reason === f;
   const rows = all.filter(r => match(r, filter) && (!needle || `${r.subject ?? ''} ${r.from_address ?? ''}`.toLocaleLowerCase().includes(needle)));
   const selected = rows.find(r => r.message_id === picked) ?? rows[0];
+  // 고른 메일이 바뀌면(처리돼 목록에서 빠진 경우 포함) 이전 메일에 적던 메모·후보·찾기 값을 비운다.
+  if (selected?.message_id !== formFor) { setFormFor(selected?.message_id); setPick(''); setManual(''); setFound(null); setMemo(''); }
   const others = selected?.from_address ? all.filter(r => r.from_address === selected.from_address && r.message_id !== selected.message_id) : [];
 
   // 후보가 C/S 문의(UUID)면 문의 상세를 읽어 번호·제목·상태를 보인다. 읽지 못하면 참조 앞자리만 보인다.

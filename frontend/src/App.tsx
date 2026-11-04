@@ -6,6 +6,7 @@ import AccountGate from './pages/AccountGate';
 import DeptInbox from './pages/DeptInbox';
 import DeptResult from './pages/DeptResult';
 import MailAccount from './pages/MailAccount';
+import MailSent from './pages/MailSent';
 import MailBox from './pages/MailBox';
 import Tickets from './pages/Tickets';
 import CsCustomers from './pages/CsCustomers';
@@ -45,6 +46,7 @@ export default function App() {
       <Route path="dept/result/:ticketId" element={<DeptResult />} />
       <Route path="mail/inbox" element={<MailBox />} />
       <Route path="mail/account" element={<MailAccount />} />
+      <Route path="mail/sent" element={<MailSent />} />
       <Route path="cs/customers" element={<CsCustomers />} />
       <Route path="cs/admin" element={<CsAdmin />} />
       <Route path="cs/admin/assign" element={<CsAssign />} />
