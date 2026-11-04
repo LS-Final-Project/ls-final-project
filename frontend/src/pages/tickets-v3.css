@@ -29,3 +29,8 @@
 .ls-root .kv .td3.di3 .chip.st-muted{background:#f1f2f5;color:#6b7385}
 .ls-root .kv .td3.di3 .log td.r{max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#4a5263}
 .ls-root .kv .td3.di3 .log .late{color:#a3221a;font-weight:700}
+
+/* 쪽 번호는 모두 보인다(…로 줄이지 않음). 둥근 버튼. */
+.ls-root .kv .td3.tk3 .pager{flex-wrap:wrap;justify-content:center;row-gap:6px}
+.ls-root .kv .td3.tk3 .pager .kb3.sm{min-width:32px;height:30px;border-radius:8px;padding:0 10px}
+.ls-root .kv .td3.tk3 .pager .kb3.sm.pri{box-shadow:0 2px 6px rgba(26,58,122,.25)}
