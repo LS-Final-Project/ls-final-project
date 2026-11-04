@@ -11,3 +11,8 @@
 @media(min-width:1001px){.rfp-unified-columns{grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr)}.rfp-unified-columns.source-collapsed{grid-template-columns:minmax(0,1fr)}}
 /* Long Korean labels: let .kb grow instead of spilling text out of its fixed 26px box. */
 .ls-root .rfp-document-review .kb{height:auto;min-height:26px;padding-top:3px;padding-bottom:3px;line-height:1.35;text-align:center}
+
+.rfp-project-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 20px}
+.rfp-document-history{margin:0 20px 12px;min-width:0}
+.rfp-document-history summary{cursor:pointer}
+.rfp-document-history .kb{white-space:normal;text-align:left}

@@ -1,14 +1,14 @@
-import { keepPreviousData, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { getApiMode } from '../api/client';
-import { getDocument, getJob, listDocuments, listProposals, listQuestions, listRequirements, type DocumentVersion, type Proposal, type Question, type RequirementSummary } from '../api/rfp';
+import { getJob, listDocuments } from '../api/rfp';
 import { me } from '../api/platform';
 import { getProject, listProjects, type ProjectFilters, type ProjectSummary } from '../api/tft';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ErrorState, Loading } from '../components/states';
 import { formatDate } from '../components/tft';
-import { downloadCsv, KvCond, KvCondField, KvCondRow, KvGrid, KvKey, KvNext, KvRibbon, KvSplit, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
+import { downloadCsv, KvCond, KvCondField, KvCondRow, KvGrid, KvKey, KvNext, KvRibbon, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
 import { latestVersions, ProcessForm, ProjectForm, UploadForm } from './IntakeForms';
 import ProjectConstraintsForm from './ProjectConstraintsForm';
 import { ProjectPagination, ProjectSearchField } from './ProjectPagination';
@@ -16,20 +16,19 @@ import { useNames } from './names';
 import { useRfpJobEvents } from './useRfpJobEvents';
 import { RfpJobBanner, rfpJobPresentation } from './RfpJobBanner';
 import IntegrationPanel from './IntegrationPanel';
+import { ProjectQuestions } from './GroupActions';
 import { RfpDocumentReview } from './RfpDocumentReview';
 import { deniedRfpJob, readRfpJob } from '../api/rfp-job-events';
-import { attributeName, DATA_ORIGIN_LABEL, DEPARTMENT_LABEL, DOCUMENT_KIND_LABEL, ISSUE_LABEL, JUDGEMENT_LABEL, label, OFF_LIST_PERMISSION_LABEL, NECESSITY_LABEL, ORIGIN_LABEL, OUTPUT_LABEL, PURPOSE_LABEL, requirementNo, shortDateTime, STATUS_LABEL } from './labels';
+import { DATA_ORIGIN_LABEL, DEPARTMENT_LABEL, JUDGEMENT_LABEL, label, OFF_LIST_PERMISSION_LABEL, OUTPUT_LABEL, PURPOSE_LABEL } from './labels';
 
 const POLL_MS = 30_000;
 const ACTIVE = new Set(['QUEUED', 'RUNNING']);
-const format = (mime: string) => mime.includes('pdf') ? 'PDF' : mime.includes('word') ? 'DOCX' : mime;
 // 작업 상태 경로는 요청한 사용자 본인만 열린다. 404·403이면 다시 읽어도 소용없다.
 const notMine = deniedRfpJob;
 
 const count = (value: number, ready: boolean) => ready ? value : '';
 const PROJECT_HEAD = ['프로젝트명', '고객', '진행', '판단', '요구', '미해결 필수', '승인 대기', '열린 질문', '접수일'];
 const projectRow = (p: ProjectSummary) => [p.name, p.client_name, label(OUTPUT_LABEL, p.output_status), label(JUDGEMENT_LABEL, p.judgement_status), p.requirements_count, p.unresolved_mandatory_count, p.pending_proposals_count, p.open_questions_count, p.created_at.slice(0, 10)];
-const days = (at: string) => Math.max(0, Math.floor((Date.now() - new Date(at).getTime()) / 86_400_000));
 
 // RFP 검토(TF0101, TF_K_Intake): 프로젝트 목록과 고른 프로젝트를 한 화면에 둔다.
 // 경로에 프로젝트가 없으면 목록의 첫 프로젝트를 고른다.
@@ -163,16 +162,8 @@ function Intake({ projectId, actorId, list, before, after }: { projectId: string
   const running = !!jobId && !unavailable && !job.isError && (!jobStatus || ACTIVE.has(jobStatus));
   const bannerView = unavailable ? { connection: 'stopped' as const, message: '이 작업의 조회 권한을 확인할 수 없습니다. 계정과 작업을 확인하세요.' } : live;
   const documents = useQuery({ queryKey: ['rfp-documents', mode, projectId], queryFn: () => listDocuments(projectId), enabled });
-  const pending = useQuery({ queryKey: ['rfp-proposals', mode, projectId, 'PENDING'], queryFn: () => listProposals(projectId, { status: 'PENDING' }), enabled });
-  const open = useQuery({ queryKey: ['rfp-questions', mode, projectId, 'OPEN'], queryFn: () => listQuestions(projectId, 'OPEN'), enabled });
-  const mandatory = useQuery({ queryKey: ['rfp-requirements', mode, projectId, 'unresolved'], queryFn: () => listRequirements(projectId, { unresolved_mandatory: true }, 5), enabled });
   const docs = documents.data?.data.items ?? [];
-  const details = useQueries({ queries: docs.map(d => ({ queryKey: ['rfp-document', mode, d.document_id], queryFn: () => getDocument(d.document_id) })) });
-  const proposals = pending.data?.data.items ?? [];
-  const nameOf = useNames([
-    project.data?.data.sales_user_id, project.data?.data.responsible_user_id,
-    ...docs.map(d => d.uploaded_by), ...proposals.map(p => p.proposer_user_id),
-  ]);
+  const nameOf = useNames([project.data?.data.sales_user_id, project.data?.data.responsible_user_id]);
   useEffect(() => {
     if (!jobId || !jobStatus) return;
     if (ACTIVE.has(jobStatus)) { watched.current = jobId; return; }
@@ -195,11 +186,6 @@ function Intake({ projectId, actorId, list, before, after }: { projectId: string
   const data = project.data.data;
   const analyzing = running;
   const canEdit = actorId !== undefined && [data.sales_user_id, data.responsible_user_id].includes(actorId);
-  const counts = data.requirement_counts;
-  const questions = open.data?.data.items ?? [];
-  const unresolved = mandatory.data?.data.items ?? [];
-  const latest = new Set(latestVersions(docs).map(d => d.document_version_id));
-  const original = latestVersions(docs).find(d => d.kind === 'RFP_SPEC') ?? latestVersions(docs)[0];
   const next = (() => {
     if (finished === 'FAILED' || finished === 'CANCELLED') return '처리가 끝나지 못했습니다. 입력을 확인하고 다시 실행하세요.';
     if (!analyzing && data.requirements_count === 0 && latestVersions(docs).some(d => d.kind === 'DRAWING')) return `${finished === 'PARTIAL' ? '일부 처리된 결과입니다. ' : ''}문자 요구 0건입니다. 도면의 장비·기호와 연결 후보는 아래 도면 검토에서 별도로 확인하세요.`;
@@ -210,68 +196,20 @@ function Intake({ projectId, actorId, list, before, after }: { projectId: string
     if (analyzing) return '문서를 처리하고 있습니다. 최근 확인 상태는 위 처리 상태 영역에서 확인하세요. 작업 중에는 처리 실행과 문서 올리기가 제한됩니다.';
     if (data.documents_count === 0) return `문서를 올린 뒤 처리 실행을 누르세요.`;
     if (data.requirements_count === 0) return `문서 ${data.documents_count}건, 요구 0. 처리 실행을 누르면 요구사항을 추출합니다.`;
-    return `요구 ${data.requirements_count}건, 미해결 필수 ${data.unresolved_mandatory_count}, 승인 대기 ${data.pending_proposals_count}, 열린 질문 ${data.open_questions_count}`;
+    return '검토할 설비·업무를 고르고, 확인할 요구와 대응 방안을 살펴보세요.';
   })();
-  // 못 읽은 표를 '없습니다'로 보이면 위 건수와 어긋나고 할 일을 숨긴다.
-  const todoFallback = (query: { isPending: boolean; isError: boolean }, empty: string) =>
-    query.isError ? '목록을 읽지 못했습니다. 조회를 다시 눌러 주세요.' : query.isPending ? '읽는 중입니다.' : empty;
-  const documentColumns: KvColumn<DocumentVersion>[] = [
-    { key: 'title', header: '문서', className: 't', cell: d => d.title },
-    { key: 'kind', header: '종류', width: 84, className: 'c', cell: d => label(DOCUMENT_KIND_LABEL, d.kind) },
-    { key: 'version', header: '판본', width: 44, className: 'c', cell: d => d.version },
-    { key: 'mime', header: '형식', width: 50, className: 'c', cell: d => format(d.mime) },
-    { key: 'trace', header: '편집 흔적', width: 66, className: 'c', cell: d => d.edit_trace_support ? '확인 가능' : '확인 불가' },
-    { key: 'clauses', header: '조항', width: 44, className: 'c', cell: (d, index) => latest.has(d.document_version_id) ? details[index]?.data?.data.clauses_count ?? '' : '' },
-    { key: 'deleted', header: '삭제 값', width: 52, className: 'c', cell: (d, index) => latest.has(d.document_version_id) ? details[index]?.data?.data.deleted_values_count || '' : '' },
-    { key: 'by', header: '올린 사람', width: 104, className: 'c', cell: d => nameOf(d.uploaded_by) },
-    { key: 'at', header: '올린 일시', width: 120, className: 'd', cell: d => shortDateTime(d.uploaded_at) },
-  ];
-  const proposalColumns: KvColumn<Proposal>[] = [
-    { key: 'origin', header: '들어온 곳', width: 72, className: 'c', cell: p => label(ORIGIN_LABEL, p.origin) },
-    { key: 'text', header: '내용', className: 't', cell: p => <Link to={`/tft/projects/${projectId}/table/approvals`}>{p.rationale}</Link> },
-    { key: 'by', header: '제안자', width: 56, className: 'c', cell: p => p.proposer_kind === 'system' ? '자동' : nameOf(p.proposer_user_id) },
-    { key: 'at', header: '일시', width: 56, className: 'd', cell: p => p.known_at.slice(5, 10) },
-  ];
-  const questionColumns: KvColumn<Question>[] = [
-    { key: 'issue', header: '유형', width: 72, className: 'c', cell: q => label(ISSUE_LABEL, q.issue_type) },
-    { key: 'text', header: '내용', className: 't', cell: q => q.requirement_id ? <Link to={`/tft/projects/${projectId}/requirements/${q.requirement_id}`}>{q.question_text}</Link> : q.question_text },
-    { key: 'days', header: '경과', width: 44, className: 'c', cell: q => `${days(q.created_at)}일` },
-  ];
-  const unresolvedColumns: KvColumn<RequirementSummary>[] = [
-    { key: 'no', header: '요구', width: 84, cell: r => <Link to={`/tft/projects/${projectId}/requirements/${r.requirement_id}`}>{requirementNo(r.code)}</Link> },
-    { key: 'text', header: '내용', className: 't', cell: r => [attributeName(r.attribute_key, r.attribute), label(STATUS_LABEL, r.status)].filter(Boolean).join(', ') },
-    { key: 'block', header: '막힌 곳', width: 64, className: 'c', cell: r => r.open_questions ? `질문 ${r.open_questions}` : '판단' },
-  ];
-  const summary: [string, ReactNode, boolean?][] = [
-    [`요구 ${data.requirements_count}건`, Object.entries(STATUS_LABEL).map(([code, name]) => `${name} ${counts?.by_status[code] ?? 0}`).join(', ')],
-    ['성격', Object.entries(NECESSITY_LABEL).map(([code, name]) => `${name} ${counts?.by_necessity[code] ?? 0}`).join(', ')],
-    ['미해결 필수', data.unresolved_mandatory_count, data.unresolved_mandatory_count > 0],
-    ['재검토 필요', counts?.needs_rereview ?? 0],
-    ['열린 질문', data.open_questions_count],
-    ['승인 대기', data.pending_proposals_count],
-    ['초안', [data.draft_version ? `판본 ${data.draft_version}` : '없음', data.review_version ? `검토본 v${data.review_version}` : ''].filter(Boolean).join(', ')],
-  ];
   return <main>
-    {title(<>
-      {canEdit && <button className="kb" disabled={analyzing} onClick={() => setPanel("constraints")}>협력사 입력 수정</button>}
-      <button className="kb" disabled={analyzing} title={analyzing ? '작업이 끝나야 합니다' : undefined} onClick={() => setPanel('upload')}>문서 올리기</button>
-      <button className="kb" disabled={analyzing || docs.length === 0} title={analyzing ? '작업이 끝나야 합니다' : docs.length === 0 ? '문서를 먼저 올리세요' : undefined} onClick={() => setPanel('process')}>처리 실행</button>
-      {original
-        ? <a className="kb" href={`/api/v1/tft/documents/${encodeURIComponent(original.document_id)}/file`}>원문 내려받기</a>
-        : <button className="kb" disabled title="문서를 먼저 올리세요">원문 내려받기</button>}
-    </>)}
+    {title()}
     <RfpJobBanner key={jobId ?? projectId} idle={!jobId} view={jobId ? bannerView : undefined} status={jobId && !unavailable ? jobStatus : undefined} accepted={!!jobId && started === jobId} documents={docs} projectId={projectId} requestDocuments={requestDocuments} />
     <KvNext>{next}</KvNext>
     {list}
-    {panel === 'constraints' && canEdit && <ProjectConstraintsForm project={data} onClose={() => setPanel(undefined)} />}
-    {panel === 'upload' && <UploadForm projectId={projectId} documents={docs} onCancel={() => setPanel(undefined)} onDone={() => {
-      setPanel(undefined);
-      client.invalidateQueries({ queryKey: ['rfp-documents', mode] });
-      client.invalidateQueries({ queryKey: ['projects', mode] });
-    }} />}
-    {panel === 'process' && <ProcessForm projectId={projectId} documents={docs} rerun={data.requirements_count > 0} onCancel={() => setPanel(undefined)} onStarted={({ job_id }, ids) => { setRequestDocuments(ids); setPanel(undefined); setFinished(undefined); watched.current = job_id; setStarted(job_id); }} />}
     <div className="kv-gridhead"><span>{[data.external_id, data.name].filter(Boolean).join(" · ")}</span><a className="right" href="#rfp-document-review">검토 대상 보기</a></div>
-    <details className="rfp-project-switch"><summary>프로젝트 정보</summary>
+    <div className="rfp-project-tools">
+      {data.pending_proposals_count > 0 && <Link className="kb" to={`/tft/projects/${projectId}/table/approvals`}>판정 변경 검토 {data.pending_proposals_count}건</Link>}
+      <ProjectQuestions projectId={projectId} actorId={actorId} />
+      <Link className="kb" to={`/tft/projects/${projectId}/draft`}>초안 및 검토 이력</Link>
+    </div>
+    <details className="rfp-project-switch"><summary>프로젝트 정보·설정</summary>
     <KvRibbon cells={[
       ['프로젝트', data.external_id ?? ''],
       ['프로젝트명', data.name],
@@ -289,39 +227,22 @@ function Intake({ projectId, actorId, list, before, after }: { projectId: string
       ['검토본', data.review_version ? `v${data.review_version}` : '없음'],
       ['자료 구분', label(DATA_ORIGIN_LABEL, data.data_origin)],
     ]} />
+    {canEdit && <button className="kb" disabled={analyzing} onClick={() => setPanel("constraints")}>협력사 입력 수정</button>}
+    {panel === 'constraints' && canEdit && <ProjectConstraintsForm project={data} onClose={() => setPanel(undefined)} />}
+    <h3>프로젝트 조건 및 통합 책임</h3><p>협력사 조건을 바꿨다면 다시 분석해야 합니다. 기존 결과에는 변경 전 조건이 적용되어 있습니다.</p><IntegrationPanel projectId={projectId} canEdit={canEdit && !analyzing && !project.isFetching} /></details>
+    <details className="rfp-project-switch" open={data.requirements_count === 0 || analyzing || undefined}><summary>문서 관리</summary>
+      <div className="rfp-project-tools">
+        <button className="kb" disabled={analyzing} onClick={() => setPanel('upload')}>문서 올리기</button>
+        <button className="kb" disabled={analyzing || docs.length === 0} title={analyzing ? '작업이 끝나야 합니다' : docs.length === 0 ? '문서를 먼저 올리세요' : undefined} onClick={() => setPanel('process')}>처리 실행</button>
+      </div>
+    {panel === 'upload' && <UploadForm projectId={projectId} documents={docs} onCancel={() => setPanel(undefined)} onDone={() => {
+      setPanel(undefined);
+      client.invalidateQueries({ queryKey: ['rfp-documents', mode] });
+      client.invalidateQueries({ queryKey: ['projects', mode] });
+    }} />}
+    {panel === 'process' && <ProcessForm projectId={projectId} documents={docs} rerun={data.requirements_count > 0} onCancel={() => setPanel(undefined)} onStarted={({ job_id }, ids) => { setRequestDocuments(ids); setPanel(undefined); setFinished(undefined); watched.current = job_id; setStarted(job_id); }} />}
     </details>
-    <details className="rfp-project-switch"><summary>프로젝트 조건 및 통합 책임</summary><p>협력사 조건을 바꿨다면 다시 분석해야 합니다. 기존 결과에는 변경 전 조건이 적용되어 있습니다.</p><IntegrationPanel projectId={projectId} canEdit={canEdit && !analyzing && !project.isFetching} /></details>
+    {documents.isError && <ErrorState error={documents.error} onRetry={() => documents.refetch()} />}
     <RfpDocumentReview projectId={projectId} actorId={actorId} documents={docs} busy={analyzing} onContextStarted={({job_id})=>{setRequestDocuments(latestVersions(docs).map(d=>d.document_version_id));setFinished(undefined);watched.current=job_id;setStarted(job_id);client.invalidateQueries({queryKey:['projects',mode]});}} />
-    <details className="rfp-project-switch"><summary>문서 판본 및 요구 집계</summary>
-    <KvSplit columns="1.25fr 1fr">
-      <div>
-        <p className="kv-label">문서와 판본 {docs.length}건, 이전 판본은 흐리게</p>
-        {documents.isError
-          ? <ErrorState error={documents.error} onRetry={() => documents.refetch()} />
-          : <KvGrid label="문서와 판본" columns={documentColumns} rows={docs} rowKey={d => d.document_version_id} rowClass={d => latest.has(d.document_version_id) ? undefined : 'old'} fallback={documents.isPending ? <Loading /> : '문서가 없습니다. 문서 올리기로 시작하세요.'} />}
-      </div>
-      <div>
-        <p className="kv-label">요구 요약</p>
-        <table className="kv-summary" aria-label="요구 요약"><tbody>
-          {summary.map(([name, value, hot]) => <tr key={name}><th scope="row">{name}</th><td className={hot ? 'hot' : undefined}>{value}</td></tr>)}
-        </tbody></table>
-      </div>
-    </KvSplit>
-    </details>
-    <div className="kv-gridhead sub"><span>확인할 업무</span></div>
-    <KvSplit columns="1fr 1fr 1fr">
-      <div>
-        <div className="kv-headlink"><span>승인 대기 {data.pending_proposals_count}</span><Link to={`/tft/projects/${projectId}/table/approvals`}>승인 대기 화면</Link></div>
-        <KvGrid label="승인 대기" columns={proposalColumns} rows={proposals.slice(0, 5)} rowKey={p => p.proposal_id} fallback={todoFallback(pending, '승인 대기 제안이 없습니다.')} />
-      </div>
-      <div>
-        <div className="kv-headlink"><span>회신 대기 질문 {data.open_questions_count}</span></div>
-        <KvGrid label="회신 대기 질문" columns={questionColumns} rows={questions.slice(0, 5)} rowKey={q => q.question_id} fallback={todoFallback(open, '회신 대기 질문이 없습니다.')} />
-      </div>
-      <div>
-        <div className="kv-headlink"><span>미해결 필수 {data.unresolved_mandatory_count}</span><a href="#rfp-document-review">요구 확인</a></div>
-        <KvGrid label="미해결 필수" columns={unresolvedColumns} rows={unresolved} rowKey={r => r.requirement_id} fallback={todoFallback(mandatory, '미해결 필수가 없습니다.')} />
-      </div>
-    </KvSplit>
   </main>;
 }

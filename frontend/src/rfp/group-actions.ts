@@ -41,7 +41,7 @@ export function groupSummary(rows: RequirementSummary[], questions: Question[]) 
     { key: 'evidence', title: '근거 있음', next: '적용 조건 검토 후 제안 범위에 반영', rows: of('evidence').filter(row => !decided(row)) },
   ];
   const actions = candidates.filter(action => action.rows.length > 0);
-  if (waiting.length) actions.push({ key: 'replies', title: '회신 기록 대기', next: '받은 회신 기록하기', rows: unique.filter(row => waiting.some(q => q.requirement_id === row.requirement_id)), questions: waiting });
+  if (waiting.length) actions.push({ key: 'replies', title: '작성한 질문', next: '받은 회신 기록하기', rows: unique.filter(row => waiting.some(q => q.requirement_id === row.requirement_id)), questions: waiting });
   return { total: unique.length, counts, actions, waiting };
 }
 

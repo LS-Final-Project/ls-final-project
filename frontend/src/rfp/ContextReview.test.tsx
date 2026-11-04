@@ -91,3 +91,14 @@ it('filter changes preserve the selected requirement and explain when it is outs
  expect(screen.getByText(/선택한 요구는 현재 필터 밖/)).toBeTruthy();expect(screen.getByText('합성 인용 0')).toBeTruthy();
  expect(selected).toHaveBeenCalledTimes(1);
 });
+
+it('mandatory filter uses server membership for both document and project scopes',async()=>{
+ vi.mocked(listRequirements).mockImplementation(async(_project,filters)=>({data:{items:filters.unresolved_mandatory?rows.slice(0,1):rows,next_cursor:null}}));
+ show();await screen.findByText('확인 필요 12건');
+ fireEvent.click(screen.getByRole('button',{name:'확인 남은 필수 요구'}));
+ await screen.findByText('필수·조건부 필수 요구 중 확인이 남은 1건입니다.');await choose();
+ expect(screen.getAllByRole('button',{name:/조항 2.1 · 요구/})).toHaveLength(1);
+ expect(listRequirements).toHaveBeenCalledWith('p',expect.objectContaining({document_version_id:'v1',unresolved_mandatory:true}),expect.any(Number),undefined,expect.anything());
+ fireEvent.change(screen.getByLabelText('표시 범위'),{target:{value:'project'}});
+ await waitFor(()=>expect(vi.mocked(listRequirements).mock.calls.some(call=>call[1].unresolved_mandatory&&!call[1].document_version_id)).toBe(true));
+});

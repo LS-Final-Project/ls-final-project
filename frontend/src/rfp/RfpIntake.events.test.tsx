@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor, act } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import RfpIntake from './RfpIntake';
@@ -33,6 +33,7 @@ function setup(drawing = false) {
 it('SSE denied state does not lock upload as though another actor job were running', async () => {
   setup();await waitFor(() => expect(vi.mocked(watchRfpJob)).toHaveBeenCalled());
   await act(async () => vi.mocked(watchRfpJob).mock.calls[0][2]({ connection: 'stopped', message: '조회 권한을 확인하세요.' }));
+  if (!screen.getByText('문서 관리').closest('details')?.open) fireEvent.click(screen.getByText('문서 관리'));
   expect((screen.getByRole('button', { name: '문서 올리기' }) as HTMLButtonElement).disabled).toBe(false);
   expect(screen.getByRole('status').textContent).toContain('조회가 중단');
   expect(screen.getByRole('status').textContent).not.toContain('시작');
@@ -42,6 +43,7 @@ it('fallback GET denial removes stale RUNNING presentation and stops automatic r
   const { client, fetcher } = setup();await waitFor(() => expect(vi.mocked(watchRfpJob)).toHaveBeenCalled());
   await act(async () => vi.mocked(watchRfpJob).mock.calls[0][2]({ connection: 'fallback', job: { job_id: J, project_id: P, owner: 'tft', kind: 'rfp.process', status: 'RUNNING', version: 1, last_event_sequence: 2 } }));
   await waitFor(() => expect(screen.getByRole('status').textContent).toContain('조회가 중단'));
+  if (!screen.getByText('문서 관리').closest('details')?.open) fireEvent.click(screen.getByText('문서 관리'));
   expect((screen.getByRole('button', { name: '문서 올리기' }) as HTMLButtonElement).disabled).toBe(false);
   expect(screen.getByText('최근 작업').nextElementSibling?.textContent).toBe('조회 불가');
   const reads = fetcher.mock.calls.filter(([u]) => u.includes(`/jobs/${J}`)).length;
@@ -54,12 +56,14 @@ it('confirmed GET terminal snapshot triggers existing result invalidation after 
   const update=vi.mocked(watchRfpJob).mock.calls[0][2];
   const job={job_id:J,project_id:P,owner:'tft' as const,kind:'rfp.process' as const,status:'RUNNING' as const,version:1,last_event_sequence:2};
   await act(async()=>update({connection:'connected',job}));
+  if (!screen.getByText('문서 관리').closest('details')?.open) fireEvent.click(screen.getByText('문서 관리'));
   expect((screen.getByRole('button',{name:'문서 올리기'}) as HTMLButtonElement).disabled).toBe(true);
   await act(async()=>update({connection:'ended',job:{...job,status:'SUCCEEDED',last_event_sequence:3}}));
   await waitFor(()=>expect(invalidate).toHaveBeenCalledWith({queryKey:['rfp-requirements','live']}));
   expect(invalidate).toHaveBeenCalledWith({queryKey:['rfp-diagrams','live']});
   expect(invalidate).toHaveBeenCalledWith({queryKey:['rfp-context','live']});
   expect(invalidate).toHaveBeenCalledWith({queryKey:['rfp-draft',A,P]});
+  if (!screen.getByText('문서 관리').closest('details')?.open) fireEvent.click(screen.getByText('문서 관리'));
   expect((screen.getByRole('button',{name:'문서 올리기'}) as HTMLButtonElement).disabled).toBe(false);
 });
 

@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getApiMode } from '../api/client';
@@ -13,6 +13,9 @@ import { readDocumentRequirements } from './equipment-groups';
 import { ContextReview } from './ContextReview';
 import { ResponseDecision } from './ResponseDecision';
 import type { ContextSource } from '../api/rfp-context';
+import { KvGrid, type KvColumn } from '../ls-shell/kv';
+import { DOCUMENT_KIND_LABEL, label, shortDateTime } from './labels';
+import { useNames } from './names';
 import './RfpDocumentReview.css';
 
 type Selection = { requirementId: string; version: number; row?: RequirementSummary; source?: ContextSource; revision: number };
@@ -26,11 +29,12 @@ export function RfpDocumentReview({ projectId, actorId, documents, busy = false,
     setPicked(ref.document_version_id);
     setSelection(previous => ({ requirementId:ref.requirement_id,version:ref.version,source:ref,revision:(previous?.revision??0)+1 }));
   };
-  if (!document) return <div className="rfp-review-empty">문서를 올리면 원문과 고객 요구를 함께 검토할 수 있습니다.</div>;
+  if (!document) return <div className="rfp-review-empty">문서가 없습니다. 문서 올리기로 시작하세요.</div>;
   return <section id="rfp-document-review" className="rfp-document-review" aria-label="RFP 검토">
     <div className="rfp-review-heading"><div><h2>RFP 검토</h2><p>검토 대상 선택 → 고객 요구 확인 → 대응 방안 검토</p></div>
       <label>검토 문서<select aria-label="검토 문서" value={document.document_version_id} onChange={e => {setPicked(e.target.value);setSelection(undefined);}}>{documents.map(d => <option key={d.document_version_id} value={d.document_version_id}>{d.title} · 판본 {d.version}</option>)}</select></label>
     </div>
+    <DocumentHistory documents={documents} onSelect={id=>{setPicked(id);setSelection(undefined);}} />
     <DocumentAnalysis key={`${actorId}:${projectId}:${document.document_version_id}`} projectId={projectId} actorId={actorId} document={document} documents={documents} busy={busy} onContextStarted={onContextStarted} selection={selection} onSource={source} onClearSelection={()=>setSelection(undefined)} onRevealQuote={()=>setSelection(previous=>previous&&{...previous,revision:previous.revision+1})} onSelect={(row,ref)=>{if(ref&&ref.document_version_id!==document.document_version_id)source(ref);else setSelection(previous=>({requirementId:row.requirement_id,version:row.version,row,source:ref,revision:(previous?.revision??0)+1}));}} />
   </section>;
 }
@@ -69,4 +73,26 @@ function DocumentAnalysis({ projectId, actorId, document, documents, busy, onCon
       </aside>
     </div>
   </>;
+}
+
+function DocumentHistory({documents, onSelect}: {documents: DocumentVersion[]; onSelect: (id:string)=>void}) {
+  const [open, setOpen] = useState(false);
+  const mode = getApiMode();
+  const latest = new Set(latestVersions(documents).map(d => d.document_version_id));
+  const nameOf = useNames(documents.map(d=>d.uploaded_by));
+  const format = (mime:string) => mime.includes('pdf') ? 'PDF' : mime.includes('word') ? 'DOCX' : mime;
+  const latestDocuments = latestVersions(documents);
+  const details = useQueries({queries:latestDocuments.map(d=>({queryKey:['rfp-document',mode,d.document_id],queryFn:()=>getDocument(d.document_id),enabled:open && latest.has(d.document_version_id)}))});
+  const documentColumns: KvColumn<DocumentVersion>[] = [
+    { key: 'title', header: '문서', className: 't', cell: d => <button type="button" className="kb" onClick={()=>onSelect(d.document_version_id)}>{d.title}</button> },
+    { key: 'kind', header: '종류', width: 84, className: 'c', cell: d => label(DOCUMENT_KIND_LABEL, d.kind) },
+    { key: 'version', header: '판본', width: 44, className: 'c', cell: d => d.version },
+    { key: 'mime', header: '형식', width: 50, className: 'c', cell: d => format(d.mime) },
+    { key: 'trace', header: '편집 흔적', width: 66, className: 'c', cell: d => d.edit_trace_support ? '확인 가능' : '확인 불가' },
+    { key: 'clauses', header: '조항', width: 44, className: 'c', cell: d => latest.has(d.document_version_id) ? details[latestDocuments.findIndex(item=>item.document_version_id===d.document_version_id)]?.data?.data.clauses_count ?? '' : '' },
+    { key: 'deleted', header: '삭제 값', width: 52, className: 'c', cell: d => latest.has(d.document_version_id) ? details[latestDocuments.findIndex(item=>item.document_version_id===d.document_version_id)]?.data?.data.deleted_values_count || '' : '' },
+    { key: 'by', header: '올린 사람', width: 104, className: 'c', cell: d => nameOf(d.uploaded_by) },
+    { key: 'at', header: '올린 일시', width: 120, className: 'd', cell: d => shortDateTime(d.uploaded_at) },
+  ];
+  return <details className="rfp-document-history" open={open} onToggle={e=>setOpen(e.currentTarget.open)}><summary>문서 판본 이력</summary>{open && <><p>문서를 선택하면 해당 판본의 원문과 요구를 확인합니다. 이전 판본은 흐리게 표시합니다.</p><KvGrid label="문서와 판본" columns={documentColumns} rows={documents} rowKey={d=>d.document_version_id} rowClass={d=>latest.has(d.document_version_id)?undefined:'old'} fallback="문서가 없습니다. 문서 올리기로 시작하세요." scroll /></>}</details>;
 }

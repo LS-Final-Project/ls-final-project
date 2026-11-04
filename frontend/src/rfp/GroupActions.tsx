@@ -7,7 +7,7 @@ import { getSupplementOptions, getSupplementRequirement, type RequirementSummary
 import { getProject } from '../api/tft';
 import { ErrorState, Loading } from '../components/states';
 import { KvGrid, KvModal, KvRibbon, type KvColumn } from '../ls-shell/kv';
-import { groupPartners } from './equipment-groups';
+import { groupPartners, readDocumentRequirements } from './equipment-groups';
 import { batchProblems, draftQuestion, mapLimited, groupSummary, isCustomerRequest, itemReason, outboxItem, outboxText, REQUEST_ISSUE, shortText, subjectOf, valueOf, type GroupAction, type RequestKind, type Situation } from './group-actions';
 import { ReplyForm } from './QuestionForms';
 import { DEPARTMENT_LABEL, PATH_LABEL, label, requirementNo } from './labels';
@@ -81,7 +81,7 @@ export function GroupSummary({ projectId, actorId, name, rows, busy = false, col
       ['근거 있음', `${summary.counts.evidence}건`], ['남은 조건', `${summary.counts.conditional}건`], ['사양 차이', `${summary.counts.gap}건`],
       ['자료 부족', `${summary.counts.material}건`], ['과업', `${summary.counts.task}건`], ['협력사 후보', candidates.isError ? '조회 실패' : partners === undefined ? '확인 중' : `${partners}곳`],
     ]} />
-    {questions.isError && <p role="alert" className="rfp-group-note">질문 기록을 읽지 못해 회신 대기 건수를 셀 수 없습니다. <button type="button" className="kb" onClick={() => questions.refetch()}>다시 읽기</button></p>}
+    {questions.isError && <p role="alert" className="rfp-group-note">작성한 질문을 읽지 못했습니다. <button type="button" className="kb" onClick={() => questions.refetch()}>다시 읽기</button></p>}
     {summary.actions.length > 0 ? <ol className="rfp-group-actions">{summary.actions.map(action => {
       const entry = open(action);
       return <li key={action.key}>
@@ -248,20 +248,20 @@ export function Outbox({ projectName, questions, rows, details }: { projectName:
     })}
     {!groups.size && <p>보낼 질문이 없습니다.</p>}
     {notice && <p role="status">{notice}</p>}
-    <p className="rfp-group-note">앱은 메일을 보내지 않습니다. 회신을 받으면 이 묶음의 '회신 기록 대기'에서 질문별로 기록하세요.</p>
+    <p className="rfp-group-note">앱은 메일을 보내지 않습니다. 보낼 내용을 복사해 전달하고, 회신을 받으면 '작성한 질문'에서 기록하세요.</p>
   </div>;
 }
 
-function useOpenQuestions(projectId: string, actorId: string | undefined, rows: RequirementSummary[]) {
+function useOpenQuestions(projectId: string, actorId: string | undefined, rows: RequirementSummary[], projectWide = false) {
   const questions = useQuestions(projectId, actorId);
   const ids = new Set(rows.map(row => row.requirement_id));
-  const open = questions.isSuccess ? questions.data.data.items.filter(q => q.status === 'OPEN' && !!q.requirement_id && ids.has(q.requirement_id)) : [];
+  const open = questions.isSuccess ? questions.data.data.items.filter(q => q.status === 'OPEN' && (projectWide || !!q.requirement_id && ids.has(q.requirement_id))) : [];
   return { questions, open };
 }
 
-export function OutboxDialog({ projectId, actorId, rows, groupName, onClose }: { projectId: string; actorId?: string; rows: RequirementSummary[]; groupName: string; onClose: () => void }) {
+export function OutboxDialog({ projectId, actorId, rows, groupName, onClose, projectWide = false }: { projectId: string; actorId?: string; rows: RequirementSummary[]; groupName: string; onClose: () => void; projectWide?: boolean }) {
   const project = useProject(projectId);
-  const { questions, open } = useOpenQuestions(projectId, actorId, rows);
+  const { questions, open } = useOpenQuestions(projectId, actorId, rows, projectWide);
   const [recipient, setRecipient] = useState('');
   const recipients = [...new Set(open.map(recipientOf))];
   const shown = open.filter(q => !recipient || recipientOf(q) === recipient);
@@ -271,7 +271,7 @@ export function OutboxDialog({ projectId, actorId, rows, groupName, onClose }: {
   return <KvModal title={`보낼 내용 · ${groupName}`} onClose={onClose} className="rfp-dialog" keepOnBackdrop>
     {questions.isPending ? <Loading label="질문 기록 읽는 중" /> : questions.isError ? <ErrorState error={questions.error} onRetry={() => questions.refetch()} /> : <>
       {recipients.length > 1 && <label className="rfp-dialog-filter">받는 곳<select aria-label="받는 곳" value={recipient} onChange={e => setRecipient(e.target.value)}><option value="">전체 {open.length}건</option>{recipients.map(r => <option key={r} value={r}>{r} {open.filter(q => recipientOf(q) === r).length}건</option>)}</select></label>}
-      <p className="rfp-dialog-lead">회신을 기다리는 질문 {shown.length}건입니다.</p>
+      <p className="rfp-dialog-lead">회신이 기록되지 않은 질문 {shown.length}건입니다. 발송 여부는 앱에서 확인하지 않습니다.</p>
       {details.isFetching && <Loading label="원문 인용 읽는 중" />}
       <Outbox projectName={project.data?.data.name ?? '프로젝트'} questions={shown} rows={rows} details={detailMap} />
     </>}
@@ -279,25 +279,26 @@ export function OutboxDialog({ projectId, actorId, rows, groupName, onClose }: {
   </KvModal>;
 }
 
-export function RepliesDialog({ projectId, actorId, rows, groupName, onClose, onOutbox }: { projectId: string; actorId?: string; rows: RequirementSummary[]; groupName: string; onClose: () => void; onOutbox: () => void }) {
+export function RepliesDialog({ projectId, actorId, rows, groupName, onClose, onOutbox, projectWide = false }: { projectId: string; actorId?: string; rows: RequirementSummary[]; groupName: string; onClose: () => void; onOutbox: () => void; projectWide?: boolean }) {
   const client = useQueryClient();
-  const { questions, open } = useOpenQuestions(projectId, actorId, rows);
+  const { questions, open } = useOpenQuestions(projectId, actorId, rows, projectWide);
   const [picked, setPicked] = useState<string>();
   const [notice, setNotice] = useState('');
   const [replied, setReplied] = useState(false);
   const close = () => { if (replied) refreshAfterWrite(client); onClose(); };
+  const shown = projectWide && questions.isSuccess ? questions.data.data.items : open;
   const question = open.find(q => q.question_id === picked);
   const rowOf = (q: Question) => rows.find(row => row.requirement_id === q.requirement_id);
   const columns: KvColumn<Question>[] = [
-    { key: 'no', header: '요구', width: 100, cell: q => { const row = rowOf(q); return row ? requirementNo(row.code) : '번호 미확인'; } },
+    { key: 'no', header: '요구', width: 100, cell: q => { const row = rowOf(q); return row ? requirementNo(row.code) : q.requirement_id ? '요구 연결됨' : '프로젝트 질문'; } },
     { key: 'to', header: '받는 곳', width: 110, cell: recipientOf },
-    { key: 'text', header: '질문', cell: q => shortText(q.question_text, 90) },
-    { key: 'act', header: '', width: 86, className: 'c', cell: q => <button type="button" className="kb" aria-pressed={picked === q.question_id} onClick={() => { setNotice(''); setPicked(q.question_id); }}>회신 기록</button> },
+    { key: 'text', header: '질문', cell: q => q.question_text.length > 90 ? <details><summary>{shortText(q.question_text, 90)}</summary><p>{q.question_text}</p></details> : q.question_text },
+    { key: 'act', header: '', width: 86, className: 'c', cell: q => q.status === 'OPEN' ? <button type="button" className="kb" aria-pressed={picked === q.question_id} onClick={() => { setNotice(''); setPicked(q.question_id); }}>회신 기록</button> : <span>{q.status==='REPLIED'?'회신 기록됨':q.status==='DRAFT'?'초안':'종료'}</span> },
   ];
-  return <KvModal title={`회신 기록 · ${groupName}`} onClose={close} className="rfp-dialog" keepOnBackdrop>
+  return <KvModal title={`작성한 질문 · ${groupName}`} onClose={close} className="rfp-dialog" keepOnBackdrop>
     {questions.isPending ? <Loading label="질문 기록 읽는 중" /> : questions.isError ? <ErrorState error={questions.error} onRetry={() => questions.refetch()} /> : <>
       <p className="rfp-dialog-lead">받은 회신을 질문별로 기록합니다. 고객 회신이 요구값을 채우면 변경 제안이 생기고, 승인 전에는 요구가 바뀌지 않습니다.</p>
-      <KvGrid label="회신 기다리는 질문" columns={columns} rows={open} rowKey={q => q.question_id} selectedKey={picked} fallback="회신을 기다리는 질문이 없습니다." scroll />
+      <KvGrid label="작성한 질문" columns={columns} rows={shown} rowKey={q => q.question_id} selectedKey={picked} fallback="작성한 질문이 없습니다." scroll />
       {question && <ReplyForm key={question.question_id} question={question} onCancel={() => setPicked(undefined)} onReload={() => questions.refetch()} onSaved={proposed => { setPicked(undefined); setNotice(proposed ? '회신을 기록했습니다. 변경 제안이 생겼으니 승인 여부를 정하세요.' : '회신을 기록했습니다.'); setReplied(true); void client.invalidateQueries({ queryKey: ['rfp-questions'] }); }} />}
       {notice && <p role="status">{notice}</p>}
     </>}
@@ -389,3 +390,13 @@ export function SelectionDialog({ projectId, actorId, rows, task, groupName, onC
   </KvModal>;
 }
 const Section = ({ title, children }: { title: string; children: ReactNode }) => <section className="rfp-dialog-section"><h3>{title}</h3>{children}</section>;
+
+export function ProjectQuestions({projectId, actorId}: {projectId:string;actorId?:string}) {
+  const [dialog,setDialog]=useState<'questions'|'outbox'>();
+  const requirements=useQuery({queryKey:['rfp-review-project-requirements',getApiMode(),projectId,actorId],queryFn:({signal})=>readDocumentRequirements(projectId,{},signal,{useMockFallback:false}),enabled:!!dialog,retry:false});
+  const rows=requirements.isError?[]:requirements.data??[];
+  return <><button type="button" className="kb" onClick={()=>setDialog('questions')}>전체 질문 보기</button>
+    {dialog==='questions' && <RepliesDialog projectId={projectId} actorId={actorId} rows={rows} groupName="프로젝트 전체" projectWide onClose={()=>setDialog(undefined)} onOutbox={()=>setDialog('outbox')}/>}
+    {dialog==='outbox' && (requirements.isSuccess ? <OutboxDialog projectId={projectId} actorId={actorId} rows={rows} groupName="프로젝트 전체" projectWide onClose={()=>setDialog(undefined)}/> : <KvModal title="보낼 내용 · 프로젝트 전체" onClose={()=>setDialog(undefined)} className="rfp-dialog">{requirements.isError ? <ErrorState error={requirements.error} onRetry={()=>requirements.refetch()}/> : <Loading label="질문에 연결된 요구 읽는 중"/>}</KvModal>)}
+  </>;
+}

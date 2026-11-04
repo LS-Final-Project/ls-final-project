@@ -3,15 +3,15 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { ApiError } from '../api/client';
-import { createQuestionsBatch, listProjectCandidates, listQuestions, selectSupplementBatch, setRfpReviewDepartments, type Question } from '../api/rfp';
+import { createQuestionsBatch, listProjectCandidates, listQuestions, listRequirements, selectSupplementBatch, setRfpReviewDepartments, type Question } from '../api/rfp';
 import { me } from '../api/platform';
 import { getProject } from '../api/tft';
 import { getSupplementOptions, getSupplementRequirement, type RequirementSummary } from '../api/rfp-supplement';
 import { MOCK_DETAIL } from '../mocks/rfp-table';
-import { GroupSummary, RequestDialog, SelectionDialog } from './GroupActions';
+import { GroupSummary, ProjectQuestions, RequestDialog, SelectionDialog } from './GroupActions';
 import { batchProblems, draftQuestion, groupSummary, outboxText } from './group-actions';
 
-vi.mock('../api/rfp', async original => ({ ...await original<object>(), createQuestionsBatch: vi.fn(), listQuestions: vi.fn(), listProjectCandidates: vi.fn(), selectSupplementBatch: vi.fn(), setRfpReviewDepartments: vi.fn() }));
+vi.mock('../api/rfp', async original => ({ ...await original<object>(), createQuestionsBatch: vi.fn(), listQuestions: vi.fn(), listRequirements: vi.fn(), listProjectCandidates: vi.fn(), selectSupplementBatch: vi.fn(), setRfpReviewDepartments: vi.fn() }));
 vi.mock('../api/tft', async original => ({ ...await original<object>(), getProject: vi.fn() }));
 vi.mock('../api/platform', async original => ({ ...await original<object>(), me: vi.fn() }));
 vi.mock('../api/rfp-supplement', async original => ({ ...await original<object>(), getSupplementRequirement: vi.fn(), getSupplementOptions: vi.fn() }));
@@ -30,6 +30,7 @@ const project = (departments: string[], version = 3) => ({ data: { id: 'p', name
 const detail = (n: number) => ({ data: { ...MOCK_DETAIL, requirement_id: id(n), code: `abcd1234:1.3.2:${n}`, version: 1, origin: { ...MOCK_DETAIL.origin, clause_id: `c-${n}`, page: n, quote: `원문 ${n}` }, spec: { ...MOCK_DETAIL.spec, value: `${n}00`, unit: 'A' } } }) as never;
 
 beforeEach(() => {
+  vi.mocked(listRequirements).mockResolvedValue({data:{items:[],next_cursor:null}});
   vi.mocked(me).mockResolvedValue({ data: { id: 'actor' } } as never);
   vi.mocked(getProject).mockResolvedValue(project(['TS_MV']));
   vi.mocked(listQuestions).mockResolvedValue({ data: { items: [] } });
@@ -55,7 +56,7 @@ test('group summary counts situations and lists concrete actions in order', () =
     ['사양 차이', 1, '보완 방안 고르기'],
     ['남은 조건', 1, '적용 조건 확인하기'],
     ['근거 있음', 1, '적용 조건 검토 후 제안 범위에 반영'],
-    ['회신 기록 대기', 1, '받은 회신 기록하기'],
+    ['작성한 질문', 1, '받은 회신 기록하기'],
   ]);
 });
 
@@ -195,4 +196,22 @@ test('보내는 질문은 분석 과정 메모를 빼고 받는 부서가 확인
   expect(text).toContain('확인할 것: IEEE C37.90 보유 여부 확인.');
   expect(text).not.toContain('요구 장비 계열');
   expect(draftQuestion('material', detail(['요구 장비 계열 확인']))).not.toContain('확인할 것');
+});
+
+test('project questions include unlinked and replied records without implying delivery', async () => {
+  vi.mocked(listQuestions).mockResolvedValue({data:{items:[question(1,{requirement_id:null}),question(2,{status:'REPLIED'}),question(3,{status:'DRAFT'})]}});
+  wrap(<ProjectQuestions projectId="p" actorId="actor"/>);
+  fireEvent.click(screen.getByRole('button',{name:'전체 질문 보기'}));
+  const table=await screen.findByRole('table',{name:'작성한 질문'});
+  expect(table.textContent).toContain('프로젝트 질문');
+  expect(table.textContent).toContain('질문 2');
+  expect(table.textContent).toContain('회신 기록됨');
+  expect(table.textContent).toContain('초안');
+  expect(within(table).getAllByRole('button',{name:'회신 기록'})).toHaveLength(1);
+  fireEvent.click(screen.getByRole('button',{name:'보낼 내용 보기'}));
+  const text=await screen.findByRole('textbox',{name:/에 보낼 글/});
+  expect((text as HTMLTextAreaElement).value).toContain('질문 1');
+  expect((text as HTMLTextAreaElement).value).not.toContain('질문 2');
+  expect(screen.getByText(/발송 여부는 앱에서 확인하지 않습니다/)).toBeTruthy();
+  expect(createQuestionsBatch).not.toHaveBeenCalled();
 });

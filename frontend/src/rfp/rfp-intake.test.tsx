@@ -64,7 +64,7 @@ beforeEach(() => {
   setApiMode('live');
 });
 afterEach(() => { cleanup(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); setApiMode('mock'); vi.useRealTimers(); });
-const showMetadata = async () => { const summary = await screen.findByText('문서 판본 및 요구 집계'); if (!summary.closest('details')?.open) fireEvent.click(summary); };
+const showMetadata = async () => { for (const name of ['문서 관리','프로젝트 정보·설정','문서 판본 이력']) { const summary = await screen.findByText(name); if (!summary.closest('details')?.open) fireEvent.click(summary); } };
 const open = async () => { renderApp(PATH); await showMetadata(); await screen.findByRole('table', { name: '문서와 판본' }); await screen.findByRole('cell', { name: '공문' }); };
 const posts = (part: string) => calls.filter(c => c.method === 'POST' && c.url.includes(part));
 const next = () => document.querySelector('.kv-next')?.textContent ?? '';
@@ -72,11 +72,13 @@ const next = () => document.querySelector('.kv-next')?.textContent ?? '';
 describe('프로젝트 화면', () => {
   it('프로젝트·요구 요약·문서·할 일을 보드 말로 보여 준다', async () => {
     await open();
-    expect(screen.getByText('근거 있음 29, 조건부 검토 8, 사양 차이 6, 근거 부족 5')).toBeTruthy();
+    expect(screen.queryByText('확인할 업무')).toBeNull();
+    expect(screen.queryByText('문서 판본 및 요구 집계')).toBeNull();
     expect(screen.getAllByText('조건 확인 필요').length).toBeGreaterThan(0);
-    expect(screen.getByText('판본 5')).toBeTruthy();
     expect(screen.getByText('구매팀')).toBeTruthy();
-    expect(next()).toContain('요구 48건, 미해결 필수 3, 승인 대기 4, 열린 질문 2');
+    expect(next()).toContain('검토할 설비·업무를 고르고');
+    expect(screen.getByRole('link', {name:'판정 변경 검토 4건'}).getAttribute('href')).toBe(`${PATH}/table/approvals`);
+    fireEvent.click(screen.getByRole('button',{name:'전체 질문 보기'}));
     expect(await screen.findByText('값을 확인해 주세요')).toBeTruthy();
     expect(screen.getByRole('link', { name: '검토 대상 보기' }).getAttribute('href')).toBe('#rfp-document-review');
     expect(document.querySelector('.ls-legacy')).toBeNull();
@@ -221,15 +223,12 @@ describe('목록과 고른 프로젝트 한 화면', () => {
     expect(documentCalls.some(u => u.includes('-v'))).toBe(false);
   });
 
-  it('미해결 필수 표는 서버 필터로 읽고 한글 속성·표시 번호로 잇는다', async () => {
-    listing(id => ({ ...base, id }));
-    renderApp(PATH);
-    const table = await screen.findByRole('table', { name: '미해결 필수' });
-    const link = await within(table).findByRole('link', { name: '2.1-1' });
-    expect(link.getAttribute('href')).toBe(`${PATH}/requirements/r1`);
-    expect(table.textContent).toContain('질문 2');
-    expect(table.textContent).toContain('정격 전류');
-    expect(vi.mocked(fetch).mock.calls.some(([u]) => String(u).includes('unresolved_mandatory=true') && String(u).includes('limit=5'))).toBe(true);
+  it('필수 요구는 검토 목록에서 서버 기준으로 모두 찾는다', async () => {
+    listing(id => ({ ...base, id })); renderApp(PATH);
+    fireEvent.click(await screen.findByRole('button', { name: '확인 남은 필수 요구' }));
+    await screen.findByText('필수·조건부 필수 요구 중 확인이 남은 1건입니다.');
+    expect(screen.queryByRole('table',{name:'미해결 필수'})).toBeNull();
+    expect(vi.mocked(fetch).mock.calls.some(([u])=>String(u).includes('unresolved_mandatory=true')&&!String(u).includes('limit=5'))).toBe(true);
   });
 
   it('사용자 ID를 모아 이름을 한 번에 읽고, 못 찾으면 지정으로 둔다', async () => {
@@ -244,20 +243,20 @@ describe('목록과 고른 프로젝트 한 화면', () => {
     expect(urls.every(u => !/ids=.*u1.*u1/.test(u))).toBe(true);
   });
 
-  it('할 일 표를 못 읽으면 없다고 하지 않는다', async () => {
+  it('필수 요구를 읽지 못하면 빈 목록으로 안내하지 않는다', async () => {
     listing(id => ({ ...base, id }));
     const inner = vi.mocked(fetch).getMockImplementation() as typeof fetch;
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => String(input).includes('unresolved_mandatory') ? jsonResponse(400, errorBody('BAD_REQUEST', 'x')) : inner(input, init)));
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => String(input).includes('unresolved_mandatory') ? jsonResponse(400, errorBody('BAD_REQUEST', '필수 요구 조회 실패')) : inner(input, init)));
     renderApp(PATH);
-    const table = await screen.findByRole('table', { name: '미해결 필수' });
-    await waitFor(() => expect(table.textContent).toContain('읽지 못했습니다'));
-    expect(table.textContent).not.toContain('없습니다');
+    fireEvent.click(await screen.findByRole('button',{name:'확인 남은 필수 요구'}));
+    await screen.findByText('필수 요구 조회 실패');
+    expect(screen.queryByText('필수·조건부 필수 요구 중 확인이 남은 0건입니다.')).toBeNull();
   });
 
-  it('회신 대기 질문과 원문 내려받기가 잇는다', async () => {
-    await open();
-    expect(screen.getByRole('table', { name: '회신 대기 질문' }).textContent).toContain('값을 확인해 주세요');
-    expect(screen.getByRole('link', { name: '원문 내려받기' }).getAttribute('href')).toBe('/api/v1/tft/documents/a/file');
+  it('전체 질문은 묶음 연결이 없는 질문도 보이고 원문 다운로드는 중복하지 않는다', async () => {
+    await open(); fireEvent.click(screen.getByRole('button',{name:'전체 질문 보기'}));
+    expect((await screen.findByRole('table',{name:'작성한 질문'})).textContent).toContain('값을 확인해 주세요');
+    expect(screen.queryByRole('link',{name:'원문 내려받기'})).toBeNull();
   });
 
   it('F8은 목록을 다시 읽는다', async () => {
@@ -409,8 +408,8 @@ describe('처리 실행', () => {
     job = () => ok(jobSnapshot('j1', status));
     const submit = await form();
     fireEvent.change(screen.getByLabelText('재실행 사유'), { target: { value: '사유' } });
-    // 프로젝트는 실행 접수 때도 다시 읽으니, 작업이 끝나야만 다시 읽는 제안 목록으로 확인한다.
-    const reads = () => calls.filter(c => c.method === 'GET' && c.url.includes('/proposals')).length;
+    // 완료 시 현재 검토 요구가 다시 조회되는지 확인한다. 제안 목록은 이제 별도 승인 화면에서 읽는다.
+    const reads = () => calls.filter(c => c.method === 'GET' && c.url.includes('/requirements?')).length;
     const before = reads();
     fireEvent.click(submit);
     await waitFor(() => expect(next()).toContain(text));
@@ -472,6 +471,7 @@ describe('경로 안에서 프로젝트 이동', () => {
     const other = '44444444-4444-4444-8444-444444444444';
     project = { ...base, requirements_count: 0 };
     renderAt(PATH, 'tft/projects/:projectId', <><Link to={`/tft/projects/${other}`}>다른 프로젝트</Link><RfpIntake /></>);
+    await showMetadata();
     await screen.findByRole('cell', { name: '공문' });
     fireEvent.click(screen.getByRole('button', { name: '처리 실행' }));
     fireEvent.click(screen.getAllByRole('button', { name: '처리 실행' })[1]);
