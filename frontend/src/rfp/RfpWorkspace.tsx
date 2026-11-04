@@ -561,17 +561,15 @@ export function queryState(q: Pick<Question, 'status' | 'created_at'>, now = Dat
 
 const RECOMPARED: Record<string, string> = { EVIDENCE_FOUND: '충족', CONDITIONAL: '충족 확인', SPEC_GAP: '편차', INSUFFICIENT_EVIDENCE: '확인 필요' };
 
-// 회신에서 읽은 값 후보(KAN-224). 통합 전 서버는 이 필드를 주지 않으므로 없으면 직접 입력으로 시작한다.
-type ValueCandidate = { method: 'rule' | 'ai' | 'none'; value?: string | null; unit?: string | null; conditions?: { name: string; value: string; unit?: string | null }[]; quote?: string | null; reason?: string | null };
+// 회신에서 읽은 값 후보(KAN-224). 회신 전이나 요구에 이어진 고객 질의가 아니면 null이고, 그때는 직접 입력으로 시작한다.
 const REASON: Record<string, string> = {
   NO_VALUE: '회신에 값이 없습니다', MULTIPLE_VALUES: '회신에 값이 여러 개 있습니다', CORRECTION: '회신이 앞의 값을 고쳐 말합니다',
   CONDITIONAL: '조건에 따라 값이 다릅니다', MULTIPLE_QUESTIONS: '여러 질의에 한꺼번에 답했습니다', AI_UNGROUNDED: '읽은 값이 회신 문장에서 확인되지 않습니다', AI_FAILED: '회신에서 값을 읽지 못했습니다',
 };
-const candidateOf = (q: Question) => ((q as { value_candidate?: ValueCandidate }).value_candidate ?? (q.reply as { value_candidate?: ValueCandidate } | null)?.value_candidate) || undefined;
 
 // 질의 번호: 첫 질의는 TQ-n, 후속 질의는 원래 질의 아래 TQ-n-2, TQ-n-3.
 export function tqNumbers(items: Question[]) {
-  const followsOf = (q: Question) => (q as { follows_question_id?: string | null }).follows_question_id ?? null;
+  const followsOf = (q: Question) => q.follows_question_id ?? null;
   const roots = items.filter(q => !followsOf(q) || !items.some(x => x.question_id === followsOf(q)));
   return roots.flatMap((root, i) => [{ q: root, no: `TQ-${i + 1}` }, ...items.filter(q => followsOf(q) === root.question_id).map((q, j) => ({ q, no: `TQ-${i + 1}-${j + 2}` }))]);
 }
@@ -579,7 +577,7 @@ export function tqNumbers(items: Question[]) {
 // 고객 회신 반영: 읽은 값 확인 → 값 반영하고 다시 비교 → 결과대로 확정(한 번 더 누름). 자동 반영은 하지 않는다.
 function ReplyFlow({ projectId, detail, question, onDone }: { projectId: string; detail: RequirementDetail; question: Question; onDone: () => void }) {
   const client = useQueryClient();
-  const found = candidateOf(question);
+  const found = question.value_candidate ?? undefined;
   const read = found && found.method !== 'none' ? found : undefined;
   const [value, setValue] = useState(read?.value ?? '');
   const [unit, setUnit] = useState(read?.unit ?? detail.spec?.unit ?? '');
