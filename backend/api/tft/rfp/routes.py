@@ -1008,3 +1008,17 @@ async def add_requirement(
     from backend.api.tft.rfp.manual_requirements import add
 
     return respond(request, await add(request, principal, project_id, payload, idempotency_key))
+
+
+@router.get(
+    P + "/equipment",
+    response_model=SuccessResponse[s.EquipmentList],
+    operation_id="tft_list_rfp_equipment",
+)
+async def list_equipment(
+    project_id: UUID, request: Request, user: User
+) -> SuccessResponse[s.EquipmentList]:
+    """KAN-227 프로젝트 설비 목록(직접 추가 칸의 설비 선택). 최신 맥락의 설비 묶음, 없으면 요구 설비 칸."""
+    from backend.api.tft.rfp.requirement_fields import list_equipment as equipment
+
+    return respond(request, await equipment(request, user, project_id))

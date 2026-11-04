@@ -437,6 +437,30 @@ class Condition(Model):
     unit: str | None
 
 
+class OwnValue(Model):
+    """자사 보증값(KAN-227). 저장된 비교의 대표 후보에서 읽는다(충족 → 다름 → 비교 불가 → 자료 없음)."""
+
+    product_code: str
+    variant: str | None
+    value: str
+    unit: str | None
+    conditions: list[Condition]
+    result: Literal["MEETS", "DIFFERS", "NOT_COMPARABLE", "NO_DATA"]
+
+
+class Equipment(Model):
+    """프로젝트 설비 하나(KAN-227). tag는 원문 제목의 설비 태그(KAN-216), 없으면 null."""
+
+    tag: str | None
+    name: str
+
+
+class EquipmentList(Model):
+    # context: 최신 맥락 결과의 설비 묶음. requirements: 맥락이 없어 요구 판본의 설비 칸을 모은 것.
+    source: Literal["context", "requirements"]
+    items: list[Equipment]
+
+
 class RequirementOrigin(Model):
     document_version_id: UUID
     clause_id: UUID | None
@@ -521,6 +545,8 @@ class RequirementSummary(Model):
     is_designated_item: bool = False
     bid_verdict: "BidVerdict | None" = None
     decision: "DecisionState | None" = None
+    # KAN-227: 비교에 쓴 자사 값. 비교가 없거나 자사 값이 없으면 null.
+    own_value: OwnValue | None = None
 
 
 class RequirementList(Model):
@@ -546,6 +572,8 @@ class RequirementDetail(Provenance):
     needs_review: bool = False
     bid_verdict: "BidVerdict | None" = None
     decision: "DecisionState | None" = None
+    # KAN-227: 비교에 쓴 자사 값. 비교가 없거나 자사 값이 없으면 null.
+    own_value: OwnValue | None = None
 
 
 # --- 자사 비교 (§4.5) -------------------------------------------------------------------
@@ -1117,6 +1145,8 @@ DecisionAction = Literal[
     # KAN-225: 요구에서 빼기·되살리기.
     "exclude_requirement",
     "restore_requirement",
+    # KAN-227: 도면 출처 요구를 규격서와 맞는다고 확인. 다르면 질의서에 넣는다(add_query).
+    "confirm_drawing",
 ]
 # 기록에 남는 행동. 원문에서 직접 추가(KAN-225)는 결정 API가 아니라 요구 추가 경로로만 한다.
 RecordedAction = Literal[DecisionAction, "add_requirement"]
@@ -1182,6 +1212,8 @@ class DecisionState(Model):
     reviewed: bool = False
     # KAN-225: 원문에서 사람이 직접 추가한 요구인지, 요구에서 뺐는지(빼도 지우지 않는다).
     manually_added: bool = False
+    # KAN-227: 도면 OCR 조항에서 나온 요구. 판정과 관계없이 도면 확인(맞음 confirm_drawing, 다름 add_query)이 필요하다.
+    drawing_check: bool = False
     excluded: bool = False
     excluded_reason: str | None = None
     # 추가·빼기·되살리기 중 마지막 것. 책임자 확인 대상이다(review_confirm의 decision_id로 확인).

@@ -200,7 +200,8 @@
               "review_confirm",
               "review_return",
               "exclude_requirement",
-              "restore_requirement"
+              "restore_requirement",
+              "confirm_drawing"
             ],
             "title": "Action",
             "type": "string"
@@ -1583,7 +1584,8 @@
               "review_confirm",
               "review_return",
               "exclude_requirement",
-              "restore_requirement"
+              "restore_requirement",
+              "confirm_drawing"
             ],
             "title": "Action",
             "type": "string"
@@ -1715,6 +1717,7 @@
               "review_return",
               "exclude_requirement",
               "restore_requirement",
+              "confirm_drawing",
               "add_requirement"
             ],
             "title": "Action",
@@ -1782,6 +1785,7 @@
                   "review_return",
                   "exclude_requirement",
                   "restore_requirement",
+                  "confirm_drawing",
                   "add_requirement"
                 ],
                 "type": "string"
@@ -1809,6 +1813,7 @@
                   "review_return",
                   "exclude_requirement",
                   "restore_requirement",
+                  "confirm_drawing",
                   "add_requirement"
                 ],
                 "type": "string"
@@ -1863,6 +1868,11 @@
               }
             ],
             "title": "Decision Id"
+          },
+          "drawing_check": {
+            "default": false,
+            "title": "Drawing Check",
+            "type": "boolean"
           },
           "excluded": {
             "default": false,
@@ -2868,6 +2878,59 @@
           "clause_nos"
         ],
         "title": "DuplicateSet",
+        "type": "object"
+      },
+      "Equipment": {
+        "additionalProperties": false,
+        "description": "\ud504\ub85c\uc81d\ud2b8 \uc124\ube44 \ud558\ub098(KAN-227). tag\ub294 \uc6d0\ubb38 \uc81c\ubaa9\uc758 \uc124\ube44 \ud0dc\uadf8(KAN-216), \uc5c6\uc73c\uba74 null.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag"
+          }
+        },
+        "required": [
+          "tag",
+          "name"
+        ],
+        "title": "Equipment",
+        "type": "object"
+      },
+      "EquipmentList": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Equipment"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "source": {
+            "enum": [
+              "context",
+              "requirements"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "items"
+        ],
+        "title": "EquipmentList",
         "type": "object"
       },
       "ErrorData": {
@@ -4031,6 +4094,69 @@
           "status"
         ],
         "title": "OptionGate",
+        "type": "object"
+      },
+      "OwnValue": {
+        "additionalProperties": false,
+        "description": "\uc790\uc0ac \ubcf4\uc99d\uac12(KAN-227). \uc800\uc7a5\ub41c \ube44\uad50\uc758 \ub300\ud45c \ud6c4\ubcf4\uc5d0\uc11c \uc77d\ub294\ub2e4(\ucda9\uc871 \u2192 \ub2e4\ub984 \u2192 \ube44\uad50 \ubd88\uac00 \u2192 \uc790\ub8cc \uc5c6\uc74c).",
+        "properties": {
+          "conditions": {
+            "items": {
+              "$ref": "#/components/schemas/Condition"
+            },
+            "title": "Conditions",
+            "type": "array"
+          },
+          "product_code": {
+            "title": "Product Code",
+            "type": "string"
+          },
+          "result": {
+            "enum": [
+              "MEETS",
+              "DIFFERS",
+              "NOT_COMPARABLE",
+              "NO_DATA"
+            ],
+            "title": "Result",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          },
+          "variant": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variant"
+          }
+        },
+        "required": [
+          "product_code",
+          "variant",
+          "value",
+          "unit",
+          "conditions",
+          "result"
+        ],
+        "title": "OwnValue",
         "type": "object"
       },
       "PartnerCandidate": {
@@ -6856,6 +6982,16 @@
           "origin": {
             "$ref": "#/components/schemas/RequirementOrigin"
           },
+          "own_value": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OwnValue"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "requirement_id": {
             "format": "uuid",
             "title": "Requirement Id",
@@ -7316,6 +7452,16 @@
           "open_questions": {
             "title": "Open Questions",
             "type": "integer"
+          },
+          "own_value": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OwnValue"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "path": {
             "anyOf": [
@@ -8586,6 +8732,22 @@
           "meta"
         ],
         "title": "SuccessResponse[Draft]",
+        "type": "object"
+      },
+      "SuccessResponse_EquipmentList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/EquipmentList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[EquipmentList]",
         "type": "object"
       },
       "SuccessResponse_ExportAccepted_": {
@@ -12829,6 +12991,100 @@
           }
         },
         "summary": "Get Draft Rewrite",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
+    "/api/v1/tft/projects/{project_id}/equipment": {
+      "get": {
+        "description": "KAN-227 \ud504\ub85c\uc81d\ud2b8 \uc124\ube44 \ubaa9\ub85d(\uc9c1\uc811 \ucd94\uac00 \uce78\uc758 \uc124\ube44 \uc120\ud0dd). \ucd5c\uc2e0 \ub9e5\ub77d\uc758 \uc124\ube44 \ubb36\uc74c, \uc5c6\uc73c\uba74 \uc694\uad6c \uc124\ube44 \uce78.",
+        "operationId": "tft_list_rfp_equipment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_EquipmentList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "List Equipment",
         "tags": [
           "rfp"
         ]

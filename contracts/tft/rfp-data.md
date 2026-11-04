@@ -423,3 +423,23 @@ null은 입력 전), `decisions_remaining`(= 상세 `decision_gate.undecided`), 
 
 웹·플랫폼 중계 허용표에는 아직 넣지 않았다. 화면을 붙일 때 세 경로를 `relay.py`·`frontend/server.mjs`·
 `docs/openapi/business-relay-routes.json`에 함께 더한다.
+
+## 요구 화면 서버 필드 (KAN-227, 2026-11-05)
+
+**자사 보증값 `own_value`.** 요구 목록·상세 응답에 싣는다. 저장된 비교에서만 읽고 새로 계산하지 않는다. 출처는 요구 상세의
+비교(`GET /requirements/{id}/comparison`)와 같다: 지금 판본의 재비교 사본(`requirement_recomparisons`)이 있으면 그 후보,
+없으면 비교가 저장된 가장 최근 판본의 후보별 최신 `product_comparisons`. 자사 값(`our_value`)이 있는 후보 중 결과가
+충족(MEETS) → 다름(DIFFERS) → 비교 불가 → 자료 없음 순, 같으면 제품 코드·변형 순으로 하나를 고른다. 없으면 null.
+형식: `{product_code, variant, value, unit, conditions: [{name, value, unit}], result}`.
+
+**도면 확인 `decision.drawing_check`.** 도면 OCR 조항(`OCR-DOCX-`·`OCR-PDF-P` 접두, worker `is_ocr`과 같음)에서 나온 요구는
+`drawing_check=true`다. 입찰 판정(`bid_verdict`) 값은 늘리지 않는다(화면 타입이 판정 값 전체를 쓰므로). 도면 요구는 판정이
+충족이어도 결정이 필요하고(`needed`), 결정은 둘 중 하나다: 맞음 `confirm_drawing`(판단은 바꾸지 않고 결정 기록만, 도면
+요구가 아니면 422), 다름 `add_query`(질의서에 넣음, 기존 질의 규칙). 권한·책임자 확인·되돌리기는 다른 결정과 같다(KAN-219).
+화면은 `drawing_check=true`인 요구를 "도면 확인" 묶음으로 모은다. 규격서 쪽 값은 맥락 결과의 `duplicates`(같은 값)와
+`value_conflicts`(`drawing=true`, 다른 값)에서 찾는다(KAN-223).
+
+**설비 목록 `GET /projects/{id}/equipment`.** 직접 추가 칸의 설비 선택용. 프로젝트 열람 권한과 같다(범위 밖 404).
+응답 `{source, items: [{tag, name}]}`. `source=context`면 최신 맥락 결과의 설비 묶음(`kind=EQUIPMENT`, tag는 원문 제목의
+설비 태그 또는 null), 맥락이 없으면 `source=requirements`로 최신 요구 판본의 설비 칸을 모은다(tag null). 태그 있는 것 먼저,
+태그·이름 순.
