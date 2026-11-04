@@ -517,7 +517,14 @@ class RequirementList(Model):
     next_cursor: str | None
 
 
+class RequirementWorkflow(Model):
+    comparison_stale: bool = False
+    supplement_stale: bool = False
+    draft_sentence_ids: list[UUID] = Field(default_factory=list)
+
+
 class RequirementDetail(Provenance):
+    workflow: RequirementWorkflow = Field(default_factory=RequirementWorkflow)
     requirement_id: UUID
     code: str
     origin: RequirementOrigin
@@ -767,6 +774,18 @@ class QuestionReply(Model):
     schedule_fits: bool | None = None
 
 
+class RecordedReply(Model):
+    reply_id: UUID
+    reply_text: str
+    source_ref: str | None
+    received_at: datetime
+    recorded_at: datetime
+    recorded_by: UUID
+    rnd_feasibility: RndFeasibility | None = None
+    earliest_available_on: date | None = None
+    schedule_fits: bool | None = None
+
+
 class Question(Provenance):
     question_id: UUID
     requirement_id: UUID | None
@@ -776,6 +795,7 @@ class Question(Provenance):
     internal_assumption: InternalAssumption | None
     status: QuestionStatus
     reply_received_at: datetime | None
+    reply: RecordedReply | None = None
     created_by: UUID
     created_at: datetime
     target: QuestionTarget = "CUSTOMER"
@@ -790,7 +810,15 @@ class QuestionList(Model):
 # --- 변경 제안 (§4.8) -------------------------------------------------------------------
 
 
+class ProposedSpec(Model):
+    value: str | None = Field(max_length=4000)
+    unit: str | None = Field(max_length=128)
+    operator: Operator
+    tolerance: str | None = Field(max_length=1000)
+
+
 class ProposedChange(Model):
+    spec: ProposedSpec | None = None
     status: RequirementStatus | None = None
     necessity: Necessity | None = None
     reason: str | None = None
@@ -800,6 +828,8 @@ class ProposedChange(Model):
 
 class ProposalCreate(Model):
     requirement_id: UUID
+    requirement_version: int | None = Field(default=None, ge=1)
+    source_question_id: UUID | None = None
     proposed: ProposedChange
     rationale: str = Field(min_length=1, max_length=2000)
     evidence_refs: list[str] = Field(default_factory=list, max_length=20)
@@ -822,6 +852,7 @@ class Proposal(Provenance):
     requirement_id: UUID | None
     # 조항에 맞출 수 없는 메모(pdf_annot)는 요구 없이 남긴다.
     clause_unresolved: bool
+    evidence_refs: list[str] = Field(default_factory=list)
     current: ProposedChange
     proposed: ProposedChange
     rationale: str
@@ -870,7 +901,14 @@ class Section(Model):
     sentences: list[Sentence]
 
 
+class DraftFreshness(Model):
+    status: Literal["CURRENT", "STALE", "UNKNOWN"] = "UNKNOWN"
+    changed_requirement_ids: list[UUID] = Field(default_factory=list)
+    preserved_human_sentence_ids: list[UUID] = Field(default_factory=list)
+
+
 class Draft(Provenance):
+    freshness: DraftFreshness = Field(default_factory=DraftFreshness)
     project_id: UUID
     sections: list[Section]
     # 고정 문구: 검토용 초안입니다. 고객 제출 전 담당자 확인이 필요합니다.
@@ -1001,3 +1039,12 @@ class DiagramList(Model):
     processing_status: Literal["NOT_ANALYZED", "ANALYZED", "PARTIAL"]
     warnings: list[str]
     items: list[DiagramItem]
+
+
+class RecompareRequest(Model):
+    version: int = Field(ge=1)
+
+
+class RecompareResult(Model):
+    comparison: Comparison
+    proposal: Proposal | None = None

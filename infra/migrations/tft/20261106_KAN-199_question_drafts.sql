@@ -31,7 +31,7 @@ ALTER TABLE tft.rfp_commands ADD CONSTRAINT rfp_commands_operation_check
     CHECK (operation IN ('project.create', 'document.upload', 'project.process',
         'supplement.select', 'question.create', 'question.reply', 'proposal.create', 'proposal.approve',
         'proposal.reject', 'review_version.create', 'export.create', 'annotation.process',
-        'question.confirm', 'draft.rewrite', 'context.process'));
+        'question.confirm', 'draft.rewrite','requirement.recompare', 'context.process'));
 
 GRANT INSERT ON tft.customer_questions TO tft_worker;
 

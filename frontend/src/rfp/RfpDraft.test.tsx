@@ -758,3 +758,19 @@ it('초안 작성 안내와 재검토 문장 바로보기를 제공하며 자동
   expect((screen.getByLabelText('보기') as HTMLSelectElement).value).toBe('review');
   expect(f.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
 });
+
+it('초안 이후 바뀐 요구를 보여주고 최신 문장으로 자동 덮어쓰지 않는다', async () => {
+  const fetcher = serve(url => url === BASE ? data({ ...draft, freshness: { status: 'STALE', changed_requirement_ids: ['requirement-1'], preserved_human_sentence_ids: [SENTENCE] } }) : data({ items: [] }));
+  renderApp(`/tft/projects/${P}/draft`);
+  const notice = await screen.findByLabelText('검토 결과 반영 상태');
+  expect(notice.textContent).toContain('요구 1건이 바뀌었습니다');
+  expect(notice.textContent).toContain('직접 수정한 1문장은 유지');
+  expect(within(notice).getByRole('link', { name: '요구 상세 확인' }).getAttribute('href')).toBe(`/tft/projects/${P}/requirements/requirement-1`);
+  expect(fetcher.mock.calls.every(([, init]) => !init?.method || init.method === 'GET')).toBe(true);
+});
+
+it('이전 초안에 반영판본 기록이 없으면 최신이라고 표시하지 않는다', async () => {
+  serve(url => url === BASE ? data({ ...draft, freshness: { status: 'UNKNOWN' } }) : data({ items: [] }));
+  renderApp(`/tft/projects/${P}/draft`);
+  expect((await screen.findByLabelText('검토 결과 반영 상태')).textContent).toContain('반영한 요구 판본 기록이 없습니다');
+});

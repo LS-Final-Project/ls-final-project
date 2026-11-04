@@ -116,7 +116,26 @@ async def _load(
                 provenance_kind=row["provenance_kind"],
             )
         )
+    from backend.api.tft.rfp.workflow import inputs
+
+    snapshot = metadata.get("input_snapshot")
+    current_inputs = (
+        await inputs(conn, project_id) if live_review and snapshot is not None else snapshot
+    )
+    changed = sorted(
+        key
+        for key in set(snapshot or {}) | set(current_inputs or {})
+        if (snapshot or {}).get(key) != (current_inputs or {}).get(key)
+    )
+    freshness = s.DraftFreshness(
+        status="UNKNOWN" if snapshot is None else "STALE" if changed else "CURRENT",
+        changed_requirement_ids=changed,
+        preserved_human_sentence_ids=[
+            row["sentence_key"] for row in rows if row["provenance_kind"] == "human_input"
+        ],
+    )
     return s.Draft(
+        freshness=freshness,
         project_id=project_id,
         version=metadata["version"],
         data_origin=metadata["data_origin"],
@@ -137,6 +156,8 @@ async def save(
     actor: UUID,
     source_job_id: UUID | None = None,
     reasons: dict[UUID, str] | None = None,
+    capture_inputs: bool | None = None,
+    source_inputs: dict[str, Any] | None = None,
 ) -> None:
     """로직이 검증한 새 판본을 추가한다. 기존 판본·공개 문장 키는 고치지 않는다."""
     current = await head(conn, draft.project_id)
@@ -163,9 +184,24 @@ async def save(
             "UPDATE tft.drafts SET latest_version = %s WHERE project_id = %s",
             (draft.version, draft.project_id),
         )
+    from backend.api.tft.rfp.workflow import inputs
+
+    snapshot: dict[str, Any] | None
+    capture = capture_inputs if capture_inputs is not None else source_job_id is not None
+    if source_inputs is not None:
+        snapshot = source_inputs
+    elif capture:
+        snapshot = await inputs(conn, draft.project_id)
+    else:
+        cursor = await conn.execute(
+            "SELECT input_snapshot FROM tft.draft_versions WHERE project_id=%s AND version=%s",
+            (draft.project_id, current),
+        )
+        previous = await cursor.fetchone()
+        snapshot = previous["input_snapshot"] if previous else None
     await conn.execute(
         "INSERT INTO tft.draft_versions (project_id,version,provenance_kind,created_by,"
-        "data_origin,derivation_kind,known_at,source_job_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+        "data_origin,derivation_kind,known_at,source_job_id,input_snapshot) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
         (
             draft.project_id,
             draft.version,
@@ -175,6 +211,7 @@ async def save(
             draft.derivation_kind,
             draft.known_at,
             source_job_id,
+            Jsonb(snapshot) if snapshot is not None else None,
         ),
     )
     for part in draft.sections:

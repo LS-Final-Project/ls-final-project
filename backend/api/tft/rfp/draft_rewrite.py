@@ -202,7 +202,12 @@ async def apply_result(
             conn, job.project_id, record["base_version"], human_keys
         )
         await db.save(
-            conn, result.draft, actor=job.actor_id, source_job_id=job.job_id, reasons=reasons
+            conn,
+            result.draft,
+            actor=job.actor_id,
+            source_job_id=job.job_id,
+            reasons=reasons,
+            capture_inputs=False,
         )
         await conn.execute(
             "UPDATE tft.draft_rewrites SET state='saved',result_version=%s WHERE id=%s",

@@ -9,12 +9,21 @@ import { ErrorState, Loading } from '../components/states';
 import { formatDateTime } from '../components/tft';
 import { downloadCsv, KvBox, KvCond, KvCondField, KvCondRow, KvField, KvGrid, KvKey, KvNext, KvSplit, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
 import { useNames } from './names';
-import { label, NECESSITY_LABEL, ORIGIN_LABEL, PROPOSAL_STATUS_LABEL, requirementNo, shortDateTime, STATUS_LABEL } from './labels';
+import { label, NECESSITY_LABEL, OPERATOR_LABEL, ORIGIN_LABEL, PROPOSAL_STATUS_LABEL, requirementNo, shortDateTime, STATUS_LABEL } from './labels';
 import { Failure, settled, useAttemptKey } from './proposal-shared';
 
 type Change = { item: string; now: string; next: string };
 function changes({ current, proposed }: Proposal): Change[] {
   const out: Change[] = [];
+  if (proposed.spec) {
+    for (const [key, name] of [['value', '요구값'], ['unit', '단위'], ['operator', '비교 조건'], ['tolerance', '허용차']] as const) {
+      if (proposed.spec[key] !== current.spec?.[key]) out.push({ item: name, now: key === 'operator' ? label(OPERATOR_LABEL, current.spec?.operator ?? '') || '없음' : current.spec?.[key] ?? '없음', next: key === 'operator' ? label(OPERATOR_LABEL, proposed.spec.operator) : proposed.spec[key] ?? '없음' });
+    }
+  }
+  if (proposed.conditions && JSON.stringify(proposed.conditions) !== JSON.stringify(current.conditions)) {
+    const text = (rows: NonNullable<typeof proposed.conditions>) => rows.map(c => [c.name, c.value, c.unit].filter(Boolean).join(' ')).join(', ') || '없음';
+    out.push({ item: '적용 조건', now: text(current.conditions ?? []), next: text(proposed.conditions) });
+  }
   if (proposed.status && proposed.status !== current.status) out.push({ item: '상태', now: label(STATUS_LABEL, current.status), next: label(STATUS_LABEL, proposed.status) });
   if (proposed.necessity && proposed.necessity !== current.necessity) out.push({ item: '성격', now: label(NECESSITY_LABEL, current.necessity), next: label(NECESSITY_LABEL, proposed.necessity) });
   if (proposed.unresolved && proposed.unresolved.join() !== (current.unresolved ?? []).join()) out.push({ item: '미확인', now: (current.unresolved ?? []).join(', ') || '없음', next: proposed.unresolved.join(', ') || '없음' });
@@ -66,6 +75,7 @@ const Decision = forwardRef<DecisionHandle, DecisionProps>(function Decision({ p
   return <KvBox title={`제안, 요구 ${code}, ${label(ORIGIN_LABEL, proposal.origin)}`} note={label(PROPOSAL_STATUS_LABEL, proposal.status)}>
       <KvGrid label="제안 내용" columns={CHANGES} rows={changes(proposal)} rowKey={c => c.item} fallback="값은 그대로입니다. 승인하면 추출 값이 맞다고 확인하고 원문 확인 표시를 풉니다." />
       <div className="kv-field" style={{ marginTop: 8 }}><span>사유</span><div className="kv-text" style={{ minHeight: 0 }}>{proposal.rationale}</div></div>
+      {proposal.evidence_refs && proposal.evidence_refs.length > 0 && <KvField label="근거">{proposal.evidence_refs.join(" · ")}</KvField>}
       <KvField label="제안자">{[proposal.proposer_kind === 'system' ? '자동' : by, shortDateTime(proposal.known_at), `판본 ${proposal.version}`].filter(Boolean).join(', ')}</KvField>
       {!pending && <KvField label="처리">{label(PROPOSAL_STATUS_LABEL, proposal.status)} {formatDateTime(proposal.decided_at)}. 처리된 제안은 다시 바꿀 수 없습니다.</KvField>}
       {pending && canDecide && <>
@@ -98,6 +108,7 @@ export default function RfpApprovals() {
   const [origin, setOrigin] = useState('');
   const [picked, setPicked] = useState<string>();
   const [done, setDone] = useState<string>();
+  const [approvedRequirement, setApprovedRequirement] = useState<string>();
   const [search, setSearch] = useState('');
   const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
   const decision = useRef<DecisionHandle>(null);
@@ -173,6 +184,7 @@ export default function RfpApprovals() {
       <button className="kb" disabled={items.length === 0} title={checked.size ? `고른 ${checked.size}건` : '표시한 행 전체'} onClick={() => downloadCsv('변경 제안', CSV_HEAD, items.filter(p => !checked.size || checked.has(p.proposal_id)).map(p => [p.proposal_id.slice(0, 8), label(ORIGIN_LABEL, p.origin), codeOf(p), changes(p).map(c => c.item).join(', '), changes(p).map(c => c.now).join(', '), changes(p).map(c => c.next).join(', '), shortDateTime(p.known_at), label(PROPOSAL_STATUS_LABEL, p.status)]))}>엑셀</button>
     </KvTitle>
     <KvNext>{done ?? (project.data?.data.name ? `${project.data.data.name}, 변경 제안 ${items.length}건.` : '변경 제안.')}{!done && ' 기각은 사유 필수입니다.'}</KvNext>
+    {done && approvedRequirement && <div className="kv-actions" style={{ margin: "8px 14px" }}><Link className="kb primary" to={`/tft/projects/${projectId}/requirements/${approvedRequirement}`}>승인한 요구의 비교·대응 방안 확인</Link></div>}
     <KvCond onSearch={() => proposals.refetch()}>
       <KvCondRow columns={3}>
         <KvCondField label="상태"><select aria-label="상태" value={status} onChange={event => { setStatus(event.target.value); setPicked(undefined); setChecked(new Set()); }}>
@@ -192,7 +204,7 @@ export default function RfpApprovals() {
       : <KvGrid label="변경 제안" columns={columns} rows={items} rowKey={p => p.proposal_id} selectedKey={selected} onRow={p => { setPicked(p.proposal_id); setDone(undefined); }} fallback={proposals.isPending ? <Loading /> : '조건에 맞는 제안이 없습니다.'} />}
     <KvSplit columns="1.6fr 1fr">
       {chosen
-        ? <Decision ref={decision} key={chosen.proposal_id} proposal={chosen} code={codeOf(chosen)} canDecide={canDecide} chosenByUser={chosenByUser} by={nameOf(chosen.proposer_user_id)} onChanged={reload} onApproved={setDone} />
+        ? <Decision ref={decision} key={chosen.proposal_id} proposal={chosen} code={codeOf(chosen)} canDecide={canDecide} chosenByUser={chosenByUser} by={nameOf(chosen.proposer_user_id)} onChanged={reload} onApproved={text => { setDone(text); setApprovedRequirement(chosen.requirement_id ?? undefined); }} />
         : <KvBox title="제안">제안을 고르면 내용이 보입니다.</KvBox>}
       <div>
         <p className="kv-label">세 입구가 같은 목록</p>

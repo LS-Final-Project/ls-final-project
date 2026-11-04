@@ -162,8 +162,8 @@ def test_rnd_answer_fields_follow_the_target_department(client, gap):
     assert data["created_proposal"] is None
 
 
-def test_customer_reply_proposes_dropping_the_answered_unresolved_item(client, gap, admin):
-    """CUSTOMER 회신은 본문에 든 미해결 항목만 뺀 제안을 만들고, 맞는 항목이 없으면 제안이 없다."""
+def test_customer_reply_does_not_resolve_by_question_substring(client, gap, admin):
+    """모호한 회신은 질문에 미해결 문구가 있어도 해결하거나 변경 제안을 만들지 않는다."""
     asked = ask(
         client,
         gap,
@@ -173,18 +173,9 @@ def test_customer_reply_proposes_dropping_the_answered_unresolved_item(client, g
         question_text="BIL 시험 조건을 알려 주십시오",
     ).json()["data"]
     data = answer(client, asked, OWNER).json()["data"]
-    proposal = data["created_proposal"]
-    assert audit_actions(admin, gap["project"]).count("proposal.create") == 1
-    assert (proposal["origin"], proposal["status"], proposal["proposer_kind"]) == (
-        "customer_reply",
-        "PENDING",
-        "system",
-    )
-    assert proposal["proposer_user_id"] is None
-    assert proposal["rationale"] == "회신 내용 미검증(담당자 확인 필요). 고객 회신: 확인했습니다"
-    assert proposal["source_ref"]["question_id"] == asked["question_id"]
-    assert proposal["current"]["unresolved"] == ["BIL 시험 조건"]
-    assert proposal["proposed"] == {**proposal["current"], "unresolved": []}
+    assert data["created_proposal"] is None
+    assert data["reply"]["reply_text"] == "확인했습니다"
+    assert audit_actions(admin, gap["project"]).count("proposal.create") == 0
     other = ask(
         client, gap, issue_type="SCOPE_UNCLEAR", target="CUSTOMER", target_dept=None
     ).json()["data"]

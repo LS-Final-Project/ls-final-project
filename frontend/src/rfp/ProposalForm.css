@@ -1,0 +1,15 @@
+/* 셸의 일반 입력 너비 규칙이 선택 체크박스에 적용되지 않게 한다. */
+.ls-root .rfp-proposal-form .rfp-proposal-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 0;
+  line-height: 1.5;
+}
+.ls-root .rfp-proposal-form input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  min-height: 0;
+  flex: 0 0 14px;
+  margin: 3px 0 0;
+}

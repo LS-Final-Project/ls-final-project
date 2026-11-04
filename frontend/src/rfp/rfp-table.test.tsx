@@ -336,7 +336,7 @@ describe('변경 제안', () => {
     fireEvent.click(submit);
     await waitFor(() => expect(posts('/proposals')).toHaveLength(1));
     expect(posts('/proposals')[0].body).toEqual({
-      requirement_id: MOCK_DETAIL.requirement_id, proposed: {}, rationale: '원문 대조', evidence_refs: [],
+      requirement_id: MOCK_DETAIL.requirement_id, requirement_version: MOCK_DETAIL.version, proposed: {}, rationale: '원문 대조', evidence_refs: [],
     });
   });
 
@@ -354,7 +354,7 @@ describe('변경 제안', () => {
     fireEvent.click(submit);
     await waitFor(() => expect(posts('/proposals')).toHaveLength(1));
     expect(posts('/proposals')[0].body).toEqual({
-      requirement_id: MOCK_DETAIL.requirement_id, proposed: { status: 'CONDITIONAL' }, rationale: '근거', evidence_refs: ['조항 2.1', '성적서'],
+      requirement_id: MOCK_DETAIL.requirement_id, requirement_version: MOCK_DETAIL.version, proposed: { status: 'CONDITIONAL' }, rationale: '근거', evidence_refs: ['조항 2.1', '성적서'],
     });
     await waitFor(() => expect(screen.queryByRole('button', { name: '제안 저장' })).toBeNull());
   });

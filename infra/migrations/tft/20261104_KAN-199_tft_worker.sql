@@ -65,6 +65,9 @@ BEGIN
     IF to_regclass('tft.context_versions') IS NOT NULL THEN
         EXECUTE 'GRANT SELECT,INSERT ON tft.context_versions TO tft_worker';
     END IF;
+    IF to_regclass('tft.requirement_recomparisons') IS NOT NULL THEN
+        EXECUTE 'GRANT SELECT ON tft.requirement_recomparisons TO tft_worker';
+    END IF;
     IF to_regclass('tft.review_context_snapshots') IS NOT NULL THEN
         EXECUTE 'GRANT SELECT ON tft.review_context_snapshots TO tft_worker';
     END IF;

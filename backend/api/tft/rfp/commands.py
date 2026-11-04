@@ -34,6 +34,7 @@ Operation = Literal[
     "review_version.create",
     "export.create",
     "draft.rewrite",
+    "requirement.recompare",
 ]
 OPERATIONS: frozenset[str] = frozenset(
     (
@@ -52,6 +53,7 @@ OPERATIONS: frozenset[str] = frozenset(
         "review_version.create",
         "export.create",
         "draft.rewrite",
+        "requirement.recompare",
     )
 )
 

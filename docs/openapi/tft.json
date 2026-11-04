@@ -2078,6 +2078,9 @@
             "title": "Evidence Missing Count",
             "type": "integer"
           },
+          "freshness": {
+            "$ref": "#/components/schemas/DraftFreshness"
+          },
           "known_at": {
             "format": "date-time",
             "title": "Known At",
@@ -2137,6 +2140,39 @@
           "edits"
         ],
         "title": "DraftEdit",
+        "type": "object"
+      },
+      "DraftFreshness": {
+        "additionalProperties": false,
+        "properties": {
+          "changed_requirement_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Changed Requirement Ids",
+            "type": "array"
+          },
+          "preserved_human_sentence_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Preserved Human Sentence Ids",
+            "type": "array"
+          },
+          "status": {
+            "default": "UNKNOWN",
+            "enum": [
+              "CURRENT",
+              "STALE",
+              "UNKNOWN"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "DraftFreshness",
         "type": "object"
       },
       "DraftRegenerate": {
@@ -4239,6 +4275,13 @@
             "title": "Derivation Kind",
             "type": "string"
           },
+          "evidence_refs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence Refs",
+            "type": "array"
+          },
           "known_at": {
             "format": "date-time",
             "title": "Known At",
@@ -4385,6 +4428,30 @@
             "format": "uuid",
             "title": "Requirement Id",
             "type": "string"
+          },
+          "requirement_version": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requirement Version"
+          },
+          "source_question_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Question Id"
           }
         },
         "required": [
@@ -4506,6 +4573,16 @@
             ],
             "title": "Reason"
           },
+          "spec": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProposedSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "status": {
             "anyOf": [
               {
@@ -4539,6 +4616,66 @@
           }
         },
         "title": "ProposedChange",
+        "type": "object"
+      },
+      "ProposedSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "operator": {
+            "enum": [
+              "EQ",
+              "GTE",
+              "LTE",
+              "RANGE",
+              "TEXT"
+            ],
+            "title": "Operator",
+            "type": "string"
+          },
+          "tolerance": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tolerance"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "value",
+          "unit",
+          "operator",
+          "tolerance"
+        ],
+        "title": "ProposedSpec",
         "type": "object"
       },
       "Question": {
@@ -4612,6 +4749,16 @@
           "question_text": {
             "title": "Question Text",
             "type": "string"
+          },
+          "reply": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecordedReply"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "reply_received_at": {
             "anyOf": [
@@ -4987,6 +5134,16 @@
             "title": "Question Text",
             "type": "string"
           },
+          "reply": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecordedReply"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "reply_received_at": {
             "anyOf": [
               {
@@ -5115,6 +5272,134 @@
         "title": "ReadinessData",
         "type": "object"
       },
+      "RecompareRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "RecompareRequest",
+        "type": "object"
+      },
+      "RecompareResult": {
+        "additionalProperties": false,
+        "properties": {
+          "comparison": {
+            "$ref": "#/components/schemas/Comparison"
+          },
+          "proposal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Proposal"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "comparison"
+        ],
+        "title": "RecompareResult",
+        "type": "object"
+      },
+      "RecordedReply": {
+        "additionalProperties": false,
+        "properties": {
+          "earliest_available_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Earliest Available On"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "recorded_at": {
+            "format": "date-time",
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "recorded_by": {
+            "format": "uuid",
+            "title": "Recorded By",
+            "type": "string"
+          },
+          "reply_id": {
+            "format": "uuid",
+            "title": "Reply Id",
+            "type": "string"
+          },
+          "reply_text": {
+            "title": "Reply Text",
+            "type": "string"
+          },
+          "rnd_feasibility": {
+            "anyOf": [
+              {
+                "enum": [
+                  "FEASIBLE",
+                  "FEASIBLE_WITH_SCHEDULE",
+                  "NOT_FEASIBLE",
+                  "UNDETERMINED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rnd Feasibility"
+          },
+          "schedule_fits": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule Fits"
+          },
+          "source_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Ref"
+          }
+        },
+        "required": [
+          "reply_id",
+          "reply_text",
+          "source_ref",
+          "received_at",
+          "recorded_at",
+          "recorded_by"
+        ],
+        "title": "RecordedReply",
+        "type": "object"
+      },
       "RequirementCounts": {
         "additionalProperties": false,
         "properties": {
@@ -5227,6 +5512,9 @@
             "minimum": 1.0,
             "title": "Version",
             "type": "integer"
+          },
+          "workflow": {
+            "$ref": "#/components/schemas/RequirementWorkflow"
           }
         },
         "required": [
@@ -5746,6 +6034,31 @@
           "provenance_kind"
         ],
         "title": "RequirementSummary",
+        "type": "object"
+      },
+      "RequirementWorkflow": {
+        "additionalProperties": false,
+        "properties": {
+          "comparison_stale": {
+            "default": false,
+            "title": "Comparison Stale",
+            "type": "boolean"
+          },
+          "draft_sentence_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Draft Sentence Ids",
+            "type": "array"
+          },
+          "supplement_stale": {
+            "default": false,
+            "title": "Supplement Stale",
+            "type": "boolean"
+          }
+        },
+        "title": "RequirementWorkflow",
         "type": "object"
       },
       "ResponseMeta": {
@@ -7049,6 +7362,22 @@
           "meta"
         ],
         "title": "SuccessResponse[ReadinessData]",
+        "type": "object"
+      },
+      "SuccessResponse_RecompareResult_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RecompareResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[RecompareResult]",
         "type": "object"
       },
       "SuccessResponse_RequirementDetail_": {
@@ -12754,6 +13083,120 @@
           }
         },
         "summary": "Get Comparison",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
+    "/api/v1/tft/requirements/{requirement_id}/recompare": {
+      "post": {
+        "operationId": "tft_recompare_rfp_requirement",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requirement_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Requirement Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecompareRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RecompareResult_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Recompare Requirement",
         "tags": [
           "rfp"
         ]

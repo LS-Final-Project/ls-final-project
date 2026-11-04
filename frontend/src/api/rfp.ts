@@ -218,3 +218,8 @@ export const selectSupplementBatch = (projectId: string, body: SupplementBatchBo
 };
 // 묶음 경로가 없는 서버(중계 허용 목록에 없음 405, 경로 없음 404 NOT_FOUND·코드 없음). 업무 404(TFT_*)는 해당하지 않는다.
 export const unsupportedRoute = (error: unknown) => error instanceof ApiError && (error.status === 405 || error.status === 404 && (!error.code || error.code === 'NOT_FOUND'));
+
+// 저장된 근거만 재비교한다. 모델 호출과 판정 자동 승인은 하지 않는다.
+export const recompareRequirement = (id: string, version: number, key: string) => request<Envelope<{ comparison: Comparison; proposal: Proposal | null }>>(
+  `/api/v1/tft/requirements/${encodeURIComponent(id)}/recompare`, json(key, { version }),
+);

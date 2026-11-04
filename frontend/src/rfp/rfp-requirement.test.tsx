@@ -323,7 +323,7 @@ describe('회신', () => {
 
   it.each([
     [{ proposal_id: 'p' }, '변경 제안이 생겼고 승인 전에는 요구가 바뀌지 않습니다'],
-    [null, '변경 제안은 생기지 않았습니다'],
+    [null, '내용을 읽고 요구에 반영할 항목을 선택하세요'],
   ])('제안 생성 %j 를 사실대로 알린다', async (created_proposal, text) => {
     write = () => ok({ ...question('q1'), created_proposal });
     await form();
@@ -503,4 +503,17 @@ it('다른 요구 질문의 회신으로 현재 요구의 변경 제안을 열�
   const next = await screen.findByRole('link', { name: '회신이 연결된 요구 검토' });
   expect(next.getAttribute('href')).toBe(`/tft/projects/${PROJECT}/requirements/other-requirement`);
   expect(screen.queryByRole('button', { name: '근거 확인 후 판정 변경 제안' })).toBeNull();
+});
+
+it('요구 변경 영향은 보여주되 재비교는 사용자가 선택해야 실행한다', async () => {
+  detail = { ...MOCK_DETAIL, workflow: { comparison_stale: true, supplement_stale: true, draft_sentence_ids: ['sentence-1'] } };
+  write = () => ok({ comparison: {}, proposal: { proposal_id: 'proposal-1' } });
+  await open();
+  expect(posts('/recompare')).toHaveLength(0);
+  fireEvent.click(screen.getByRole('button', { name: '저장된 자료로 다시 비교' }));
+  await waitFor(() => expect(posts('/recompare')).toHaveLength(1));
+  expect(posts('/recompare')[0].body).toEqual({ version: MOCK_DETAIL.version });
+  expect(posts('/recompare')[0].key).toBeTruthy();
+  expect(await screen.findByRole('link', { name: '재비교 변경 제안 검토' })).toBeTruthy();
+  expect(posts('/approve')).toHaveLength(0);
 });

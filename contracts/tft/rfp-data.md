@@ -186,8 +186,10 @@ erDiagram
 - **9 조항(KAN-188)**: 경로의 ID는 문서 ID 또는 문서 판본 ID다. 판본 ID면 그 판본의 조항이다. 요구 화면이 인용한 판본으로 부른다.
 - **19 질문**: INTERNAL의 `target_dept`가 프로젝트 검토 부서 밖이거나 원문 조항이 프로젝트 문서의 조항이 아니면 422 `VALIDATION_ERROR`다.
 - **16 후보 검사**: 고른 `candidate_codes`는 그 경로의 저장 후보여야 한다(밖이면 422 `VALIDATION_ERROR`). 이 요구의 최신 저장 등급이 `EXCLUDED`인 후보는 422 `TFT_CANDIDATE_EXCLUDED`다(경로 후보여도 거절). 거절된 코드는 `details`에 적는다.
-- **20 회신**: 응답은 회신된 질문(`QuestionReplyResult`)이고, 제안을 만들었을 때만 `created_proposal`이 있다. INTERNAL 회신은 제안을 만들지 않는다. CUSTOMER 회신은 요구가 있는 질문이면 판단 필드(`status`·`necessity`·`reason`·`conditions`·`unresolved`)를 `current`로 하고 `unresolved`에서 질문 본문에 그대로 들어 있는 항목만 뺀 값을 `proposed`로 한다(명세 v1.2 §4.7·§4.8). 빠지는 항목이 없거나 질문에 요구가 없으면 제안을 만들지 않는다. 제안은 `origin=customer_reply`, `proposer_kind=system`(`proposer_user_id` 없음), `source_ref={question_id, reply_id}`, 근거 문장 "회신 내용 미검증(담당자 확인 필요). 고객 회신: " + 회신 앞 200자(짝짓기가 회신 내용을 보지 않으므로 승인자가 확인한다), `PENDING`이다. `internal_assumption`은 가정(ASSUMED)이라 제안에 쓰지 않는다.
-  - 후속 제안(KAN-188/182): 질문과 미해결 항목을 잇는 열이 없어 본문 포함으로 짝짓는다. 질문을 만들 때 대상 `unresolved` 항목을 지정하게 하면 이 추정이 필요 없다.
+- **20 회신**: 응답과 질문 목록에 `reply`(본문, 출처, 수신·기록 일시, 기록자, R&D 가능 여부·일정)를 제공한다. 회신 저장은 요구의 미해결 항목을 해소하거나 제안을 자동 생성하지 않는다. 질문 문자열 포함 여부로 해결을 추정하던 계약은 폐기했다. `created_proposal`은 호환 필드로 null이다.
+- **22 명시적 회신 반영**: `source_question_id`로 같은 프로젝트·요구에 저장된 회신을 지정한다. `requirement_version`을 주면 해당 판본과 일치해야 한다(409). `source_ref={question_id,reply_id}`와 `evidence_refs`를 제안에 보존한다. `proposed.spec={value,unit,operator,tolerance}` 및 기존 `conditions`, `unresolved`를 사람이 명시한다. 승인 전 요구는 바뀌지 않고, 승인 시 새 요구 판본을 만들며 원문 인용을 보존한다. 사양 변경 시 옛 정규값은 지워 다시 확인하게 한다.
+- **해당 요구 재비교**: `POST /requirements/{id}/recompare`, `{version}`, Idempotency-Key 필수. 저장된 추출 의미와 합성 자사 사양의 순수 비교기를 사용하며 모델·문서 재처리는 없다. 과거 추출 의미가 없거나 유효하지 않으면 409 `TFT_RECOMPARE_INPUT_INCOMPLETE`와 보완 사유를 반환한다. 응답은 `{comparison,proposal}`다. 비교는 불변 기록으로 저장하고 판단 차이는 승인 대기 제안으로 남긴다. 사용자가 승인하기 전 판단은 유지한다. 무후보 결과도 저장해 과거 후보를 다시 표시하지 않는다.
+- **변경 영향**: 요구 상세 `workflow`는 비교 판본 불일치, 보완 재검토 여부, 연결된 초안 재검토 문장 ID를 반환한다. 초안 `freshness`는 CURRENT/STALE/UNKNOWN, 변경된 요구 ID와 직접 수정 문장 ID를 제공한다. 새 초안 생성 때 요구·비교·선택·질문 판본 입력을 고정하고, 직접 편집·AI 문장 다듬기는 기존 입력을 상속한다. 기존 초안은 입력이 없으므로 UNKNOWN이며 최신으로 추정하지 않는다. 검토본·내보내기의 불변 snapshot에 최신 상태를 소급 반영하지 않는다.
 - **`next_owner_field=RND`**: 판본 열이라 쓰려면 판본을 올려야 하므로 `rnd_check`와 같이 저장하지 않는다. 요구의 `rnd_check`가 `PENDING`이면 읽을 때 `RND`로 계산한다(요구 상세 응답을 구현하는 쪽, KAN-188).
 
 ## 미해결 필수 요구 집계 (KAN-196, 2026-10-29)

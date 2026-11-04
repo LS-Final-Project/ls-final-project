@@ -2,7 +2,8 @@ import { useMutation } from '@tanstack/react-query';
 import { useId, useState } from 'react';
 import { ApiError } from '../api/client';
 import { me } from '../api/platform';
-import { createQuestion, replyQuestion, type Question, type RequirementDetail } from '../api/rfp';
+import { createQuestion, replyQuestion, type Proposal, type Question, type RequirementDetail } from '../api/rfp';
+import { formatDateTime } from '../components/tft';
 import { KvBox, KvField } from '../ls-shell/kv';
 import { DEPARTMENT_LABEL, FEASIBILITY_LABEL, ISSUE_LABEL, label, requirementNo, RND_DEPARTMENTS } from './labels';
 import { Failure, settled, useAttemptKey } from './proposal-shared';
@@ -131,7 +132,7 @@ export function ReplyForm({ question, onCancel, onSaved, onReload }: {
     onError: error => { if (settled(error)) nextKey(); },
   });
   const ready = body.reply_text !== '' && received !== '' && (!rnd || (feasibility !== '' && (!scheduled || fits !== '')));
-  const note = rnd ? '개발 가능성과 일정을 기록합니다. 저장 뒤 연결된 요구에서 대응 방안을 검토하세요.' : question.target === 'INTERNAL' ? '회신을 저장한 뒤 근거를 확인하고 판정 변경 여부를 검토하세요. 판정은 자동으로 바뀌지 않습니다.' : '변경 제안이 생기면 근거를 확인하고 승인 여부를 정하세요. 승인 전에는 요구가 바뀌지 않습니다.';
+  const note = rnd ? '개발 가능성과 일정을 기록합니다. 저장 뒤 연결된 요구에서 대응 방안을 검토하세요.' : question.target === 'INTERNAL' ? '회신을 저장한 뒤 근거를 확인하고 판정 변경 여부를 검토하세요. 판정은 자동으로 바뀌지 않습니다.' : '회신을 저장한 뒤 요구에 반영할 내용을 직접 선택합니다. 승인 전에는 요구가 바뀌지 않습니다.';
   return <div style={{ margin: '8px 14px 0' }}><KvBox title="회신 기록" note={note}>
     <form onSubmit={event => { event.preventDefault(); if (ready) reply.mutate(); }}>
       <KvField label="질문">{question.question_text}</KvField>
@@ -166,4 +167,27 @@ export function ReplyForm({ question, onCancel, onSaved, onReload }: {
       {reply.isError && <Failure error={reply.error} onReload={onReload} messages={REPLY_CONFLICT} />}
     </form>
   </KvBox></div>;
+}
+
+// 회신 수신과 요구 반영은 서로 다른 단계다. 저장된 원문만 보여 준다.
+export function ReplyRecord({ question, onReview, proposals, proposalsLoading = false, onPending }: { question: Question; onReview?: () => void; proposals?: Proposal[]; proposalsLoading?: boolean; onPending?: () => void }) {
+  const reply = question.reply;
+  const linked = proposals?.filter(p => p.source_ref?.question_id === question.question_id) ?? [];
+  const pending = linked.some(p => p.status === 'PENDING');
+  const approved = linked.some(p => p.status === 'APPROVED');
+  return <KvBox title="받은 회신">
+    <KvField label="질문">{question.question_text}</KvField>
+    <KvField label="반영 상태">{proposalsLoading ? '반영 기록 확인 중' : proposals === undefined ? '반영 기록을 조회하지 못했습니다.' : pending ? '변경 제안 승인 대기' : approved ? '승인된 변경 있음 · 회신 전체가 반영됐다는 뜻은 아닙니다.' : linked.length ? '기각된 변경 제안 있음 · 다시 검토 필요' : '수신 완료 · 반영 검토 전'}</KvField>
+    {reply ? <>
+      <div className="kv-text" style={{ whiteSpace: 'pre-wrap' }}>{reply.reply_text}</div>
+      <KvField label="출처">{reply.source_ref || '출처가 기록되지 않았습니다.'}</KvField>
+      <KvField label="받은 일시">{formatDateTime(reply.received_at)}</KvField>
+      {reply.rnd_feasibility && <KvField label="개발 가능성">{label(FEASIBILITY_LABEL, reply.rnd_feasibility)}</KvField>}
+      {reply.earliest_available_on && <KvField label="가능 시점">{reply.earliest_available_on}</KvField>}
+      {reply.schedule_fits != null && <KvField label="납기 부합">{reply.schedule_fits ? '맞음' : '안 맞음'}</KvField>}
+      <p className="kv-sub">회신을 읽고 변경할 요구값이나 남은 확인 사항을 선택하세요. 승인한 변경만 요구에 반영됩니다.</p>
+      {pending && onPending && <div className="kv-actions"><button className="kb primary" onClick={onPending}>승인 대기 변경 제안 검토</button></div>}
+      {onReview && !pending && <div className="kv-actions"><button className="kb primary" onClick={onReview}>{question.issue_type === 'RND_FEASIBILITY' ? '개발 회신에 맞는 대응 방안 검토' : '요구에 반영할 내용 검토'}</button></div>}
+    </> : <p>저장된 회신 본문을 불러올 수 없습니다. 내용을 확인한 뒤 반영을 검토하세요.</p>}
+  </KvBox>;
 }

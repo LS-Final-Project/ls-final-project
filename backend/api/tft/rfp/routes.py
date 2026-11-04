@@ -835,3 +835,22 @@ async def download_diagram_image(
     return await routes_diagrams.image(
         request, principal, document_id, document_version_id, source_id
     )
+
+
+@router.post(
+    "/requirements/{requirement_id}/recompare",
+    response_model=SuccessResponse[s.RecompareResult],
+    operation_id="tft_recompare_rfp_requirement",
+)
+async def recompare_requirement(
+    requirement_id: UUID,
+    payload: s.RecompareRequest,
+    idempotency_key: Key,
+    request: Request,
+    principal: User,
+) -> SuccessResponse[s.RecompareResult]:
+    from backend.api.tft.rfp.workflow import recompare
+
+    return respond(
+        request, await recompare(request, principal, requirement_id, payload, idempotency_key)
+    )

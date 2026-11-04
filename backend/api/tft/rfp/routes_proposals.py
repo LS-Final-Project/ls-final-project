@@ -6,16 +6,17 @@
 """
 
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import HTTPException, Request
 from psycopg import AsyncConnection
+from psycopg.types.json import Jsonb
 
 from backend.api.tft.projects.access import can_decide_proposal, can_propose_change, can_view_rfp
 from backend.api.tft.rfp import commands, repository
 from backend.api.tft.rfp import schemas as s
 from backend.api.tft.rfp.routes_questions import proposal_out, visible_project
-from backend.api.tft.rfp.routes_read import requirement_out
+from backend.api.tft.rfp.routes_read import comparison_of, requirement_out
 from backend.api.tft.rfp.routes_supplement import options_of
 from backend.shared.access import Principal
 from backend.shared.database import connection
@@ -83,6 +84,25 @@ async def create_proposal(
                 raise ApplicationError(
                     404, "TFT_REQUIREMENT_NOT_FOUND", "The requirement was not found."
                 )
+            if (
+                payload.requirement_version is not None
+                and payload.requirement_version != requirement["version"]
+            ):
+                raise repository.version_conflict()
+            source_question = None
+            if payload.source_question_id is not None:
+                source_question = await repository.get_question(conn, payload.source_question_id)
+                if (
+                    source_question is None
+                    or source_question["project_id"] != project_id
+                    or source_question["requirement_id"] != payload.requirement_id
+                    or not source_question.get("reply_id")
+                ):
+                    raise ApplicationError(
+                        422,
+                        "TFT_REPLY_SOURCE_INVALID",
+                        "Choose a recorded reply for this requirement.",
+                    )
             current = await repository.judgement_of(conn, requirement)
             # exclude_none은 조건 안의 unit까지 지우므로 위 칸만 거른다.
             changes = payload.proposed.model_dump()
@@ -103,6 +123,12 @@ async def create_proposal(
                 rationale=payload.rationale,
                 evidence_refs=payload.evidence_refs,
                 actor=principal.user_id,
+                source_ref={
+                    "question_id": str(source_question["id"]),
+                    "reply_id": str(source_question["reply_id"]),
+                }
+                if source_question
+                else None,
             )
             return proposal_out(row).model_dump(mode="json")
 
@@ -213,6 +239,25 @@ async def approve_proposal(
             )
             if latest is None:
                 raise ValueError("TFT_REQUIREMENT_MISSING")
+            # A judgement-only approval does not invalidate the compared specification.
+            if all(
+                proposal["proposed"].get(k) == proposal["current"].get(k)
+                for k in ("spec", "conditions")
+            ):
+                compared = await comparison_of(conn, requirement)
+                if compared.requirement_version == requirement["version"]:
+                    inherited = compared.model_copy(
+                        update={"requirement_version": latest["version"]}
+                    )
+                    await conn.execute(
+                        "INSERT INTO tft.requirement_recomparisons(id,requirement_id,requirement_version,result) VALUES (%s,%s,%s,%s)",
+                        (
+                            uuid4(),
+                            requirement_id,
+                            latest["version"],
+                            Jsonb(inherited.model_dump(mode="json")),
+                        ),
+                    )
             # 값이 그대로면 연결 객체가 볼 변화가 없어 재검토 표시를 남기지 않는다.
             if proposal["proposed"] != proposal["current"]:
                 # 요구 표시는 보완 저장으로만 풀린다. 고를 경로가 없으면 남기지 않는다.
@@ -240,7 +285,10 @@ async def approve_proposal(
                     "needs_review_confirmed": requirement["needs_review"],
                 },
             )
+            from backend.api.tft.rfp.workflow import impact
+
             detail = await requirement_out(conn, latest)
+            detail.workflow = await impact(conn, dict(latest))
             return detail.model_dump(mode="json")
 
         result = await commands.run_command(

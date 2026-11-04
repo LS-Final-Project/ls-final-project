@@ -137,8 +137,8 @@ def test_batch_question_gets_a_reply_and_a_change_proposal(client, gap):
     assert result.status_code == 200, result.text
     data = result.json()["data"]
     assert data["status"] == "REPLIED"
-    assert data["created_proposal"]["origin"] == "customer_reply"
-    assert data["created_proposal"]["proposed"]["unresolved"] == []
+    assert data["created_proposal"] is None
+    assert data["reply"]["reply_text"] == "확인했습니다"
 
 
 def select_body(items, **extra):

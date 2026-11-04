@@ -543,7 +543,11 @@ async def get_requirement(
     """
     async with connection(request.app.state.settings) as conn:
         requirement = await latest_visible_requirement(conn, principal, requirement_id)
-        return await requirement_out(conn, requirement)
+        result = await requirement_out(conn, requirement)
+        from backend.api.tft.rfp.workflow import impact
+
+        result.workflow = await impact(conn, dict(requirement))
+        return result
 
 
 def candidate_out(
@@ -608,9 +612,19 @@ async def get_comparison(
         return await comparison_of(conn, requirement)
 
 
-async def comparison_of(conn: AsyncConnection[Row], requirement: Mapping[str, Any]) -> s.Comparison:
+async def comparison_of(
+    conn: AsyncConnection[Row], requirement: Mapping[str, Any], *, stored_recomparison: bool = True
+) -> s.Comparison:
     """같은 연결에서 읽은 최신 요구에 대응하는 비교 응답을 만든다."""
     requirement_id = requirement["requirement_id"]
+    if stored_recomparison:
+        cursor = await conn.execute(
+            "SELECT result FROM tft.requirement_recomparisons WHERE requirement_id=%s AND requirement_version=%s ORDER BY created_at DESC,id DESC LIMIT 1",
+            (requirement_id, requirement["version"]),
+        )
+        snapshot = await cursor.fetchone()
+        if snapshot:
+            return s.Comparison.model_validate(snapshot["result"])
     rows = await repository.latest_comparisons(conn, requirement_id)
     evidence = await repository.comparison_evidence(conn, [row["id"] for row in rows])
     if not rows:

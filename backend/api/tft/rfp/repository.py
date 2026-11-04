@@ -28,7 +28,9 @@ QUESTION_COLUMNS = (
     "q.id, q.project_id, q.requirement_id, q.clause_id, q.page, q.issue_type, q.question_text, "
     "q.internal_assumption, q.status, q.version, q.target, q.target_dept, q.data_origin, "
     "q.derivation_kind, q.known_at, q.created_by, q.created_at, "
-    "r.received_at AS reply_received_at, r.recorded_at AS reply_recorded_at, r.rnd_feasibility"
+    "r.received_at AS reply_received_at, r.recorded_at AS reply_recorded_at, r.rnd_feasibility, "
+    "r.id AS reply_id, r.reply_text, r.source_ref AS reply_source_ref, r.recorded_by, "
+    "r.earliest_available_on, r.schedule_fits"
 )
 
 
@@ -453,12 +455,22 @@ async def latest_requirement_version(
     Returns:
         Row | None: requirement_versions 열과 project_id·latest_version·code·clause_no. 없으면 None.
     """
+    if lock:
+        # Lock the head first, then read its joined version in a fresh statement.
+        # A join that started before another approval committed may otherwise see
+        # the old version while EvalPlanQual has already advanced the head.
+        cursor = await conn.execute(
+            "SELECT id FROM tft.requirements WHERE id=%s AND project_id=%s FOR UPDATE",
+            (requirement_id, project_id),
+        )
+        if await cursor.fetchone() is None:
+            return None
     cursor = await conn.execute(
         "SELECT v.*, req.project_id, req.latest_version, req.code, c.clause_no "
         "FROM tft.requirements req "
         "JOIN tft.requirement_versions v ON v.requirement_id = req.id AND v.version = req.latest_version "
         "LEFT JOIN tft.clauses c ON c.id = v.clause_id "
-        "WHERE req.id = %s AND req.project_id = %s" + (" FOR UPDATE OF req" if lock else ""),
+        "WHERE req.id = %s AND req.project_id = %s",
         (requirement_id, project_id),
     )
     return await cursor.fetchone()
@@ -942,6 +954,7 @@ async def insert_web_proposal(
     rationale: str,
     evidence_refs: Sequence[str],
     actor: UUID,
+    source_ref: Mapping[str, str] | None = None,
 ) -> Row:
     """사람이 웹에서 쓴 변경 제안(origin web, PENDING).
 
@@ -959,9 +972,9 @@ async def insert_web_proposal(
     """
     cursor = await conn.execute(
         "INSERT INTO tft.change_proposals (id, project_id, requirement_id, "
-        "base_requirement_version, origin, current, proposed, rationale, evidence_refs, "
+        "base_requirement_version, origin, current, proposed, rationale, evidence_refs, source_ref, "
         "proposer_kind, proposer_user_id, data_origin, derivation_kind, known_at) "
-        "VALUES (%s,%s,%s,%s,'web',%s,%s,%s,%s,'user',%s,%s,'PROVIDED',now()) RETURNING *",
+        "VALUES (%s,%s,%s,%s,'web',%s,%s,%s,%s,%s,'user',%s,%s,'PROVIDED',now()) RETURNING *",
         (
             uuid4(),
             requirement["project_id"],
@@ -971,6 +984,7 @@ async def insert_web_proposal(
             Jsonb(dict(proposed)),
             rationale,
             Jsonb(list(evidence_refs)),
+            Jsonb(dict(source_ref)) if source_ref is not None else None,
             actor,
             requirement["data_origin"],
         ),
@@ -1045,6 +1059,10 @@ async def insert_approved_version(
         # 코드 전용 경고는 사람이 승인한 판본에 잇지 않는다.
         "needs_review": False,
     }
+    if proposed.get("spec") is not None:
+        changed.update(proposed["spec"])
+        if proposed["spec"] != proposal["current"].get("spec"):
+            changed["canonical_value"] = None
     kept = [
         c for c in base if c not in changed and c not in ("decided_at", "known_at", "created_at")
     ]
@@ -1229,6 +1247,7 @@ async def judgement_of(
         (requirement["requirement_id"], requirement["version"]),
     )
     return {
+        "spec": {key: requirement.get(key) for key in ("value", "unit", "operator", "tolerance")},
         "status": requirement["status"],
         "necessity": requirement["necessity"],
         "reason": requirement["reason"],
@@ -1564,6 +1583,9 @@ async def insert_comparison(
     matched_attribute: str | None,
     search_trace: Mapping[str, Any],
     data_origin: str,
+    requirement_version: int = 1,
+    comparison_version: int = 1,
+    provenance_kind: str = "ai_draft",
 ) -> None:
     """자사 후보 비교 한 건과 근거를 쓴다(요구 판본 1).
 
@@ -1578,13 +1600,15 @@ async def insert_comparison(
     comparison_id = uuid4()
     await conn.execute(
         "INSERT INTO tft.product_comparisons (id, requirement_id, requirement_version, product_code, "
-        "lifecycle_status, matched_attribute, our_value, our_unit, our_conditions, comparable, result, "
+        "version, lifecycle_status, matched_attribute, our_value, our_unit, our_conditions, comparable, result, "
         "search_trace, provenance_kind, data_origin, derivation_kind, known_at) "
-        "VALUES (%s,%s,1,%s,%s,%s,%s,%s,%s,%s,%s,%s,'ai_draft',%s,'DERIVED',now())",
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'DERIVED',now())",
         (
             comparison_id,
             requirement_id,
+            requirement_version,
             candidate["product_code"],
+            comparison_version,
             candidate["lifecycle_status"],
             matched_attribute,
             candidate["our_value"],
@@ -1593,6 +1617,7 @@ async def insert_comparison(
             candidate["comparable"],
             candidate["result"],
             Jsonb(dict(search_trace)),
+            provenance_kind,
             data_origin,
         ),
     )

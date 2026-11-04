@@ -3,14 +3,14 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ApiError, getApiMode } from '../api/client';
 import { me } from '../api/platform';
-import { createQuestionsBatch, listProjectCandidates, listQuestions, selectSupplementBatch, setRfpReviewDepartments, unsupportedRoute, type Question, type QuestionCreate, type RequirementDetail, type SupplementBatchResult } from '../api/rfp';
+import { createQuestionsBatch, listProjectCandidates, listProposals, listQuestions, selectSupplementBatch, setRfpReviewDepartments, unsupportedRoute, type Question, type QuestionCreate, type RequirementDetail, type SupplementBatchResult } from '../api/rfp';
 import { getSupplementOptions, getSupplementRequirement, type RequirementSummary, type SupplementOptions } from '../api/rfp-supplement';
 import { getProject } from '../api/tft';
 import { ErrorState, Loading } from '../components/states';
 import { KvGrid, KvModal, type KvColumn } from '../ls-shell/kv';
 import { groupPartners, readDocumentRequirements } from './equipment-groups';
 import { batchProblems, draftQuestion, mapLimited, groupSummary, isCustomerRequest, itemReason, outboxItem, outboxText, REQUEST_ISSUE, shortText, subjectOf, valueOf, type GroupAction, type RequestKind, type Situation } from './group-actions';
-import { ReplyForm } from './QuestionForms';
+import { ReplyForm, ReplyRecord } from './QuestionForms';
 import { DEPARTMENT_LABEL, PATH_LABEL, label, requirementNo } from './labels';
 import { settled, useAttemptKey } from './proposal-shared';
 import './GroupActions.css';
@@ -284,25 +284,28 @@ export function OutboxDialog({ projectId, actorId, rows, groupName, onClose, pro
 
 export function RepliesDialog({ projectId, actorId, rows, groupName, onClose, onOutbox, projectWide = false }: { projectId: string; actorId?: string; rows: RequirementSummary[]; groupName: string; onClose: () => void; onOutbox: () => void; projectWide?: boolean }) {
   const client = useQueryClient();
+  const proposals = useQuery({ queryKey: ['rfp-proposals', getApiMode(), projectId, 'reply-history', actorId], queryFn: () => listProposals(projectId), retry: false });
   const { questions, open } = useOpenQuestions(projectId, actorId, rows, projectWide);
   const [picked, setPicked] = useState<string>();
   const [notice, setNotice] = useState('');
   const [savedReply, setSavedReply] = useState<{ question: Question; proposed: boolean }>();
   const [replied, setReplied] = useState(false);
   const close = () => { if (replied) refreshAfterWrite(client); onClose(); };
-  const shown = projectWide && questions.isSuccess ? questions.data.data.items : open;
+  const shown = questions.isSuccess ? questions.data.data.items.filter(q => projectWide || rows.some(row => row.requirement_id === q.requirement_id)) : [];
+  const readReply = questions.data?.data.items.find(q => q.question_id === picked && q.status === 'REPLIED');
   const question = open.find(q => q.question_id === picked);
   const rowOf = (q: Question) => rows.find(row => row.requirement_id === q.requirement_id);
   const columns: KvColumn<Question>[] = [
     { key: 'no', header: '요구', width: 100, cell: q => { const row = rowOf(q); return row ? requirementNo(row.code) : q.requirement_id ? '요구 연결됨' : '프로젝트 질문'; } },
     { key: 'to', header: '받는 곳', width: 110, cell: recipientOf },
     { key: 'text', header: '질문', cell: q => q.question_text.length > 90 ? <details><summary>{shortText(q.question_text, 90)}</summary><p>{q.question_text}</p></details> : q.question_text },
-    { key: 'act', header: '', width: 86, className: 'c', cell: q => q.status === 'OPEN' ? <button type="button" className="kb" aria-pressed={picked === q.question_id} onClick={() => { setNotice(''); setSavedReply(undefined); setPicked(q.question_id); }}>회신 기록</button> : <span>{q.status==='REPLIED'?'회신 기록됨':q.status==='DRAFT'?'초안':'종료'}{q.status === 'REPLIED' && q.requirement_id && <> · <Link to={`/tft/projects/${projectId}/requirements/${q.requirement_id}`} onClick={close}>요구 검토</Link></>}</span> },
+    { key: 'act', header: '', width: 86, className: 'c', cell: q => q.status === 'OPEN' ? <button type="button" className="kb" aria-pressed={picked === q.question_id} onClick={() => { setNotice(''); setSavedReply(undefined); setPicked(q.question_id); }}>회신 기록</button> : <span>{q.status === 'REPLIED' && <button className="kb" onClick={() => setPicked(q.question_id)}>회신 읽기</button>}{q.status==='REPLIED'?'':q.status==='DRAFT'?'초안':'종료'}{q.status === 'REPLIED' && q.requirement_id && <> · <Link to={`/tft/projects/${projectId}/requirements/${q.requirement_id}`} onClick={close}>요구 검토</Link></>}</span> },
   ];
   return <KvModal title={`작성한 질문 · ${groupName}`} onClose={close} className="rfp-dialog" keepOnBackdrop>
     {questions.isPending ? <Loading label="질문 기록 읽는 중" /> : questions.isError ? <ErrorState error={questions.error} onRetry={() => questions.refetch()} /> : <>
       <p className="rfp-dialog-lead">받은 회신을 기록한 뒤 연결된 요구의 근거와 대응 방안을 검토하세요. 회신 저장만으로 요구 충족이나 공급이 확정되지 않습니다.</p>
       <KvGrid label="작성한 질문" columns={columns} rows={shown} rowKey={q => q.question_id} selectedKey={picked} fallback="작성한 질문이 없습니다." scroll />
+      {readReply && <ReplyRecord question={readReply} proposals={proposals.data?.data.items} proposalsLoading={proposals.isPending} />}
       {question && <ReplyForm key={question.question_id} question={question} onCancel={() => setPicked(undefined)} onReload={() => questions.refetch()} onSaved={proposed => { setPicked(undefined); setNotice('회신을 기록했습니다.'); setSavedReply({ question, proposed }); setReplied(true); refreshAfterWrite(client); }} />}
       {notice && <p role="status">{notice}</p>}
       {savedReply && <div className="rfp-group-note">

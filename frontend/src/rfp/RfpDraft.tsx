@@ -312,6 +312,11 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
       <li><b>2. 문장 확인</b><span>본문과 근거를 읽고 고칩니다. AI 문장 다듬기는 선택 사항이며 비용이 듭니다. 직접 고친 문장은 유지됩니다.</span></li>
       <li><b>3. 검토본 저장·내보내기</b><span>확인한 전체 초안을 검토본으로 저장하고, 저장한 검토본을 DOCX로 내보냅니다.</span></li>
     </ol>
+    {data?.freshness && <div className="draft-notice" aria-label="검토 결과 반영 상태">
+      <p>{data.freshness.status === 'CURRENT' ? '이 초안은 현재 검토 기록으로 만들어졌습니다.' : data.freshness.status === 'STALE' ? `초안 생성 뒤 요구 ${(data.freshness.changed_requirement_ids ?? []).length}건이 바뀌었습니다. 최신 검토 결과로 초안을 다시 만들어 반영하세요.` : '이전 초안에는 반영한 요구 판본 기록이 없습니다. 최신 검토 결과로 다시 만들면 반영 상태를 확인할 수 있습니다.'}</p>
+      {(data.freshness.changed_requirement_ids ?? []).length > 0 && <details><summary>바뀐 요구 보기</summary><ul>{(data.freshness.changed_requirement_ids ?? []).map(id => <li key={id}><Link to={`/tft/projects/${projectId}/requirements/${id}`}>{data.evidence_labels?.[id] ?? '요구 상세 확인'}</Link></li>)}</ul></details>}
+      {(data.freshness.preserved_human_sentence_ids ?? []).length > 0 && <p>직접 수정한 {(data.freshness.preserved_human_sentence_ids ?? []).length}문장은 유지됩니다. 최신 근거와 맞는지 따로 확인하세요.</p>}
+    </div>}
     {rewriteAccepted && <div className="draft-notice" aria-label="AI 문장 다듬기 작업">
       {rewriteJob.isPending && <Loading label="AI 다듬기 상태 확인 중" />}
       {rewriteJob.isError && <ErrorState error={rewriteJob.error} onRetry={() => rewriteJob.refetch()} />}

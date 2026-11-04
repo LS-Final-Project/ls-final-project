@@ -210,7 +210,7 @@ test('project questions include unlinked and replied records without implying de
   const table=await screen.findByRole('table',{name:'작성한 질문'});
   expect(table.textContent).toContain('프로젝트 질문');
   expect(table.textContent).toContain('질문 2');
-  expect(table.textContent).toContain('회신 기록됨');
+  expect(within(table).getByRole('button', { name: '회신 읽기' })).toBeTruthy();
   expect(table.textContent).toContain('초안');
   expect(within(table).getAllByRole('button',{name:'회신 기록'})).toHaveLength(1);
   fireEvent.click(screen.getByRole('button',{name:'보낼 내용 보기'}));

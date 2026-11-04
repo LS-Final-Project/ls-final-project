@@ -53,8 +53,17 @@ async def generate(
     existing = await db.generated(conn, project_id, job_id)
     if existing is not None:
         return await loaded(conn, project_id, existing)
+    source_inputs = await captured_inputs(conn, project_id)
     result, reasons = await build(conn, project_id)
-    await db.save(conn, result, actor=actor, source_job_id=job_id, reasons=reasons)
+    await check_inputs(conn, project_id, source_inputs)
+    await db.save(
+        conn,
+        result,
+        actor=actor,
+        source_job_id=job_id,
+        reasons=reasons,
+        source_inputs=source_inputs,
+    )
     await commands.audit(
         conn,
         project_id=project_id,
@@ -108,8 +117,17 @@ async def regenerate(
         )
     if await db.head(conn, project_id) != seen:
         raise repository.version_conflict()
+    source_inputs = await captured_inputs(conn, project_id)
     result, reasons = await build(conn, project_id)
-    await db.save(conn, result, actor=actor, source_job_id=source, reasons=reasons)
+    await check_inputs(conn, project_id, source_inputs)
+    await db.save(
+        conn,
+        result,
+        actor=actor,
+        source_job_id=source,
+        reasons=reasons,
+        source_inputs=source_inputs,
+    )
     await commands.audit(
         conn,
         project_id=project_id,
@@ -155,7 +173,25 @@ async def build(conn: AsyncConnection[Row], project_id: UUID) -> tuple[s.Draft, 
         raw = await repository.latest_requirement_version(conn, project_id, req.requirement_id)
         if raw is None:
             raise ValueError("TFT_DRAFT_REQUIREMENT_DISAPPEARED")
-        comparisons.append(await comparison_of(conn, raw))
+        compared = await comparison_of(conn, raw)
+        if compared.requirement_version != req.version:
+            # An older match is evidence history, not a match for an approved new value.
+            req.needs_rereview = True
+            compared = compared.model_copy(
+                update={
+                    "candidates": [
+                        candidate.model_copy(
+                            update={
+                                "attribute_match": candidate.attribute_match.model_copy(
+                                    update={"comparable": False, "result": "NOT_COMPARABLE"}
+                                )
+                            }
+                        )
+                        for candidate in compared.candidates
+                    ]
+                }
+            )
+        comparisons.append(compared)
         _, option = await options_of(conn, raw)
         options.append(option)
         selected = await repository.latest_selection(conn, req.requirement_id)
@@ -293,3 +329,20 @@ async def valid_references(conn: AsyncConnection[Row], project_id: UUID) -> set[
         (project_id,) * 5,
     )
     return {(row["kind"], row["ref"]) for row in await cursor.fetchall()}
+
+
+async def captured_inputs(conn: AsyncConnection[Row], project_id: UUID) -> dict[str, Any]:
+    from backend.api.tft.rfp.workflow import inputs
+
+    return await inputs(conn, project_id)
+
+
+async def check_inputs(
+    conn: AsyncConnection[Row], project_id: UUID, before: dict[str, Any]
+) -> None:
+    if await captured_inputs(conn, project_id) != before:
+        raise ApplicationError(
+            409,
+            "TFT_VERSION_CONFLICT",
+            "초안을 만드는 동안 검토 기록이 바뀌었습니다. 최신 내용을 확인한 뒤 다시 만드세요.",
+        )

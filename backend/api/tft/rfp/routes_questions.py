@@ -65,6 +65,19 @@ def question_out(row: Mapping[str, Any]) -> s.Question:
         internal_assumption=row["internal_assumption"],
         status=row["status"],
         reply_received_at=row["reply_received_at"],
+        reply=s.RecordedReply(
+            reply_id=row["reply_id"],
+            reply_text=row["reply_text"],
+            source_ref=row["reply_source_ref"],
+            received_at=row["reply_received_at"],
+            recorded_at=row["reply_recorded_at"],
+            recorded_by=row["recorded_by"],
+            rnd_feasibility=row["rnd_feasibility"],
+            earliest_available_on=row["earliest_available_on"],
+            schedule_fits=row["schedule_fits"],
+        )
+        if row.get("reply_id")
+        else None,
         created_by=row["created_by"],
         created_at=row["created_at"],
         target=row["target"],
@@ -350,23 +363,10 @@ async def confirm_question(
     return s.Question.model_validate(result)
 
 
-def without_answered(unresolved: list[str], question_text: str) -> list[str]:
-    """질문 본문에 그대로 들어 있는 미해결 항목을 뺀다(질문과 항목을 잇는 열이 없어서다, rfp-data.md).
-
-    Args:
-        unresolved: 요구 판본의 미해결 항목.
-        question_text: 회신된 질문 본문.
-
-    Returns:
-        list[str]: 남는 미해결 항목.
-    """
-    return [item for item in unresolved if not (item and item in question_text)]
-
-
 async def reply_question(
     request: Request, principal: Principal, question_id: UUID, payload: s.QuestionReply, key: str
 ) -> s.QuestionReplyResult:
-    """20. 회신 기록. CUSTOMER 회신이 미해결 항목을 줄이면 customer_reply 변경 제안을 만든다.
+    """20. 회신 근거 기록. 해결 여부와 요구 변경은 별도 명시적 변경 제안으로 검토한다.
 
     INTERNAL 회신은 제안을 만들지 않는다. rnd_check·needs_rereview는 읽을 때 계산하므로 저장할 것이 없다.
 
@@ -417,36 +417,8 @@ async def reply_question(
                 schedule_fits=payload.schedule_fits,
                 actor=principal.user_id,
             )
-            proposal = None
-            if replied["target"] == "CUSTOMER" and replied["requirement_id"] is not None:
-                requirement = await repository.latest_requirement_version(
-                    conn, project["id"], replied["requirement_id"], lock=True
-                )
-                assert requirement is not None
-                current = await repository.judgement_of(conn, requirement)
-                left = without_answered(current["unresolved"], replied["question_text"])
-                if left != current["unresolved"]:
-                    proposal = await repository.insert_reply_proposal(
-                        conn,
-                        replied,
-                        requirement,
-                        current=current,
-                        proposed={**current, "unresolved": left},
-                        reply_text=payload.reply_text,
-                    )
-                    await commands.audit(
-                        conn,
-                        project_id=project["id"],
-                        entity="proposal",
-                        entity_id=proposal["id"],
-                        action="proposal.create",
-                        actor=principal.user_id,
-                        detail={"to": {"origin": "customer_reply"}},
-                    )
-            result = s.QuestionReplyResult(
-                **question_out(replied).model_dump(),
-                created_proposal=proposal_out(proposal) if proposal else None,
-            )
+            # A reply records evidence. Only an explicit reviewed proposal can resolve items.
+            result = s.QuestionReplyResult(**question_out(replied).model_dump())
             return result.model_dump(mode="json")
 
         result = await commands.run_command(
