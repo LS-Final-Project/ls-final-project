@@ -15,6 +15,7 @@ import psycopg
 import pytest
 
 from backend.shared.access import Principal, principal_header
+from tests.tft.decision_gate import settle_decisions
 from tests.tft.test_a09_demo_flow_db import (
     DEMO_B1,
     client_for,
@@ -240,6 +241,7 @@ def test_rnd_path_from_own_development_to_partner_and_review_save(
             section == "ASSUMPTIONS_EXCLUSIONS" and f"통합 책임자: {named}." in text
             for section, text in sentences
         ), sentences
+        settle_decisions(client, admin, project["project"])
         saved = save_review(client, project, version)
         assert saved.status_code == 201, saved.text
         assert saved.json()["data"]["output_status"] == "REVIEW_DRAFT"

@@ -252,7 +252,15 @@ async def propose_and_approve(
         actor=actor,
         detail={"to": {"status": row["status"], "origin": "decision"}},
     )
-    return await apply_approval(conn, project, row, requirement, actor, NOTE)
+    approved = await apply_approval(conn, project, row, requirement, actor, NOTE)
+    # 결정은 사람이 지금 이 요구를 본 결과다. 승인이 요구 자체에 남긴 재검토 표시는 지운다(KAN-220 저장 조건과 함께
+    # 쓰면 배정·판정 바꾸기 뒤 검토본을 영영 저장할 수 없다). 초안 문장 표시는 문장을 다시 확인할 때 지운다.
+    await conn.execute(
+        "UPDATE tft.rereview_marks SET cleared_by = %s, cleared_at = now() "
+        "WHERE cause_proposal_id = %s AND target_kind = 'requirement' AND cleared_at IS NULL",
+        (actor, row["id"]),
+    )
+    return approved
 
 
 async def new_question(

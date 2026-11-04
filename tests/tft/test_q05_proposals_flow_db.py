@@ -20,6 +20,7 @@ import psycopg
 from psycopg.rows import dict_row
 
 from backend.engine.rfp.draft import DISCLAIMER
+from tests.tft.decision_gate import settle_decisions
 from tests.tft.test_a09_demo_flow_db import (  # noqa: F401
     DEMO_A,
     client_for,
@@ -235,6 +236,7 @@ def test_partner_draft_and_export_keep_synthetic_and_review_markers(
             for row in partner_rows
             if any(e["type"] == "partner" for e in row["evidence"])
         )
+        settle_decisions(client, admin, project["project"])
         saved = client.post(
             f"{base}/review-versions",
             json={"version": data["version"]},
