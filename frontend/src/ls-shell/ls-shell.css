@@ -811,3 +811,18 @@
 .ls-root .kv-thread .msg .hd b{font-weight:400;color:var(--erp-text);font-size:inherit!important}
 .ls-root .kv-thread .msg.new{background:#fff}
 .ls-root .kv-thread .kv-text{border:0;background:none;padding:0;min-height:0}
+/* 상단 열린 화면 탭(개선): 흰 바탕 줄에 밑줄형 탭. 지금 화면은 굵은 글씨 + LS 빨강 밑줄, 닫기는 동그란 버튼 */
+.ls-root .kt-tabs{height:38px;align-items:stretch;gap:0;padding:0 12px;background:#fff;border-bottom:1px solid #e1e4ea}
+.ls-root .kt-tab,.ls-root .kt-tab.on{position:relative;height:auto;margin:0;gap:4px;padding:0 6px 0 14px;border:0;border-radius:0;background:none;box-shadow:none;align-items:center}
+.ls-root .kt-tab+.kt-tab::before{content:"";position:absolute;left:0;top:11px;bottom:11px;width:1px;background:#e6e9ee}
+.ls-root .kt-tabs .kt-tab button[role=tab]{font-size:13px;font-weight:500;color:#6b7385;letter-spacing:-.1px}
+.ls-root .kt-tab:hover{background:#f7f8fb}
+.ls-root .kt-tab:hover button[role=tab]{color:#1d2433}
+.ls-root .kt-tab.on{background:#fff}
+.ls-root .kt-tab.on::after{content:"";position:absolute;left:8px;right:8px;bottom:-1px;height:3px;border-radius:3px 3px 0 0;background:var(--ls-red)}
+.ls-root .kt-tabs .kt-tab.on button[role=tab]{color:#1d2433;font-weight:700}
+.ls-root .kt-tabs .kt-tab .kt-x{width:18px;height:18px;padding:0;border:0;border-radius:50%;background:none;color:#9aa3b2;font-size:14px;line-height:1;justify-content:center;box-shadow:none;margin:0}
+.ls-root .kt-tabs .kt-tab .kt-x:hover{background:#eef0f4;color:#1d2433}
+.ls-root .kt-tabs .kt-tab.on .kt-x{height:18px;margin:0;background:none;box-shadow:none}
+.ls-root .kt-tabs .kt-tab.on .kt-x:hover{background:#fdecec;color:var(--ls-red)}
+.ls-root .kt-tab button[role=tab]:focus-visible,.ls-root .kt-tab .kt-x:focus-visible{outline:2px solid var(--ls-red);outline-offset:2px}
