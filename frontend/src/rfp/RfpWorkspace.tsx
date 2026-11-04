@@ -59,6 +59,8 @@ export function viewerRole(actorId: string | undefined, project?: Pick<ProjectDe
 }
 
 const key = () => crypto.randomUUID();
+// 협력사 역할은 서버 필수다(select_partner needs text). 비워 두면 요구에서 만든 한 줄을 쓴다.
+const partnerRole = (row: { equipment?: string | null; attribute?: string | null }) => `${row.equipment ?? ''} ${row.attribute ?? ''} 보완 공급`.replace(/\s+/g, ' ').trim();
 const failureText = (error: unknown) => error instanceof ApiError
   ? error.code === 'TFT_JOB_IN_PROGRESS' ? '이미 분석 중입니다. 진행 화면으로 이어집니다.'
     : error.code === 'TFT_DUPLICATE_MEMBER' ? '원문 여러 곳에 반복된 같은 요구입니다. 대표 요구에서 결정하세요.' : error.message
@@ -588,8 +590,8 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
                   <input type="radio" name="partner" disabled={c.overall_grade === 'EXCLUDED'} checked={partner === c.candidate_code} onChange={() => setPartner(c.candidate_code)} /> {c.display_name}
                 </label>)}
               </div>
-              <label className="ws-field">역할<input value={text ?? ''} onChange={event => setText(event.target.value)} /></label>
-              <div className="ws-go"><button className="kb primary" disabled={!partner || decide.isPending} onClick={() => decide.mutate({ action: 'select_partner', candidate_codes: [partner as string], text: (text ?? '').trim() || null })}>{partner ? `${partner} 선정` : '협력사 선정'}</button>
+              <label className="ws-field">역할<input value={text ?? partnerRole(row)} onChange={event => setText(event.target.value)} /></label>
+              <div className="ws-go"><button className="kb primary" disabled={!partner || decide.isPending} onClick={() => decide.mutate({ action: 'select_partner', candidate_codes: [partner as string], text: (text ?? '').trim() || partnerRole(row) })}>{partner ? `${partner} 선정` : '협력사 선정'}</button>
                 <button className="ws-link" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'ask_rnd' })}>R&amp;D에 개발 문의</button></div>
             </>}
             {kindOf(row) === 'ASSIGN' && <>
