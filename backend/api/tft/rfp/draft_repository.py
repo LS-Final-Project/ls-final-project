@@ -74,12 +74,22 @@ async def _load(
             "AND m.target_id = s.sentence_key AND m.cleared_at IS NULL) "
             "OR EXISTS (SELECT 1 FROM tft.draft_sentence_evidence e "
             "JOIN tft.requirements req ON e.evidence_id = req.id::text "
-            "JOIN tft.requirement_versions v ON v.requirement_id = req.id AND v.version = req.latest_version "
             "WHERE e.sentence_id = s.id AND e.evidence_type = 'requirement' AND req.project_id = s.project_id "
-            f"AND (v.needs_review OR ({NEEDS_REREVIEW.format(requirement='req.id')}))) "
+            f"AND ({NEEDS_REREVIEW.format(requirement='req.id')})) "
         )
+    # 추출의 '검토 필요'(needs_review)는 근거 요구 목록으로 따로 받아, 결정·책임자 확인으로 풀린 요구는 빼고 본다
+    # (drafts.requirements_of와 같은 기준, 40444 P26-0002 저장 막힘).
+    flagged_sql = (
+        "ARRAY(SELECT req.id FROM tft.draft_sentence_evidence e "
+        "JOIN tft.requirements req ON e.evidence_id = req.id::text "
+        "JOIN tft.requirement_versions v ON v.requirement_id = req.id AND v.version = req.latest_version "
+        "WHERE e.sentence_id = s.id AND e.evidence_type = 'requirement' AND req.project_id = s.project_id "
+        "AND v.needs_review)"
+        if live_review
+        else "ARRAY[]::uuid[]"
+    )
     cursor = await conn.execute(
-        f"SELECT s.*, {review_sql} AS review_needed "
+        f"SELECT s.*, {review_sql} AS review_needed, {flagged_sql} AS flagged_requirements "
         "FROM tft.draft_sentences s WHERE s.project_id = %s AND s.draft_version = %s "
         "ORDER BY s.section, s.ordinal",
         (project_id, metadata["version"]),
@@ -97,7 +107,15 @@ async def _load(
             s.Evidence(type=proof["evidence_type"], id=proof["evidence_id"])
         )
     sections: dict[s.DraftSection, list[s.Sentence]] = {key: [] for key in get_args(s.DraftSection)}
+    settled: set[UUID] = set()
+    if any(row["flagged_requirements"] for row in rows):
+        from backend.api.tft.rfp.drafts import settled_requirements
+
+        settled = await settled_requirements(conn, project_id)
     for row in rows:
+        row["review_needed"] = row["review_needed"] or any(
+            r not in settled for r in row["flagged_requirements"]
+        )
         evidence = proofs.get(row["id"], [])
         sections[row["section"]].append(
             s.Sentence(

@@ -495,8 +495,16 @@ def test_review_export_snapshot_survives_live_changes_and_put_before_db_retry(
             is None
         )
         if change == "requirement":
+            # 결정·확인 뒤 재처리처럼 요구가 검토 필요한 새 판본이 된다(결정한 판본만 검토 끝난 것으로 본다).
             conn.execute(
-                "UPDATE tft.requirement_versions SET needs_review=true WHERE requirement_id=%s",
+                "INSERT INTO tft.requirement_versions SELECT (jsonb_populate_record(v, "
+                "jsonb_build_object('version', v.version + 1, 'needs_review', true))).* "
+                "FROM tft.requirement_versions v JOIN tft.requirements r ON r.id = v.requirement_id "
+                "AND v.version = r.latest_version WHERE r.id = %s",
+                (chain["requirement"],),
+            )
+            conn.execute(
+                "UPDATE tft.requirements SET latest_version = latest_version + 1 WHERE id = %s",
                 (chain["requirement"],),
             )
         else:
