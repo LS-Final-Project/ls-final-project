@@ -174,6 +174,8 @@ def test_processed_document_rerun_regrades_actual_saved_version_with_zero_models
         ),
     )
     monkeypatch.setattr(repository, "prior_grades_for_regrading", AsyncMock(return_value=[]))
+    # 자사 다시 비교(KAN-232)는 DB 시험(test_rfp_regrading_db)이 본다. 여기서는 잠금·TX 순서만 본다.
+    monkeypatch.setattr(worker, "recompare_stored", AsyncMock(return_value=0))
 
     async def first_data(*_):
         assert conn.in_transaction

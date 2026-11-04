@@ -287,3 +287,54 @@ def test_saved_project_constraints_survive_real_detail_get_and_response_based_ed
     after = after_response.json()["data"]
     assert after["version"] == detail["version"] + 1
     assert {name: after[name] for name in expected} == expected
+
+
+def test_rerun_recompares_own_products_for_ai_judgements_and_keeps_human_ones(
+    worker_dsn, admin, tmp_path, profile
+):
+    """다시 채점(KAN-232): 자사 비교를 모델 없이 다시 해 AI 판단은 새 판본으로 고치고, 사람 판단은 두고 사본만 남긴다."""
+    latest = (
+        "SELECT v.requirement_id, v.version, v.status, v.reason, v.provenance_kind FROM tft.requirements r "
+        "JOIN tft.requirement_versions v ON v.requirement_id=r.id AND v.version=r.latest_version "
+        "WHERE r.project_id=%s"
+    )
+    seen = {}
+    for owner in ("ai", "human"):
+        (tmp_path / owner).mkdir()
+        project = make_project(admin, tmp_path / owner, SPEC)
+        run(worker_dsn, project, FakeExtractor())
+        with psycopg.connect(admin, row_factory=dict_row) as conn:
+            before = conn.execute(latest, (project["project"],)).fetchone()
+            assert before["status"] == "SPEC_GAP"  # 1500 kVA 요구, 자사 630 kVA
+            # 옛 비교 규칙으로 저장된 판단처럼 바꿔 둔다(판본 번호는 그대로).
+            human = ", provenance_kind='human_input', decided_by=%s, decided_at=now()"
+            conn.execute(
+                "UPDATE tft.requirement_versions SET status='EVIDENCE_FOUND', reason='옛 판단'"
+                + (human if owner == "human" else "")
+                + " WHERE requirement_id=%s AND version=%s",
+                (
+                    *([SALES] if owner == "human" else []),
+                    before["requirement_id"],
+                    before["version"],
+                ),
+            )
+        no_model = Mock(side_effect=AssertionError("다시 채점 모델 호출 금지"))
+        run(worker_dsn, project, no_model)
+        no_model.assert_not_called()
+        with psycopg.connect(admin, row_factory=dict_row) as conn:
+            after = conn.execute(latest, (project["project"],)).fetchone()
+            snapshot = conn.execute(
+                "SELECT requirement_version FROM tft.requirement_recomparisons WHERE requirement_id=%s "
+                "ORDER BY created_at DESC LIMIT 1",
+                (before["requirement_id"],),
+            ).fetchone()
+        seen[owner] = (before, after, snapshot)
+    before, after, snapshot = seen["ai"]
+    assert after["version"] == before["version"] + 1
+    assert after["provenance_kind"] == "system_record"
+    assert (after["status"], after["reason"]) == (before["status"], before["reason"])
+    assert snapshot["requirement_version"] == after["version"]
+    before, after, snapshot = seen["human"]
+    assert after["version"] == before["version"]
+    assert (after["status"], after["reason"]) == ("EVIDENCE_FOUND", "옛 판단")
+    assert snapshot["requirement_version"] == before["version"]

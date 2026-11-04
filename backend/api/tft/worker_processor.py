@@ -916,6 +916,71 @@ def legacy_grade(
     )
 
 
+async def recompare_stored(
+    conn: psycopg.AsyncConnection[dict[str, Any]],
+    project_id: UUID,
+    skip: Iterable[UUID] = (),
+) -> int:
+    """다시 채점: 저장된 요구 전부를 자사 사양과 다시 비교한다(모델 없음, 요구별 다시 비교와 같은 함수).
+
+    사람이 판단을 정하지 않은 요구(AI·시스템 판본, 결정 기록 없음)는 판단이 바뀌면 새 판본(system_record)과 그 판본의
+    보완 선택지를 쓴다. 사람이 정한 요구는 판단을 두고 비교 결과·자사 보증값만 갱신한다(바꾸려면 요구별 다시 비교의
+    변경 제안으로). 협력사 재채점·초안은 이어지는 regrade_stored·drafts.generate가 새 판본으로 한다.
+
+    Returns:
+        int: 판단을 새 판본으로 바꾼 요구 수.
+    """
+    from pydantic import ValidationError
+
+    from backend.api.tft.rfp import workflow
+
+    skipped = set(skip)
+    human = await repository.human_owned_requirements(conn, project_id)
+    products = comparison.load_own_products()
+    changed = 0
+    for row in await repository.stored_grading_requirements(conn, project_id):
+        if row["requirement_id"] in skipped:
+            continue
+        try:
+            item = stored_extraction(row)
+        except ValidationError:
+            continue
+        if item is None:
+            continue
+        outcome = await workflow.stored_outcome(conn, project_id, row, item, products)
+        target = row
+        judged = (row["status"], row["reason"], list(row["unresolved"]))
+        if row["requirement_id"] not in human and judged != (
+            outcome.status,
+            outcome.reason,
+            list(outcome.unresolved),
+        ):
+            version = await repository.insert_system_version(
+                conn,
+                row,
+                status=outcome.status,
+                reason=outcome.reason,
+                unresolved=outcome.unresolved,
+            )
+            target = {**row, "version": version}
+            options = supplement.options_for(
+                outcome, "UNSTATED", designated=item.designated_model is not None
+            )
+            for option in options.options:
+                await repository.insert_option(
+                    conn,
+                    row["requirement_id"],
+                    option.model_dump(),
+                    deficiency_cause=options.deficiency_cause,
+                    customer_permission=options.customer_permission,
+                    data_origin=row["data_origin"],
+                    requirement_version=version,
+                )
+            changed += 1
+        await workflow.store_outcome(conn, target, item, outcome)
+    return changed
+
+
 async def regrade_stored(
     conn: psycopg.AsyncConnection[dict[str, Any]],
     project_id: UUID,
@@ -1321,6 +1386,7 @@ async def process(
                 emit({"step": "supplement", "counts": counts(total)})
                 # 이미 처리한 문서도 모델 없이 현행 저장 요구를 재채점한다.
                 if await draft_repository.generated(conn, job.project_id, job.job_id) is None:
+                    await recompare_stored(conn, job.project_id, ids)
                     needs_review |= await regrade_stored(
                         conn,
                         job.project_id,
