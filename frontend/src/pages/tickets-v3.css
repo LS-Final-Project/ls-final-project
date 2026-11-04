@@ -19,3 +19,13 @@
 .ls-root .kv .td3.tk3 .chip.ch-chat{background:#eaf5ee;color:#2f7d4f}
 
 @media print{.ls-root .kv .td3.tk3 .btns,.ls-root .kv .td3.tk3 .pager{display:none}}
+
+/* 문의 검토(CS0202, 부서 창): 문의 조회와 같은 제목 줄·조건 줄·목록 상자. */
+.ls-root .kv .td3.di3 .di-sum{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.ls-root .kv .td3.di3 .di-sum .al{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:999px;background:#fdf3dc;color:#8a5a00;font-size:12.5px;font-weight:600}
+.ls-root .kv .td3.di3 .di-sum .al i{width:7px;height:7px;border-radius:50%;background:currentColor}
+.ls-root .kv .td3.di3 .di-sum .al b{font-weight:800}
+.ls-root .kv .td3.di3 .di-sum small{font-size:12px;color:#6b7385}
+.ls-root .kv .td3.di3 .chip.st-muted{background:#f1f2f5;color:#6b7385}
+.ls-root .kv .td3.di3 .log td.r{max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#4a5263}
+.ls-root .kv .td3.di3 .log .late{color:#a3221a;font-weight:700}
