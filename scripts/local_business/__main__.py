@@ -359,6 +359,27 @@ def enable(state, args):
     print("UNKNOWN/interrupted reservations still block work; provider quotas remain in effect.")
 
 
+def mail_on(state, args):
+    from scripts.local_business import mail
+
+    config = owned(state)
+    if args.allow and not args.send:
+        raise ValueError("LOCAL_MAIL_ALLOW_NEEDS_SEND")
+    value = mail.write(
+        state,
+        app=mail.client_app(args.secret_file, os.environ),
+        sync=args.receive,
+        send=args.send,
+        allow=args.allow or mail.DEFAULT_ALLOW,
+        interval=args.interval,
+    )
+    print("Mail mode on:", "receive" if value["sync"] else "", "send" if value["send"] else "")
+    if value["send"]:
+        print("Send allow list:", ", ".join(value["allow"]))
+    print("Entra Web redirect URI:", config["web_origin"] + mail.MAILBOX_CALLBACK)
+    print("Run restart to apply.")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -371,6 +392,8 @@ def main():
         "tunnel",
         "enable-real",
         "disable-real",
+        "mail-on",
+        "mail-off",
     ):
         p = sub.add_parser(command)
         p.add_argument("--namespace", required=True)
@@ -394,6 +417,16 @@ def main():
             p.add_argument("--max-calls", type=int, help="Limited mode default: 8")
             p.add_argument("--reserve-usd", default="0.15")
             p.add_argument("--budget-usd", help="Limited mode default: 1.50")
+        if command == "mail-on":
+            p.add_argument("--receive", action="store_true", help="Sync the connected mailbox")
+            p.add_argument("--send", action="store_true", help="Really send approved replies")
+            p.add_argument(
+                "--allow",
+                action="append",
+                help="Send allow list entry: a@b.com or @b.com (repeatable). Default: @outlook.kr",
+            )
+            p.add_argument("--secret-file", help="0600 JSON with client_id and client_secret")
+            p.add_argument("--interval", type=int, default=60, help="Seconds between sync runs")
     args = parser.parse_args()
     if args.command == "enable-real":
         if args.unlimited and any(
@@ -437,6 +470,12 @@ def main():
         tunnel(state)
     elif args.command == "enable-real":
         enable(state, args)
+    elif args.command == "mail-on":
+        mail_on(state, args)
+    elif args.command == "mail-off":
+        owned(state)
+        (state / "auth" / "mail.json").unlink(missing_ok=True)
+        print("Mail mode off. Run restart to apply.")
     elif args.command == "disable-real":
         config = owned(state)
         rows = running_drivers(config)

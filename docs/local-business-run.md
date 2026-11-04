@@ -227,6 +227,63 @@ uv run --frozen --python 3.12 python -m scripts.local_business disable-real --na
 
 활성화 후 UI에서 새 C/S 분석 또는 RFP 처리 요청을 만든다. dispatcher는 활성화 시각 이후의 해당 owner 신규 작업만 고르고, 정규 worker의 lease·DB 결과를 사용한다. 예전 QUEUED/RUNNING을 자동 재전송하지 않는다. 제한 모드에서는 허용한 작업 수를 쓰면 종료하며 다시 활성화하려면 상태·비용을 먼저 확인한다. unlimited는 사용자가 끄기 전까지 다음 신규 작업을 기다리되 실패·UNKNOWN·worker 중단 경계에서는 보존 후 중단한다. 활성화 전에는 모델 작업 요청이 `LOCAL_REAL_DRIVER_DISABLED`로 거부된다. 실제 업무 생성 결과만 확인하고 사용자 사전 시연 결과를 넣지 않는다.
 
+## 로컬에서 실제 Outlook 메일 시험하기
+
+기본값은 꺼짐이다. `mail-on`을 실행한 namespace에서만 실제 Microsoft 사서함에 연결하고, 받기와 보내기는 따로 켠다. 로그인은 지금처럼 로컬 합성 계정(local-1~4)을 쓰고, 그 계정에 실제 Outlook 사서함을 연결하는 구조다. 합성 로그인 화면은 그대로이며 사서함 연결 동의만 실제 Microsoft 화면을 거친다.
+
+**보내기를 켜면 메일이 실제로 나간다.** 허용 목록 밖의 수신자(받는 사람·참조 중 한 명이라도)가 있으면 Graph를 부르지 않고 발송 의도를 `FAILED`/`GRAPH_FORBIDDEN`으로 남긴다. 플랫폼 로그에는 `LOCAL_MAIL_SEND_BLOCKED`와 수신자 수만 남는다. 허용 목록의 기본값은 시연 계정 도메인 `@outlook.kr`이다. `@outlook.kr`은 공용 도메인이라 같은 도메인의 다른 사람에게도 나갈 수 있으므로, 가능하면 `--allow csdesk-01@outlook.kr`처럼 주소를 하나씩 지정한다.
+
+### 준비
+
+1. 이 기능이 들어간 dev를 받은 뒤 **새 namespace**로 준비한다. 기존 namespace는 설치 때 보관한 source를 쓰므로 `git pull`과 `restart`만으로는 메일 모드가 생기지 않는다.
+2. 본인 Microsoft 계정으로 [Entra 앱 등록](https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade)을 하나 만든다.
+   - 지원 계정 유형: 개인 Microsoft 계정을 포함하는 항목(서버가 `consumers` 권한 기관만 쓴다)
+   - 플랫폼: **웹**. 리디렉션 URI는 `https://localhost:<웹 포트>/api/v1/platform/auth/mailbox/callback` 형식이다. 예: 38443 포트면 `https://localhost:38443/api/v1/platform/auth/mailbox/callback`. 포트가 다르면 다시 등록해야 한다. `mail-on`이 정확한 주소를 출력한다.
+   - API 권한(위임): Microsoft Graph `Mail.Read`, `Mail.Send`
+   - 인증서 및 비밀 → 새 클라이언트 비밀. 값은 한 번만 보이므로 바로 아래 파일에 옮긴다.
+3. 시험용 Outlook 계정을 정한다. 연결할 사서함과 보낼 상대 모두 시연 계정(manager-01·csdesk-01·csdesk-02 등)을 쓰고, 고객이나 개인 주소는 쓰지 않는다.
+4. 앱 정보는 본인만 읽는 파일(권장)이나 환경 변수로 넘긴다. 저장소 안에 두지 않고, 채팅·명령행 인자에 비밀 값을 적지 않는다.
+
+```bash
+mkdir -p ~/.config/team4 && touch ~/.config/team4/ms-mail-app.json && chmod 600 ~/.config/team4/ms-mail-app.json
+# 편집기로 {"client_id": "<앱 ID>", "client_secret": "<비밀 값>"} 을 넣는다.
+```
+
+파일 대신 `LOCAL_MAIL_CLIENT_ID`·`LOCAL_MAIL_CLIENT_SECRET` 환경 변수를 써도 된다. 둘 다 없거나 형식이 틀리면 `LOCAL_MAIL_CLIENT_REQUIRED`, 파일을 다른 사용자가 읽을 수 있으면 `LOCAL_MAIL_SECRET_FILE_PERMISSIONS`로 멈춘다.
+
+### 켜기
+
+```bash
+# 받기만
+uv run --frozen --python 3.12 python -m scripts.local_business mail-on --namespace "$NS" \
+  --receive --secret-file ~/.config/team4/ms-mail-app.json
+# 받기 + 보내기(허용 주소 지정)
+uv run --frozen --python 3.12 python -m scripts.local_business mail-on --namespace "$NS" \
+  --receive --send --allow csdesk-01@outlook.kr --allow manager-01@outlook.kr \
+  --secret-file ~/.config/team4/ms-mail-app.json
+uv run --frozen --python 3.12 python -m scripts.local_business restart --namespace "$NS"
+```
+
+`mail-on`은 `artifacts/local-business/$NS/auth/mail.json`(0600, git 제외)에 앱 정보·사서함 암호화 키·켠 기능·허용 목록을 쓴다. 다시 실행하면 설정을 바꾸되 암호화 키는 유지한다. `--allow`는 `--send`와 함께만 쓴다. `--interval`(기본 60초, 60~3600)은 받기 주기와 발송 정리 주기다.
+
+메일 모드에서는 API 컨테이너가 바깥 인터넷(Microsoft 로그인·Graph)에 나갈 수 있다. 꺼져 있을 때는 지금처럼 내부망만 쓴다. Cloud Tasks·Cloud Storage·Scheduler는 로컬에서 대신한다. 작업은 플랫폼 내부 경로를 바로 부르고, 받은 메일 원문은 `files/.mail-objects/`에 저장한다.
+
+### 확인 순서
+
+1. 웹에 합성 계정으로 로그인한 뒤 메일 계정 화면에서 사서함 연결을 시작하고, Microsoft 화면에서 시험용 Outlook 계정으로 동의한다.
+2. 받기: 시연 계정에서 연결한 사서함으로 시험 메일을 보낸다. 다음 주기(기본 1분) 뒤 받은 메일 목록에 보이면 분류를 확인하고 C/S 접수를 누른다. 문의 목록에 새 건이 생기는지 본다.
+3. 보내기: 그 문의의 답변을 승인해 발송한다. 받는 주소가 허용 목록에 있으면 실제로 나가고, 보낸편지함 사본은 다음 정리 주기에 확인된다. 허용 목록 밖 주소로 한 번 시도해 `GRAPH_FORBIDDEN`으로 막히는지도 확인한다.
+4. 문제가 생기면 `docker logs "$NS-platform"`에서 `LOCAL_MAIL_` 코드만 확인한다. 로그나 `mail.json` 내용을 공유하지 않는다.
+
+### 끄기
+
+```bash
+uv run --frozen --python 3.12 python -m scripts.local_business mail-off --namespace "$NS"
+uv run --frozen --python 3.12 python -m scripts.local_business restart --namespace "$NS"
+```
+
+`mail-off`는 `mail.json`을 지운다. 암호화 키도 함께 사라지므로 다시 켜면 사서함을 새로 연결해야 한다. 다음 start/restart에서 API 컨테이너의 바깥 연결도 끊긴다. Microsoft 쪽 동의를 거두려면 [계정의 앱 권한](https://account.live.com/consent/Manage)에서 해당 앱을 제거한다.
+
 ## 4. 중지·재시작과 미완료 작업
 
 real 처리를 먼저 비활성화한 후 앱을 중지한다. 실행 중 요청을 중단할 수 있으므로 원격 처리·비용·lease가 정리됐다고 가정하지 않는다.
