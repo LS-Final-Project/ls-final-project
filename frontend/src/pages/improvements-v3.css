@@ -151,15 +151,7 @@
 .ls-root .kv .td3.ir3 .pager .pg{display:inline-flex;align-items:center;gap:4px}
 .ls-root .kv .td3.ir3 .pager .kb3.sm{min-width:30px;justify-content:center}
 .ls-root .kv .td3.ir3 .pager .gap{color:#9aa2b1;padding:0 2px}
-/* 단계 바: 진행 중인 단계는 채운 점 + 고리 두 겹이 시차를 두고 퍼지는 물결(1.8초 주기), 점도 함께 살짝 밝아진다.
-   완료·대기 단계는 움직이지 않는다. 완료된 요청에는 진행 중 단계가 없어 물결도 없다. */
-.ls-root .kv .td3.ir3 .st.cur .dot{--ir-pulse:26,58,122;position:relative;isolation:isolate;background:rgb(var(--ir-pulse));border-color:rgb(var(--ir-pulse));color:#fff;animation:ir-glow 1.8s ease-in-out infinite}
-.ls-root .kv .td3.ir3 .st.cur .dot::before,.ls-root .kv .td3.ir3 .st.cur .dot::after{content:"";position:absolute;inset:-1.5px;border-radius:50%;background:rgba(var(--ir-pulse),.5);z-index:-1;animation:ir-ripple 1.8s cubic-bezier(0,0,.2,1) infinite}
-.ls-root .kv .td3.ir3 .st.cur .dot::after{animation-delay:.6s}
-@keyframes ir-ripple{0%{transform:scale(1);opacity:.9}100%{transform:scale(2.6);opacity:0}}
-@keyframes ir-glow{0%,100%{filter:brightness(1)}50%{filter:brightness(1.45)}}
-@media (prefers-reduced-motion:reduce){.ls-root .kv .td3.ir3 .st.cur .dot,.ls-root .kv .td3.ir3 .st.cur .dot::before,.ls-root .kv .td3.ir3 .st.cur .dot::after{animation:none}.ls-root .kv .td3.ir3 .st.cur .dot::before,.ls-root .kv .td3.ir3 .st.cur .dot::after{opacity:0}}
-@media (forced-colors:active){.ls-root .kv .td3.ir3 .st.cur .dot{background:CanvasText;color:Canvas}}
+/* 단계 바 물결 펄스는 문의 처리와 함께 ticket-detail-v3.css에 있다. */
 /* 부서별 질문 상자: 다른 내용 상자와 같은 모양, 보라(AI) 계열 */
 .ls-root .kv .td3.ir3 .fact-box.ask{border-color:#dcd5f7;background:#f6f4fe;color:#3b2a8f}
 /* 요청 내용 상자는 스크롤 없이 끝까지 펼친다 */
