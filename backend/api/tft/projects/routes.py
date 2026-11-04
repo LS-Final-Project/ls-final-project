@@ -19,6 +19,7 @@ from backend.api.tft.projects.schemas import (
     ProjectSummary,
     RfpRequirement,
 )
+from backend.api.tft.rfp import routes_write
 from backend.api.tft.rfp import schemas as rfp
 from backend.api.tft.rfp.routes_write import project_fields
 from backend.shared.access import Principal, current_principal
@@ -128,9 +129,18 @@ async def list_projects(
                 q=q,
                 search_field=search_field,
             )
+        # ponytail: 쪽마다 프로젝트별 decision_gate 계산(최대 limit번). 목록이 느려지면 states를 프로젝트 여러 개로 묶는다.
+        gates = {
+            row["id"]: await routes_write.decision_gate(conn, row["id"]) for row in rows[:limit]
+        }
     items = [
         ProjectSummary.model_validate(
-            {**row, "integration_responsibility": {"holder": row["integration_holder"]}}
+            {
+                **row,
+                "integration_responsibility": {"holder": row["integration_holder"]},
+                "decisions_remaining": gates[row["id"]].undecided,
+                "review_pending": gates[row["id"]].review_pending,
+            }
         )
         for row in rows[:limit]
     ]

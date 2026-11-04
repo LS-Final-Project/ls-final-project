@@ -81,51 +81,77 @@ async def decide(
     Returns:
         s.DecisionResult: 저장한(또는 같은 키로 처음 저장한) 결정.
     """
+    # 본체는 decide_on(같은 트랜잭션에서 여러 건을 부르는 일괄 결정과 공유).
+    async with connection(request.app.state.settings) as conn:
+        result = await decide_on(conn, principal, requirement_id, payload, key)
+    return s.DecisionResult.model_validate(result)
+
+
+async def decide_on(
+    conn: AsyncConnection[Row],
+    principal: Principal,
+    requirement_id: UUID,
+    payload: s.DecisionRequest,
+    key: str,
+    *,
+    project_id: UUID | None = None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """decide의 본체. 호출자의 트랜잭션에서 돈다(일괄 결정 KAN-228이 여러 번 부른다).
+
+    Args:
+        project_id: 있으면 요구가 이 프로젝트 것이어야 한다(아니면 404).
+        extra: 결정 기록 detail에 더할 칸(일괄 묶음 ID 등).
+
+    Returns:
+        dict: DecisionResult JSON.
+    """
     digest = commands.request_hash(
         {"requirement_id": requirement_id}, payload.model_dump(mode="json")
     )
-    async with connection(request.app.state.settings) as conn:
-        project = await requirement_project(conn, principal, requirement_id)
-        check_role(project, principal, payload.action)
-        stored = await replay(conn, principal.user_id, key, digest)
-        if stored is not None:
-            return s.DecisionResult.model_validate(stored)
-        requirement = await repository.latest_requirement_version(
-            conn, project["id"], requirement_id, lock=True
+    project = await requirement_project(conn, principal, requirement_id)
+    if project_id is not None and project["id"] != project_id:
+        raise ApplicationError(404, "TFT_REQUIREMENT_NOT_FOUND", "The requirement was not found.")
+    check_role(project, principal, payload.action)
+    stored = await replay(conn, principal.user_id, key, digest)
+    if stored is not None:
+        return stored
+    requirement = await repository.latest_requirement_version(
+        conn, project["id"], requirement_id, lock=True
+    )
+    assert requirement is not None
+    if requirement["version"] != payload.version:
+        raise repository.version_conflict()
+    if payload.action not in ON_EXCLUDED and await is_excluded(conn, requirement_id):
+        raise ApplicationError(
+            409, "TFT_REQUIREMENT_EXCLUDED", "The requirement is excluded. Restore it first."
         )
-        assert requirement is not None
-        if requirement["version"] != payload.version:
-            raise repository.version_conflict()
-        if payload.action not in ON_EXCLUDED and await is_excluded(conn, requirement_id):
-            raise ApplicationError(
-                409, "TFT_REQUIREMENT_EXCLUDED", "The requirement is excluded. Restore it first."
-            )
-        decision_id = uuid4()
-        act = ACTIONS[payload.action]
-        summary, detail, undoes, question_id, after = await act(
-            conn, project, requirement, principal, payload
-        )
-        latest = await repository.latest_requirement_version(conn, project["id"], requirement_id)
-        assert latest is not None
-        result = await record(
-            conn,
-            decision_id=decision_id,
-            project_id=project["id"],
-            requirement_id=requirement_id,
-            base_version=requirement["version"],
-            result_version=latest["version"],
-            action=payload.action,
-            summary=summary,
-            detail=detail,
-            undoes=undoes,
-            question_id=question_id,
-            actor=principal.user_id,
-            key=key,
-            digest=digest,
-        )
-        for write in after:
-            await write(decision_id)
-    return s.DecisionResult.model_validate(result)
+    decision_id = uuid4()
+    act = ACTIONS[payload.action]
+    summary, detail, undoes, question_id, after = await act(
+        conn, project, requirement, principal, payload
+    )
+    latest = await repository.latest_requirement_version(conn, project["id"], requirement_id)
+    assert latest is not None
+    result = await record(
+        conn,
+        decision_id=decision_id,
+        project_id=project["id"],
+        requirement_id=requirement_id,
+        base_version=requirement["version"],
+        result_version=latest["version"],
+        action=payload.action,
+        summary=summary,
+        detail={**detail, **(extra or {})},
+        undoes=undoes,
+        question_id=question_id,
+        actor=principal.user_id,
+        key=key,
+        digest=digest,
+    )
+    for write in after:
+        await write(decision_id)
+    return result
 
 
 async def record(
