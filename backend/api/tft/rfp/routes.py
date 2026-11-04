@@ -572,6 +572,24 @@ async def reply_question(
     return respond(request, data)
 
 
+@router.post(
+    "/questions/{question_id}/reply/read",
+    response_model=SuccessResponse[s.Question],
+    operation_id="tft_read_rfp_question_reply",
+)
+async def read_question_reply(
+    question_id: UUID,
+    idempotency_key: Key,
+    request: Request,
+    principal: User,
+) -> SuccessResponse[s.Question]:
+    """KAN-224. 규칙이 못 읽은 고객 회신을 AI로 다시 읽는다(worker 작업, 모델 비용). 요구값은 바꾸지 않는다."""
+    return respond(
+        request,
+        await routes_questions.read_again(request, principal, question_id, idempotency_key),
+    )
+
+
 @router.get(
     P + "/proposals",
     response_model=SuccessResponse[s.ProposalList],

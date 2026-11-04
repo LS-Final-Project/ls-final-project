@@ -191,6 +191,7 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ("/api/v1/tft/projects/{uuid}/questions/sent", ("POST",), ()),
     ("/api/v1/tft/projects/{uuid}/questions/{uuid}/confirm", ("POST",), ()),
     ("/api/v1/tft/questions/{uuid}/reply", ("POST",), ()),
+    ("/api/v1/tft/questions/{uuid}/reply/read", ("POST",), ()),
     (
         "/api/v1/tft/projects/{uuid}/proposals",
         ("GET", "POST"),

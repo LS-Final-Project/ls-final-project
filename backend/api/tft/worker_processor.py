@@ -99,6 +99,9 @@ class ProcessorSettings(BaseSettings):
     draft_rewrite_model: str = Field(default="gemini-3.6-flash", pattern=r"^[a-zA-Z0-9._-]+$")
     draft_rewrite_max_output_tokens: int = Field(default=8192, ge=1, le=65536)
     draft_rewrite_timeout_ms: int = Field(default=120000, ge=1000, le=300000)
+    # KAN-224 회신 값 AI 읽기(rfp.reply_read). 공급자는 추출 공급자(fake·gemini)를 따른다.
+    reply_read_model: str = Field(default="gemini-3.6-flash", pattern=r"^[a-zA-Z0-9._-]+$")
+    reply_read_max_output_tokens: int = Field(default=2048, ge=256, le=65536)
 
 
 def fake_provider(_prompt: str) -> Generation:
@@ -174,6 +177,33 @@ def rewrite_provider(config: ProcessorSettings) -> Provider:
     return provide
 
 
+def reply_provider(config: ProcessorSettings) -> Provider:
+    """회신 값 읽기 공급자. 실제 작업이 부를 때만 클라이언트를 만든다. fake는 값을 찾지 못하는 고정 응답이다."""
+    if config.extraction_provider == "fake":
+        return lambda _prompt: Generation(
+            text='{"value": null}', usage=Usage(), model_version=None, finish_reasons=[]
+        )
+    ai = AISettings(
+        gemini_model=config.reply_read_model,
+        gemini_max_output_tokens=config.reply_read_max_output_tokens,
+        gemini_transient_retries=0,
+    )
+    check_lease(ai, TftWorkerSettings().lease_seconds)
+    client = None
+
+    def provide(text: str) -> Generation:
+        nonlocal client
+        from backend.engine.rfp.reply_values import AiOutput
+        from backend.shared.ai import create_client, generate
+
+        if client is None:
+            client = create_client(ai)
+        # 짧은 회신에서 값 하나를 고르는 일이라 깊은 추론이 필요 없다.
+        return generate(client, ai, text, response_schema=AiOutput, thinking_level="LOW")
+
+    return provide
+
+
 def build(settings: Settings) -> Processor:
     """worker가 부르는 등록 지점.
 
@@ -210,6 +240,7 @@ def build(settings: Settings) -> Processor:
         store=document_store(DocumentStorageSettings()),
         draft_provider=rewrite_provider(config),
         rewrite_model=config.draft_rewrite_model,
+        reply_provider=reply_provider(config),
         extraction_concurrency=config.extraction_concurrency,
         context_provider=context_provider,
         image_provider=(
@@ -232,6 +263,7 @@ def make_processor(
     extraction_concurrency: int = 3,
     image_provider: Callable[[vision.ImageInput], Generation] | None = None,
     context_provider: ContextProvider | None = None,
+    reply_provider: Provider | None = None,
 ) -> Processor:
     """처리 함수를 만든다(검사는 추출 공급자·원문 폴더를 바꿔 끼운다).
 
@@ -260,6 +292,10 @@ def make_processor(
             return asyncio.run(rewrite_job(settings, job, emit, draft_provider, rewrite_model))
         if job.kind == "rfp.export":
             return asyncio.run(export_job(settings, job, emit, store))
+        if job.kind == "rfp.reply_read":
+            if reply_provider is None:
+                raise ValueError("TFT_REPLY_READ_PROVIDER_MISSING")
+            return asyncio.run(reply_job(settings, job, reply_provider))
         if job.kind == "rfp.annotate":
             raise ValueError("TFT_ANNOTATION_UNAVAILABLE")
         result = asyncio.run(
@@ -293,6 +329,16 @@ async def rewrite_job(
         dsn, row_factory=dict_row, autocommit=True
     ) as conn:
         return await draft_rewrite.process(conn, job, emit, provider, model)
+
+
+async def reply_job(settings: Settings, job: TftJob, provider: Provider) -> dict[str, Any]:
+    from backend.api.tft.rfp import reply_read
+
+    dsn = settings.database_url.get_secret_value() if settings.database_url else ""
+    async with await psycopg.AsyncConnection.connect(
+        dsn, row_factory=dict_row, autocommit=True
+    ) as conn:
+        return await reply_read.process(conn, job, provider)
 
 
 async def export_job(

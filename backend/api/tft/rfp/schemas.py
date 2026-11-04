@@ -852,6 +852,9 @@ class ReplyValueCandidate(Model):
         ]
         | None
     ) = None
+    # AI 읽기 작업(worker rfp.reply_read) 상태. QUEUED 대기, UNAVAILABLE 접수 못 함(다시 읽기 가능),
+    # DONE 끝(method가 ai 또는 none), FAILED 모델 호출 실패. 규칙만 쓴 후보는 null이다.
+    ai: Literal["QUEUED", "UNAVAILABLE", "DONE", "FAILED"] | None = None
 
 
 class Question(Provenance):

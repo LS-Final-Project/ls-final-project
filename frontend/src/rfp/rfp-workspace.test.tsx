@@ -215,6 +215,22 @@ describe('고객 회신 반영', () => {
     fireEvent.click(screen.getByRole('button', { name: '다시 질의' }));
     await waitFor(() => expect((f.mock.calls as unknown as [string, RequestInit][]).some(([u, init]) => u.endsWith('/projects/p1/questions') && init?.method === 'POST' && JSON.parse(String(init.body)).follows_question_id === 'q1')).toBe(true));
   });
+  it('AI 읽기를 기다리는 동안 알리고, 접수하지 못했으면 AI로 다시 읽기를 부른다', async () => {
+    serve([replied({ value_candidate: { method: 'none', reason: 'CORRECTION', ai: 'QUEUED' } })]);
+    show('sales');
+    await screen.findByText('회신 도착');
+    fireEvent.click(screen.getByRole('button', { name: '상용주파 내전압' }));
+    expect(await screen.findByText('AI가 회신을 읽는 중입니다.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'AI로 다시 읽기' })).toBeNull();
+    cleanup();
+    const f = serve([replied({ value_candidate: { method: 'none', reason: 'CORRECTION', ai: 'UNAVAILABLE' } })]);
+    show('sales');
+    await screen.findByText('회신 도착');
+    fireEvent.click(screen.getByRole('button', { name: '상용주파 내전압' }));
+    expect(await screen.findByText(/AI 읽기를 시작하지 못했습니다/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'AI로 다시 읽기' }));
+    await waitFor(() => expect((f.mock.calls as unknown as [string, RequestInit][]).some(([u, init]) => u.endsWith('/questions/q1/reply/read') && init?.method === 'POST')).toBe(true));
+  });
   it('후속 질의는 원래 질의 아래 TQ-n-2로 묶는다', () => {
     const q = (id: string, follows?: string) => ({ question_id: id, follows_question_id: follows ?? null }) as never;
     expect(tqNumbers([q('a'), q('b'), q('c', 'a')]).map(x => x.no)).toEqual(['TQ-1', 'TQ-1-2', 'TQ-2']);

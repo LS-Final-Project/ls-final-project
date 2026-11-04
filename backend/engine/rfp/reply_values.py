@@ -67,9 +67,11 @@ class ReplyValue(BaseModel):
     conditions: list[Condition] = []
     quote: str | None = None
     reason: Reason | None = None
+    # AI 읽기 작업 상태(KAN-224 worker). 규칙만 쓴 후보는 None이다.
+    ai: Literal["QUEUED", "UNAVAILABLE", "DONE", "FAILED"] | None = None
 
 
-class _AiOutput(BaseModel):
+class AiOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     value: str | None
     unit: str | None = None
@@ -157,7 +159,7 @@ def ai_prompt(question_text: str, attribute: str, unit: str | None, reply_text: 
     )
 
 
-def _grounded(output: _AiOutput, reply_text: str, unit: str | None) -> bool:
+def _grounded(output: AiOutput, reply_text: str, unit: str | None) -> bool:
     if not output.value or not output.quote:
         return False
     compact = lambda s: _norm(s).replace(" ", "").casefold()  # noqa: E731
@@ -203,7 +205,7 @@ def read_reply_value(
     except Exception:  # noqa: BLE001 - 회신 기록은 AI 실패와 무관하게 남아야 한다.
         return ReplyValue(method="none", reason="AI_FAILED")
     try:
-        output = _AiOutput.model_validate(json.loads(generation.text))
+        output = AiOutput.model_validate(json.loads(generation.text))
     except (json.JSONDecodeError, ValidationError, TypeError):
         return ReplyValue(method="none", reason="AI_UNGROUNDED")
     if not _grounded(output, reply_text, unit):

@@ -446,6 +446,14 @@ TFT `20261121_KAN-218_decisions.sql`은 `20261120_KAN-188_workflow_snapshot.sql`
 더하고 기존 표·CHECK는 바꾸지 않는다. 연산 이름이나 질문 상태 값을 기존 CHECK에 더하면, 그 CHECK를 다시 정의하는
 20261106·20261111·20261119·20261120 재적용이 새 값의 행 때문에 실패하므로 새 표로 둔다. 앱은 SELECT·INSERT만 한다.
 
+## KAN-224 회신 값 AI 읽기 작업
+
+TFT `20261125_KAN-224_reply_value_reads.sql`은 `20261124_KAN-228_bulk_and_sends.sql` 뒤, 플랫폼
+`20261125_KAN-224_reply_read_jobs.sql`은 `20261118_KAN-188_context_jobs.sql` 뒤에 적용한다. TFT는 추가 전용 표
+`reply_value_reads`(tft_app·tft_worker SELECT·INSERT) 하나를 더하고, 플랫폼은 작업 CHECK에 `rfp.reply_read` 조합을 더한다.
+둘 다 다시 적용해도 깨지지 않는다. `20261104_KAN-199_tft_worker.sql` 재적용도 표가 있으면 같은 worker 권한을 복구한다.
+플랫폼 CHECK를 다시 정의하는 이전 파일(20261109·20261118)을 나중에 다시 적용하면 이 조합이 빠지므로 이 파일을 그 뒤에 다시 적용한다.
+
 ## KAN-224 후속 질의 연결
 
 TFT `20261122_KAN-224_question_follow_up.sql`은 `20261121_KAN-218_decisions.sql` 뒤에 적용한다.

@@ -192,11 +192,14 @@ def app_for(service: str, state: Path):
     elif service == "tft":
         from backend.api.tft.main import create_app
         from backend.api.tft.rfp.jobs import TftProcessingSettings, configure_processing_jobs
+        from backend.api.tft.rfp.routes_questions import TftReplySettings
 
         processing = TftProcessingSettings(
             _env_file=None, enabled=True, platform_url=PLATFORM_ORIGIN
         )
-        app = create_app(common, processing)
+        # KAN-224: 회신 AI 읽기는 상태 settings.json의 "reply_ai": true일 때만 worker 작업으로 접수한다.
+        reply = TftReplySettings(_env_file=None, enabled=config.get("reply_ai") is True)
+        app = create_app(common, processing, reply)
         configure_processing_jobs(
             app,
             processing,
