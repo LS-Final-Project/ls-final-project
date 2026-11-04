@@ -184,6 +184,10 @@ def app_for(service: str, state: Path):
         )
         from backend.api.cs.main import create_app
         from backend.api.cs.summary.routes import CsSummarySettings, configure_summary
+        from backend.api.cs.translation.routes import (
+            CsTranslationSettings,
+            configure_translation,
+        )
         from backend.api.cs.workflow.mail import CustomerMailSettings
         from scripts.local_business.summary import bridge_provider
 
@@ -196,6 +200,11 @@ def app_for(service: str, state: Path):
             app,
             CsImprovementDraftSettings(_env_file=None, enabled=True),
             provider=bridge_provider(state, "/improvement-draft"),
+        )
+        configure_translation(
+            app,
+            CsTranslationSettings(_env_file=None, enabled=True),
+            provider=bridge_provider(state, "/translation"),
         )
         configure_analysis_jobs(
             app,

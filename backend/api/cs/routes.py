@@ -13,6 +13,7 @@ from backend.api.cs.improvements.transition_routes import router as improvement_
 from backend.api.cs.stats.routes import router as stats
 from backend.api.cs.summary.routes import router as summary
 from backend.api.cs.tickets.routes import router as tickets
+from backend.api.cs.translation.routes import router as translation
 from backend.api.cs.units.routes import router as units
 from backend.api.cs.workflow.internal_routes import router as customer_mail_internal
 from backend.api.cs.workflow.mail_routes import router as customer_mail
@@ -23,6 +24,7 @@ router = APIRouter()
 router.include_router(tickets)
 router.include_router(analysis)
 router.include_router(summary)
+router.include_router(translation)
 router.include_router(units)
 router.include_router(workflow)
 router.include_router(case_router)

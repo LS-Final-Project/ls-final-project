@@ -598,3 +598,112 @@ def test_the_draft_bridge_provider_is_unavailable_without_a_driver(tmp_path):
     with pytest.raises(ApplicationError) as error:
         provider("prompt")
     assert error.value.code == "LOCAL_SUMMARY_UNAVAILABLE"
+
+
+def translation_prompt():
+    """번역 경로가 받는 정확한 프롬프트(C/S 경로가 만드는 것과 같다)."""
+    from backend.engine.cs.translation import build_translation_input
+    from backend.engine.cs.translation import render_prompt as render_translation
+
+    return render_translation(
+        build_translation_input(
+            {
+                "channel": "EMAIL",
+                "body_language": "es",
+                "body": "El inversor hace ruido.",
+                "subject": "Ruido",
+            }
+        )
+    )
+
+
+def test_the_translation_path_takes_only_its_own_prompt_and_factory(ledger, tmp_path, prompt):
+    """같은 중계가 /translation에서 번역 프롬프트만 받고 번역 공급자로 부른다(같은 원장)."""
+    permit, token = ledger
+    used = []
+
+    def translation_factory(*args):
+        used.append("translation")
+        return fake_factory(*args)
+
+    bridge = summary.SummaryBridge(
+        permit,
+        token,
+        tmp_path,
+        "fake-model",
+        threading.Lock(),
+        address=("127.0.0.1", 0),
+        factory=fake_factory,
+        draft_factory=lambda *args: pytest.fail("draft factory must not run"),
+        translation_factory=translation_factory,
+    )
+    url = f"http://127.0.0.1:{bridge.server.server_port}"
+    headers = {"Authorization": "Bearer " + bridge.capability}
+    try:
+        # 요약·초안 프롬프트는 번역 경로에서, 번역 프롬프트는 요약·초안 경로에서 받지 않는다.
+        for path, body in (
+            ("/translation", prompt),
+            ("/translation", draft_prompt()),
+            ("/summary", translation_prompt()),
+            ("/improvement-draft", translation_prompt()),
+        ):
+            response = httpx.post(
+                url + path, headers=headers, json={"prompt": body}, trust_env=False
+            )
+            assert response.status_code == 400
+        # 앞말은 맞지만 다시 그린 프롬프트와 다르면(뒤에 덧붙임) 받지 않는다.
+        tampered = httpx.post(
+            url + "/translation",
+            headers=headers,
+            json={"prompt": translation_prompt() + " "},
+            trust_env=False,
+        )
+        assert tampered.status_code == 400 and used == []
+        made = httpx.post(
+            url + "/translation",
+            headers=headers,
+            json={"prompt": translation_prompt()},
+            trust_env=False,
+        )
+        assert made.status_code == 200 and used == ["translation"]
+        with permit.transaction() as db:
+            assert db.execute("SELECT count(*) FROM charges").fetchone()[0] == 1
+    finally:
+        bridge.close()
+
+
+def test_the_translation_bridge_provider_is_unavailable_without_a_driver(tmp_path):
+    """번역 공급자도 CS 실행기가 없으면 모델을 부르지 않고 503(LOCAL_SUMMARY_UNAVAILABLE)이다."""
+    provider = summary.bridge_provider(tmp_path, "/translation")
+    with pytest.raises(ApplicationError) as error:
+        provider("prompt")
+    assert error.value.code == "LOCAL_SUMMARY_UNAVAILABLE"
+
+
+def test_the_metered_translation_provider_uses_its_schema_and_larger_limit(monkeypatch):
+    """번역 공급자는 번역 출력 스키마와 큰 출력 상한(본문 전체)으로 만든다."""
+    from backend.engine.cs.translation import TranslationOutput
+
+    seen = {}
+    monkeypatch.setattr(summary, "metered_provider", lambda *a, **kw: seen.update(kw))
+    summary.metered_translation_provider(None, "t", Path("/unused"), "fake-model")
+    assert seen == {"response_schema": TranslationOutput, "max_output_tokens": 16384}
+
+
+def test_the_local_runtime_turns_the_translation_on_through_the_bridge(tmp_path, monkeypatch):
+    """로컬 runner는 번역을 켜고 공급자로 /translation bridge를 둔다(모델 키 없음)."""
+    from scripts.local_business import runtime
+    from tests.platform.test_local_business_integration import local_state
+
+    endpoints = []
+    original = summary.bridge_provider
+
+    def recording(state, endpoint="/summary"):
+        endpoints.append(endpoint)
+        return original(state, endpoint)
+
+    monkeypatch.setattr(summary, "bridge_provider", recording)
+    state = local_state.__wrapped__(tmp_path, monkeypatch)
+    app = runtime.app_for("cs", state)
+    assert app.state.translation_provider is not None
+    assert "/translation" in endpoints
