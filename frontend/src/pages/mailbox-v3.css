@@ -1,0 +1,79 @@
+/* 메일함(MB0100): 목록 | 메일 내용 | 고객 맥락. 문의 처리(td3)와 같은 각진 상자·LS 빨강. */
+.ls-root .kv .td3.bx3 .title{flex-wrap:wrap}
+.ls-root .kv .td3.bx3 .bx-lead{margin-left:10px;font-size:12.5px;color:#6b7385}
+.ls-root .kv .td3.bx3 .bx-search{margin-left:auto;display:flex;align-items:center;gap:8px;width:min(360px,100%);height:34px;padding:0 12px;border:1px solid #d9dde4;background:#fff}
+.ls-root .kv .td3.bx3 .bx-search svg{width:16px;height:16px;fill:none;stroke:#8a92a3;stroke-width:2}
+.ls-root .kv .td3.bx3 .bx-search input{all:unset;flex:1;font-size:13px}
+.ls-root .kv .td3.bx3 .bx-wrap{display:grid;grid-template-columns:minmax(300px,370px) minmax(0,1fr);gap:0;border:1px solid #d9dde4;background:#fff;min-height:600px}
+.ls-root .kv .td3.bx3 .bx-list{border-right:1px solid #e6e9ee;display:flex;flex-direction:column;min-width:0}
+.ls-root .kv .td3.bx3 .bx-pills{display:flex;flex-wrap:wrap;gap:6px;padding:12px 14px 8px}
+.ls-root .kv .td3.bx3 .bx-pills button{all:unset;cursor:pointer;padding:5px 12px;border-radius:999px;background:#f1f3f6;color:#4a5263;font-size:12.5px;font-weight:600}
+.ls-root .kv .td3.bx3 .bx-pills button b{margin-left:3px;font-weight:700}
+.ls-root .kv .td3.bx3 .bx-pills button.on{background:#1a3a7a;color:#fff}
+.ls-root .kv .td3.bx3 .bx-pills button:focus-visible{outline:2px solid #9fb8e3;outline-offset:2px}
+.ls-root .kv .td3.bx3 .bx-sub{display:flex;justify-content:space-between;padding:6px 16px;font-size:12px;color:#6b7385;font-weight:600}
+.ls-root .kv .td3.bx3 .bx-list ul{list-style:none;margin:0;padding:0;overflow:auto}
+.ls-root .kv .td3.bx3 .bx-list li.none{padding:30px 12px;text-align:center;color:#9aa2b1}
+.ls-root .kv .td3.bx3 .bx-list .row{all:unset;box-sizing:border-box;cursor:pointer;display:flex;gap:10px;width:100%;padding:13px 14px;border-left:3px solid transparent;border-bottom:1px solid #eef0f3}
+.ls-root .kv .td3.bx3 .bx-list .row:hover{background:#f7f9fc}
+.ls-root .kv .td3.bx3 .bx-list .row.on{background:#eef3fb;border-left-color:var(--ls-red,#ED164B)}
+.ls-root .kv .td3.bx3 .bx-list .row:focus-visible{outline:2px solid #9fb8e3;outline-offset:-2px}
+.ls-root .kv .td3.bx3 .av{flex:none;width:36px;height:36px;border-radius:50%;background:#1a3a7a;color:#fff;display:grid;place-items:center;font-size:12px;font-weight:700}
+.ls-root .kv .td3.bx3 .av.gray{background:#a9b1bf}
+.ls-root .kv .td3.bx3 .row .b{min-width:0;flex:1;display:flex;flex-direction:column;gap:4px}
+.ls-root .kv .td3.bx3 .row .top{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:#4a5263}
+.ls-root .kv .td3.bx3 .row .who{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ls-root .kv .td3.bx3 .row .when{flex:none;color:#8a92a3;font-variant-numeric:tabular-nums}
+.ls-root .kv .td3.bx3 .row .subj{display:flex;align-items:center;gap:6px;font-size:13.5px;font-weight:700;color:#1d2433;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ls-root .kv .td3.bx3 .tags{display:flex;gap:4px;flex-wrap:wrap}
+.ls-root .kv .td3.bx3 .chip{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:#f1f2f5;color:#5b6475;font-size:11.5px;font-weight:600;white-space:nowrap}
+.ls-root .kv .td3.bx3 .chip.blue{background:#e8eefb;color:#1f4fbf}
+.ls-root .kv .td3.bx3 .chip.red{background:#fdecec;color:#c2123f}
+.ls-root .kv .td3.bx3 .chip.amber{background:#fdf3dc;color:#8a5a00}
+.ls-root .kv .td3.bx3 .chip.code{background:#fff;border:1px solid #d9dde4;color:#4a5263;font-family:ui-monospace,Menlo,monospace;font-weight:500}
+.ls-root .kv .td3.bx3 .bx-detail{display:flex;flex-direction:column;min-width:0}
+.ls-root .kv .td3.bx3 .bx-detail.empty{display:grid;place-items:center;color:#9aa2b1}
+.ls-root .kv .td3.bx3 .bx-dh{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:18px 22px;border-bottom:1px solid #e6e9ee;background:linear-gradient(90deg,#fff 40%,#fdf3f6)}
+.ls-root .kv .td3.bx3 .bx-dh h2{margin:8px 0 6px;font-size:21px;font-weight:800;color:#1d2433;line-height:1.3}
+.ls-root .kv .td3.bx3 .bx-dh p{margin:0;font-size:12.5px;color:#6b7385}
+.ls-root .kv .td3.bx3 .bx-dh p b{color:#1d2433}
+.ls-root .kv .td3.bx3 .bx-dh .kb3.big{flex:none;height:40px;padding:0 18px;font-size:14px;text-decoration:none;display:inline-flex;align-items:center}
+.ls-root .kv .td3.bx3 .bx-cols{display:grid;grid-template-columns:minmax(0,1fr) 260px;flex:1}
+.ls-root .kv .td3.bx3 .bx-main{padding:18px 22px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.ls-root .kv .td3.bx3 .bx-link{border:1px solid #f0d9a8;background:#fffaf0;padding:14px 16px}
+.ls-root .kv .td3.bx3 .bx-link .h{display:flex;flex-direction:column;gap:2px;margin-bottom:10px}
+.ls-root .kv .td3.bx3 .bx-link .h small{font-size:12px;color:#6b7385}
+.ls-root .kv .td3.bx3 .bx-link ul{list-style:none;margin:0 0 8px;padding:0;display:flex;flex-direction:column;gap:6px}
+.ls-root .kv .td3.bx3 .cand{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid #d9dde4;background:#fff;cursor:pointer}
+.ls-root .kv .td3.bx3 .cand.on{border-color:var(--ls-red,#ED164B);background:#fff7f9}
+.ls-root .kv .td3.bx3 .cand .b{display:flex;flex-direction:column;gap:4px;min-width:0}
+.ls-root .kv .td3.bx3 .cand .st{font-size:12px;color:#6b7385}
+.ls-root .kv .td3.bx3 .cand .why{display:flex;gap:4px;flex-wrap:wrap}
+.ls-root .kv .td3.bx3 .bx-link .manual{display:flex;gap:6px}
+.ls-root .kv .td3.bx3 .bx-link .manual input{flex:1;min-width:0;box-sizing:border-box;height:32px;margin:0;padding:0 10px;border:1px solid #d9dde4;font:inherit;font-size:12.5px;background:#fff}
+.ls-root .kv .td3.bx3 .bx-link .acts{display:flex;justify-content:flex-end;gap:6px;margin-top:10px}
+.ls-root .kv .td3.bx3 .bx-link .meta{font-size:12.5px;color:#6b7385;margin:0 0 8px}
+.ls-root .kv .td3.bx3 .bx-orig .mail{white-space:pre-wrap;font-size:14px;line-height:1.75;color:#1d2433}
+.ls-root .kv .td3.bx3 .bx-ctx{border-left:1px solid #e6e9ee;padding:18px 16px;background:#fcfcfd}
+.ls-root .kv .td3.bx3 .bx-ctx h3{margin:0 0 10px;font-size:12.5px;font-weight:700;color:#4a5263}
+.ls-root .kv .td3.bx3 .bx-ctx h3+dl+h3,.ls-root .kv .td3.bx3 .bx-ctx dl+h3{margin-top:18px}
+.ls-root .kv .td3.bx3 .bx-ctx dl{display:grid;grid-template-columns:76px 1fr;gap:10px 8px;margin:0;font-size:13px}
+.ls-root .kv .td3.bx3 .bx-ctx dt{color:#8a92a3}
+.ls-root .kv .td3.bx3 .bx-ctx dd{margin:0;font-weight:600;color:#1d2433;min-width:0;overflow-wrap:anywhere}
+.ls-root .kv .td3.bx3 .bx-ctx ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.ls-root .kv .td3.bx3 .bx-ctx li button{all:unset;cursor:pointer;display:flex;flex-direction:column;gap:2px;width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #e6e9ee;background:#fff}
+.ls-root .kv .td3.bx3 .bx-ctx li button:hover{border-color:#9fb8e3}
+.ls-root .kv .td3.bx3 .bx-ctx li b{font-size:12.5px}
+.ls-root .kv .td3.bx3 .bx-ctx li small,.ls-root .kv .td3.bx3 .bx-ctx .meta{font-size:12px;color:#8a92a3}
+@media (max-width:1280px){.ls-root .kv .td3.bx3 .bx-cols{grid-template-columns:1fr}.ls-root .kv .td3.bx3 .bx-ctx{border-left:0;border-top:1px solid #e6e9ee}}
+@media (max-width:900px){.ls-root .kv .td3.bx3 .bx-wrap{grid-template-columns:1fr}.ls-root .kv .td3.bx3 .bx-list{border-right:0;border-bottom:1px solid #e6e9ee}.ls-root .kv .td3.bx3 .bx-dh{flex-direction:column}}
+.ls-root .kv .td3.bx3 .bx-link .manual{align-items:stretch}
+.ls-root .kv .td3.bx3 .bx-link .manual .kb3{box-sizing:border-box;height:32px;min-height:32px;padding:0 14px;margin:0;display:inline-flex;align-items:center;flex:none}
+.ls-root .kv .td3.bx3 .title .btns{display:flex;gap:6px;margin-left:8px}
+.ls-root .kv .td3.bx3 .bx-scope{margin:0 0 10px;font-size:12.5px}
+.ls-root .kv .td3.bx3 .bx-link .memo{display:flex;flex-direction:column;gap:4px;margin-top:10px}
+.ls-root .kv .td3.bx3 .bx-link .memo small{font-size:11.5px;color:#6b7385;font-weight:600}
+.ls-root .kv .td3.bx3 .bx-link .memo input{box-sizing:border-box;height:32px;padding:0 10px;border:1px solid #d9dde4;font:inherit;font-size:12.5px;background:#fff}
+.ls-root .kv .td3.bx3 .bx-link > .meta[role]{margin:8px 0 0}
+.ls-root .kv .td3.bx3 .bx-orig .meta{margin:0}
+.ls-root .kv .td3.bx3 .bx-orig small{display:block;font-size:11.5px;color:#6b7385;font-weight:600;margin-bottom:4px}

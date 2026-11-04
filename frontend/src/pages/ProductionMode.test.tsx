@@ -32,8 +32,7 @@ const PREPARING = /준비 중입니다|운영 인증 중계와 권한 검증|운
 
 describe('운영 빌드에서 C/S·메일 화면을 연다', () => {
   test.each([
-    ['발송 상태', '/mail/sent', 'MailSent', '/api/v1/platform/mail/send-intents'],
-    ['받은 메일 검토', '/mail/inbox', 'MailInbox', '/api/v1/platform/mail/reply-reviews'],
+    ['메일함', '/mail/inbox', 'MailBox', '/api/v1/platform/mail/reply-reviews'],
     ['메일 계정', '/mail/account', 'MailAccount', '/api/v1/platform/auth/mailbox'],
     ['문의 검토', '/dept/inbox', 'DeptInbox', '/api/v1/cs/tickets'],
     ['운영 현황', '/cs/admin', 'CsAdmin', '/api/v1/cs/stats/'],
@@ -102,8 +101,8 @@ describe('운영 빌드에서 C/S·메일 화면을 연다', () => {
 
   test('업무 UI 설정이 꺼진 운영 빌드는 화면을 열지 않고 업무 API를 부르지 않는다', async () => {
     const calls = production(false);
-    const { default: MailSent } = await import('./MailSent.tsx');
-    show('/mail/sent', '/mail/sent', <MailSent />);
+    const { default: MailBox } = await import('./MailBox.tsx');
+    show('/mail/inbox', '/mail/inbox', <MailBox />);
     expect(await screen.findByText(/준비 중입니다/)).toBeTruthy();
     expect(calls).toHaveLength(0);
   });
