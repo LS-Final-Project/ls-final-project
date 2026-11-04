@@ -277,13 +277,13 @@ test('번역이 없으면 한국어 번역 단추를 보이고, 누르면 POST�
   await toKorean();
   expect(await screen.findByText(/아직 번역이 없습니다/)).toBeTruthy();
   made = true;
-  fireEvent.click(screen.getByRole('button', { name: '✦ 한국어 번역' }));
+  fireEvent.click(screen.getByRole('button', { name: '한국어 번역' }));
   const card = (await screen.findByText('변압기 누유')).closest('.mail-card') as HTMLElement;
   expect(card.querySelector('.mail')?.textContent).toBe('개스킷에서 기름이 샙니다.\n보증 대상인가요?');
-  expect(within(card).getByText('✦ AI 번역')).toBeTruthy();
+  expect(within(card).getByText('AI 번역')).toBeTruthy();
   expect(screen.getByText(/원문이 기준입니다/)).toBeTruthy();
   expect(posts.filter(call => call.url.endsWith('/translation'))).toHaveLength(1);
-  expect(screen.queryByRole('button', { name: '✦ 한국어 번역' })).toBeNull();
+  expect(screen.queryByRole('button', { name: '한국어 번역' })).toBeNull();
   // 처리 기록에 AI 행으로 남는다.
   expect(screen.getByText('한국어 번역')).toBeTruthy();
 });
@@ -293,14 +293,14 @@ test('원문이 바뀐 번역은 그대로 보이고 다시 번역 단추를 둔
   await toKorean();
   expect(await screen.findByText('변압기 누유')).toBeTruthy();
   expect(screen.getByText(/원문이 바뀌어 다시 번역할 수 있습니다/)).toBeTruthy();
-  expect(screen.getByRole('button', { name: '✦ 한국어 번역' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: '한국어 번역' })).toBeTruthy();
 });
 
 test('원문이 한국어면 번역을 권하지 않고 한국어 탭에도 원문을 보인다', async () => {
   const posts = withTranslation(() => jsonResponse(200, translationView(null)), 'ko');
   await toKorean();
   expect(await screen.findByText(/원문이 한국어입니다/)).toBeTruthy();
-  expect(screen.queryByRole('button', { name: '✦ 한국어 번역' })).toBeNull();
+  expect(screen.queryByRole('button', { name: '한국어 번역' })).toBeNull();
   expect(document.querySelector('.mail-card .mail')?.textContent).toBe(base.body);
   expect(posts.filter(call => call.url.endsWith('/translation'))).toHaveLength(0);
 });
@@ -309,5 +309,5 @@ test('번역 기능이 꺼진 배포(404)는 안내만 한다', async () => {
   withTranslation(() => jsonResponse(404, { error: { code: 'NOT_FOUND', message: 'Not Found', retryable: false }, meta: { request_id: 'r' } }));
   await toKorean();
   expect(await screen.findByText('번역 기능이 이 배포에서 꺼져 있습니다')).toBeTruthy();
-  expect(screen.queryByRole('button', { name: '✦ 한국어 번역' })).toBeNull();
+  expect(screen.queryByRole('button', { name: '한국어 번역' })).toBeNull();
 });

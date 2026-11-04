@@ -175,7 +175,7 @@ test('문의 처리 화면의 AI 분석 실행은 한 번만 접수하고, 끝�
     return jsonResponse(200, { ...source, data: { ...(source as { data: object }).data, workflow_state: 'RECEIVED' } });
   });
   setApiMode('live'); renderAt(`/cs/tickets/${T}`, '/cs/tickets/:ticketId', <TicketDetail />);
-  const run = await screen.findByRole('button', { name: '✦ AI 분석 실행' });
+  const run = await screen.findByRole('button', { name: 'AI 분석 실행' });
   await waitFor(() => expect((run as HTMLButtonElement).disabled).toBe(false));
   const calls = (suffix: string) => fetch.mock.calls.filter(([url]) => String(url).endsWith(suffix)).length;
   const before = calls('/workflow');

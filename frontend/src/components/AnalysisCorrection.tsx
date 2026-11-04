@@ -3,6 +3,7 @@ import { ApiError } from '../api/client';
 import type { TicketAnalysisResponse } from '../api/cs';
 import { isVersionConflict, type CorrectionBody } from '../api/cs-workflow';
 import { CATEGORY_LABEL } from '../ls-shell/cs-labels';
+import { ElloMark, ElloWorking } from './Ello';
 
 type Analysis = TicketAnalysisResponse['data'];
 export const URGENCY_LABEL: Record<string, string> = { SAFETY: '안전', SITE_DOWN: '현장 정지', PROD_IMPACT: '생산 영향', COMMISSION: '시운전', DEADLINE: '기한', NONE: '해당 없음' };
@@ -56,14 +57,14 @@ export default function AnalysisCorrection({ analysis, onSubmit, onDone }: { ana
         <div className={moved ? 'box edit moved' : 'box edit'}>
           <select aria-label={label} value={value} onChange={event => set(event.target.value)}>
             {empty !== undefined && <option value="">{empty}</option>}{options.map(([code, text]) => <option key={code} value={code}>{text}</option>)}</select>
-          {moved ? <span className="chg">바뀜</span> : <span className="ai2">{(fields[key] as { corrected?: boolean } | undefined)?.corrected ? '✓ 사람 정정' : '✦ AI'}</span>}
+          {moved ? <span className="chg">바뀜</span> : <span className="ai2">{(fields[key] as { corrected?: boolean } | undefined)?.corrected ? '✓ 사람 정정' : <><ElloMark size={14} />AI</>}</span>}
         </div>
         <div className="was">{moved ? `지금 값 ${nameIn(options, was)} → ${nameIn(options, value)}` : `AI 값 ${nameIn(options, aiOf(key))}`}</div>
       </div>
     </div>;
   };
   return <form aria-label="분류 정정" className="corr" onSubmit={event => { event.preventDefault(); void submit(); }}>
-    <div className="sum"><span className="ai">✦ AI 분류를 사람이 정정합니다</span><p className="meta">바꾼 칸만 새 기록으로 남습니다. AI가 쓴 값과 업무 상태는 바뀌지 않습니다.</p></div>
+    <div className="sum"><span className="ai"><ElloMark />AI 분류를 사람이 정정합니다</span><p className="meta">바꾼 칸만 새 기록으로 남습니다. AI가 쓴 값과 업무 상태는 바뀌지 않습니다.</p></div>
     {row('주분류', 'category_code', category, setCategory, categories)}
     {row('보조분류', 'secondary_category', secondary, setSecondary, categories, '없음(바꾸지 않음)')}
     {row('긴급 여부', 'urgency_flag', urgency, setUrgency, Object.entries(URGENCY_LABEL))}

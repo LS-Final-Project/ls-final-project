@@ -8,6 +8,7 @@ import {
   type AiDraftRecord, type ImprovementDetail, type ImprovementPatch,
 } from '../api/cs-improvements';
 import { DEPT_CODES, deptName, formatStamp } from '../ls-shell/cs-labels';
+import { ElloMark, ElloWorking } from './Ello';
 
 type Request = ImprovementDetail['data']['request'];
 type Fact = AiDraftRecord['confirmed_facts'][number];
@@ -25,15 +26,8 @@ type Field = keyof typeof CONTENT_LABEL;
 const fit = (el: HTMLTextAreaElement | null) => { if (!el) return; el.style.height = 'auto'; el.style.height = `${el.scrollHeight + 2}px`; };
 const FIELDS = Object.keys(CONTENT_LABEL) as Field[];
 
-function Glint() {
-  return <span className="glint" aria-hidden="true">
-    <svg className="glint-core" viewBox="0 0 24 24"><path d="M12 1.5c.6 5.2 2.3 8.4 10.5 10.5C14.3 14.1 12.6 17.3 12 22.5 11.4 17.3 9.7 14.1 1.5 12 9.7 9.9 11.4 6.7 12 1.5Z" /></svg>
-    <span className="glint-orbit"><i /><i /><i /></span>
-  </span>;
-}
-
 /**
- * 요청 내용 상자. 문의 처리의 "✦ AI 분석 실행"처럼 머리의 버튼으로 AI 작성 초안(KAN-115)을 만든다.
+ * 요청 내용 상자. 문의 처리의 "AI 분석 실행"처럼 머리의 버튼으로 AI 작성 초안(KAN-115)을 만든다.
  * 반영 전 저장된 초안이 있으면 초안을, 아니면 현재 내용을 보인다. 초안은 요청을 바꾸지 않는다.
  * 초안 아래 "검토 완료"는 초안을 그대로 저장(PATCH)한 뒤 검토 완료를 기록하고, "수정"은 초안 값으로 입력 칸을 연다.
  * 현재 내용은 머리의 "내용 수정"으로 이 자리에서 고친다. 저장은 새 판본이 되며 검토·전달은 하지 않는다.
@@ -216,7 +210,7 @@ export default function ImprovementContent({ request: r, title, tags, locked, on
   // 반영·직접 수정·근거 변경·검토 등 무엇이든 저장해 판본이 바뀌면 현재 내용을 보인다. 사람이 고친 내용을 초안이 가리지 않는다.
   const showAi = !!draft && draft.request_version === r.version;
   const pending = showAi ? '반영하지 않은 AI 초안이 있습니다. 개선 요청 작성의 "검토 완료"나 "수정"으로 반영하세요.'
-    : ruleOnly ? '요청 내용이 비어 있습니다. "✦ AI 초안 작성"으로 초안을 만들거나 "내용 수정"으로 직접 쓴 뒤 검토하세요.' : null;
+    : ruleOnly ? '요청 내용이 비어 있습니다. "AI 초안 작성"으로 초안을 만들거나 "내용 수정"으로 직접 쓴 뒤 검토하세요.' : null;
   useEffect(() => { onPending?.(pending); }, [pending, onPending]);
   useEffect(() => () => onPending?.(null), [onPending]);
   const editable = live && !completed && !locked && !busy && !applying;
@@ -261,13 +255,13 @@ export default function ImprovementContent({ request: r, title, tags, locked, on
       <div className="r">
         {!reader && !showAi && !editing && <button className="kb3 sm" disabled={!editable} title={completed ? '완료된 요청은 고칠 수 없습니다' : locked ? '다른 입력이 열려 있습니다' : '요청 내용을 이 자리에서 고칩니다'} onClick={() => openEditor(false)}>내용 수정</button>}
         {!reader && <button className="kb3 sm" disabled={!!why || busy || applying || editing !== null} title={why ?? `근거 문의를 읽고 요청 내용 초안을 씁니다(모델 호출 비용). 근거가 같으면 이미 만든 초안을 다시 보여 줍니다.${draft ? ` 마지막 초안 ${formatStamp(draft.created_at)}` : ''}`} onClick={() => void run()}>
-          {phase === 'running' ? '✦ 작성 중…' : phase === 'checking' ? '✦ 결과 확인 중…' : '✦ AI 초안 작성'}
+          <ElloMark />{phase === 'running' ? '작성 중…' : phase === 'checking' ? '결과 확인 중…' : 'AI 초안 작성'}
         </button>}
       </div>
     </div>
     <div className="pb">
       {(busy || finished) && <div className={`ai-progress${busy ? '' : ' stopped'}${finished === 'fail' ? ' failed' : ''}`} role="status" aria-live="polite">
-        <Glint />
+        <ElloWorking still={!busy} />
         <b>{phase === 'running' ? 'AI가 근거 문의를 읽고 요청 내용을 쓰는 중' : phase === 'checking' ? '응답이 늦어 저장된 결과를 확인하는 중' : finished === 'ok' ? 'AI 초안 작성 완료' : 'AI 초안을 만들지 못했습니다'}</b>
       </div>}
       {note && <div className={note.kind === 'ok' ? 'ai-note' : 'ai-note err'} role={note.kind === 'ok' ? 'status' : 'alert'}>{note.text}</div>}
@@ -286,10 +280,10 @@ export default function ImprovementContent({ request: r, title, tags, locked, on
           {row('제안 부서', ruleOnly ? <div className="fact-box empty">-</div> : deptChips(r.proposed_depts))}
         </div>}
         {!editing && next && <div className="row2 ai-apply"><span className="btns2">{next}</span></div>}
-        {!reader && !editing && (ruleOnly || !draft) && !busy && !off && <div className="meta">{ruleOnly ? '아직 요청 내용이 없습니다. ' : ''}위의 "✦ AI 초안 작성"을 누르면 근거 문의를 읽고 내용을 씁니다.</div>}
+        {!reader && !editing && (ruleOnly || !draft) && !busy && !off && <div className="meta">{ruleOnly ? '아직 요청 내용이 없습니다. ' : ''}위의 "AI 초안 작성"을 누르면 근거 문의를 읽고 내용을 씁니다.</div>}
       </> : <>
-        <div className="ai-head"><span className="ai">✦ AI 초안</span><span className="meta">{formatStamp(draft.created_at)}</span></div>
-        {draft.stale && <div className="stale">이 초안을 만든 뒤 근거가 바뀌었습니다. "✦ AI 초안 작성"으로 새로 만드세요.</div>}
+        <div className="ai-head"><span className="ai"><ElloMark />AI 초안</span><span className="meta">{formatStamp(draft.created_at)}</span></div>
+        {draft.stale && <div className="stale">이 초안을 만든 뒤 근거가 바뀌었습니다. "AI 초안 작성"으로 새로 만드세요.</div>}
         {editor || <><h2 className="problem">{draft.problem_statement}</h2>
         <div className="facts">
           {row(CONTENT_LABEL.confirmed_facts, factList(draft.confirmed_facts, 'fact'))}

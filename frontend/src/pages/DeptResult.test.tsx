@@ -154,7 +154,7 @@ test('고객 원문은 문의 처리처럼 AI 요약·원문/한국어 전환을
   show();
   expect(await screen.findByText('CS26-1039')).toBeTruthy();
   expect(screen.queryByText('지금 할 일')).toBeNull();
-  fireEvent.click(await screen.findByRole('button', { name: '✦ AI 요약' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'AI 요약' }));
   expect(await screen.findByText(/알람이 2~3시간마다 반복된다/)).toBeTruthy();
   expect(fetch.mock.calls.some(([u, i]) => String(u).endsWith('/summary') && (i as RequestInit | undefined)?.method === 'POST')).toBe(true);
   fireEvent.click(screen.getByRole('button', { name: '한국어' }));
