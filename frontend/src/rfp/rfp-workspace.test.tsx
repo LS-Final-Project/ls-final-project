@@ -5,7 +5,7 @@ import { setApiMode } from '../api/client';
 import type { ProjectDetail } from '../api/tft';
 import { MOCK_WORKSPACE_REQUIREMENTS } from '../mocks/rfp-workspace';
 import { jsonResponse, renderAt } from '../test/render';
-import { clauseOf, Decide, historyText, pendingReviews, queryState, tqNumbers, viewerRole, workspacePhase } from './RfpWorkspace';
+import { clauseOf, Decide, TakeResponsibility, historyText, pendingReviews, queryState, tqNumbers, viewerRole, workspacePhase } from './RfpWorkspace';
 
 vi.mock('./OriginalDocument', () => ({ OriginalDocument: ({ onSelectText }: { onSelectText?: (text: string) => void }) => <><button onClick={() => onSelectText?.('정격전압은  12 kV 이상')}>원문에서 고르기</button><button onClick={() => onSelectText?.('표 안의 글')}>표에서 고르기</button></> }));
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); setApiMode('mock'); });
@@ -391,5 +391,17 @@ describe('출력 탭 서버 출력 (KAN-221)', () => {
     expect((await screen.findByText(/DOCX 출력을 만들지 못했습니다/)).getAttribute('role')).toBe('alert');
     expect(names).toEqual([]);
     vi.restoreAllMocks();
+  });
+});
+
+describe('책임자 맡기 (manager)', () => {
+  it('담당은 그대로 두고 자기 자신을 책임자로 지정한다', async () => {
+    const f = serve();
+    renderAt('/tft/projects/p1', 'tft/projects/:projectId', <TakeResponsibility project={{ ...project, version: 3, responsible_user_id: null } as ProjectDetail} actorId="mgr" />);
+    fireEvent.click(screen.getByRole('button', { name: '책임자 맡기' }));
+    await waitFor(() => expect((f.mock.calls as unknown as [string, RequestInit][]).some(([u]) => String(u).endsWith('/projects/p1/assignment'))).toBe(true));
+    const [, init] = (f.mock.calls as unknown as [string, RequestInit][]).find(([u]) => String(u).endsWith('/assignment'))!;
+    expect(init.method).toBe('PATCH');
+    expect(JSON.parse(String(init.body))).toMatchObject({ version: 3, sales_user_id: 'sales', responsible_user_id: 'mgr' });
   });
 });

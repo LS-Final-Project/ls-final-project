@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } fr
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ApiError, getApiMode } from '../api/client';
 import {
-  addRequirement, approveProposal, bulkDecide, listEquipment, markQuestionsSent, undoBulk, type BulkDecisionItem, createProject, listClauses, listProjectHistory, type Clause, type ManualRequirementRequest, listRequirementHistory, type HistoryItem, type HistoryKind, type HistoryPage, createProposal, createQuestion, decideRequirement, getAnalysis, getComparison, getRequirement, listAllRequirements, readReplyAgain, listDocuments, listQuestions, recompareRequirement, startProcess, uploadDocument,
+  addRequirement, approveProposal, assignProject, bulkDecide, listEquipment, markQuestionsSent, undoBulk, type BulkDecisionItem, createProject, listClauses, listProjectHistory, type Clause, type ManualRequirementRequest, listRequirementHistory, type HistoryItem, type HistoryKind, type HistoryPage, createProposal, createQuestion, decideRequirement, getAnalysis, getComparison, getRequirement, listAllRequirements, readReplyAgain, listDocuments, listQuestions, recompareRequirement, startProcess, uploadDocument,
   type BidVerdict, type DecisionRequest, type DocumentVersion, type Proposal, type ProposalCreate, type Question, type QuestionCreate, type RequirementDetail, type RequirementSummary,
 } from '../api/rfp';
 import { activeRfpJob, replayRfpJob, type RfpProgress, type RfpWatch } from '../api/rfp-job-events';
@@ -70,6 +70,7 @@ export default function RfpWorkspace() {
   const access = useBusinessAccess('tft');
   const mode = getApiMode();
   const actorId = access.user.data?.data.id;
+  const manager = !!access.user.data?.data.roles?.includes('manager');
   const isNew = projectId === NEW;
   const project = useQuery({ queryKey: ['projects', mode, projectId], queryFn: () => getProject(projectId), enabled: access.ready && !isNew });
   const documents = useQuery({ queryKey: ['documents', mode, projectId], queryFn: () => listDocuments(projectId), enabled: access.ready && !isNew });
@@ -95,7 +96,10 @@ export default function RfpWorkspace() {
   const status = live?.job?.status ?? p.latest_job?.status;
   const phase = workspacePhase(docs.length, requirements.data.length, status ?? undefined);
   return <main className="ws rfp-ui">
-    <KvTitle path="제안 지원 › RFP 검토" title={p.name} code={p.external_id ?? undefined}><Link className="kb" to={`/tft/projects/${projectId}/settings`}>프로젝트 설정</Link></KvTitle>
+    <KvTitle path="제안 지원 › RFP 검토" title={p.name} code={p.external_id ?? undefined}>
+      {manager && actorId && p.responsible_user_id !== actorId && <TakeResponsibility project={p} actorId={actorId} />}
+      <Link className="kb" to={`/tft/projects/${projectId}/settings`}>프로젝트 설정</Link>
+    </KvTitle>
     {phase === 'running' || phase === 'failed'
       ? <AnalysisStrip projectId={projectId} documents={docs} live={live} failed={phase === 'failed'} />
       : null}
@@ -191,6 +195,19 @@ function StartAnalysis({ projectId, documents }: { projectId: string; documents:
     <button className="kb primary ws-big" disabled={run.isPending} title="본문과 도면 해석에 모델 비용이 듭니다" onClick={() => run.mutate()}>분석 시작</button>
     {run.isError && <p role="alert">{failureText(run.error)}</p>}
   </div>;
+}
+
+// 관리 대상 manager가 이 프로젝트의 책임자를 맡는다(보드: 책임자 지정). 담당 sales는 그대로 둔다.
+export function TakeResponsibility({ project, actorId }: { project: ProjectDetail; actorId: string }) {
+  const client = useQueryClient();
+  const take = useMutation({
+    mutationFn: () => assignProject(project.id, { version: project.version, sales_user_id: project.sales_user_id ?? null, responsible_user_id: actorId, reason: '관리자가 책임자를 맡음' }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['projects'] }),
+  });
+  return <>
+    <button className="kb primary" disabled={take.isPending} onClick={() => take.mutate()}>{project.responsible_user_id ? '책임자 바꾸기(나)' : '책임자 맡기'}</button>
+    {take.isError && <span role="alert" className="ws-alert">{failureText(take.error)}</span>}
+  </>;
 }
 
 // 분석 중 상태 띠. 서버 이벤트는 단계·요구 건수만 준다. 한 줄 문장은 단계 설명으로 대신한다(서버에 문장 필드가 생기면 바꾼다).

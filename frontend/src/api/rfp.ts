@@ -112,6 +112,14 @@ export const updateProjectConstraints = (id: string, version: number, fields: Pr
   });
 };
 
+// 담당·책임자 지정(관리 대상 manager, 명세 4.1). 화면은 manager가 자기 자신을 책임자로 맡는 데만 쓴다.
+export const assignProject = (id: string, body: { version: number; sales_user_id: string | null; responsible_user_id: string | null; reason: string }) => {
+  const csrf = sessionCsrfToken();
+  return request<Envelope<RfpProject>>(`/api/v1/tft/projects/${encodeURIComponent(id)}/assignment`, {
+    method: 'PATCH', headers: csrf ? { 'X-CSRF-Token': csrf } : {}, body: JSON.stringify(body),
+  });
+};
+
 export const UPLOAD_LIMIT = 25 * 1024 * 1024;
 export type UploadFields = { file: File; kind: string; title: string; note: string; data_origin: string; supersedes_document_id?: string };
 
