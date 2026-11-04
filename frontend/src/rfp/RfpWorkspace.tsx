@@ -20,6 +20,7 @@ import { clauseLabel, codeLabel, ISSUE_LABEL, reasonText, label, NECESSITY_LABEL
 import { useNames } from './names';
 import { focusText } from './RfpReasoning';
 import { ReplyForm } from './QuestionForms';
+import IntegrationPanel from './IntegrationPanel';
 import { useRfpJobEvents } from './useRfpJobEvents';
 import { DEPARTMENT_LABEL } from './labels';
 import { constraintsBody, emptyConstraints } from './ProjectConstraintsForm';
@@ -705,7 +706,10 @@ function Output({ project, rows, excluded = [], responsible, actorId, onJump, on
     },
     onSettled: () => client.invalidateQueries({ queryKey: ['rfp-draft-exports', actorId, project.id] }),
   });
-  const ready = !gate.undecided && !gate.deviation_missing && !gate.open_queries && !gate.review_pending;
+  // 통합 책임(조립품 통합)이 필요한데 정하지 않으면 서버가 검토본 저장을 거절한다(TFT_DRAFT_INCOMPLETE). 같은 조건을 여기서 보인다.
+  const integration = project.integration_responsibility;
+  const integrationOpen = !!integration?.required && (integration.holder ?? 'UNRESOLVED') === 'UNRESOLVED';
+  const ready = !gate.undecided && !gate.deviation_missing && !gate.open_queries && !gate.review_pending && !integrationOpen;
   const deviations = rows.filter(r => r.decision?.action === 'record_deviation');
   const byEq = useMemo(() => eqOrder(rows.filter(r => !followsOf(r)).map(eqKey)).map(eq => {
     const items = rows.filter(r => !followsOf(r) && eqKey(r) === eq);
@@ -726,6 +730,7 @@ function Output({ project, rows, excluded = [], responsible, actorId, onJump, on
       <GateItem n={gate.deviation_missing} label="편차표 누락" onClick={() => onJump('DEVIATION')} />
       <GateItem n={gate.open_queries} label="회신 대기 질의" onClick={() => onJump('QUERY')} />
       <GateItem n={gate.review_pending} label="책임자 확인 대기" />
+      {integrationOpen && <GateItem n={1} label="통합 책임 미지정" />}
       <span className="sp" />
       {!responsible && <button className="kb primary" disabled={!ready || save.isPending} onClick={() => save.mutate()}>검토본 저장</button>}
       <button className="kb" disabled={!latestReview || fileOut.isPending} title={latestReview ? `검토본 ${latestReview}판` : '검토본을 먼저 저장하세요'} onClick={() => fileOut.mutate('XLSX')}>대응 현황표 XLSX</button>
@@ -736,6 +741,7 @@ function Output({ project, rows, excluded = [], responsible, actorId, onJump, on
     {fileOut.isError && <p role="alert" className="ws-alert">{failureText(fileOut.error)}</p>}
     {save.isError && <p role="alert" className="ws-alert">{failureText(save.error)}</p>}
     {save.isSuccess && <p className="ws-alert">검토본을 저장했습니다.</p>}
+    {integrationOpen && <section className="ws-sec ws-review" aria-label="통합 책임"><IntegrationPanel projectId={project.id} canEdit={!responsible} /></section>}
     {reviewBlock}
     <div className="ws-dtabs" role="tablist" aria-label="출력 문서">
       {([['dev', '편차표', deviations.length], ['tq', '질의서', tq.length], ['eq', '현황표', byEq.length], ['sum', '요약서', ''], ['hist', '변경 이력', '']] as const).map(([k, l, n]) =>
