@@ -31,7 +31,7 @@ test('대기중 반복 클릭을 막고 이탈 시 조회를 취소한다',async
 });
 
 test('목록은 실제 응답 제목과 상세 링크를 표시한다',async()=>{
- vi.stubGlobal('fetch',vi.fn(async()=>jsonResponse(200,{data:{items:[{id:'request-one',problem_statement:'합성 문서 검토',request_type:'DOCUMENT',product_code:'TEST',status:'DRAFT',version:1,evidence_count:0,cs_owner:null}]}})));view(false);const link=await screen.findByRole('link',{name:'합성 문서 검토'});expect(link.getAttribute('href')).toBe('/cs/improvements/request-one');expect(screen.getByText('담당자 ID: 미배정')).toBeTruthy();
+ vi.stubGlobal('fetch',vi.fn(async()=>jsonResponse(200,{data:{items:[{id:'request-doc',problem_statement:'숨길 문서 요청',request_type:'DOCUMENT',product_code:'TEST',status:'DRAFT',version:1,evidence_count:0,cs_owner:null},{id:'request-one',problem_statement:'합성 문서 검토',request_type:'FAULT',product_code:'TEST',status:'DRAFT',version:1,evidence_count:0,cs_owner:null}]}})));view(false);const link=await screen.findByRole('link',{name:'합성 문서 검토'});expect(link.getAttribute('href')).toBe('/cs/improvements/request-one');expect(screen.getByText('담당자 ID: 미배정')).toBeTruthy();expect(screen.queryByText('숨길 문서 요청')).toBeNull();
 });
 
 test('재조회 응답을 기다리는 동안 이전 표시를 숨긴다',async()=>{
@@ -219,7 +219,7 @@ test('AI 초안은 버튼으로 만들고, 검토 완료를 눌러야 저장과 
 });
 
 test('목록은 최근 작성순 10건씩 쪽으로 나누고, 머리를 눌러 정렬하면 첫 쪽으로 간다',async()=>{
- const items=Array.from({length:12},(_,i)=>({id:`r-${i}`,origin:'MANUAL',problem_statement:`합성 요청 ${String(i).padStart(2,'0')}`,request_type:'DOCUMENT',product_code:'TEST',fault_id:null,doc_signal:'NOT_FOUND',status:'DRAFT',version:1,evidence_count:i,cs_owner:null,created_at:`2026-10-${String(i+1).padStart(2,'0')}T00:00:00Z`}));
+ const items=Array.from({length:12},(_,i)=>({id:`r-${i}`,origin:'MANUAL',problem_statement:`합성 요청 ${String(i).padStart(2,'0')}`,request_type:'FAULT',product_code:'TEST',fault_id:null,doc_signal:null,status:'DRAFT',version:1,evidence_count:i,cs_owner:null,created_at:`2026-10-${String(i+1).padStart(2,'0')}T00:00:00Z`}));
  vi.stubGlobal('fetch',vi.fn(async()=>jsonResponse(200,{data:{items}})));view(false);
  const table=await screen.findByRole('table',{name:'개선요청 목록'});
  const titles=()=>[...table.querySelectorAll('tbody tr td:first-child')].map(td=>td.textContent);

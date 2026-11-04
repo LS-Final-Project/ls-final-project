@@ -284,7 +284,8 @@ function ImprovementView(){
 
       {!requestId&&!list.isFetching&&list.isSuccess&&<>
         <div className="pane">
-          {(()=>{const items=list.data.data.items;const pages=Math.max(1,Math.ceil(items.length/PAGE));const at=Math.min(page,pages-1);
+          {(()=>{// 화면은 고장 반복 요청만 다룬다(문서 요청은 범위 제외). API로 만들어진 문서 요청이 있어도 목록에 올리지 않는다.
+            const items=list.data.data.items.filter(item=>item.request_type==='FAULT');const pages=Math.max(1,Math.ceil(items.length/PAGE));const at=Math.min(page,pages-1);
             const shown=sortRows(items,listColumns,sort).slice(at*PAGE,at*PAGE+PAGE);
             return <>
               <div className="ph">개선요청<div className="r"><span className="meta">{items.length?`${at*PAGE+1}–${at*PAGE+shown.length} / ${items.length}건`:'0건'} (최근 최대 200건)</span></div></div>

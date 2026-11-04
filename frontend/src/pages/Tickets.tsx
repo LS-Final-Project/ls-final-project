@@ -80,10 +80,6 @@ export default function Tickets() {
   if (!access.ready) return <BusinessGate access={access} title="문의 조회" />;
 
   const products = Array.from(new Set([...all.map(item => item.product_code), ...(product ? [product] : [])])).sort();
-  const received = all.filter(item => item.workflow_state === 'RECEIVED').length;
-  const stale = all.filter(item => item.workflow_state !== 'CLOSED' && ageOf(item) >= 7).length;
-  const today = dayOf(new Date().toISOString());
-  const todayCount = all.filter(item => dayOf(item.received_at) === today).length;
   const number = (item: Ticket) => item.external_id ?? item.id.slice(0, 8);
   const pickedRows = rows.filter(item => picked.has(item.id));
   const allPicked = rows.length > 0 && rows.every(item => picked.has(item.id));
