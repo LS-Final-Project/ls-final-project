@@ -226,13 +226,15 @@ test('switching evidence preserves an unsaved internal development question', as
   vi.mocked(getSupplementRequirement).mockResolvedValue({ data: { ...MOCK_DETAIL, judgement: { ...MOCK_DETAIL.judgement, rnd_check: 'NOT_REQUIRED' } } as never });
   vi.mocked(getSupplementOptions).mockResolvedValue({ data: { ...options, options: [{ ...options.options[0], gate: { requires: 'OWN_DEVELOPMENT_CHECK', status: 'NOT_REQUIRED' } }] }, meta: { request_id: 'test' } });
   show(true, vi.fn(), requirement, ['RND_FW']);
-  fireEvent.click(await screen.findByRole('button', { name: '기술·개발 검토 확인 →' }));
+  // 사양 차이: 서버가 개발 확인을 요구하면 '자사 개발'이 선택지로 나온다.
+  expect(await screen.findByText('어떻게 보완할까요?')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: /^자사 개발/ }));
   await waitFor(() => expect((screen.getByRole('button', { name: '개발팀에 확인할 질문 작성' }) as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(screen.getByRole('button', { name: '개발팀에 확인할 질문 작성' }));
   fireEvent.change(screen.getByLabelText('질문'), { target: { value: '고객 납기에 가능한지 검토 부탁드립니다.' } });
   fireEvent.click(screen.getByRole('button', { name: '비교 근거와 원문' }));
   expect(screen.queryByRole('textbox', { name: '질문' })).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: '개발팀 가능성·일정 확인' }));
+  fireEvent.click(screen.getByRole('button', { name: /^자사 개발/ }));
   expect((screen.getByLabelText('질문') as HTMLTextAreaElement).value).toBe('고객 납기에 가능한지 검토 부탁드립니다.');
   expect(selectSupplement).not.toHaveBeenCalled();
 });
@@ -324,7 +326,34 @@ test('a spec requirement without a customer value says so and leads to the custo
   await waitFor(() => expect(current.textContent).toContain('원문에 수치 없음'));
   expect(screen.getByLabelText('고객 요구와 자사 조건 비교')).toBeTruthy();
   expect(current.textContent).not.toContain('값 확인 필요');
-  expect(screen.getByRole('button', { name: '고객 확인 질문 작성' })).toBeTruthy();
-  expect(screen.queryByRole('group', { name: '결정할 것' })).toBeNull();
+  // 값이 없으면 상태와 관계없이 '무엇이 부족한가요?'를 묻고 고객 요구값을 첫 선택지로 둔다.
+  expect(screen.getByText('무엇이 부족한가요?')).toBeTruthy();
+  const choices = screen.getAllByRole('button').filter(b => b.closest('[role=group]')?.getAttribute('aria-labelledby')?.startsWith('response-choice-label'));
+  expect(choices.map(b => b.querySelector('b')?.textContent)).toEqual(['고객 요구값', '자사 근거 자료', '개발 가능성']);
+  fireEvent.click(choices[0]);
+  expect(screen.getByRole('dialog', { name: /발주처 질의 목록 만들기/ })).toBeTruthy();
+  expect(selectSupplement).not.toHaveBeenCalled();
+});
+
+test('each spec state asks one question with its own choices and never offers a blocked path', async () => {
+  const opt = (path: string, rank: number, allowed = true, requires = 'NONE') => ({ ...options.options[0], path, rank, allowed, gate: { requires, status: requires === 'NONE' ? 'NOT_REQUIRED' : 'PENDING' } });
+  const choicesOf = async (question: string) => {
+    const text = await screen.findByText(question);
+    return [...text.parentElement!.querySelectorAll('.response-choice b')].map(b => b.textContent);
+  };
+  const states: [string, unknown[], string, string[]][] = [
+    ['INSUFFICIENT_EVIDENCE', [opt('NONE', 1)], '무엇이 부족한가요?', ['자사 근거 자료', '고객 요구 범위', '개발 가능성']],
+    ['CONDITIONAL', [opt('OTHER_OWN_PRODUCT', 1)], '남은 조건을 누가 확인하나요?', ['기술 담당', '발주처', '확인됨']],
+    ['SPEC_GAP', [opt('EXTERNAL_PRODUCT', 3, true, 'OWN_DEVELOPMENT_CHECK'), opt('OTHER_OWN_PRODUCT', 1), opt('ALTERNATIVE_SPEC', 4), opt('JOINT_PROPOSAL', 5, false)], '어떻게 보완할까요?', ['다른 자사 제품', '자사 개발', '외부 제품', '대체 사양', '아직 모름']],
+    ['EVIDENCE_FOUND', [opt('NONE', 1)], '적용 조건을 확인하고 제안 범위에 넣을까요?', ['근거 확인', '반영']],
+  ];
+  for (const [status, list, question, expected] of states) {
+    vi.mocked(getSupplementRequirement).mockResolvedValue({ data: { ...MOCK_DETAIL, spec: { ...MOCK_DETAIL.spec, attribute_key: 'rated_power' }, judgement: { ...MOCK_DETAIL.judgement, status } } as never });
+    vi.mocked(getSupplementOptions).mockResolvedValue({ data: { ...options, options: list }, meta: { request_id: 'test' } } as never);
+    show(true, vi.fn(), { ...requirement, status: status as RequirementSummary['status'] }, ['TS_MV']);
+    expect(await choicesOf(question)).toEqual(expected);
+    expect(screen.queryByRole('button', { name: /다음 할 일/ })).toBeNull();
+    cleanup();
+  }
   expect(selectSupplement).not.toHaveBeenCalled();
 });

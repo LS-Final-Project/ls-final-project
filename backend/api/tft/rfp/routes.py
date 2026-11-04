@@ -425,6 +425,29 @@ async def select_supplement(
     return respond(request, data)
 
 
+@router.post(
+    P + "/supplement-selections/batch",
+    response_model=SuccessResponse[s.SupplementBatchResult],
+    operation_id="tft_select_rfp_supplement_batch",
+)
+async def select_supplement_batch(
+    project_id: UUID,
+    payload: s.SupplementBatchSelection,
+    request: Request,
+    response: Response,
+    principal: User,
+    idempotency_key: Annotated[
+        str | None, Header(alias="Idempotency-Key", min_length=8, max_length=128)
+    ] = None,
+) -> SuccessResponse[s.SupplementBatchResult]:
+    """16-b. 같은 보완 경로를 요구 여러 건에 선택한다. dry_run이면 쓰지 않고 가능 여부만 돌려준다."""
+    data = await routes_supplement.select_supplement_batch(
+        request, principal, project_id, payload, idempotency_key
+    )
+    response.status_code = 201 if data.saved else 200
+    return respond(request, data)
+
+
 @router.get(
     P + "/partner-candidates",
     response_model=SuccessResponse[s.PartnerCandidateList],
@@ -480,6 +503,26 @@ async def create_question(
 ) -> SuccessResponse[s.Question]:
     """19. 질문 작성. 회신 전 요구값은 UNDETERMINED로 유지한다."""
     data = await routes_questions.create_question(
+        request, principal, project_id, payload, idempotency_key
+    )
+    return respond(request, data)
+
+
+@router.post(
+    P + "/questions/batch",
+    status_code=201,
+    response_model=SuccessResponse[s.QuestionList],
+    operation_id="tft_create_rfp_questions_batch",
+)
+async def create_questions_batch(
+    project_id: UUID,
+    payload: s.QuestionBatchCreate,
+    idempotency_key: Key,
+    request: Request,
+    principal: User,
+) -> SuccessResponse[s.QuestionList]:
+    """19-b. 질문 여러 건을 한 번에 작성한다. 한 건이라도 어긋나면 아무것도 저장하지 않는다."""
+    data = await routes_questions.create_questions_batch(
         request, principal, project_id, payload, idempotency_key
     )
     return respond(request, data)

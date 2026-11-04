@@ -187,6 +187,7 @@ async def remember(
     project_id: UUID,
     status_code: int,
     result: Mapping[str, Any],
+    audit: bool = True,
 ) -> None:
     """처리 결과와 감사를 저장한다. 같은 키가 동시에 들어오면 기본 키 충돌로 한쪽이 실패한다.
 
@@ -209,17 +210,41 @@ async def remember(
         "request_hash, status_code, result) VALUES (%s,%s,%s,%s,%s,%s,%s)",
         (actor, operation, key, project_id, digest, status_code, Jsonb(dict(result))),
     )
-    if operation in AUDIT_TARGETS:
-        entity, id_field = AUDIT_TARGETS[operation]
-        await audit(
-            conn,
-            project_id=project_id,
-            entity=entity,
-            entity_id=result[id_field],
-            action=operation,
-            actor=actor,
-            detail={"to": {k: result[k] for k in AUDIT_FIELDS if k in result}},
-        )
+    # 묶음 경로는 건별 감사를 audit_result로 직접 남기고 audit=False로 부른다.
+    # 단건 경로에서 대상 ID가 빠지면 감사를 조용히 건너뛰지 않고 KeyError로 드러낸다.
+    if audit and operation in AUDIT_TARGETS:
+        await audit_result(conn, project_id, operation, actor, result)
+
+
+async def audit_result(
+    conn: AsyncConnection[dict[str, Any]],
+    project_id: UUID,
+    operation: str,
+    actor: UUID,
+    result: Mapping[str, Any],
+) -> None:
+    """연산 한 건의 결과로 감사 한 행을 남긴다(remember와 묶음 경로가 같이 쓴다).
+
+    Args:
+        conn: 쓰기와 같은 트랜잭션.
+        project_id: 대상 프로젝트.
+        operation: AUDIT_TARGETS에 있는 연산.
+        actor: 요청자.
+        result: 한 건의 응답 data.
+
+    Returns:
+        None.
+    """
+    entity, id_field = AUDIT_TARGETS[operation]
+    await audit(
+        conn,
+        project_id=project_id,
+        entity=entity,
+        entity_id=result[id_field],
+        action=operation,
+        actor=actor,
+        detail={"to": {k: result[k] for k in AUDIT_FIELDS if k in result}},
+    )
 
 
 async def run_command(
@@ -232,6 +257,7 @@ async def run_command(
     project_id: UUID,
     status_code: int,
     work: Callable[[], Awaitable[dict[str, Any]]],
+    audit: bool = True,
 ) -> dict[str, Any]:
     """기록이 있으면 재생하고, 없으면 work를 실행해 결과를 같은 트랜잭션에 기록한다.
 
@@ -246,6 +272,7 @@ async def run_command(
         project_id: 대상 프로젝트.
         status_code: 처음 처리의 응답 상태.
         work: 쓰기를 하고 응답 data(JSON 객체)를 돌려주는 함수.
+        audit: False면 결과 감사를 남기지 않는다. 건별 감사를 직접 남기는 묶음 경로만 쓴다.
 
     Returns:
         dict: 응답 data. 같은 키가 동시에 처리되면 늦은 쪽은 409 IDEMPOTENCY_CONFLICT다(트랜잭션이 중단돼 같은
@@ -265,6 +292,7 @@ async def run_command(
             project_id=project_id,
             status_code=status_code,
             result=result,
+            audit=audit,
         )
     except UniqueViolation:
         raise ApplicationError(

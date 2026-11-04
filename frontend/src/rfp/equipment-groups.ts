@@ -67,7 +67,7 @@ export function groupCounts(group: EquipmentGroup) {
   };
 }
 
-export function groupPartners(group: EquipmentGroup, candidates: PartnerCandidate[]) {
+export function groupPartners(group: { rows: RequirementSummary[] }, candidates: PartnerCandidate[]) {
   const versions = new Map(group.rows.map(r => [r.requirement_id, r.version]));
   return candidates.flatMap(candidate => {
     const grades = candidate.grades.filter(g => versions.has(g.requirement_id)

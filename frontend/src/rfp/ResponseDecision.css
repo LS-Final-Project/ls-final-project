@@ -63,7 +63,7 @@
 .ls-root .rfp-response-decision .response-link:focus-visible, .ls-root .rfp-response-decision .response-choice:focus-visible { outline:2px solid #2662b1; outline-offset:2px; }
 .ls-root .rfp-response-decision .response-question { margin:0 0 6px; color:#203b60; font-size:13px; font-weight:600; }
 .ls-root .rfp-response-decision .response-choices { display:grid; gap:5px; }
-.ls-root .rfp-response-decision .response-choice { display:grid; grid-template-columns:12px 84px minmax(0,1fr) auto; align-items:baseline; gap:3px 8px; width:100%; min-height:38px; padding:8px 10px; border:1px solid #cfdbe9; border-radius:4px; background:#fff; color:inherit; font:inherit; text-align:left; cursor:pointer; }
+.ls-root .rfp-response-decision .response-choice { display:grid; grid-template-columns:12px 108px minmax(0,1fr) auto; align-items:baseline; gap:3px 8px; width:100%; min-height:38px; padding:8px 10px; border:1px solid #cfdbe9; border-radius:4px; background:#fff; color:inherit; font:inherit; text-align:left; cursor:pointer; }
 .ls-root .rfp-response-decision .response-choice::before { content:''; box-sizing:border-box; width:12px; height:12px; border:1px solid #8aa2bf; border-radius:50%; background:#fff; align-self:center; }
 .ls-root .rfp-response-decision .response-choice b { color:#203b60; font-size:13px; font-weight:600; line-height:1.45; }
 .ls-root .rfp-response-decision .response-choice span { display:block; color:#4d627b; font-size:12px; font-weight:400; line-height:1.5; }

@@ -1,0 +1,81 @@
+/* 묶음 요약과 묶음 작업(RFP 검토). 색·선은 ContextReview와 kv 토큰을 따른다.
+   .kv div b·span의 셸 기본값(큰 숫자·블록 이름표)이 이 안에 번지지 않게 먼저 되돌린다. */
+.ls-root .kv .rfp-group-summary b,.ls-root .kv .rfp-dialog b{font-size:inherit;font-weight:600}
+.ls-root .kv .rfp-group-summary span,.ls-root .kv .rfp-dialog span{display:inline;font-size:inherit;color:inherit;font-weight:inherit}
+.ls-root .kv .rfp-group-summary{margin:9px 0;border:1px solid #d6e0ec;border-radius:5px;background:#fff;min-width:0}
+.ls-root .kv .rfp-group-summary>summary{display:flex;gap:10px;justify-content:space-between;align-items:center;padding:10px;cursor:pointer;list-style:none;font-size:12px}
+.ls-root .kv .rfp-group-summary>summary::-webkit-details-marker{display:none}
+.ls-root .kv .rfp-group-summary>summary::before{content:'›';font-size:17px;color:#6881a1}
+.ls-root .kv .rfp-group-summary[open]>summary::before{transform:rotate(90deg)}
+.ls-root .kv .rfp-group-summary>summary>b{flex:1;font-size:13px;color:#203b60}
+.ls-root .kv .rfp-group-summary>summary>span{font-size:11px;color:#526f95}
+.ls-root .kv .rfp-group-summary>summary:focus-visible{outline:2px solid #2662b1;outline-offset:2px}
+.ls-root .kv .rfp-group-summary[open]{padding:0 10px 10px}
+.ls-root .kv .rfp-group-summary[open]>summary{padding-left:0;padding-right:0;border-bottom:1px solid #e2e8f0;margin-bottom:8px}
+.ls-root .kv .rfp-group-summary .kv-ribbon{margin:0 0 10px}
+.ls-root .kv .rfp-group-actions{list-style:none;margin:0;padding:0;display:grid;gap:5px;counter-reset:act}
+.ls-root .kv .rfp-group-actions>li{display:flex;gap:6px;align-items:stretch;counter-increment:act}
+.ls-root .kv .rfp-group-action{flex:1;min-width:0;display:grid;grid-template-columns:20px minmax(0,auto) minmax(0,1fr);align-items:baseline;gap:2px 8px;padding:8px 10px;border:1px solid #cfdbe9;border-radius:4px;background:#fff;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.ls-root .kv .rfp-group-action::before{content:counter(act);color:#6881a1;font-size:12px;font-variant-numeric:tabular-nums}
+.ls-root .kv .rfp-group-action b{color:#203b60;font-size:13px;font-weight:600;white-space:nowrap}
+.ls-root .kv .rfp-group-action span{color:#315b9c;font-size:12px;line-height:1.5}
+.ls-root .kv .rfp-group-action:hover:not(:disabled){border-color:#517eae;background:#f7faff}
+.ls-root .kv .rfp-group-action:focus-visible{outline:2px solid #2662b1;outline-offset:2px}
+.ls-root .kv .rfp-group-action:disabled{cursor:default;background:#f7f8fa}
+.ls-root .kv .rfp-group-action:disabled span{color:#7a8798}
+.ls-root .kv .rfp-group-actions>li>.kb{flex:none;font-size:11px;align-self:center}
+.ls-root .kv .rfp-group-note{font-size:11px;color:#61738a;margin:8px 0 0;line-height:1.6}
+
+/* 대화상자: 보드 TF_K_Req_Question의 kv-modal을 넓히고 본문만 스크롤한다. */
+.ls-root .kv .kv-modal.rfp-dialog{width:min(880px,calc(100vw - 32px));top:48px;max-height:calc(100vh - 96px);display:flex;flex-direction:column}
+.ls-root .kv .kv-modal.rfp-dialog>.body{overflow:auto;font-size:12px;color:#324b69;line-height:1.6}
+.ls-root .kv .rfp-dialog-steps{display:flex;gap:0;margin:0 0 12px;padding:0;list-style:none;counter-reset:step;font-size:12px}
+.ls-root .kv .rfp-dialog-steps li{counter-increment:step;padding:5px 12px;border:1px solid #d6e0ec;color:#61738a;background:#f6f8fb}
+.ls-root .kv .rfp-dialog-steps li+li{border-left:0}
+.ls-root .kv .rfp-dialog-steps li::before{content:counter(step) '. '}
+.ls-root .kv .rfp-dialog-steps li[aria-current=step]{background:#fff;color:#203b60;font-weight:600;box-shadow:inset 0 2px 0 var(--ls-red,#c8102e)}
+.ls-root .kv .rfp-dialog-lead{margin:0 0 10px;color:#203b60}
+.ls-root .kv .rfp-dialog-bar{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:0 0 6px;flex-wrap:wrap}
+.ls-root .kv .rfp-dialog-bar>span:last-child{display:flex;gap:4px}
+.ls-root .kv .rfp-dialog-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:12px;flex-wrap:wrap}
+.ls-root .kv .rfp-dialog-items{display:grid;gap:8px;margin:10px 0}
+.ls-root .kv .rfp-dialog-items article{border:1px solid #dce3ed;padding:8px 10px;background:#fff}
+.ls-root .kv .rfp-dialog-items article.has-problem{border-color:#c0703a;background:#fffaf5}
+.ls-root .kv .rfp-dialog-items header{display:flex;gap:8px;align-items:baseline;margin-bottom:4px}
+.ls-root .kv .rfp-dialog-items header b{color:#203b60;white-space:nowrap}
+.ls-root .kv .rfp-dialog-items header span{color:#4d627b;overflow-wrap:anywhere}
+.ls-root .kv .rfp-dialog-items q{display:block;color:#61738a;font-size:11px;margin-bottom:4px}
+.ls-root .kv .rfp-dialog-items textarea,.ls-root .kv .rfp-dialog-field textarea,.ls-root .kv .rfp-dialog-field input,.ls-root .kv .rfp-outbox textarea,.ls-root .kv .rfp-dept-picker select{display:block;width:100%;box-sizing:border-box;padding:6px;border:1px solid #b7c8dd;background:#fff;font:inherit;color:inherit}
+.ls-root .kv .rfp-dialog-items [role=alert]{color:#9b4e13;margin:4px 0 0}
+.ls-root .kv .rfp-dialog [role=alert]{color:#9b4e13}
+.ls-root .kv .rfp-dialog-field{display:block;margin:8px 0}
+.ls-root .kv .rfp-dialog-filter{display:flex;gap:8px;align-items:center;margin:0 0 8px}
+.ls-root .kv .rfp-dialog-filter select{width:auto}
+.ls-root .kv .rfp-dialog-paths{border:1px solid #d6e0ec;margin:10px 0;padding:8px 10px;display:grid;gap:4px}
+.ls-root .kv .rfp-dialog-paths legend{font-weight:600;color:#203b60;padding:0 4px}
+.ls-root .kv .rfp-dialog-paths label{display:grid;grid-template-columns:18px minmax(0,auto) minmax(0,1fr);gap:8px;align-items:baseline;padding:4px 0;cursor:pointer}
+.ls-root .kv .rfp-dialog-paths label span{color:#61738a;font-size:11px}
+.ls-root .kv .rfp-dialog-section h3{font-size:12px;font-weight:600;margin:12px 0 4px;color:#203b60}
+.ls-root .kv .rfp-dept-picker{margin:0 0 8px}
+.ls-root .kv .rfp-dept-picker>label{display:grid;grid-template-columns:80px minmax(0,1fr);align-items:center;gap:8px}
+.ls-root .kv .rfp-dept-add{border:1px solid #e0c48c;background:#fffbf0;margin:8px 0;padding:8px 10px;display:grid;gap:6px}
+.ls-root .kv .rfp-dept-add legend{padding:0 4px;color:#815719}
+.ls-root .kv .rfp-dept-consent{display:flex;gap:6px;align-items:center}
+.ls-root .kv .rfp-outbox section{border:1px solid #d6e0ec;margin:0 0 10px}
+.ls-root .kv .rfp-outbox section>header{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 10px;background:var(--erp-head,#f3f5f8);border-bottom:1px solid #d6e0ec}
+.ls-root .kv .rfp-outbox section>header>span{display:flex;gap:4px}
+.ls-root .kv .rfp-outbox textarea{border:0;font-family:inherit;font-size:12px;line-height:1.6;resize:vertical;white-space:pre-wrap}
+.ls-root .kv .rfp-context-situation{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 10px;margin:6px 0;background:#eef5ff;border:1px solid #c9d7e7;font-size:12px}
+@media(max-width:600px){.ls-root .kv .rfp-group-action{grid-template-columns:20px minmax(0,1fr)}.ls-root .kv .rfp-group-action span{grid-column:2}.ls-root .kv .rfp-group-actions>li{flex-wrap:wrap}}
+
+.ls-root .kv .rfp-group-actions>li>.kb{min-width:118px}
+.ls-root .kv .rfp-dialog .kv-tablewrap{margin:0}
+.ls-root .kv .rfp-dept-consent{justify-content:flex-start}
+.ls-root .kv .rfp-dept-consent input{width:auto;min-height:0;margin:0;flex:none}
+.ls-root .kv .rfp-dialog-items .rfp-dialog-value{margin:0 0 2px;color:#324b69}
+.ls-root .kv .rfp-dialog-paths label{margin:0;min-height:0}
+.ls-root .kv .rfp-dialog-paths input,.ls-root .kv .rfp-dialog input[type=checkbox]{width:auto;height:auto;min-height:0;margin:0}
+.ls-root .kv .rfp-dept-add label{margin:0}
+.ls-root .kv .kv-modal.rfp-dialog>.body{overscroll-behavior:contain}
+.ls-root .kv .rfp-group-summary .kv-ribbon b,.ls-root .kv .rfp-group-action b{font-variant-numeric:tabular-nums}
+.ls-root .kv .rfp-group-summary .kv-ribbon{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))!important}

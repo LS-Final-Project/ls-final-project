@@ -204,6 +204,174 @@ def selected_out(row: Mapping[str, Any]) -> s.SupplementSelected:
     )
 
 
+async def apply_selection(
+    conn: AsyncConnection[Row],
+    principal: Principal,
+    project: Row,
+    requirement_id: UUID,
+    payload: s.SupplementSelection,
+) -> Row:
+    """선택 한 건의 검사와 저장. 단건·묶음 선택이 같이 쓴다(규칙은 여기 한 곳).
+
+    Args:
+        conn: 쓰기 트랜잭션.
+        principal: 요청 사용자.
+        project: project_scope 행.
+        requirement_id: 요구 ID.
+        payload: 선택과 읽은 요구 판본.
+
+    Returns:
+        Row: 저장한 선택 판본 행.
+    """
+    requirement = await repository.latest_requirement_version(
+        conn, project["id"], requirement_id, lock=True
+    )
+    if requirement is None:
+        raise ApplicationError(404, *NOT_FOUND)
+    if requirement["latest_version"] != payload.version:
+        raise repository.version_conflict()
+    computed, options = await options_of(conn, requirement)
+    option = next((o for o in computed.options if o.path == payload.path), None)
+    state, rnd_question_id = await repository.rnd_check(conn, requirement_id)
+    decided = check_selection(option, state, payload.rnd_check_waiver_reason, rnd_question_id)
+    await check_candidates(conn, requirement_id, options, payload)
+    # 열린 질문이 있거나 가능하다고 답을 받았으면 다시 묻지 않는다. 답을 받은 뒤 같은
+    # 경로를 다시 저장해 재검토를 푸는 흐름이 질문을 되살리면 끝나지 않는다.
+    # 불가 답이면 경로가 막혀 여기 오지 않는다.
+    if payload.path == "OWN_DEVELOPMENT" and decided not in ("PENDING", "CONFIRMED_FEASIBLE"):
+        ask = rnd_question_for(
+            summary_of(requirement),
+            requirement["clause_no"],
+            project["review_departments"],
+            await repository.department_kinds(conn),
+        )
+        question = await repository.insert_question(
+            conn,
+            project=project,
+            requirement_id=requirement_id,
+            clause_id=requirement["clause_id"],
+            page=requirement["page"],
+            issue_type=ask["issue_type"],
+            question_text=ask["question_text"],
+            internal_assumption=None,
+            target="INTERNAL",
+            target_dept=ask["target_dept"],
+            actor=principal.user_id,
+        )
+        await commands.audit(
+            conn,
+            project_id=project["id"],
+            entity="question",
+            entity_id=question["id"],
+            action="question.create",
+            actor=principal.user_id,
+            detail={"to": {"target": "INTERNAL", "target_dept": ask["target_dept"]}},
+        )
+        decided = "PENDING"
+    row = await repository.insert_selection(
+        conn,
+        requirement,
+        version=payload.version,
+        path=payload.path,
+        candidate_codes=payload.candidate_codes,
+        role_split=payload.role_split,
+        conditions=payload.conditions,
+        note=payload.note,
+        rnd_check=decided,
+        # 면제로 넘긴 선택에만 사유를 남긴다(사유 ⇒ WAIVED, 표 CHECK).
+        waiver_reason=payload.rnd_check_waiver_reason if decided == "WAIVED" else None,
+        actor=principal.user_id,
+    )
+    await repository.clear_rereview(conn, requirement_id, principal.user_id)
+    return row
+
+
+class _DryRun(Exception):
+    """미리보기 검사를 끝내고 savepoint를 되돌리는 신호."""
+
+
+async def select_supplement_batch(
+    request: Request,
+    principal: Principal,
+    project_id: UUID,
+    payload: s.SupplementBatchSelection,
+    key: str | None,
+) -> s.SupplementBatchResult:
+    """16-b. 같은 선택을 요구 여러 건에 적용한다. 건별 검사는 단건 선택과 같고 막힌 건만 blocked로 알린다.
+
+    dry_run은 건마다 savepoint 안에서 같은 검사를 돌리고 되돌린다(기록 없음, 키 불필요).
+
+    Args:
+        request: 요청(설정).
+        principal: 요청 사용자.
+        project_id: 프로젝트 ID.
+        payload: 선택 내용과 요구·판본 1~50건.
+        key: Idempotency-Key(dry_run이 아니면 필수).
+
+    Returns:
+        s.SupplementBatchResult: saved·allowed·blocked.
+    """
+    if not payload.dry_run and key is None:
+        raise ApplicationError(422, "VALIDATION_ERROR", "Idempotency-Key is required.")
+    async with connection(request.app.state.settings) as conn:
+        project = await visible_project(
+            conn, principal, project_id, "TFT_PROJECT_NOT_FOUND", "The project was not found."
+        )
+        if not can_select_supplement(principal, project):
+            raise HTTPException(403)
+
+        async def run_items() -> dict[str, Any]:
+            result: dict[str, list[dict[str, Any]]] = {"saved": [], "allowed": [], "blocked": []}
+            for item in payload.items:
+                one = s.SupplementSelection(
+                    **payload.model_dump(exclude={"dry_run", "items"}), version=item.version
+                )
+                try:
+                    async with conn.transaction():
+                        row = await apply_selection(
+                            conn, principal, project, item.requirement_id, one
+                        )
+                        if payload.dry_run:
+                            raise _DryRun
+                        saved = selected_out(row).model_dump(mode="json")
+                        await commands.audit_result(
+                            conn, project_id, "supplement.select", principal.user_id, saved
+                        )
+                    result["saved"].append(
+                        {"requirement_id": str(item.requirement_id), "selection": saved}
+                    )
+                except _DryRun:
+                    result["allowed"].append({"requirement_id": str(item.requirement_id)})
+                except ApplicationError as error:
+                    result["blocked"].append(
+                        {
+                            "requirement_id": str(item.requirement_id),
+                            "code": error.code,
+                            "message": error.message,
+                        }
+                    )
+            return result
+
+        if payload.dry_run:
+            result = await run_items()
+        else:
+            assert key is not None
+            result = await commands.run_command(
+                conn,
+                actor=principal.user_id,
+                operation="supplement.select",
+                key=key,
+                digest=commands.request_hash(
+                    {"project_id": project_id}, payload.model_dump(mode="json")
+                ),
+                project_id=project_id,
+                status_code=201,
+                work=run_items,
+                audit=False,
+            )
+    return s.SupplementBatchResult.model_validate(result)
+
+
 async def select_supplement(
     request: Request,
     principal: Principal,
@@ -233,70 +401,7 @@ async def select_supplement(
             raise HTTPException(403)
 
         async def work() -> dict[str, Any]:
-            requirement = await repository.latest_requirement_version(
-                conn, project["id"], requirement_id, lock=True
-            )
-            assert requirement is not None
-            if requirement["latest_version"] != payload.version:
-                raise repository.version_conflict()
-            computed, options = await options_of(conn, requirement)
-            option = next((o for o in computed.options if o.path == payload.path), None)
-            state, rnd_question_id = await repository.rnd_check(conn, requirement_id)
-            decided = check_selection(
-                option, state, payload.rnd_check_waiver_reason, rnd_question_id
-            )
-            await check_candidates(conn, requirement_id, options, payload)
-            # 열린 질문이 있거나 가능하다고 답을 받았으면 다시 묻지 않는다. 답을 받은 뒤 같은
-            # 경로를 다시 저장해 재검토를 푸는 흐름이 질문을 되살리면 끝나지 않는다.
-            # 불가 답이면 경로가 막혀 여기 오지 않는다.
-            if payload.path == "OWN_DEVELOPMENT" and decided not in (
-                "PENDING",
-                "CONFIRMED_FEASIBLE",
-            ):
-                ask = rnd_question_for(
-                    summary_of(requirement),
-                    requirement["clause_no"],
-                    project["review_departments"],
-                    await repository.department_kinds(conn),
-                )
-                question = await repository.insert_question(
-                    conn,
-                    project=project,
-                    requirement_id=requirement_id,
-                    clause_id=requirement["clause_id"],
-                    page=requirement["page"],
-                    issue_type=ask["issue_type"],
-                    question_text=ask["question_text"],
-                    internal_assumption=None,
-                    target="INTERNAL",
-                    target_dept=ask["target_dept"],
-                    actor=principal.user_id,
-                )
-                await commands.audit(
-                    conn,
-                    project_id=project["id"],
-                    entity="question",
-                    entity_id=question["id"],
-                    action="question.create",
-                    actor=principal.user_id,
-                    detail={"to": {"target": "INTERNAL", "target_dept": ask["target_dept"]}},
-                )
-                decided = "PENDING"
-            row = await repository.insert_selection(
-                conn,
-                requirement,
-                version=payload.version,
-                path=payload.path,
-                candidate_codes=payload.candidate_codes,
-                role_split=payload.role_split,
-                conditions=payload.conditions,
-                note=payload.note,
-                rnd_check=decided,
-                # 면제로 넘긴 선택에만 사유를 남긴다(사유 ⇒ WAIVED, 표 CHECK).
-                waiver_reason=payload.rnd_check_waiver_reason if decided == "WAIVED" else None,
-                actor=principal.user_id,
-            )
-            await repository.clear_rereview(conn, requirement_id, principal.user_id)
+            row = await apply_selection(conn, principal, project, requirement_id, payload)
             return selected_out(row).model_dump(mode="json")
 
         result = await commands.run_command(

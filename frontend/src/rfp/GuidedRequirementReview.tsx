@@ -6,6 +6,7 @@ import { listQuestions, type RequirementDetail } from '../api/rfp';
 import { formatDateTime } from '../components/tft';
 import { ErrorState, Loading } from '../components/states';
 import { QuestionForm } from './QuestionForms';
+import { DepartmentPicker } from './GroupActions';
 import { DEPARTMENT_LABEL, ISSUE_LABEL, QUESTION_STATUS_LABEL, attributeName, label } from './labels';
 
 export function GuidedRequirementReview({ projectId, actorId, requirement, departments, canWrite, customerValueMissing, commercial, designated, scope = false, onSaved }: {
@@ -39,7 +40,7 @@ export function GuidedRequirementReview({ projectId, actorId, requirement, depar
     {!writing && <button className="kb primary" type="button" disabled={!allowed} onClick={() => setWriting(true)}>{scope ? '발주처 질문 작성' : customerValueMissing ? '고객 확인 질문 작성' : '검토 질문 작성'}</button>}
     {writing && <QuestionForm projectId={projectId} actorId={actorId} requirement={requirement} departments={departments ?? []} audience={internal ? 'INTERNAL' : 'CUSTOMER'} initialIssue={issue} initialText={prompt} disabled={!allowed} useMockFallback={false} onCancel={() => setWriting(false)} onSaved={() => { setWriting(false); setNotice('질문을 앱에 기록했습니다.'); void questions.refetch(); onSaved(); }} />}
     {!canWrite && <p>현재 읽기 전용입니다. 질문 작성은 담당자 권한과 최신 요구를 확인한 후 가능합니다.</p>}
-    {canWrite && internal && !departments?.length && <p>프로젝트에 등록된 검토 부서가 없어 내부 질문을 작성할 수 없습니다. 요구 상세에서 프로젝트 검토 부서를 확인하세요.</p>}
+    {canWrite && internal && !departments?.length && <DepartmentPicker projectId={projectId} actorId={actorId} value="" onChange={() => {}} />}
     <p className="response-record-note">질문 저장은 앱 내 기록이며 이메일 발송이 아닙니다. 질문 초안 확인과 회신 기록은 <Link to={`/tft/projects/${projectId}/requirements/${requirement.requirement_id}`}>요구 상세의 질문·회신</Link>에서 처리하세요.</p>
   </section>;
 }

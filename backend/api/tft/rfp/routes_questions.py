@@ -129,6 +129,74 @@ async def list_questions(
     return s.QuestionList(items=[question_out(row) for row in rows])
 
 
+async def check_question(
+    conn: AsyncConnection[Row], project: Row, payload: s.QuestionCreate
+) -> None:
+    """질문 한 건의 서버 검사(부서 범위·요구·조항). 쓰지 않는다. 단건·묶음 작성이 같이 쓴다.
+
+    Args:
+        conn: dict_row 연결.
+        project: project_scope 행.
+        payload: 질문 본문.
+
+    Returns:
+        None. 어긋나면 ApplicationError(422 VALIDATION_ERROR·404 TFT_REQUIREMENT_NOT_FOUND).
+    """
+    if payload.target == "INTERNAL" and payload.target_dept not in project["review_departments"]:
+        raise ApplicationError(
+            422,
+            "VALIDATION_ERROR",
+            "Ask a review department of the project.",
+            details=[{"field": "target_dept", "reason": "not a review department"}],
+        )
+    if payload.requirement_id is not None and (
+        await repository.latest_requirement_version(conn, project["id"], payload.requirement_id)
+        is None
+    ):
+        raise ApplicationError(404, "TFT_REQUIREMENT_NOT_FOUND", "The requirement was not found.")
+    clause_id = payload.origin.clause_id
+    if clause_id is not None and not await repository.clause_in_project(
+        conn, project["id"], clause_id
+    ):
+        raise ApplicationError(
+            422,
+            "VALIDATION_ERROR",
+            "The clause is not in this project.",
+            details=[{"field": "origin.clause_id", "reason": "not in the project"}],
+        )
+
+
+async def store_question(
+    conn: AsyncConnection[Row], project: Row, payload: s.QuestionCreate, actor: UUID
+) -> dict[str, Any]:
+    """검사를 마친 질문 한 건을 저장하고 응답 data를 돌려준다.
+
+    Args:
+        conn: 쓰기 트랜잭션.
+        project: project_scope 행.
+        payload: 질문 본문.
+        actor: 작성자.
+
+    Returns:
+        dict: Question 응답 data.
+    """
+    assumption = payload.internal_assumption
+    row = await repository.insert_question(
+        conn,
+        project=project,
+        requirement_id=payload.requirement_id,
+        clause_id=payload.origin.clause_id,
+        page=payload.origin.page,
+        issue_type=payload.issue_type,
+        question_text=payload.question_text,
+        internal_assumption=assumption.model_dump(mode="json") if assumption else None,
+        target=payload.target,
+        target_dept=payload.target_dept,
+        actor=actor,
+    )
+    return question_out(row).model_dump(mode="json")
+
+
 async def create_question(
     request: Request, principal: Principal, project_id: UUID, payload: s.QuestionCreate, key: str
 ) -> s.Question:
@@ -152,50 +220,8 @@ async def create_question(
             raise HTTPException(403)
 
         async def work() -> dict[str, Any]:
-            if (
-                payload.target == "INTERNAL"
-                and payload.target_dept not in project["review_departments"]
-            ):
-                raise ApplicationError(
-                    422,
-                    "VALIDATION_ERROR",
-                    "Ask a review department of the project.",
-                    details=[{"field": "target_dept", "reason": "not a review department"}],
-                )
-            if payload.requirement_id is not None and (
-                await repository.latest_requirement_version(
-                    conn, project_id, payload.requirement_id
-                )
-                is None
-            ):
-                raise ApplicationError(
-                    404, "TFT_REQUIREMENT_NOT_FOUND", "The requirement was not found."
-                )
-            clause_id = payload.origin.clause_id
-            if clause_id is not None and not await repository.clause_in_project(
-                conn, project_id, clause_id
-            ):
-                raise ApplicationError(
-                    422,
-                    "VALIDATION_ERROR",
-                    "The clause is not in this project.",
-                    details=[{"field": "origin.clause_id", "reason": "not in the project"}],
-                )
-            assumption = payload.internal_assumption
-            row = await repository.insert_question(
-                conn,
-                project=project,
-                requirement_id=payload.requirement_id,
-                clause_id=clause_id,
-                page=payload.origin.page,
-                issue_type=payload.issue_type,
-                question_text=payload.question_text,
-                internal_assumption=assumption.model_dump(mode="json") if assumption else None,
-                target=payload.target,
-                target_dept=payload.target_dept,
-                actor=principal.user_id,
-            )
-            return question_out(row).model_dump(mode="json")
+            await check_question(conn, project, payload)
+            return await store_question(conn, project, payload, principal.user_id)
 
         result = await commands.run_command(
             conn,
@@ -210,6 +236,74 @@ async def create_question(
             work=work,
         )
     return s.Question.model_validate(result)
+
+
+async def create_questions_batch(
+    request: Request,
+    principal: Principal,
+    project_id: UUID,
+    payload: s.QuestionBatchCreate,
+    key: str,
+) -> s.QuestionList:
+    """19-b. 질문 묶음 작성. 한 건이라도 검사에 걸리면 아무것도 저장하지 않고 422(index별 사유)다.
+
+    Args:
+        request: 요청(설정).
+        principal: 요청 사용자.
+        project_id: 프로젝트 ID.
+        payload: 질문 1~50건.
+        key: Idempotency-Key.
+
+    Returns:
+        s.QuestionList: 입력 순서대로 저장한(또는 같은 키로 처음 저장했던) 질문.
+    """
+    async with connection(request.app.state.settings) as conn:
+        project = await visible_project(
+            conn, principal, project_id, "TFT_PROJECT_NOT_FOUND", "The project was not found."
+        )
+        if not can_create_question(principal, project):
+            raise HTTPException(403)
+
+        async def work() -> dict[str, Any]:
+            problems: list[dict[str, str]] = []
+            for index, item in enumerate(payload.items):
+                try:
+                    if item.requirement_id is None:
+                        raise ApplicationError(
+                            422, "VALIDATION_ERROR", "A requirement is required."
+                        )
+                    await check_question(conn, project, item)
+                except ApplicationError as error:
+                    problems.append(
+                        {"index": str(index), "code": error.code, "message": error.message}
+                    )
+            if problems:
+                raise ApplicationError(
+                    422, "VALIDATION_ERROR", "Some questions are invalid.", details=problems
+                )
+            items = []
+            for item in payload.items:
+                stored = await store_question(conn, project, item, principal.user_id)
+                await commands.audit_result(
+                    conn, project_id, "question.create", principal.user_id, stored
+                )
+                items.append(stored)
+            return {"items": items}
+
+        result = await commands.run_command(
+            conn,
+            actor=principal.user_id,
+            operation="question.create",
+            key=key,
+            digest=commands.request_hash(
+                {"project_id": project_id}, payload.model_dump(mode="json")
+            ),
+            project_id=project_id,
+            status_code=201,
+            work=work,
+            audit=False,
+        )
+    return s.QuestionList.model_validate(result)
 
 
 async def confirm_question(

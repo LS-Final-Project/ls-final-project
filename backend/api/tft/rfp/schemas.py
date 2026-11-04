@@ -615,6 +615,24 @@ class SupplementSelection(Model):
     rnd_check_waiver_reason: str | None = Field(default=None, min_length=20, max_length=1000)
 
 
+class SupplementBatchItem(Model):
+    requirement_id: UUID
+    version: int = Field(ge=1)
+
+
+class SupplementBatchSelection(Model):
+    """보완 경로 묶음 선택. 건마다 읽은 요구 판본을 받고 나머지 칸은 단건 선택과 같은 규칙이다."""
+
+    dry_run: bool
+    path: SupplementPath
+    candidate_codes: list[str] = Field(default_factory=list, max_length=10)
+    role_split: str = Field(min_length=1, max_length=2000)
+    conditions: list[str] = Field(default_factory=list)
+    note: str | None = Field(default=None, max_length=1000)
+    rnd_check_waiver_reason: str | None = Field(default=None, min_length=20, max_length=1000)
+    items: list[SupplementBatchItem] = Field(min_length=1, max_length=50)
+
+
 class SupplementSelected(Provenance):
     requirement_id: UUID
     path: SupplementPath
@@ -625,6 +643,29 @@ class SupplementSelected(Provenance):
     provenance_kind: ProvenanceKind
     decided_by: UUID
     decided_at: datetime
+
+
+class SupplementBatchAllowed(Model):
+    requirement_id: UUID
+
+
+class SupplementBatchSaved(Model):
+    requirement_id: UUID
+    selection: SupplementSelected
+
+
+class SupplementBatchBlocked(Model):
+    requirement_id: UUID
+    code: str
+    message: str
+
+
+class SupplementBatchResult(Model):
+    """dry_run이면 saved가 비고 allowed에 담긴다. 저장이면 allowed가 비고 saved에 담긴다."""
+
+    saved: list[SupplementBatchSaved]
+    allowed: list[SupplementBatchAllowed]
+    blocked: list[SupplementBatchBlocked]
 
 
 class MandatoryCheck(Model):
@@ -706,6 +747,12 @@ class QuestionCreate(Model):
         if self.issue_type in INTERNAL_ISSUES and self.target != "INTERNAL":
             raise ValueError("This issue type is for internal questions")
         return self
+
+
+class QuestionBatchCreate(Model):
+    """질문 묶음 작성. 모든 건에 requirement_id가 있어야 한다(서버가 건별로 검사한다)."""
+
+    items: list[QuestionCreate] = Field(min_length=1, max_length=50)
 
 
 class QuestionReply(Model):

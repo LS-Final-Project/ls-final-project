@@ -4708,6 +4708,26 @@
         "title": "Question",
         "type": "object"
       },
+      "QuestionBatchCreate": {
+        "additionalProperties": false,
+        "description": "\uc9c8\ubb38 \ubb36\uc74c \uc791\uc131. \ubaa8\ub4e0 \uac74\uc5d0 requirement_id\uac00 \uc788\uc5b4\uc57c \ud55c\ub2e4(\uc11c\ubc84\uac00 \uac74\ubcc4\ub85c \uac80\uc0ac\ud55c\ub2e4).",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/QuestionCreate"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "QuestionBatchCreate",
+        "type": "object"
+      },
       "QuestionCreate": {
         "additionalProperties": false,
         "properties": {
@@ -7127,6 +7147,22 @@
         "title": "SuccessResponse[RfpProjectDetail]",
         "type": "object"
       },
+      "SuccessResponse_SupplementBatchResult_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SupplementBatchResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[SupplementBatchResult]",
+        "type": "object"
+      },
       "SuccessResponse_SupplementOptions_": {
         "properties": {
           "data": {
@@ -7157,6 +7193,208 @@
           "meta"
         ],
         "title": "SuccessResponse[SupplementSelected]",
+        "type": "object"
+      },
+      "SupplementBatchAllowed": {
+        "additionalProperties": false,
+        "properties": {
+          "requirement_id": {
+            "format": "uuid",
+            "title": "Requirement Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requirement_id"
+        ],
+        "title": "SupplementBatchAllowed",
+        "type": "object"
+      },
+      "SupplementBatchBlocked": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "requirement_id": {
+            "format": "uuid",
+            "title": "Requirement Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requirement_id",
+          "code",
+          "message"
+        ],
+        "title": "SupplementBatchBlocked",
+        "type": "object"
+      },
+      "SupplementBatchItem": {
+        "additionalProperties": false,
+        "properties": {
+          "requirement_id": {
+            "format": "uuid",
+            "title": "Requirement Id",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "requirement_id",
+          "version"
+        ],
+        "title": "SupplementBatchItem",
+        "type": "object"
+      },
+      "SupplementBatchResult": {
+        "additionalProperties": false,
+        "description": "dry_run\uc774\uba74 saved\uac00 \ube44\uace0 allowed\uc5d0 \ub2f4\uae34\ub2e4. \uc800\uc7a5\uc774\uba74 allowed\uac00 \ube44\uace0 saved\uc5d0 \ub2f4\uae34\ub2e4.",
+        "properties": {
+          "allowed": {
+            "items": {
+              "$ref": "#/components/schemas/SupplementBatchAllowed"
+            },
+            "title": "Allowed",
+            "type": "array"
+          },
+          "blocked": {
+            "items": {
+              "$ref": "#/components/schemas/SupplementBatchBlocked"
+            },
+            "title": "Blocked",
+            "type": "array"
+          },
+          "saved": {
+            "items": {
+              "$ref": "#/components/schemas/SupplementBatchSaved"
+            },
+            "title": "Saved",
+            "type": "array"
+          }
+        },
+        "required": [
+          "saved",
+          "allowed",
+          "blocked"
+        ],
+        "title": "SupplementBatchResult",
+        "type": "object"
+      },
+      "SupplementBatchSaved": {
+        "additionalProperties": false,
+        "properties": {
+          "requirement_id": {
+            "format": "uuid",
+            "title": "Requirement Id",
+            "type": "string"
+          },
+          "selection": {
+            "$ref": "#/components/schemas/SupplementSelected"
+          }
+        },
+        "required": [
+          "requirement_id",
+          "selection"
+        ],
+        "title": "SupplementBatchSaved",
+        "type": "object"
+      },
+      "SupplementBatchSelection": {
+        "additionalProperties": false,
+        "description": "\ubcf4\uc644 \uacbd\ub85c \ubb36\uc74c \uc120\ud0dd. \uac74\ub9c8\ub2e4 \uc77d\uc740 \uc694\uad6c \ud310\ubcf8\uc744 \ubc1b\uace0 \ub098\uba38\uc9c0 \uce78\uc740 \ub2e8\uac74 \uc120\ud0dd\uacfc \uac19\uc740 \uaddc\uce59\uc774\ub2e4.",
+        "properties": {
+          "candidate_codes": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "title": "Candidate Codes",
+            "type": "array"
+          },
+          "conditions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Conditions",
+            "type": "array"
+          },
+          "dry_run": {
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SupplementBatchItem"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "path": {
+            "enum": [
+              "OTHER_OWN_PRODUCT",
+              "OWN_DEVELOPMENT",
+              "OWN_TERMS_REVIEW",
+              "ALTERNATIVE_SPEC",
+              "EXTERNAL_PRODUCT",
+              "TASK_SUBCONTRACT",
+              "JOINT_PROPOSAL",
+              "CUSTOMER_SPECIFIED_PROCUREMENT",
+              "NONE"
+            ],
+            "title": "Path",
+            "type": "string"
+          },
+          "rnd_check_waiver_reason": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "minLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rnd Check Waiver Reason"
+          },
+          "role_split": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Role Split",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dry_run",
+          "path",
+          "role_split",
+          "items"
+        ],
+        "title": "SupplementBatchSelection",
         "type": "object"
       },
       "SupplementOption": {
@@ -11303,6 +11541,121 @@
         ]
       }
     },
+    "/api/v1/tft/projects/{project_id}/questions/batch": {
+      "post": {
+        "description": "19-b. \uc9c8\ubb38 \uc5ec\ub7ec \uac74\uc744 \ud55c \ubc88\uc5d0 \uc791\uc131\ud55c\ub2e4. \ud55c \uac74\uc774\ub77c\ub3c4 \uc5b4\uae0b\ub098\uba74 \uc544\ubb34\uac83\ub3c4 \uc800\uc7a5\ud558\uc9c0 \uc54a\ub294\ub2e4.",
+        "operationId": "tft_create_rfp_questions_batch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuestionBatchCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_QuestionList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Create Questions Batch",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
     "/api/v1/tft/projects/{project_id}/questions/{question_id}/confirm": {
       "post": {
         "description": "31. \uc9c8\ubb38 \ucd08\uc548 \ud655\uc778. DRAFT\ub9cc OPEN\uc73c\ub85c \ubc14\uafbc\ub2e4(\uadf8 \uc804\uc5d0\ub294 \ubcf4\ub0b8 \uc9c8\ubb38\uc774 \uc544\ub2c8\ub2e4).",
@@ -11715,6 +12068,128 @@
           }
         },
         "summary": "List Requirements",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
+    "/api/v1/tft/projects/{project_id}/supplement-selections/batch": {
+      "post": {
+        "description": "16-b. \uac19\uc740 \ubcf4\uc644 \uacbd\ub85c\ub97c \uc694\uad6c \uc5ec\ub7ec \uac74\uc5d0 \uc120\ud0dd\ud55c\ub2e4. dry_run\uc774\uba74 \uc4f0\uc9c0 \uc54a\uace0 \uac00\ub2a5 \uc5ec\ubd80\ub9cc \ub3cc\ub824\uc900\ub2e4.",
+        "operationId": "tft_select_rfp_supplement_batch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupplementBatchSelection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_SupplementBatchResult_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Select Supplement Batch",
         "tags": [
           "rfp"
         ]

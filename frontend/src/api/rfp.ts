@@ -189,13 +189,32 @@ export const listDocumentDiagrams = (documentId: string, versionId: string, sign
 
 // Explicit project access change. Preserve the caller's full department list;
 // the existing project version contract rejects concurrent edits.
-export async function addRfpReviewDepartment(projectId: string, version: number, departments: string[], actorId: string) {
+export async function setRfpReviewDepartments(projectId: string, version: number, departments: string[], actorId: string) {
   const actor = await me();
   if (!actor || actor.data.id !== actorId) throw new ApiError(409, '세션 사용자가 변경되었습니다. 프로젝트를 다시 확인하세요.', undefined, 'SESSION_CHANGED');
   const csrf = sessionCsrfToken();
   if (!csrf && !import.meta.env.DEV) throw new ApiError(403, '세션 확인 후 검토 부서를 다시 설정하세요.');
   return request<ProjectDetailResponse>(`/api/v1/tft/projects/${encodeURIComponent(projectId)}`, {
     method: 'PATCH', headers: csrf ? { 'X-CSRF-Token': csrf } : {},
-    body: JSON.stringify({ version, review_departments: [...new Set([...departments, 'RND_FW'])] }),
+    body: JSON.stringify({ version, review_departments: [...new Set(departments)] }),
   });
 }
+export const addRfpReviewDepartment = (projectId: string, version: number, departments: string[], actorId: string) =>
+  setRfpReviewDepartments(projectId, version, [...departments, 'RND_FW'], actorId);
+
+// 묶음 쓰기(경로 19-b·16-b). 질문 묶음은 한 건이라도 어긋나면 아무것도 저장하지 않는다(422 details[index]).
+export type QuestionCreate = Schemas['QuestionCreate'];
+export const createQuestionsBatch = (projectId: string, items: QuestionCreate[], key: string) => request<Envelope<{ items: Question[] }>>(
+  `/api/v1/tft/projects/${encodeURIComponent(projectId)}/questions/batch`, json(key, { items }),
+);
+export type SupplementBatchBody = Schemas['SupplementBatchSelection'];
+export type SupplementBatchResult = Schemas['SupplementBatchResult'];
+// dry_run은 쓰지 않는다. 저장(dry_run false)만 멱등 키를 보낸다.
+export const selectSupplementBatch = (projectId: string, body: SupplementBatchBody, key?: string) => {
+  const csrf = sessionCsrfToken();
+  return request<Envelope<SupplementBatchResult>>(`/api/v1/tft/projects/${encodeURIComponent(projectId)}/supplement-selections/batch`, {
+    method: 'POST', headers: { ...(key ? { 'Idempotency-Key': key } : {}), ...(csrf ? { 'X-CSRF-Token': csrf } : {}) }, body: JSON.stringify(body),
+  });
+};
+// 묶음 경로가 없는 서버(중계 허용 목록에 없음 405, 경로 없음 404 NOT_FOUND·코드 없음). 업무 404(TFT_*)는 해당하지 않는다.
+export const unsupportedRoute = (error: unknown) => error instanceof ApiError && (error.status === 405 || error.status === 404 && (!error.code || error.code === 'NOT_FOUND'));

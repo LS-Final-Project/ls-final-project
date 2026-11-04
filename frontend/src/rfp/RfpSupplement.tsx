@@ -125,12 +125,12 @@ function RequirementSupplement({ projectId, projectName, requirement, canSelect,
   </div>;
 }
 
-export function SelectionEditor({ options, candidates, canSelect, onSaveReady, onSaved, attempts, actorId, compact = false, context }: {
-  context?: 'commercial' | 'designated' | 'task' | 'technical'; compact?: boolean; actorId: string; attempts: Map<string, string>; options: SupplementOptions; candidates: PartnerCandidate[]; canSelect: boolean; onSaveReady: SaveReady; onSaved: (value: SupplementSelected) => void;
+export function SelectionEditor({ options, candidates, canSelect, onSaveReady, onSaved, attempts, actorId, compact = false, context, initialPath }: {
+  initialPath?: string; context?: 'commercial' | 'designated' | 'task' | 'technical'; compact?: boolean; actorId: string; attempts: Map<string, string>; options: SupplementOptions; candidates: PartnerCandidate[]; canSelect: boolean; onSaveReady: SaveReady; onSaved: (value: SupplementSelected) => void;
 }) {
   const queryClient = useQueryClient();
   const allowedOptions = options.options.filter(option => option.allowed);
-  const [path, setPath] = useState<SupplementOption['path'] | ''>(() => context && allowedOptions.length === 1 ? allowedOptions[0].path : '');
+  const [path, setPath] = useState<SupplementOption['path'] | ''>(() => allowedOptions.find(o => o.path === initialPath)?.path ?? (context && allowedOptions.length === 1 ? allowedOptions[0].path : ''));
   const [codes, setCodes] = useState<string[]>([]);
   const [roleSplit, setRoleSplit] = useState('');
   const [conditions, setConditions] = useState('');
