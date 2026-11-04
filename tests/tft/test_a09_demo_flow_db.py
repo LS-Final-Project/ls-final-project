@@ -21,6 +21,7 @@ import pytest
 
 from backend.api.tft.partners.loader import load_profiles, profile_row
 from backend.shared.ai import Generation, Usage
+from tests.tft.decision_gate import settle_decisions
 from tests.tft.test_rfp_http_base_db import SALES, admin, app_dsn  # noqa: F401
 from tests.tft.test_worker_processor_db import make_project, run, worker_dsn  # noqa: F401
 
@@ -432,6 +433,7 @@ def test_draft_review_version_and_docx_export_follow_the_process(
         sections = {sec["section"]: sec["sentences"] for sec in draft.json()["data"]["sections"]}
         assert sections["OUR_RESPONSE"] and sections["PARTNER_SUPPLEMENT"]
         assert draft.json()["data"]["evidence_missing_count"] == 0
+        settle_decisions(client, admin, project["project"])
         saved = client.post(
             f"{base}/review-versions",
             json={"version": draft.json()["data"]["version"]},

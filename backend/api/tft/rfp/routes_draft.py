@@ -155,6 +155,34 @@ async def exports(request: Request, principal: Principal, project_id: UUID) -> s
     )
 
 
+GATE_FIELDS = ("undecided", "deviation_missing", "open_queries", "review_pending")
+
+
+async def gate_closed(conn: AsyncConnection[dict], project_id: UUID) -> None:
+    """저장 조건(KAN-220 decision_gate)이 남으면 409 TFT_DECISION_GATE_OPEN. 화면과 같은 규칙이다.
+
+    결정은 요구 행을, 질문 확정·회신은 질문 행을 FOR UPDATE로 잠그므로 FOR SHARE로 그 쓰기를 기다리게 한 뒤 센다.
+    """
+    from backend.api.tft.rfp.decisions import gate
+
+    # ponytail: 새 요구·질문 INSERT(직접 추가, 질문 작성)는 행 잠금에 안 걸린다. 경합이 실제로 보이면 결정 쪽도 db.lock을 잡는다.
+    await conn.execute(
+        "SELECT 1 FROM tft.requirements WHERE project_id=%s FOR SHARE", (project_id,)
+    )
+    await conn.execute(
+        "SELECT 1 FROM tft.customer_questions WHERE project_id=%s FOR SHARE", (project_id,)
+    )
+    found = await gate(conn, project_id)
+    left = [(name, getattr(found, name)) for name in GATE_FIELDS if getattr(found, name)]
+    if left:
+        raise ApplicationError(
+            409,
+            "TFT_DECISION_GATE_OPEN",
+            "Decisions remain before saving a review version.",
+            details=[{"field": name, "reason": str(n)} for name, n in left],
+        )
+
+
 async def save_review(
     request: Request,
     principal: Principal,
@@ -219,6 +247,7 @@ async def save_review(
                         ),
                     ],
                 )
+            await gate_closed(conn, project_id)
             cursor = await conn.execute(
                 "SELECT coalesce(max(review_version),0)+1 AS version FROM tft.review_versions WHERE project_id=%s",
                 (project_id,),

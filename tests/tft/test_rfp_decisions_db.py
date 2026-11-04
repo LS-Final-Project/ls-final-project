@@ -232,6 +232,14 @@ def test_assignment_sets_the_owner_department_and_undo_restores_it(client, chain
     made = ok(decide(client, chain, "assign", holder="OWN", owner="TECH"))
     assert made["summary"] == "자사 수행, 기술 담당"
     assert latest(admin, chain)[::2] == (2, "TECH")
+    # 결정이 만든 판본은 요구 자체에 재검토 표시를 남기지 않는다(남으면 검토본을 저장할 수 없다, KAN-220).
+    with psycopg.connect(admin) as conn:
+        marks = conn.execute(
+            "SELECT count(*) FROM tft.rereview_marks WHERE target_kind='requirement' "
+            "AND target_id=%s AND cleared_at IS NULL",
+            (chain["requirement"],),
+        ).fetchone()[0]
+    assert marks == 0
     ok(decide(client, chain, "undo", version=2, decision_id=made["decision_id"]))
     assert latest(admin, chain)[::2] == (3, "SALES")
     partner = ok(decide(client, chain, "assign", version=3, holder="PARTNER", owner="SALES"))

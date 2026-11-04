@@ -26,9 +26,10 @@ from backend.api.tft.rfp import commands, repository
 from backend.shared.access import Principal, principal_header
 from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
-from tests.tft.test_rfp_draft_routes_db import generate
 
 # 고정물을 가져와 쓴다(pytest가 이름으로 찾는다).
+from tests.tft.decision_gate import settle_decisions
+from tests.tft.test_rfp_draft_routes_db import generate
 from tests.tft.test_rfp_http_base_db import SALES, admin, app_dsn, chain  # noqa: F401
 
 RND = Principal(user_id=uuid4(), roles=frozenset({"dept_staff"}), dept="RND_FW")
@@ -1314,7 +1315,9 @@ def test_approval_writes_a_new_version_and_keeps_other_fields(client, gap, admin
     assert [p["decided_by"] for p in listed] == [str(SALES)]
 
 
-def review(client, gap, version=1):
+def review(client, gap, version=1, admin=None):
+    if admin is not None:  # 저장 조건(KAN-220)을 결정 경로로 채운다.
+        settle_decisions(client, admin, gap["project"])
     url = f"/projects/{gap['project']}/draft/review-versions"
     return call(client, "POST", url, OWNER, {"version": version}, uuid4().hex)
 
@@ -1398,7 +1401,7 @@ def test_a_flagged_sentence_is_released_by_the_approved_check(client, app_dsn, g
     url = f"/projects/{gap['project']}/proposals"
     made = call(client, "POST", url, OWNER, body, uuid4().hex).json()["data"]
     assert decide(client, made).status_code == 200
-    saved = review(client, gap)
+    saved = review(client, gap, admin=admin)
     assert saved.status_code == 201, saved.text
 
 
@@ -1429,7 +1432,7 @@ def test_no_path_approval_leaves_the_sentence_mark_for_a_person_to_clear(
     edited = call(client, "PATCH", url, OWNER, {"version": 1, "edits": edits}, uuid4().hex)
     assert edited.status_code == 200, edited.text
     assert not any(r["needs_rereview"] for p in data(edited)["sections"] for r in p["sentences"])
-    saved = review(client, gap, version=2)
+    saved = review(client, gap, version=2, admin=admin)
     assert saved.status_code == 201, saved.text
 
 
@@ -1450,7 +1453,7 @@ def test_review_takes_an_owner_or_a_saved_supplement_as_the_next_action(
     else:
         chosen = choose(client, gap, "EXTERNAL_PRODUCT")
         assert chosen.status_code == 200, chosen.text
-    saved = review(client, gap)
+    saved = review(client, gap, admin=admin)
     assert saved.status_code == 201, saved.text
     assert saved.json()["data"]["judgement_status"] == "CONDITION_CHECK"
 
