@@ -27,6 +27,7 @@ from backend.shared.access import PRINCIPAL_HEADER, Principal, principal_header
 from backend.shared.models import CUSTOMER_ID, EVIDENCE_ID
 from backend.shared.service_auth import CALLER_HEADER
 from backend.shared.settings import Settings
+from tests.tft.test_rfp_schema_db import MIGRATIONS as SCHEMA_MIGRATIONS
 
 ORIGIN = "https://app.example.invalid"
 CS = "https://cs.example.invalid"
@@ -38,6 +39,14 @@ OPTIONS = {
     "business_tft_url": TFT,
     "business_platform_email": "platform-runtime@synthetic-project.iam.gserviceaccount.com",
 }
+
+
+# 추천 명령 표(KAN-123)는 스키마 시험이 다루지 않지만 업무 앱이 읽는다. 프로젝트 표 뒤에 둔다.
+TFT_MIGRATIONS = (
+    *SCHEMA_MIGRATIONS[:2],
+    "20261025_KAN-123_recommendation_commands.sql",
+    *SCHEMA_MIGRATIONS[2:],
+)
 
 
 @pytest.fixture
@@ -96,23 +105,9 @@ def business_database(auth_database):
             "cs/20261106_KAN-107_ticket_customer_tier.sql",
             # 개선요청 조회가 후보 칸을 읽는다(C26).
             "cs/20261108_KAN-202_improvement_candidates.sql",
-            "tft/20261023_KAN-119_projects.sql",
-            "tft/20261023_KAN-122_staffing_requests.sql",
-            "tft/20261025_KAN-123_recommendation_commands.sql",
-            # 경로 1·3의 RFP 칸(T7·T11).
-            "tft/20261029_KAN-182_rfp_response.sql",
-            "tft/20261030_KAN-182_rfp_keys.sql",
-            "tft/20261101_KAN-186_supplement_paths.sql",
-            "tft/20261102_KAN-186_rnd_check.sql",
-            "tft/20261103_KAN-186_project_columns.sql",
-            # 프로젝트 입력 T20과 선언된 선행(T12/T13/T14/T15/T17/T19). T21 요약 경로는 여기서 읽지 않는다.
-            "tft/20261105_KAN-199_requirement_assembly_clause.sql",
-            "tft/20261106_KAN-199_question_drafts.sql",
-            "tft/20261104_KAN-199_tft_worker.sql",
-            "tft/20261107_KAN-188_requirement_semantic_fields.sql",
-            "tft/20261109_KAN-188_draft_execution.sql",
-            "tft/20261111_KAN-188_draft_rewrite.sql",
-            "tft/20261112_KAN-187_project_constraints.sql",
+            # TFT는 스키마 시험의 적용 순서 목록 하나를 따른다. 손으로 고른 목록은 프로젝트 목록·상세가 새로 읽는 표
+            # (결정·발송 기록 등)가 빠져 단독 실행에서 503이 났고, 앞 시험이 같은 DB에 적용했을 때만 통과했다.
+            *(f"tft/{name}" for name in TFT_MIGRATIONS),
         ):
             migration = Path("infra/migrations", filename).read_text()
             conn.execute(

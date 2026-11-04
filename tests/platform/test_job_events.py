@@ -15,6 +15,7 @@ import uvicorn
 from backend.api.platform.auth.http import SESSION_COOKIE
 from backend.api.platform.evaluations.controls import control_run
 from backend.api.platform.evaluations.smoke_worker import dispatch_one
+from backend.api.platform.jobs import events
 from tests.platform.test_job_status import job_client as job_client
 
 
@@ -163,6 +164,42 @@ def test_live_stream_disconnect_and_cancel_recovery(live_job, settings, access, 
     assert resumed.text.startswith("id: 2\nevent: job.completed")
     assert '"state":"CANCELLED"' in resumed.text
     assert http.get(url + "?after=2").status_code == 204
+
+
+def test_session_revoked_between_check_and_snapshot_is_not_streamed(
+    live_job, evaluation_database, monkeypatch
+):
+    """세션 확인 뒤·이벤트 스냅샷 전에 세션 회수와 새 이벤트가 함께 커밋돼도 그 이벤트를 보내지 않는다.
+
+    Args:
+        live_job: 실제 HTTP 스트림.
+        evaluation_database: 격리 관리자 연결.
+        monkeypatch: 스냅샷 직전에 회수를 끼워 넣는다.
+
+    Returns:
+        None: 전체 실행 부하에서만 드러나던 경합을 결정적으로 재현한다.
+    """
+    http, admitted = live_job
+    original = events.read_job
+    state = {"armed": False}
+
+    async def racing(*args, **kwargs):
+        if state["armed"]:
+            state["armed"] = False
+            with psycopg.connect(evaluation_database) as conn:
+                conn.execute("DELETE FROM identity.sessions")
+                conn.execute(
+                    "INSERT INTO runtime.job_events(job_id,sequence,type) VALUES (%s,2,'job.progress')",
+                    (admitted.job_id,),
+                )
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(events, "read_job", racing)
+    with http.stream("GET", f"/api/v1/platform/jobs/{admitted.job_id}/events") as response:
+        lines = response.iter_lines()
+        assert read_frame(lines).startswith("id: 1")
+        state["armed"] = True
+        assert all(not line.startswith(("id:", "event:", "data:")) for line in lines)
 
 
 @pytest.mark.parametrize(
