@@ -90,3 +90,20 @@ export function clauseLabel(clauseNo?: string | null, page?: number | null) {
 }
 /** 요구 코드(문서 판본 앞 8자:조항 번호:순번)를 조항 표시로 바꾼다. 형식이 다르면 그대로 둔다. */
 export const codeLabel = (code?: string | null) => clauseLabel(code?.match(/^[0-9a-f]{8}:(.+):\d+$/)?.[1] ?? code);
+const VERDICT_WORD: Record<string, string> = {
+  '값 다름': '값이 다릅니다', 미달: '요구에 못 미칩니다', 초과: '요구를 넘습니다', '범위 밖': '범위를 벗어납니다', 충족: '충족합니다',
+};
+/**
+ * 비교 판단 문장(서버 원문, 근거 ID·조항 코드·영문 속성 키 포함)을 화면용으로 줄인다. 원문은 title로 남긴다.
+ * 예 "이미지 전사 원문 확인 필요. 원문 OCR-DOCX-0001.7 rated_voltage 요구 11 kV, 자사 25.8 kV(근거 DS-VCB 2.1): 값 다름."
+ *  → "요구 11 kV, 자사 25.8 kV. 값이 다릅니다."
+ */
+export function reasonText(reason?: string | null) {
+  if (!reason) return '';
+  const short = reason
+    .replace(/^이미지 전사 원문 확인 필요\.\s*/, '')
+    .replace(/^원문\s+\S+\s+.*?(?=요구 )/, '')
+    .replace(/\s*\(근거 [^)]*\)/g, '')
+    .replace(/:\s*(값 다름|미달|초과|범위 밖|충족)\.?$/, (_, w: string) => `. ${VERDICT_WORD[w]}.`);
+  return short.trim();
+}
