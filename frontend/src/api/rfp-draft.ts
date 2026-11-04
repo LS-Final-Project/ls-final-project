@@ -102,13 +102,25 @@ async function getDraftJob(project: string, jobId: string, kind: 'rfp.export' | 
 export const getExportJob = (project: string, jobId: string, signal?: AbortSignal) => getDraftJob(project, jobId, 'rfp.export', signal);
 export const getRewriteJob = (project: string, jobId: string, signal?: AbortSignal) => getDraftJob(project, jobId, 'rfp.draft_rewrite', signal);
 export const getRewriteSummary = (project: string, jobId: string, signal?: AbortSignal) => read<RewriteSummary>(`${base(project)}/rewrites/${encodeURIComponent(jobId)}`, signal);
-export async function downloadExport(project: string, exportId: string): Promise<Blob> {
+export const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+export type ExportFormat = ExportInput['format'];
+const EXPORT_MIME: Record<ExportFormat, string> = { DOCX: DOCX_MIME, XLSX: XLSX_MIME, PDF: 'application/pdf' };
+// Content-Disposition의 파일 이름(filename* 우선). 없으면 null.
+export function attachmentName(header: string | null) {
+  const star = header?.match(/filename\*\s*=\s*UTF-8''([^;]+)/i);
+  if (star) { try { return decodeURIComponent(star[1].trim()); } catch { /* 아래 filename으로 */ } }
+  return header?.match(/filename\s*=\s*"?([^";]+)"?/i)?.[1].trim() || null;
+}
+// 내보낸 파일. 형식에 맞는 첨부 응답만 받고 서버가 준 파일 이름을 같이 돌려준다.
+export async function downloadExportFile(project: string, exportId: string, format: ExportFormat = 'DOCX'): Promise<{ blob: Blob; name: string | null }> {
   const response = await fetch(`${base(project)}/exports/${encodeURIComponent(exportId)}/file`, { credentials: 'same-origin', cache: 'no-store', signal: deadline() });
   if (!response.ok) throw await failure(response);
-  if (response.headers.get('Content-Type')?.split(';')[0].trim() !== DOCX_MIME || !/^attachment(?:;|$)/i.test(response.headers.get('Content-Disposition') || '')) {
-    await response.body?.cancel(); throw new Error('DOCX 첨부파일 응답을 확인하지 못했습니다.');
+  const disposition = response.headers.get('Content-Disposition') || '';
+  if (response.headers.get('Content-Type')?.split(';')[0].trim() !== EXPORT_MIME[format] || !/^attachment(?:;|$)/i.test(disposition)) {
+    await response.body?.cancel(); throw new Error(`${format} 첨부파일 응답을 확인하지 못했습니다.`);
   }
   const blob = await response.blob();
   if (!blob.size || blob.size > 25 * 1024 * 1024) throw new Error('파일 크기를 확인할 수 없습니다.');
-  return blob;
+  return { blob, name: attachmentName(disposition) };
 }
+export const downloadExport = (project: string, exportId: string) => downloadExportFile(project, exportId).then(file => file.blob);
