@@ -199,8 +199,11 @@ def build_input(
 # 회신의 인용 시작(KAN-230). 분류용 _QUOTE_START와 달리 'From:'·'보낸 사람:'은 바로 아래 몇 줄에
 # 메일 머리글(Sent/Date/To/보낸 날짜/받는 사람)이 이어질 때만 인용으로 본다. 본문의 'From: PLC log' 같은
 # 줄을 인용으로 잘못 보지 않기 위해서다.
+# Gmail은 긴 'On … wrote:' 줄을 두세 줄로 접고, 한국어 Gmail은 '… 님이 작성:'으로 쓴다.
 _REPLY_QUOTE = re.compile(
-    r"^(?:-{2,}\s*(?:Original Message|원본 메시지)\s*-{2,}|On .+ wrote:)$", re.MULTILINE
+    r"^(?:-{2,}\s*(?:Original Message|원본 메시지)\s*-{2,}"
+    r"|On [^\n]+(?:\n[^\n]+){0,2}? wrote:|[^\n]*\d{4}년[^\n]*(?:\n[^\n]+){0,2}?님이 작성:)$",
+    re.MULTILINE,
 )
 _REPLY_FROM = re.compile(r"^(?:From:\s.+|보낸 사람:.*)$", re.MULTILINE)
 _REPLY_HEADER_NEXT = re.compile(
@@ -240,7 +243,9 @@ def reply_text(raw: bytes) -> tuple[str | None, str | None]:
     """
     subject, body, _ = mail_text(raw)
     # CRLF가 남으면 인용 시작 줄('… wrote:')을 줄 끝으로 찾지 못한다.
-    plain = body.replace("\r\n", "\n").replace("\r", "\n")
+    # NUL은 DB 텍스트에 넣을 수 없어 뺀다.
+    plain = body.replace("\x00", "").replace("\r\n", "\n").replace("\r", "\n")
+    subject = subject.replace("\x00", "") if subject else subject
     text = _clean_reply(plain)
     if len(text) > REPLY_BODY_LIMIT:
         mark = "\n[이후 생략: 원문은 메일 계정에서 확인]"

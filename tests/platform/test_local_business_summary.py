@@ -707,3 +707,122 @@ def test_the_local_runtime_turns_the_translation_on_through_the_bridge(tmp_path,
     app = runtime.app_for("cs", state)
     assert app.state.translation_provider is not None
     assert "/translation" in endpoints
+
+
+def reply_prompt():
+    """회신 반영 분석 경로(KAN-230)가 받는 정확한 프롬프트(C/S 경로가 만드는 것과 같다)."""
+    from datetime import UTC, datetime
+
+    from backend.engine.cs.reply import (
+        CustomerReply,
+        ReplyContext,
+        build_reply_input,
+    )
+    from backend.engine.cs.reply import render_prompt as render_reply
+
+    prepared = build_reply_input(
+        ReplyContext(
+            ticket_product_code="TRF-OIL-1000",
+            fw_version_reported="4.2.1",
+            requested_info_codes=["photos"],
+            already_provided_codes=[],
+            prior_options=None,
+        ),
+        CustomerReply(
+            channel="EMAIL",
+            body="Photos attached.",
+            body_language="en",
+            received_at=datetime(2026, 11, 5, tzinfo=UTC),
+        ),
+        confirmed_unit_serial=None,
+        sensitive_values={},
+    )
+    return render_reply(prepared.payload)
+
+
+def test_the_reply_analysis_path_takes_only_its_own_prompt_and_factory(ledger, tmp_path, prompt):
+    """같은 중계가 /reply-analysis에서 회신 해석 프롬프트만 받고 그 공급자로 부른다(같은 원장)."""
+    permit, token = ledger
+    used = []
+
+    def reply_factory(*args):
+        used.append("reply")
+        return fake_factory(*args)
+
+    def refuse(*args):
+        pytest.fail("other factory must not run")
+
+    bridge = summary.SummaryBridge(
+        permit,
+        token,
+        tmp_path,
+        "fake-model",
+        threading.Lock(),
+        address=("127.0.0.1", 0),
+        factory=refuse,
+        draft_factory=refuse,
+        translation_factory=refuse,
+        reply_factory=reply_factory,
+    )
+    url = f"http://127.0.0.1:{bridge.server.server_port}"
+    headers = {"Authorization": "Bearer " + bridge.capability}
+    try:
+        for path, body in (
+            ("/reply-analysis", prompt),
+            ("/reply-analysis", translation_prompt()),
+            ("/reply-analysis", reply_prompt() + " "),
+            ("/summary", reply_prompt()),
+            ("/translation", reply_prompt()),
+            ("/improvement-draft", reply_prompt()),
+        ):
+            response = httpx.post(
+                url + path, headers=headers, json={"prompt": body}, trust_env=False
+            )
+            assert response.status_code == 400
+        assert used == []
+        made = httpx.post(
+            url + "/reply-analysis",
+            headers=headers,
+            json={"prompt": reply_prompt()},
+            trust_env=False,
+        )
+        assert made.status_code == 200 and used == ["reply"]
+        with permit.transaction() as db:
+            assert db.execute("SELECT count(*) FROM charges").fetchone()[0] == 1
+    finally:
+        bridge.close()
+
+
+def test_the_reply_analysis_bridge_provider_is_unavailable_without_a_driver(tmp_path):
+    provider = summary.bridge_provider(tmp_path, "/reply-analysis")
+    with pytest.raises(ApplicationError) as error:
+        provider("prompt")
+    assert error.value.code == "LOCAL_SUMMARY_UNAVAILABLE"
+
+
+def test_the_metered_reply_provider_uses_its_schema_and_limit(monkeypatch):
+    from backend.engine.cs.reply import ReplyInterpretation
+
+    seen = {}
+    monkeypatch.setattr(summary, "metered_provider", lambda *a, **kw: seen.update(kw))
+    summary.metered_reply_provider(None, "t", Path("/unused"), "fake-model")
+    assert seen == {"response_schema": ReplyInterpretation, "max_output_tokens": 8192}
+
+
+def test_the_local_runtime_turns_the_reply_analysis_on_through_the_bridge(tmp_path, monkeypatch):
+    """로컬 runner는 회신 반영 분석을 켜고 공급자로 /reply-analysis bridge를 둔다(모델 키 없음)."""
+    from scripts.local_business import runtime
+    from tests.platform.test_local_business_integration import local_state
+
+    endpoints = []
+    original = summary.bridge_provider
+
+    def recording(state, endpoint="/summary"):
+        endpoints.append(endpoint)
+        return original(state, endpoint)
+
+    monkeypatch.setattr(summary, "bridge_provider", recording)
+    state = local_state.__wrapped__(tmp_path, monkeypatch)
+    app = runtime.app_for("cs", state)
+    assert app.state.reply_analysis_provider is not None
+    assert "/reply-analysis" in endpoints

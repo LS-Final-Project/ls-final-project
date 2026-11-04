@@ -397,3 +397,21 @@ def test_reply_text_cuts_an_outlook_header_block_and_drops_quote_only_replies():
         b"On Mon, Nov 3, 2026 at 10:00 AM LS C/S <cs@example.invalid> wrote:\r\n> Please send photos.\r\n"
     )
     assert reply_text(quote_only) == ("Re: x", None)
+
+
+def test_reply_text_cuts_folded_and_korean_gmail_quotes_and_drops_nul():
+    """접힌 'On … wrote:'·한국어 Gmail '… 님이 작성:' 인용을 자르고 NUL 문자는 뺀다."""
+    from backend.engine.mail_triage.extract import reply_text
+
+    folded = (
+        b"Subject: Re: x\r\nContent-Type: text/plain\r\n\r\nSerial is AB-1.\r\n\r\n"
+        b"On Mon, Nov 3, 2026 at 10:00 AM LS C/S <\r\ncs@example.invalid> wrote:\r\n> Please send photos.\r\n"
+    )
+    assert reply_text(folded) == ("Re: x", "Serial is AB-1.")
+    korean = (
+        "Subject: Re: x\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n사진 보냅니다.\r\n\r\n"
+        "2026년 11월 3일 (월) 오전 10:00, LS C/S <cs@example.invalid>님이 작성:\r\n> 사진을 보내 주세요.\r\n"
+    ).encode()
+    assert reply_text(korean) == ("Re: x", "사진 보냅니다.")
+    nul = b"Subject: Re: a\x00b\r\nContent-Type: text/plain\r\n\r\nok\x00 done\r\n"
+    assert reply_text(nul) == ("Re: ab", "ok done")

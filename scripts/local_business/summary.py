@@ -1,8 +1,8 @@
 """Local-only synchronous summary bridge; model keys never enter an API container.
 
-The same bridge also serves the improvement-request AI draft (KAN-115) and the ticket Korean
-translation on their own paths with their own prompt check and output schema; all share the
-driver's lock, limits and usage accounting.
+The same bridge also serves the improvement-request AI draft (KAN-115), the ticket Korean
+translation and the customer reply analysis (KAN-230) on their own paths with their own prompt
+check and output schema; all share the driver's lock, limits and usage accounting.
 
 Only the explicit CS driver serves this authenticated Docker-internal endpoint. Calls
 share its worker lock, job/call limits, reservations and fail-closed usage accounting.
@@ -27,6 +27,9 @@ from backend.engine.cs.improvement_drafting import ImprovementDraft, Improvement
 from backend.engine.cs.improvement_drafting import instruction as draft_instruction
 from backend.engine.cs.improvement_drafting import render_prompt as render_draft_prompt
 from backend.engine.cs.providers import GenerationKnobs, gemini_text_provider
+from backend.engine.cs.reply import ReplyInterpretation, ReplyInterpretationInput
+from backend.engine.cs.reply import instruction as reply_instruction
+from backend.engine.cs.reply import render_prompt as render_reply_prompt
 from backend.engine.cs.summary import INSTRUCTION, SummaryOutput, render_prompt
 from backend.engine.cs.translation import INSTRUCTION as TRANSLATION_INSTRUCTION
 from backend.engine.cs.translation import TranslationOutput
@@ -57,7 +60,8 @@ def unavailable():
 def bridge_provider(state: Path, endpoint: str = "/summary"):
     """Read the current driver capability per call; cached summaries need no driver.
 
-    endpoint is "/summary", "/improvement-draft" (KAN-115) or "/translation".
+    endpoint is "/summary", "/improvement-draft" (KAN-115), "/translation" or "/reply-analysis"
+    (KAN-230).
     """
 
     def provide(prompt):
@@ -143,6 +147,13 @@ def metered_translation_provider(permit, token, control, model):
     )
 
 
+def metered_reply_provider(permit, token, control, model):
+    """The customer reply analysis (KAN-230): its schema and the route's output limit."""
+    return metered_provider(
+        permit, token, control, model, response_schema=ReplyInterpretation, max_output_tokens=8192
+    )
+
+
 def checked_prompt(path, prompt):
     """Accept only the exact prompt the C/S route renders for that path; else ValueError."""
     if path == "/summary":
@@ -163,6 +174,12 @@ def checked_prompt(path, prompt):
             raise ValueError
         payload = ClassificationInput.model_validate_json(prompt[len(prefix) :])
         rendered = render_translation_prompt(payload)
+    elif path == "/reply-analysis":
+        prefix = reply_instruction() + "\n\n입력:\n"
+        if not prompt.startswith(prefix):
+            raise ValueError
+        reply = ReplyInterpretationInput.model_validate_json(prompt[len(prefix) :])
+        rendered = render_reply_prompt(reply)
     else:
         raise ValueError
     if rendered != prompt:
@@ -182,6 +199,7 @@ class SummaryBridge:
         factory=metered_provider,
         draft_factory=metered_draft_provider,
         translation_factory=metered_translation_provider,
+        reply_factory=metered_reply_provider,
     ):
         from scripts.local_business.runtime import local_only
 
@@ -222,6 +240,7 @@ class SummaryBridge:
                         "/summary": factory,
                         "/improvement-draft": draft_factory,
                         "/translation": translation_factory,
+                        "/reply-analysis": reply_factory,
                     }[self.path]
                     result = make(permit, token, control, model)(prompt)
                     usage = asdict(result.usage)
