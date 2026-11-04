@@ -30,6 +30,7 @@ it('접수도 표시라벨 대신 코드값과 명시한 사람 입력을 보낸
   renderAt('/', '/', <ProjectForm onCancel={() => {}} />);
   fireEvent.change(screen.getByLabelText('프로젝트명'), { target: { value: '검토' } });
   fireEvent.change(screen.getByLabelText('고객 코드'), { target: { value: 'HOST' } });
+  fireEvent.click(screen.getByText('검토 조건 미리 설정 (선택)'));
   fireEvent.change(screen.getByLabelText('공급 지역'), { target: { value: ' 한국 ' } });
   fireEvent.change(screen.getByLabelText('고객 제조사 목록'), { target: { value: ' 제조사 A\n제조사 B ' } });
   fireEvent.change(screen.getByLabelText('목록 밖 제조사 허용'), { target: { value: 'FORBIDDEN' } });

@@ -71,7 +71,7 @@ export function ContextReview({projectId,actorId,document,documents,busy=false,o
     {process.isError&&<ErrorState error={process.error}/>}
     {query.isError&&<ErrorState error={query.error} onRetry={()=>query.refetch()}/>}
     {query.isPending&&<Loading label="검토 대상 읽는 중"/>}
-    {!query.isPending&&!presentation.current&&<p className="rfp-context-warning" role="status">{query.isError?'검토 대상 조회 실패':data?.status==='STALE'?'원문 또는 요구가 바뀐 이전 결과':data?.status==='NOT_ANALYZED'||!data?.result?'아직 검토 대상을 정리하지 않았습니다':'프로젝트·원문·요구 판본 확인 필요'}. 현재 고객 요구는 미정리 요구에서 확인하세요. 다시 정리하기 전에는 대상 연결을 수정할 수 없습니다.</p>}
+    {!query.isPending&&!presentation.current&&<p className="rfp-context-warning" role="status">{query.isError?'검토 대상 조회 실패':data?.status==='STALE'?'원문 또는 요구가 바뀐 이전 결과':data?.status==='NOT_ANALYZED'||!data?.result?'아직 검토 대상을 정리하지 않았습니다':'프로젝트·원문·요구 판본 확인 필요'}. 아래 미정리 요구를 선택하면 요구별 검토를 시작할 수 있습니다. 설비·업무별로 보려면 검토 대상 정리를 실행하세요. 별도 AI 작업이며 비용이 발생합니다.</p>}
     <label>표시 범위<select aria-label="표시 범위" value={scope} onChange={e=>{setScope(e.target.value as typeof scope);setTargetKey(undefined);setSituation(undefined);setEdit(undefined);setTargetsOpen(true);setRequirementsOpen(true);onClearSelection?.();}}><option value="document">선택 문서</option><option value="project">프로젝트 전체 문서</option></select></label>
     {rowsError?<ErrorState error={rowsError} onRetry={scope==='project'?()=>projectRows.refetch():undefined}/>:loading?<Loading label="고객 요구 읽는 중"/>:<>
       <div className="rfp-context-review-summary" aria-label="고객 요구 검토 요약"><strong>확인 필요 {pendingCount}건</strong><span>근거 있음 {uniqueRows.length-pendingCount}건</span><small>미해결 질문·개발 확인 대기·재검토 표시가 있거나 충족 근거가 확인되지 않은 요구입니다.</small></div>

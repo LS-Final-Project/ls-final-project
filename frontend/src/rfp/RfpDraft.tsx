@@ -124,7 +124,7 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
   const canWrite = !!user && !!project.data && !project.isError && user.roles.some(role => ['sales', 'manager', 'dept_staff'].includes(role)) && [project.data.sales_user_id, project.data.responsible_user_id].includes(user.id);
   const [editing, setEditing] = useState<Editing>();
   const [note, setNote] = useState('');
-  const [review, setReview] = useState<Review>();
+  const [review, setReview] = useState<ReviewRow>();
   const [reviewInput, setReviewInput] = useState('');
   const [command, setCommand] = useState<Command>();
   const [accepted, setAccepted] = useState<Accepted>();
@@ -214,7 +214,7 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
       const result = await sendCommand(projectId, next, lifetime.current!.signal);
       if (!alive.current) return;
       if (next.kind === 'review') {
-        const saved = result as Review; setReview(saved); setReviewInput(String(saved.review_version));
+        const saved = result as Review; setReview({ ...saved, note: next.body.note ?? null, saved_by_name: null }); setReviewInput(String(saved.review_version));
         setMessage(`검토본 ${saved.review_version}판을 저장했습니다. 발송하거나 제안을 확정한 상태가 아닙니다.`);
       } else if (next.kind === 'rewrite') { setRewriteAccepted(result as RewriteAccepted); }
       else if (next.kind === 'regenerate') {
@@ -262,6 +262,13 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
   const canRegenerate = canWrite && !blocked && !expiredJob && !busy && !command && latest && !editing && !noRegenerate && !rewriteRunning && (!!data || noDraftYet);
   const editingVisible = data?.sections.some(part => (section === 'all' || section === part.section) && part.sentences.some(row => matches(row) && row.sentence_id === editing?.sentence.sentence_id));
   const exportRows = exports.data ?? [];
+  // A confirmed save remains selectable even if refreshing the history fails.
+  const availableReviews = [...(reviews.isError ? [] : reviews.data ?? [])];
+  if (review && !availableReviews.some(row => row.review_version === review.review_version)) availableReviews.push(review);
+  availableReviews.sort((a, b) => b.review_version - a.review_version);
+  const selectedReview = availableReviews.find(row => String(row.review_version) === reviewInput)
+    ?? (!reviewInput ? availableReviews[0] : undefined);
+  const exportBusy = job.isFetching || (!!job.data && ['QUEUED', 'RUNNING'].includes(job.data.status));
   const reviewColumns: KvColumn<ReviewRow>[] = [
     { key: 'review', header: '검토본', width: 46, className: 'c', cell: row => `${row.review_version}판` },
     { key: 'saved', header: '저장', width: 84, cell: row => [shortDateTime(row.saved_at), row.saved_by_name].filter(Boolean).join(', ') },
@@ -300,7 +307,11 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
       {' '}<b className="sep" aria-hidden="true">|</b>{' '}다음: {todo}
       {unresolved !== undefined && <>{' '}<b className="sep" aria-hidden="true">|</b>{' '}필수 요구 미해결 {unresolved}건</>}
     </> : '초안을 불러오면 다음 할 일을 표시합니다.'}</KvNext>
-    <p className="draft-context">보기 필터와 상관없이 전체 초안을 저장합니다. 대응 내용과 조건은 <Link to={`/tft/projects/${projectId}`}>RFP 검토</Link>에서 고칩니다. AI로 문장 다듬기는 호출 비용이 들고, 직접 고친 문장은 바꾸지 않습니다.</p>
+    <ol className="draft-workflow" aria-label="초안 작성 순서">
+      <li><b>1. 검토 결과 반영</b><span><Link to={`/tft/projects/${projectId}`}>RFP 검토</Link>에서 대응·질문을 기록한 뒤 초안을 다시 만듭니다. 모델 호출은 없습니다.</span></li>
+      <li><b>2. 문장 확인</b><span>본문과 근거를 읽고 고칩니다. AI 문장 다듬기는 선택 사항이며 비용이 듭니다. 직접 고친 문장은 유지됩니다.</span></li>
+      <li><b>3. 검토본 저장·내보내기</b><span>확인한 전체 초안을 검토본으로 저장하고, 저장한 검토본을 DOCX로 내보냅니다.</span></li>
+    </ol>
     {rewriteAccepted && <div className="draft-notice" aria-label="AI 문장 다듬기 작업">
       {rewriteJob.isPending && <Loading label="AI 다듬기 상태 확인 중" />}
       {rewriteJob.isError && <ErrorState error={rewriteJob.error} onRetry={() => rewriteJob.refetch()} />}
@@ -359,10 +370,10 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
     </div></div><aside className="draft-actions" aria-label="검토본과 내보내기">
     <KvBox title="검토본 저장 조건">
       <dl className="draft-checks">
-        <div><dt>필수 요구, 상태와 근거 또는 다음 행동</dt><dd className={unresolved ? 'draft-attention' : ''}>{unresolved === undefined ? '서버 확인' : `미해결 ${unresolved}`}</dd></div>
+        <div><dt>필수 요구, 상태와 근거 또는 다음 행동</dt><dd className={unresolved ? 'draft-attention' : ''}>{unresolved === undefined ? '서버 확인' : unresolved > 0 ? <Link to={`/tft/projects/${projectId}`}>미해결 {unresolved}건 검토</Link> : '미해결 0'}</dd></div>
         {project.data?.integration_responsibility?.required && project.data.integration_responsibility.holder === 'UNRESOLVED' && <div><dt>통합 책임</dt><dd className="draft-attention">미확보, <Link to={`/tft/projects/${projectId}/supplement`}>보완 화면에서 지정</Link></dd></div>}
-        <div><dt>근거 없는 문장</dt><dd className={data?.evidence_missing_count ? 'draft-attention' : ''}>{data ? [`${data.evidence_missing_count}문장`, sentenceList(missingNumbers)].filter(Boolean).join(', ') : '조회 전'}</dd></div>
-        <div><dt>재검토 필요 문장</dt><dd className={needsReview ? 'draft-attention' : ''}>{needsReview === undefined ? '조회 전' : [`${needsReview}문장`, sentenceList(rereviewNumbers)].filter(Boolean).join(', ')}</dd></div>
+        <div><dt>근거 없는 문장</dt><dd className={data?.evidence_missing_count ? 'draft-attention' : ''}>{data ? missingNumbers.length ? <button type="button" className="draft-more" onClick={() => { setSection('all'); setView('evidence'); }}>{sentenceList(missingNumbers)} 확인</button> : '0문장' : '조회 전'}</dd></div>
+        <div><dt>재검토 필요 문장</dt><dd className={needsReview ? 'draft-attention' : ''}>{needsReview === undefined ? '조회 전' : rereviewNumbers.length ? <button type="button" className="draft-more" onClick={() => { setSection('all'); setView('review'); }}>{sentenceList(rereviewNumbers)} 확인</button> : '0문장'}</dd></div>
         <div><dt>초안</dt><dd>{data ? `${data.version}판, ${shortDateTime(data.known_at)}` : '조회 전'}</dd></div>
         <div><dt>마지막 검토본</dt><dd>{reviewText}</dd></div>
       </dl>
@@ -374,17 +385,14 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
       <button className="kb primary" disabled={!writable || !data || !latest || !!editing} onClick={() => submit({ actorId: user.id, kind: 'review', key: crypto.randomUUID(), body: { version: data!.version, note: note || null } })}>검토본 저장</button>
       {review && <div className="draft-receipt"><KvField label="저장한 검토본">{review.review_version}판 (초안 {review.draft_version}판)</KvField><KvField label="저장 일시">{shortDateTime(review.saved_at)}</KvField><KvField label="출력 상태">{label(OUTPUT_LABEL, review.output_status)} / {label(JUDGEMENT_LABEL, review.judgement_status)}</KvField></div>}
     </KvBox>
-    <KvBox title="검토 이력" note={reviews.data ? `${reviews.data.length}건` : undefined}>
-      <KvGrid label="검토 이력" columns={reviewColumns} rows={reviews.data ?? []} rowKey={row => String(row.review_version)} fallback={historyFallback(reviews, '저장한 검토본이 없습니다.')} />
-      <form className="draft-version-form" onSubmit={event => { event.preventDefault(); setVersion(versionInput ? Number(versionInput) : undefined); }}>
-        <label className="draft-input">조회할 초안 판본 (비우면 최신)<input type="number" min="1" step="1" value={versionInput} onChange={event => setVersionInput(event.target.value)} /></label>
-        <button className="kb" disabled={busy || !!editing || !!command}>판본 조회</button>
-      </form>
-      {!latest && <p className="draft-help">지정 판본을 보고 있습니다. 편집과 검토본 저장은 최신 초안에서 합니다.</p>}
-    </KvBox>
     <KvBox title={exports.data ? `내보내기 ${exports.data.length}건` : '내보내기'} note="저장한 검토본만">
-      <label className="draft-input">내보낼 검토본 판본<input type="number" min="1" step="1" value={reviewInput} disabled={busy || !!command} onChange={event => setReviewInput(event.target.value)} /></label>
-      <div className="draft-buttons"><button className="kb primary" disabled={!writable || !Number.isSafeInteger(Number(reviewInput)) || Number(reviewInput) < 1 || !!editing || job.isFetching || (!!job.data && ['QUEUED', 'RUNNING'].includes(job.data.status))} onClick={() => submit({ actorId: user.id, kind: 'export', key: crypto.randomUUID(), body: { review_version: Number(reviewInput), format: 'DOCX' } })}>DOCX 내보내기</button>{' '}</div>
+      <label className="draft-input">내보낼 검토본<select value={selectedReview ? String(selectedReview.review_version) : ''} disabled={busy || !!command || !availableReviews.length || exportBusy} onChange={event => setReviewInput(event.target.value)}>
+        {!selectedReview && <option value="">{reviews.isPending ? '검토 이력 불러오는 중' : '검토본을 선택하세요'}</option>}
+        {availableReviews.map(row => <option key={row.review_version} value={row.review_version}>{row.review_version}판 · {shortDateTime(row.saved_at)} · {row.note || '메모 없음'}</option>)}
+      </select></label>
+      {selectedReview ? <p className="draft-help">초안 {selectedReview.draft_version}판을 저장한 검토본입니다. 이후 초안 수정은 이 파일에 포함되지 않습니다.</p> : !reviews.isPending && !reviews.isError && <p className="draft-help">위에서 검토본을 저장하면 내보낼 수 있습니다.</p>}
+      {reviews.isError && <p className="draft-help">검토 이력을 불러오지 못했습니다.{review && ' 방금 저장한 검토본은 내보낼 수 있습니다.'} <button type="button" className="draft-more" disabled={reviews.isFetching} onClick={() => reviews.refetch()}>검토 이력 다시 조회</button></p>}
+      <div className="draft-buttons"><button className="kb primary" disabled={!writable || !selectedReview || !!editing || exportBusy} onClick={() => selectedReview && submit({ actorId: user.id, kind: 'export', key: crypto.randomUUID(), body: { review_version: selectedReview.review_version, format: 'DOCX' } })}>DOCX 내보내기</button>{' '}</div>
       {accepted && <div className="draft-receipt">
         <KvField label="요청한 검토본">{exportReview}판</KvField>
         {job.isPending && <Loading label="내보내기 상태 확인 중" />}
@@ -394,6 +402,14 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
         <button className="kb" disabled={busy || blocked || job.isError || job.data?.status !== 'SUCCEEDED'} onClick={() => download(accepted.export_id, `rfp-${accepted.export_id}.docx`)}>DOCX 다운로드</button>
       </div>}
       <KvGrid label="내보내기" columns={exportColumns} rows={exportRows} rowKey={row => row.export_id} fallback={historyFallback(exports, '내보낸 파일이 없습니다.')} />
+    </KvBox>
+    <KvBox title="검토 이력" note={reviews.data ? `${reviews.data.length}건` : undefined}>
+      <KvGrid label="검토 이력" columns={reviewColumns} rows={reviews.data ?? []} rowKey={row => String(row.review_version)} fallback={historyFallback(reviews, '저장한 검토본이 없습니다.')} />
+      <form className="draft-version-form" onSubmit={event => { event.preventDefault(); setVersion(versionInput ? Number(versionInput) : undefined); }}>
+        <label className="draft-input">조회할 초안 판본 (비우면 최신)<input type="number" min="1" step="1" value={versionInput} onChange={event => setVersionInput(event.target.value)} /></label>
+        <button className="kb" disabled={busy || !!editing || !!command}>판본 조회</button>
+      </form>
+      {!latest && <p className="draft-help">지정 판본을 보고 있습니다. 편집과 검토본 저장은 최신 초안에서 합니다.</p>}
     </KvBox>
     </aside></KvSplit></div>
   </main>;

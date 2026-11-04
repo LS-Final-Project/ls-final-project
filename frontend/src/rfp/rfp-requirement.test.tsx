@@ -330,6 +330,8 @@ describe('회신', () => {
     fireEvent.change(screen.getByLabelText('받은 일시'), { target: { value: '2026-10-27T09:30' } });
     send();
     expect((await screen.findByRole('status')).textContent).toContain(text);
+    if (created_proposal) expect(screen.getByRole('link', { name: '회신으로 생긴 변경 제안 검토' }).getAttribute('href')).toBe(`/tft/projects/${PROJECT}/table/approvals`);
+    else expect(screen.getByRole('button', { name: '근거 확인 후 판정 변경 제안' })).toBeTruthy();
   });
 
   it('다시 읽어 이미 회신된 질문이면 폼을 닫는다', async () => {
@@ -407,7 +409,8 @@ describe('R&D 회신', () => {
     fireEvent.click(submit());
     await waitFor(() => expect(posts('/reply')).toHaveLength(1));
     expect(posts('/reply')[0].body).toMatchObject({ rnd_feasibility: 'FEASIBLE', earliest_available_on: null, schedule_fits: null });
-    expect((await screen.findByRole('status')).textContent).toBe('회신을 기록했습니다.');
+    expect((await screen.findByRole('status')).textContent).toContain('가능 여부와 일정 조건을 확인한 뒤 대응 방안을 검토하세요');
+    expect(screen.getByRole('link', { name: '개발 회신에 맞는 대응 방안 검토' }).getAttribute('href')).toBe(`/tft/projects/${PROJECT}/supplement`);
   });
 
   it('일정 조건부는 납기 부합까지 있어야 기록되고 시점을 함께 보낸다', async () => {
@@ -472,4 +475,32 @@ describe('변경 제안', () => {
     await waitFor(() => expect(posts('/proposals')).toHaveLength(1));
     await waitFor(() => expect(screen.queryByRole('button', { name: '제안 저장' })).toBeNull());
   });
+});
+
+
+it('내부 회신 기록 뒤 판정 변경 제안을 열되 자동 저장하지 않는다', async () => {
+  questions = [question('q1', { target: 'INTERNAL', target_dept: 'SCM', issue_type: 'TECH_ADVICE' })];
+  await open();
+  fireEvent.click(screen.getByRole('button', { name: '회신 기록' }));
+  fireEvent.change(screen.getByLabelText('회신 내용'), { target: { value: '자료 확인 필요' } });
+  fireEvent.change(screen.getByLabelText('받은 일시'), { target: { value: '2026-11-04T10:00' } });
+  fireEvent.click(screen.getByLabelText('회신 내용').closest('form')!.querySelector('button[type=submit]')!);
+  const next = await screen.findByRole('button', { name: '근거 확인 후 판정 변경 제안' });
+  expect(screen.getByRole('status').textContent).toContain('판정은 자동으로 바뀌지 않습니다');
+  expect(posts('/proposals')).toHaveLength(0);
+  fireEvent.click(next);
+  expect(screen.getByLabelText('제안 사유')).toBeTruthy();
+  expect(posts('/proposals')).toHaveLength(0);
+});
+
+it('다른 요구 질문의 회신으로 현재 요구의 변경 제안을 열지 않는다', async () => {
+  questions = [question('q1', { requirement_id: 'other-requirement', target: 'INTERNAL', target_dept: 'SCM', issue_type: 'TECH_ADVICE' })];
+  await open();
+  fireEvent.click(screen.getByRole('button', { name: '회신 기록' }));
+  fireEvent.change(screen.getByLabelText('회신 내용'), { target: { value: '자료 확인 필요' } });
+  fireEvent.change(screen.getByLabelText('받은 일시'), { target: { value: '2026-11-04T10:00' } });
+  fireEvent.click(screen.getByLabelText('회신 내용').closest('form')!.querySelector('button[type=submit]')!);
+  const next = await screen.findByRole('link', { name: '회신이 연결된 요구 검토' });
+  expect(next.getAttribute('href')).toBe(`/tft/projects/${PROJECT}/requirements/other-requirement`);
+  expect(screen.queryByRole('button', { name: '근거 확인 후 판정 변경 제안' })).toBeNull();
 });

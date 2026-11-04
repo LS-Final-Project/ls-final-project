@@ -2,16 +2,17 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import { ApiError } from '../api/client';
-import { createQuestionsBatch, listProjectCandidates, listQuestions, listRequirements, selectSupplementBatch, setRfpReviewDepartments, type Question } from '../api/rfp';
+import { createQuestionsBatch, listProjectCandidates, listQuestions, listRequirements, replyQuestion, selectSupplementBatch, setRfpReviewDepartments, type Question } from '../api/rfp';
 import { me } from '../api/platform';
 import { getProject } from '../api/tft';
 import { getSupplementOptions, getSupplementRequirement, type RequirementSummary } from '../api/rfp-supplement';
 import { MOCK_DETAIL } from '../mocks/rfp-table';
-import { GroupSummary, ProjectQuestions, RequestDialog, SelectionDialog } from './GroupActions';
+import { GroupSummary, ProjectQuestions, RepliesDialog, RequestDialog, SelectionDialog } from './GroupActions';
 import { batchProblems, draftQuestion, groupSummary, outboxText } from './group-actions';
 
-vi.mock('../api/rfp', async original => ({ ...await original<object>(), createQuestionsBatch: vi.fn(), listQuestions: vi.fn(), listRequirements: vi.fn(), listProjectCandidates: vi.fn(), selectSupplementBatch: vi.fn(), setRfpReviewDepartments: vi.fn() }));
+vi.mock('../api/rfp', async original => ({ ...await original<object>(), createQuestionsBatch: vi.fn(), listQuestions: vi.fn(), listRequirements: vi.fn(), replyQuestion: vi.fn(), listProjectCandidates: vi.fn(), selectSupplementBatch: vi.fn(), setRfpReviewDepartments: vi.fn() }));
 vi.mock('../api/tft', async original => ({ ...await original<object>(), getProject: vi.fn() }));
 vi.mock('../api/platform', async original => ({ ...await original<object>(), me: vi.fn() }));
 vi.mock('../api/rfp-supplement', async original => ({ ...await original<object>(), getSupplementRequirement: vi.fn(), getSupplementOptions: vi.fn() }));
@@ -38,7 +39,7 @@ beforeEach(() => {
   vi.mocked(getSupplementRequirement).mockImplementation(async requirementId => detail(Number(requirementId.slice(-12))));
 });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
-const wrap = (ui: React.ReactNode) => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{ui}</QueryClientProvider>);
+const wrap = (ui: React.ReactNode) => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter>{ui}</MemoryRouter></QueryClientProvider>);
 
 test('group summary counts situations and lists concrete actions in order', () => {
   const rows = [
@@ -218,4 +219,34 @@ test('project questions include unlinked and replied records without implying de
   expect((text as HTMLTextAreaElement).value).not.toContain('질문 2');
   expect(screen.getByText(/발송 여부는 앱에서 확인하지 않습니다/)).toBeTruthy();
   expect(createQuestionsBatch).not.toHaveBeenCalled();
+});
+
+
+test('empty suggested action list does not claim review completion', async () => {
+  wrap(<GroupSummary projectId="p" actorId="actor" name="GIS" rows={[row(1, { path: 'OWN_DEVELOPMENT' })]} onShowRows={vi.fn()} />);
+  expect(await screen.findByText('추가 요청 제안 없음')).toBeTruthy();
+  expect(screen.getByText(/검토 완료를 뜻하지 않습니다/)).toBeTruthy();
+  expect(screen.queryByText('남은 일 없음')).toBeNull();
+});
+
+test.each([
+  ['INTERNAL', 'TECH_ADVICE', false, '근거와 판정 검토', /회신 내용을 근거 자료와 대조/],
+  ['INTERNAL', 'RND_FEASIBILITY', false, '개발 회신과 대응 방안 검토', /개발 가능성과 일정/],
+  ['CUSTOMER', 'CONDITION_MISSING', true, '변경 제안 검토', /승인 전에는 요구 판정이 바뀌지 않습니다/],
+  ['CUSTOMER', 'CONDITION_MISSING', false, '회신과 요구 검토', /변경 제안은 생기지 않았습니다/],
+] as const)('reply to %s %s shows the actual next step (proposal %s)', async (target, issue_type, proposed, action, message) => {
+  const q = question(1, { target, issue_type });
+  vi.mocked(listQuestions).mockResolvedValue({ data: { items: [q] } });
+  vi.mocked(replyQuestion).mockResolvedValue({ data: { ...q, status: 'REPLIED', created_proposal: proposed ? { proposal_id: 'proposal-1' } : null } } as never);
+  wrap(<RepliesDialog projectId="p" actorId="actor" rows={[row(1)]} groupName="GIS" onClose={vi.fn()} onOutbox={vi.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: '회신 기록' }));
+  fireEvent.change(screen.getByLabelText('회신 내용'), { target: { value: '시험 자료를 확인했습니다.' } });
+  fireEvent.change(screen.getByLabelText('받은 일시'), { target: { value: '2026-11-04T10:00' } });
+  if (issue_type === 'RND_FEASIBILITY') fireEvent.change(screen.getByLabelText('개발 가능성'), { target: { value: 'FEASIBLE' } });
+  fireEvent.click(screen.getAllByRole('button', { name: '회신 기록' }).at(-1)!);
+  expect(await screen.findByText(message)).toBeTruthy();
+  const link = screen.getByRole('link', { name: action });
+  expect(link.getAttribute('href')).toBe(proposed ? '/tft/projects/p/table/approvals' : `/tft/projects/p/requirements/${id(1)}`);
+  expect(replyQuestion).toHaveBeenCalledTimes(1);
+  expect(selectSupplementBatch).not.toHaveBeenCalled();
 });

@@ -20,6 +20,7 @@ const draft = { project_id: P, version: 7, data_origin: 'synthetic', derivation_
 const accepted = { job_id: JOB, export_id: EXPORT, status_url: `/api/v1/platform/jobs/${JOB}`, status: 'QUEUED' };
 const job = (status = 'SUCCEEDED') => ({ job_id: JOB, project_id: P, owner: 'tft', kind: 'rfp.export', status, version: 1, last_event_sequence: 1 });
 const saved = { project_id: P, draft_version: 7, review_version: 3, output_status: 'REVIEW_DRAFT', judgement_status: 'CONDITION_CHECK', saved_by: USER, saved_at: '2026-10-31T01:01:00Z' };
+const reviewRow = { ...saved, note: '기술 검토 반영', saved_by_name: null };
 const data = (value: unknown, status = 200) => jsonResponse(status, { data: value });
 type Handler = (url: string, init?: RequestInit) => Response | Promise<Response>;
 function serve(handler?: Handler, roles = ['sales'], owner = USER, responsible = false) {
@@ -32,6 +33,11 @@ function serve(handler?: Handler, roles = ['sales'], owner = USER, responsible =
   });
   vi.stubGlobal('fetch', fetcher);
   return fetcher;
+}
+// Export scenarios must select a review returned by the history API.
+function serveWithReview(handler: Handler) {
+  return serve((url, init) => url === `${BASE}/review-versions` && init?.method !== 'POST'
+    ? data({ items: [reviewRow] }) : handler(url, init));
 }
 // 셸 전체의 접근성 계산이 비동기 조회 완료를 밀지 않도록 현재 업무 화면에서 같은 버튼을 찾는다.
 const disabled = (name: string) => (within(screen.getByRole('main')).getByRole('button', { name }) as HTMLButtonElement).disabled;
@@ -125,7 +131,7 @@ it('완료 작업의 export_id에 연결된 DOCX만 내려받는다', async () =
   const objectUrl = vi.fn(() => 'blob:test');
   vi.stubGlobal('URL', class extends URL { static createObjectURL = objectUrl; static revokeObjectURL = vi.fn(); });
   vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-  const f = serve((url, init) => {
+  const f = serveWithReview((url, init) => {
     if (url.endsWith('/exports') && init?.method === 'POST') return data(accepted, 202);
     if (url.includes('/platform/jobs/')) return data(job());
     if (url.endsWith('/file')) return new Response('DOCX bytes', { headers: { 'Content-Type': DOCX_MIME, 'Content-Disposition': 'attachment; filename="export.docx"' } });
@@ -133,7 +139,7 @@ it('완료 작업의 export_id에 연결된 DOCX만 내려받는다', async () =
   });
   renderApp(`/tft/projects/${P}/draft`);
   await waitFor(() => expect(disabled('검토본 저장')).toBe(false));
-  fireEvent.change(screen.getByLabelText('내보낼 검토본 판본'), { target: { value: '3' } });
+  fireEvent.change(screen.getByLabelText('내보낼 검토본'), { target: { value: '3' } });
   fireEvent.click(screen.getByRole('button', { name: 'DOCX 내보내기' }));
   await waitFor(() => expect(disabled('DOCX 다운로드')).toBe(false));
   fireEvent.click(screen.getByRole('button', { name: 'DOCX 다운로드' }));
@@ -143,10 +149,10 @@ it('완료 작업의 export_id에 연결된 DOCX만 내려받는다', async () =
 });
 
 it.each(['FAILED', 'CANCELLED', 'PARTIAL'])('%s 작업은 다운로드를 열지 않는다', async status => {
-  serve((url, init) => url.endsWith('/exports') && init?.method === 'POST' ? data(accepted, 202) : url.includes('/platform/jobs/') ? data(job(status)) : data(draft));
+  serveWithReview((url, init) => url.endsWith('/exports') && init?.method === 'POST' ? data(accepted, 202) : url.includes('/platform/jobs/') ? data(job(status)) : data(draft));
   renderApp(`/tft/projects/${P}/draft`);
   await waitFor(() => expect(disabled('검토본 저장')).toBe(false));
-  fireEvent.change(screen.getByLabelText('내보낼 검토본 판본'), { target: { value: '3' } });
+  fireEvent.change(screen.getByLabelText('내보낼 검토본'), { target: { value: '3' } });
   fireEvent.click(screen.getByRole('button', { name: 'DOCX 내보내기' }));
   await screen.findByText(/파일을 다운로드할 수 없습니다/);
   expect(disabled('DOCX 다운로드')).toBe(true);
@@ -154,14 +160,14 @@ it.each(['FAILED', 'CANCELLED', 'PARTIAL'])('%s 작업은 다운로드를 열지
 
 it('페이지를 떠나면 진행 중 작업 조회 signal을 취소한다', async () => {
   let signal: AbortSignal | undefined;
-  serve((url, init) => {
+  serveWithReview((url, init) => {
     if (url.endsWith('/exports') && init?.method === 'POST') return data(accepted, 202);
     if (url.includes('/platform/jobs/')) { signal = init?.signal as AbortSignal; return new Promise(() => {}); }
     return data(draft);
   });
   renderApp(`/tft/projects/${P}/draft`);
   await waitFor(() => expect(disabled('검토본 저장')).toBe(false));
-  fireEvent.change(screen.getByLabelText('내보낼 검토본 판본'), { target: { value: '3' } });
+  fireEvent.change(screen.getByLabelText('내보낼 검토본'), { target: { value: '3' } });
   fireEvent.click(screen.getByRole('button', { name: 'DOCX 내보내기' }));
   await waitFor(() => expect(signal).toBeDefined());
   fireEvent.click(within(screen.getByRole('main')).getByRole('link', { name: '프로젝트' }));
@@ -169,10 +175,10 @@ it('페이지를 떠나면 진행 중 작업 조회 signal을 취소한다', asy
 });
 
 it('작업 조회 세션 만료를 표시하고 쓰기·다운로드를 차단한다', async () => {
-  serve((url, init) => url.endsWith('/exports') && init?.method === 'POST' ? data(accepted, 202) : url.includes('/platform/jobs/') ? jsonResponse(401, errorBody('SESSION_EXPIRED', '만료')) : data(draft));
+  serveWithReview((url, init) => url.endsWith('/exports') && init?.method === 'POST' ? data(accepted, 202) : url.includes('/platform/jobs/') ? jsonResponse(401, errorBody('SESSION_EXPIRED', '만료')) : data(draft));
   renderApp(`/tft/projects/${P}/draft`);
   await waitFor(() => expect(disabled('검토본 저장')).toBe(false));
-  fireEvent.change(screen.getByLabelText('내보낼 검토본 판본'), { target: { value: '3' } });
+  fireEvent.change(screen.getByLabelText('내보낼 검토본'), { target: { value: '3' } });
   fireEvent.click(screen.getByRole('button', { name: 'DOCX 내보내기' }));
   await screen.findByText('세션이 없거나 만료됐습니다.');
   expect(disabled('검토본 저장')).toBe(true); expect(disabled('DOCX 다운로드')).toBe(true);
@@ -180,10 +186,10 @@ it('작업 조회 세션 만료를 표시하고 쓰기·다운로드를 차단�
 
 it('대기 작업을 polling해서 실제 완료 응답 후에만 다운로드를 연다', async () => {
   let reads = 0;
-  serve((url, init) => url.endsWith('/exports') && init?.method === 'POST' ? data(accepted, 202) : url.includes('/platform/jobs/') ? data(job(++reads === 1 ? 'QUEUED' : 'SUCCEEDED')) : data(draft));
+  serveWithReview((url, init) => url.endsWith('/exports') && init?.method === 'POST' ? data(accepted, 202) : url.includes('/platform/jobs/') ? data(job(++reads === 1 ? 'QUEUED' : 'SUCCEEDED')) : data(draft));
   renderApp(`/tft/projects/${P}/draft`);
   await waitFor(() => expect(disabled('검토본 저장')).toBe(false));
-  fireEvent.change(screen.getByLabelText('내보낼 검토본 판본'), { target: { value: '3' } });
+  fireEvent.change(screen.getByLabelText('내보낼 검토본'), { target: { value: '3' } });
   fireEvent.click(screen.getByRole('button', { name: 'DOCX 내보내기' }));
   await screen.findByText('대기 중'); expect(disabled('DOCX 다운로드')).toBe(true);
   await waitFor(() => expect(disabled('DOCX 다운로드')).toBe(false), { timeout: 4000 });
@@ -192,7 +198,7 @@ it('대기 작업을 polling해서 실제 완료 응답 후에만 다운로드�
 it('같은 화면의 프로젝트를 바꿔도 이전 polling을 취소하고 export 선택을 초기화한다', async () => {
   let signal: AbortSignal | undefined;
   const OTHER = '66666666-6666-4666-8666-666666666666';
-  serve((url, init) => {
+  serveWithReview((url, init) => {
     if (url.endsWith('/exports') && init?.method === 'POST') return data(accepted, 202);
     if (url.includes('/platform/jobs/')) { signal = init?.signal as AbortSignal; return new Promise(() => {}); }
     if (url.includes(OTHER)) return jsonResponse(404, errorBody('TFT_PROJECT_NOT_FOUND', '없음'));
@@ -204,7 +210,7 @@ it('같은 화면의 프로젝트를 바꿔도 이전 polling을 취소하고 ex
   }
   renderAt(`/tft/projects/${P}/draft`, '/tft/projects/:projectId/draft', <Switch />);
   await waitFor(() => expect(disabled('검토본 저장')).toBe(false));
-  fireEvent.change(screen.getByLabelText('내보낼 검토본 판본'), { target: { value: '3' } });
+  fireEvent.change(screen.getByLabelText('내보낼 검토본'), { target: { value: '3' } });
   fireEvent.click(screen.getByRole('button', { name: 'DOCX 내보내기' }));
   await waitFor(() => expect(signal).toBeDefined());
   fireEvent.click(screen.getByRole('button', { name: '프로젝트 전환' }));
@@ -421,8 +427,8 @@ it('다음 할 일과 저장 조건은 근거 없는·재검토 문장 번호를
   const next = document.querySelector('.kv-next')!.textContent!;
   expect(next).toContain('다음: S2·S4 근거 추가, S1·S3·S4·S5·S6 외 1문장 재검토');
   const checks = screen.getByRole('complementary', { name: '검토본과 내보내기' });
-  expect(within(checks).getByText('근거 없는 문장').nextElementSibling?.textContent).toBe('2문장, S2·S4');
-  expect(within(checks).getByText('재검토 필요 문장').nextElementSibling?.textContent).toBe('6문장, S1·S3·S4·S5·S6 외 1문장');
+  expect(within(checks).getByText('근거 없는 문장').nextElementSibling?.textContent).toBe('S2·S4 확인');
+  expect(within(checks).getByText('재검토 필요 문장').nextElementSibling?.textContent).toBe('S1·S3·S4·S5·S6 외 1문장 확인');
 });
 
 it('보기 필터 이름은 문장 기준으로 적는다', async () => {
@@ -559,7 +565,7 @@ it('모델 작성은 비용 안내 후 명시 접수하고 완료 뒤 최신 초
   });
   renderApp(`/tft/projects/${P}/draft`);
   await waitFor(() => expect(disabled('AI로 문장 다듬기')).toBe(false));
-  expect(screen.getByText(/호출 비용이 들고, 직접 고친 문장은 바꾸지 않습니다/)).toBeTruthy();
+  expect(screen.getByText(/AI 문장 다듬기는 선택 사항이며 비용이 듭니다. 직접 고친 문장은 유지됩니다/)).toBeTruthy();
   expect(f.mock.calls.some(([url]) => String(url).endsWith('/rewrite'))).toBe(false);
   fireEvent.click(screen.getByRole('button', { name: 'AI로 문장 다듬기' }));
   await screen.findByText('모델이 작성한 검토 문장');
@@ -707,4 +713,48 @@ it('문서 구역 이동은 저장된 순서와 문장을 유지하며 편집 �
   fireEvent.click(within(nav).getByRole('button', { name: '전체 문서' }));
   expect((screen.getByLabelText('수정 사유') as HTMLTextAreaElement).value).toBe('담당자 검토');
   expect(f.mock.calls.some(([, init]) => init?.method === 'PATCH' || init?.method === 'POST')).toBe(false);
+});
+
+
+it('내보낼 검토본을 날짜와 메모로 고르고 선택한 판본만 요청한다', async () => {
+  const old = { ...reviewRow, review_version: 1, note: '발주처 회신 반영', saved_at: '2026-10-29T01:01:00Z' };
+  const f = serve((url, init) => url === `${BASE}/review-versions` ? data({ items: [reviewRow, old] })
+    : url === `${BASE}/exports` && init?.method === 'POST' ? data(accepted, 202)
+    : url.includes('/platform/jobs/') ? data(job()) : data(draft));
+  renderApp(`/tft/projects/${P}/draft`);
+  const picker = await screen.findByRole('combobox', { name: '내보낼 검토본' });
+  await waitFor(() => expect((picker as HTMLSelectElement).value).toBe('3'));
+  expect(within(picker).getByRole('option', { name: /1판.*2026-10-29.*발주처 회신 반영/ })).toBeTruthy();
+  fireEvent.change(picker, { target: { value: '1' } });
+  fireEvent.click(screen.getByRole('button', { name: 'DOCX 내보내기' }));
+  await waitFor(() => expect(f.mock.calls.some(([url, init]) => url === `${BASE}/exports` && init?.method === 'POST')).toBe(true));
+  const write = f.mock.calls.find(([url, init]) => url === `${BASE}/exports` && init?.method === 'POST');
+  expect(JSON.parse(write![1]!.body as string).review_version).toBe(1);
+});
+
+it('검토 이력 조회 실패 때 임의 판본은 내보낼 수 없고 방금 저장한 검토본은 유지한다', async () => {
+  const f = serve((url, init) => url === `${BASE}/review-versions`
+    ? init?.method === 'POST' ? data(saved, 201) : jsonResponse(503, errorBody('DEPENDENCY_UNAVAILABLE', '조회 실패'))
+    : url === `${BASE}/exports` && init?.method === 'POST' ? data(accepted, 202)
+    : url.includes('/platform/jobs/') ? data(job()) : data(draft));
+  renderApp(`/tft/projects/${P}/draft`);
+  await waitFor(() => expect(disabled('검토본 저장')).toBe(false));
+  expect(disabled('DOCX 내보내기')).toBe(true);
+  fireEvent.change(screen.getByLabelText('검토 메모'), { target: { value: '이번 회신 확인' } });
+  fireEvent.click(screen.getByRole('button', { name: '검토본 저장' }));
+  await screen.findByText(/검토본 3판을 저장했습니다/);
+  expect((screen.getByLabelText('내보낼 검토본') as HTMLSelectElement).value).toBe('3');
+  expect(screen.getByRole('option', { name: /3판.*이번 회신 확인/ })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'DOCX 내보내기' }));
+  await waitFor(() => expect(f.mock.calls.some(([url, init]) => url === `${BASE}/exports` && init?.method === 'POST')).toBe(true));
+});
+
+it('초안 작성 안내와 재검토 문장 바로보기를 제공하며 자동 모델 호출은 하지 않는다', async () => {
+  const f = serve();
+  renderApp(`/tft/projects/${P}/draft`);
+  await screen.findByText(draft.disclaimer);
+  expect(screen.getByRole('list', { name: '초안 작성 순서' }).textContent).toContain('모델 호출은 없습니다');
+  fireEvent.click(screen.getByRole('button', { name: 'S1 확인' }));
+  expect((screen.getByLabelText('보기') as HTMLSelectElement).value).toBe('review');
+  expect(f.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
 });

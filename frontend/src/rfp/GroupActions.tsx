@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { ApiError, getApiMode } from '../api/client';
 import { me } from '../api/platform';
 import { createQuestionsBatch, listProjectCandidates, listQuestions, selectSupplementBatch, setRfpReviewDepartments, unsupportedRoute, type Question, type QuestionCreate, type RequirementDetail, type SupplementBatchResult } from '../api/rfp';
@@ -33,7 +34,7 @@ const recipientOf = (q: Question) => q.target === 'CUSTOMER' ? '발주처' : lab
 
 // 기록 뒤에 요구 목록·질문·카드가 새 상태를 읽게 한다.
 function refreshAfterWrite(client: QueryClient) {
-  for (const key of ['rfp-requirements', 'rfp-review-project-requirements', 'rfp-questions', 'rfp-guided-questions', 'rfp-development-questions', 'rfp-response-detail', 'rfp-response']) void client.invalidateQueries({ queryKey: [key] });
+  for (const key of ['projects', 'rfp-proposals', 'rfp-requirement', 'rfp-requirements', 'rfp-review-project-requirements', 'rfp-questions', 'rfp-guided-questions', 'rfp-development-questions', 'rfp-response-detail', 'rfp-response']) void client.invalidateQueries({ queryKey: [key] });
 }
 async function sameActor(actorId: string) {
   const actor = await me();
@@ -76,7 +77,7 @@ export function GroupSummary({ projectId, actorId, name, rows, busy = false, col
   const close = () => setDialog(undefined);
   // 대화상자는 접힘 상태와 따로 둔다(details가 다시 그려져도 입력이 남는다).
   return <><details key={String(collapsed)} className="rfp-group-summary" open={!collapsed}>
-    <summary><b>이 묶음에서 할 일</b><span>{questions.isPending ? '확인 중' : summary.actions.length ? `${summary.actions.length}가지` : '남은 일 없음'}</span></summary>
+    <summary><b>이 묶음에서 할 일</b><span>{questions.isPending ? '확인 중' : summary.actions.length ? `${summary.actions.length}가지` : questions.isError ? '질문 조회 실패' : '추가 요청 제안 없음'}</span></summary>
     {questions.isError && <p role="alert" className="rfp-group-note">작성한 질문을 읽지 못했습니다. <button type="button" className="kb" onClick={() => questions.refetch()}>다시 읽기</button></p>}
     {summary.actions.length > 0 ? <ol className="rfp-group-actions">{summary.actions.map(action => {
       const entry = open(action);
@@ -84,7 +85,7 @@ export function GroupSummary({ projectId, actorId, name, rows, busy = false, col
         <button type="button" className="rfp-group-action" disabled={entry.write && !canWrite} aria-haspopup={entry.write ? 'dialog' : undefined} onClick={entry.act}><b>{action.title} {count(action)}건</b><span>{entry.label}</span></button>
         {entry.secondary.label && <button type="button" className="kb" disabled={entry.secondary.write && !canWrite} onClick={entry.secondary.act}>{entry.secondary.label}</button>}
       </li>;
-    })}</ol> : !questions.isPending && <p className="rfp-group-note">남은 할 일이 없습니다. 기록된 대응은 요구별로 확인하세요.</p>}
+    })}</ol> : questions.isSuccess && <p className="rfp-group-note">추가로 제안할 요청이 없습니다. 검토 완료를 뜻하지 않습니다. 기록된 회신과 대응 근거는 요구별로 확인하세요.</p>}
     <details className="rfp-group-status"><summary>묶음 현황</summary><dl>
       {[
         ['근거 있음', `${summary.counts.evidence}건`], ['남은 조건', `${summary.counts.conditional}건`], ['사양 차이', `${summary.counts.gap}건`],
@@ -286,6 +287,7 @@ export function RepliesDialog({ projectId, actorId, rows, groupName, onClose, on
   const { questions, open } = useOpenQuestions(projectId, actorId, rows, projectWide);
   const [picked, setPicked] = useState<string>();
   const [notice, setNotice] = useState('');
+  const [savedReply, setSavedReply] = useState<{ question: Question; proposed: boolean }>();
   const [replied, setReplied] = useState(false);
   const close = () => { if (replied) refreshAfterWrite(client); onClose(); };
   const shown = projectWide && questions.isSuccess ? questions.data.data.items : open;
@@ -295,14 +297,27 @@ export function RepliesDialog({ projectId, actorId, rows, groupName, onClose, on
     { key: 'no', header: '요구', width: 100, cell: q => { const row = rowOf(q); return row ? requirementNo(row.code) : q.requirement_id ? '요구 연결됨' : '프로젝트 질문'; } },
     { key: 'to', header: '받는 곳', width: 110, cell: recipientOf },
     { key: 'text', header: '질문', cell: q => q.question_text.length > 90 ? <details><summary>{shortText(q.question_text, 90)}</summary><p>{q.question_text}</p></details> : q.question_text },
-    { key: 'act', header: '', width: 86, className: 'c', cell: q => q.status === 'OPEN' ? <button type="button" className="kb" aria-pressed={picked === q.question_id} onClick={() => { setNotice(''); setPicked(q.question_id); }}>회신 기록</button> : <span>{q.status==='REPLIED'?'회신 기록됨':q.status==='DRAFT'?'초안':'종료'}</span> },
+    { key: 'act', header: '', width: 86, className: 'c', cell: q => q.status === 'OPEN' ? <button type="button" className="kb" aria-pressed={picked === q.question_id} onClick={() => { setNotice(''); setSavedReply(undefined); setPicked(q.question_id); }}>회신 기록</button> : <span>{q.status==='REPLIED'?'회신 기록됨':q.status==='DRAFT'?'초안':'종료'}{q.status === 'REPLIED' && q.requirement_id && <> · <Link to={`/tft/projects/${projectId}/requirements/${q.requirement_id}`} onClick={close}>요구 검토</Link></>}</span> },
   ];
   return <KvModal title={`작성한 질문 · ${groupName}`} onClose={close} className="rfp-dialog" keepOnBackdrop>
     {questions.isPending ? <Loading label="질문 기록 읽는 중" /> : questions.isError ? <ErrorState error={questions.error} onRetry={() => questions.refetch()} /> : <>
-      <p className="rfp-dialog-lead">받은 회신을 질문별로 기록합니다. 고객 회신이 요구값을 채우면 변경 제안이 생기고, 승인 전에는 요구가 바뀌지 않습니다.</p>
+      <p className="rfp-dialog-lead">받은 회신을 기록한 뒤 연결된 요구의 근거와 대응 방안을 검토하세요. 회신 저장만으로 요구 충족이나 공급이 확정되지 않습니다.</p>
       <KvGrid label="작성한 질문" columns={columns} rows={shown} rowKey={q => q.question_id} selectedKey={picked} fallback="작성한 질문이 없습니다." scroll />
-      {question && <ReplyForm key={question.question_id} question={question} onCancel={() => setPicked(undefined)} onReload={() => questions.refetch()} onSaved={proposed => { setPicked(undefined); setNotice(proposed ? '회신을 기록했습니다. 변경 제안이 생겼으니 승인 여부를 정하세요.' : '회신을 기록했습니다.'); setReplied(true); void client.invalidateQueries({ queryKey: ['rfp-questions'] }); }} />}
+      {question && <ReplyForm key={question.question_id} question={question} onCancel={() => setPicked(undefined)} onReload={() => questions.refetch()} onSaved={proposed => { setPicked(undefined); setNotice('회신을 기록했습니다.'); setSavedReply({ question, proposed }); setReplied(true); refreshAfterWrite(client); }} />}
       {notice && <p role="status">{notice}</p>}
+      {savedReply && <div className="rfp-group-note">
+        <p>{savedReply.proposed
+          ? '변경 제안이 생겼습니다. 회신과 근거를 확인하고 승인 여부를 정하세요. 승인 전에는 요구 판정이 바뀌지 않습니다.'
+          : savedReply.question.issue_type === 'RND_FEASIBILITY'
+            ? '개발 회신을 기록했습니다. 연결된 요구에서 개발 가능성과 일정 조건을 확인하고 대응 방안을 검토하세요. 판단 불가인 회신은 확인 대기로 남습니다.'
+            : savedReply.question.target === 'INTERNAL'
+              ? '회신 내용을 근거 자료와 대조한 뒤, 연결된 요구에서 판단을 바꿀지 검토하세요. 내부 회신은 자동으로 변경 제안을 만들지 않습니다.'
+              : '변경 제안은 생기지 않았습니다. 연결된 요구에서 회신과 남은 확인 사항을 검토하세요.'}</p>
+        {savedReply.proposed ? <Link className="kb primary" to={`/tft/projects/${projectId}/table/approvals`} onClick={close}>변경 제안 검토</Link>
+          : savedReply.question.requirement_id ? <Link className="kb primary" to={`/tft/projects/${projectId}/requirements/${savedReply.question.requirement_id}`} onClick={close}>
+            {savedReply.question.issue_type === 'RND_FEASIBILITY' ? '개발 회신과 대응 방안 검토' : savedReply.question.target === 'INTERNAL' ? '근거와 판정 검토' : '회신과 요구 검토'}
+          </Link> : <p>연결된 요구가 없는 프로젝트 질문입니다. 관련 요구를 찾아 회신 내용을 대조하세요.</p>}
+      </div>}
     </>}
     <div className="rfp-dialog-actions"><button type="button" className="kb" onClick={() => { if (replied) refreshAfterWrite(client); onOutbox(); }}>보낼 내용 보기</button><button type="button" className="kb primary" onClick={close}>닫기</button></div>
   </KvModal>;

@@ -46,18 +46,21 @@ export function ProjectForm({ onCancel }: { onCancel: () => void }) {
     onError: error => { if (settled(error)) nextKey(); },
   });
   const ready = body.name !== '' && body.company_code !== '' && validConstraints(constraints);
-  return <Wrap><KvBox title="프로젝트 접수" note="담당은 접수한 사람, 책임자는 관리자가 지정. 문서는 접수 뒤 문서 올리기로">
+  return <Wrap><KvBox title="프로젝트 접수" note="프로젝트를 접수한 뒤 RFP 문서를 올려 분석을 시작합니다.">
     <form onSubmit={event => { event.preventDefault(); if (ready) create.mutate(); }}>
       <div className="kv-field"><label htmlFor="project-name" className="req">프로젝트명</label><input id="project-name" type="text" value={name} onChange={event => setName(event.target.value)} /></div>
       <div className="kv-field"><label htmlFor="project-client">고객명</label><input id="project-client" type="text" value={clientName} onChange={event => setClientName(event.target.value)} /></div>
       <div className="kv-field"><label htmlFor="project-code" className="req">고객 코드</label><input id="project-code" type="text" maxLength={40} value={code} onChange={event => setCode(event.target.value)} /></div>
+      <Select id="project-origin" label="자료 구분" value={origin} onChange={setOrigin} options={DATA_ORIGIN_LABEL} />
+      <details><summary>검토 조건 미리 설정 (선택)</summary>
+      <p>알고 있는 고객 목표와 검토 조건을 입력하세요. 검토 부서·공급 조건은 접수 후에도 설정할 수 있습니다. 검토 부서를 지정하면 해당 부서가 프로젝트를 조회할 수 있습니다.</p>
       <KvField label="제출 목적">초기 제안</KvField>
       <div className="kv-field"><label htmlFor="project-goal">고객 목표</label><textarea id="project-goal" rows={2} value={goal} onChange={event => setGoal(event.target.value)} /></div>
       <div className="kv-field"><span>검토 부서</span><div className="ro" style={{ gap: 12, flexWrap: 'wrap' }}>
         {Object.entries(DEPARTMENT_LABEL).map(([department, name]) => <label key={department}><input type="checkbox" style={{ display: 'inline-block', width: 'auto', minHeight: 0, margin: '0 4px 0 0' }} checked={departments.includes(department)} onChange={event => setDepartments(event.target.checked ? [...departments, department] : departments.filter(d => d !== department))} />{name}</label>)}
       </div></div>
       <ConstraintFields value={constraints} onChange={setConstraints} disabled={create.isPending} />
-      <Select id="project-origin" label="자료 구분" value={origin} onChange={setOrigin} options={DATA_ORIGIN_LABEL} />
+      </details>
       <div className="kv-actions">
         <button type="button" className="kb" onClick={onCancel}>취소</button>
         <button type="submit" className="kb primary" disabled={!ready || create.isPending}>접수</button>

@@ -36,7 +36,7 @@
 .rfp-draft .draft-disclaimer{margin:6px 0 0;font-size:11px;line-height:1.6}
 .rfp-draft .draft-disclaimer span{color:var(--erp-muted)}
 .rfp-draft .draft-input{display:block;margin:0 0 6px;font-size:12px}
-.rfp-draft .draft-input textarea,.rfp-draft .draft-input input{display:block;box-sizing:border-box;width:100%;margin-top:4px;padding:5px 7px;border:1px solid var(--erp-line);border-radius:2px;font:inherit;min-height:26px}
+.rfp-draft .draft-input textarea,.rfp-draft .draft-input input,.rfp-draft .draft-input select{display:block;box-sizing:border-box;width:100%;margin-top:4px;padding:5px 7px;border:1px solid var(--erp-line);border-radius:2px;font:inherit;min-height:26px}
 .rfp-draft .draft-version-form{margin-top:6px;display:flex;align-items:end;gap:6px}
 .rfp-draft .draft-version-form label{flex:1;margin:0}
 .rfp-draft .draft-receipt{margin-top:8px;font-size:12px;overflow-wrap:anywhere}
@@ -70,3 +70,10 @@
 .ls-root .rfp-draft .draft-actions .kv-grid td{white-space:normal;overflow-wrap:anywhere;line-height:1.45;height:auto!important;padding:5px 6px!important;font-size:12px;vertical-align:top}
 .rfp-draft .draft-actions .kv-grid td .draft-more{text-align:left}
 .ls-root .rfp-draft .kv-next b.sep{font-weight:400;margin:0 6px}
+
+.rfp-draft .draft-workflow{margin:8px 14px;padding:0;list-style:none;border:1px solid var(--erp-border-soft);background:var(--erp-head)}
+.rfp-draft .draft-workflow li{display:grid;grid-template-columns:160px minmax(0,1fr);gap:12px;padding:7px 10px;font-size:12px;line-height:1.6;word-break:keep-all;overflow-wrap:anywhere}
+.rfp-draft .draft-workflow li+li{border-top:1px solid var(--erp-border-soft)}
+.ls-root .rfp-draft .draft-workflow b{font-size:inherit;font-weight:600}
+.rfp-draft .draft-buttons{margin-top:8px}
+@media(max-width:800px){.rfp-draft .draft-workflow li{grid-template-columns:1fr;gap:2px}}

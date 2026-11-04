@@ -439,6 +439,9 @@ describe('프로젝트 접수', () => {
     expect(submit.disabled).toBe(true);
     fireEvent.change(screen.getByLabelText('프로젝트명'), { target: { value: ' 합성 ' } });
     fireEvent.change(screen.getByLabelText('고객 코드'), { target: { value: 'HOST' } });
+    const options = screen.getByText('검토 조건 미리 설정 (선택)').closest('details')!;
+    expect(options.open).toBe(false);
+    fireEvent.click(screen.getByText('검토 조건 미리 설정 (선택)'));
     fireEvent.click(screen.getByLabelText('구매팀'));
     fireEvent.click(submit);
     await waitFor(() => expect(posts('/tft/projects')).toHaveLength(1));

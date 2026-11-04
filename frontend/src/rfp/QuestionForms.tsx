@@ -131,7 +131,7 @@ export function ReplyForm({ question, onCancel, onSaved, onReload }: {
     onError: error => { if (settled(error)) nextKey(); },
   });
   const ready = body.reply_text !== '' && received !== '' && (!rnd || (feasibility !== '' && (!scheduled || fits !== '')));
-  const note = question.target === 'INTERNAL' ? '내부 회신은 변경 제안을 만들지 않습니다' : '미확인 항목이 줄면 변경 제안이 생깁니다. 승인 전에는 요구가 바뀌지 않음';
+  const note = rnd ? '개발 가능성과 일정을 기록합니다. 저장 뒤 연결된 요구에서 대응 방안을 검토하세요.' : question.target === 'INTERNAL' ? '회신을 저장한 뒤 근거를 확인하고 판정 변경 여부를 검토하세요. 판정은 자동으로 바뀌지 않습니다.' : '변경 제안이 생기면 근거를 확인하고 승인 여부를 정하세요. 승인 전에는 요구가 바뀌지 않습니다.';
   return <div style={{ margin: '8px 14px 0' }}><KvBox title="회신 기록" note={note}>
     <form onSubmit={event => { event.preventDefault(); if (ready) reply.mutate(); }}>
       <KvField label="질문">{question.question_text}</KvField>
@@ -157,8 +157,8 @@ export function ReplyForm({ question, onCancel, onSaved, onReload }: {
             </select></div>
         </>}
       </>}
-      <div className="kv-field"><label htmlFor="reply-source">참조</label>
-        <input id="reply-source" type="text" maxLength={512} value={source} onChange={event => setSource(event.target.value)} /></div>
+      <div className="kv-field"><label htmlFor="reply-source">회신 출처</label>
+        <input id="reply-source" type="text" placeholder="메일 제목·받은 자료 이름·회의 기록 등" maxLength={512} value={source} onChange={event => setSource(event.target.value)} /></div>
       <div className="kv-actions">
         <button type="button" className="kb" onClick={onCancel}>취소</button>
         <button type="submit" className="kb primary" disabled={!ready || reply.isPending}>회신 기록</button>

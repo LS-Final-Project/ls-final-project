@@ -128,6 +128,7 @@ function Requirement({ projectId, id }: { projectId: string; id: string }) {
   const client = useQueryClient();
   const [panel, setPanel] = useState<Panel>();
   const [notice, setNotice] = useState<string>();
+  const [replyOutcome, setReplyOutcome] = useState<{ question: Question; proposed: boolean }>();
   const [nextPath, setNextPath] = useState<string>();
   const navigate = useNavigate();
   const requirement = useQuery({ queryKey: ['rfp-requirement', mode, id], queryFn: () => getRequirement(id), enabled: access.ready });
@@ -177,7 +178,7 @@ function Requirement({ projectId, id }: { projectId: string; id: string }) {
     { key: 'reply', header: '회신', width: 120, cell: q => q.reply_received_at ? formatDateTime(q.reply_received_at) : q.internal_assumption ? `가정 ${q.internal_assumption.value}` : '' },
     { key: 'action', header: '처리', width: 76, className: 'c', cell: q => {
       if (q.status === 'DRAFT') return <button className="kb sm" disabled={confirm.isPending} title="초안을 확인해 보낸 질문으로 바꿉니다" onClick={() => confirm.mutate(q)}>질문 확인</button>;
-      if (q.status === 'OPEN') return <button className="kb sm" onClick={() => setPanel({ kind: 'reply', id: q.question_id })}>회신 기록</button>;
+      if (q.status === 'OPEN') return <button className="kb sm" onClick={() => { setReplyOutcome(undefined); setNotice(undefined); setPanel({ kind: 'reply', id: q.question_id }); }}>회신 기록</button>;
       return '';
     } },
   ];
@@ -213,6 +214,14 @@ function Requirement({ projectId, id }: { projectId: string; id: string }) {
       ['편집 흔적', data.origin.edit_trace_support ? '확인 가능' : '확인 불가'],
     ]} />
     {notice && <p role="status" style={{ margin: '6px 14px 0' }}>{notice}</p>}
+    {replyOutcome && <div className="kv-actions" style={{ margin: '6px 14px' }}>
+      {replyOutcome.proposed ? <Link className="kb primary" to={`${toProject}/table/approvals`}>회신으로 생긴 변경 제안 검토</Link>
+        : replyOutcome.question.requirement_id === id ? <>
+          <button type="button" className="kb primary" onClick={propose}>근거 확인 후 판정 변경 제안</button>
+          {replyOutcome.question.issue_type === 'RND_FEASIBILITY' && <Link className="kb" to={`${toProject}/supplement`}>개발 회신에 맞는 대응 방안 검토</Link>}
+        </> : replyOutcome.question.requirement_id ? <Link className="kb primary" to={`${toProject}/requirements/${replyOutcome.question.requirement_id}`}>회신이 연결된 요구 검토</Link>
+          : <span>연결된 요구가 없는 질문입니다. 관련 요구를 찾아 회신 내용을 대조하세요.</span>}
+    </div>}
     {panel?.kind === 'propose' && <ProposalForm
       projectId={projectId}
       requirement={data}
@@ -228,7 +237,8 @@ function Requirement({ projectId, id }: { projectId: string; id: string }) {
       onReload={() => questions.refetch()}
       onSaved={proposed => {
         setPanel(undefined);
-        setNotice(replying.target === 'INTERNAL' ? '회신을 기록했습니다.' : proposed ? '회신을 기록했습니다. 변경 제안이 생겼고 승인 전에는 요구가 바뀌지 않습니다.' : '회신을 기록했습니다. 줄어든 미확인 항목이 없어 변경 제안은 생기지 않았습니다.');
+        setReplyOutcome({ question: replying, proposed });
+        setNotice(replying.target === 'INTERNAL' ? replying.issue_type === 'RND_FEASIBILITY' ? '개발 회신을 기록했습니다. 가능 여부와 일정 조건을 확인한 뒤 대응 방안을 검토하세요. 요구 충족 판정은 자동으로 바뀌지 않습니다.' : '회신을 기록했습니다. 회신과 근거 자료를 대조한 뒤 판정 변경 여부를 검토하세요. 판정은 자동으로 바뀌지 않습니다.' : proposed ? '회신을 기록했습니다. 변경 제안이 생겼고 승인 전에는 요구가 바뀌지 않습니다.' : '회신을 기록했습니다. 줄어든 미확인 항목이 없어 변경 제안은 생기지 않았습니다.');
         reload();
       }}
     />}
