@@ -632,6 +632,26 @@ def test_heading_tags_merge_split_groups_and_link_by_source_tag():
     assert after.value_conflicts == []
 
 
+def test_safety_validation_drops_heading_groups_so_saving_reapplies_consolidation():
+    # 저장 직전 validate_context는 근거 문장의 태그만 보므로 제목 태그 묶음을 지운다(40444 P26-0002, 2026-11-05).
+    # context_repository.save_generated는 검사 뒤 consolidate를 다시 적용한다. 같은 순서를 여기서 재현한다.
+    rows = [
+        kr("a", "제7조.2", "건식 변압기", "정격 용량", "630", "kVA"),
+        kr("b", "OCR-DOCX-0001.18", "TR-01", "정격 용량", "630", "kVA"),
+        kr("e", "제6조.2", "중전압 개폐반", "정격 최고 전압", "12", "kV"),
+    ]
+    result = ContextResult(outcome="PARTIAL", groups=[], assignments=[assignment(k) for k in "abe"])
+    first = graph.consolidate(result, rows, HEADINGS)
+    checked = graph.validate_context(first, rows)
+    assert not [g for g in checked.groups if g.tag]
+    saved = graph.consolidate(checked, rows, HEADINGS)
+    assert {g.tag for g in saved.groups if g.tag} == {"TR-01", "MV-SWG-01"}
+    assert [set(d.requirement_ids) for d in saved.duplicates] == [{"a", "b"}]
+    # 저장된 결과를 사람이 그대로 다시 보내도 같은 결과여야 한다(context_routes의 human 비교).
+    again = graph.consolidate(graph.validate_context(saved, rows), rows, HEADINGS)
+    assert again == saved
+
+
 def test_numeric_value_difference_is_a_conflict_not_a_duplicate():
     rows = [
         kr("a", "제7조.2", "건식 변압기", "정격 용량", "630", "kVA"),
