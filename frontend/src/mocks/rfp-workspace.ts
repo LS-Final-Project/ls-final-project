@@ -43,9 +43,12 @@ const DRAWING: [string, string, string, string][] = [
   ['OCR-DOCX-4.4', '공통', '공급 범위 경계', '11 kV 케이블 발주처 시공(공급 제외), 버스덕트 공급 범위 포함'],
 ];
 
+// 설비 계열(KAN-231 bucket): 태그 앞머리로 정한다. 맥락 묶음(group)은 없으므로 화면은 계열 이름(MV·TR·LV·공통)으로 묶는다(보드와 같다).
+const bucketOf = (equipment: string): RequirementSummary['bucket'] => equipment.startsWith('MV-') ? 'MV' : equipment.startsWith('TR-') ? 'TR' : equipment.startsWith('LV-') ? 'LV' : 'COMMON';
+
 export const MOCK_WORKSPACE_REQUIREMENTS: RequirementSummary[] = ROWS.map(([code, equipment, attribute, value, verdict], index): RequirementSummary => ({
   requirement_id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
-  code, version: 1, equipment, attribute, attribute_key: null, value_text: value, task: null,
+  code, version: 1, equipment, bucket: bucketOf(equipment), attribute, attribute_key: null, value_text: value, task: null,
   status: verdict === 'MET' ? 'EVIDENCE_FOUND' : verdict === 'CONFIRM' || verdict === 'DEVIATION' ? 'CONDITIONAL' : 'INSUFFICIENT_EVIDENCE',
   necessity: 'MANDATORY', provenance_kind: 'ai_draft', needs_rereview: false, needs_review: false, open_questions: 0,
   path: null, rnd_check: 'NOT_REQUIRED', is_designated_item: false, bid_verdict: verdict,
@@ -53,7 +56,7 @@ export const MOCK_WORKSPACE_REQUIREMENTS: RequirementSummary[] = ROWS.map(([code
   decision: { needed: verdict !== 'MET', decided: false, reviewed: false, excluded: false, manually_added: false, change_reviewed: false, drawing_check: false },
 })).concat(DRAWING.map(([code, equipment, attribute, value], index): RequirementSummary => ({
   requirement_id: `00000000-0000-4000-8000-${String(ROWS.length + index + 1).padStart(12, '0')}`,
-  code, version: 1, equipment, attribute, attribute_key: null, value_text: value, task: null, status: 'EVIDENCE_FOUND' as const,
+  code, version: 1, equipment, bucket: bucketOf(equipment), attribute, attribute_key: null, value_text: value, task: null, status: 'EVIDENCE_FOUND' as const,
   necessity: 'MANDATORY' as const, provenance_kind: 'ai_draft' as const, needs_rereview: false, needs_review: false, open_questions: 0,
   path: null, rnd_check: 'NOT_REQUIRED' as const, is_designated_item: false, bid_verdict: 'MET' as const, own_value: null,
   decision: { needed: true, decided: false, reviewed: false, excluded: false, manually_added: false, change_reviewed: false, drawing_check: true },

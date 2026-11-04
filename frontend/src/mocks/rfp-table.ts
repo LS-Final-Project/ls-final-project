@@ -5,7 +5,7 @@ const summary = (
   n: number, attribute: string, value_text: string,
   status: 'EVIDENCE_FOUND' | 'CONDITIONAL' | 'SPEC_GAP' | 'INSUFFICIENT_EVIDENCE',
 ) => ({
-  requirement_id: `44444444-4444-4444-8444-44444444444${n}`, code: `R-0${n}`, equipment: '합성 변압기', task: null,
+  requirement_id: `44444444-4444-4444-8444-44444444444${n}`, code: `R-0${n}`, equipment: '합성 변압기', bucket: 'TR' as const, task: null,
   attribute, value_text, necessity: 'MANDATORY' as const, status, path: null, open_questions: 0,
   needs_rereview: false, needs_review: false, is_designated_item: false, rnd_check: 'NOT_REQUIRED' as const, version: 1,
 });
@@ -20,6 +20,7 @@ export const MOCK_REQUIREMENTS = [
 export const MOCK_DETAIL = {
   ...base,
   requirement_id: REQUIREMENT_ID,
+  bucket: 'TR' as const,
   code: 'R-01',
   needs_rereview: false,
   needs_review: false,

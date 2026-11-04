@@ -19,7 +19,7 @@ vi.mock('../api/rfp-supplement', async original => ({ ...await original<object>(
 
 const id = (n: number) => `44444444-4444-4444-8444-${String(n).padStart(12, '0')}`;
 const row = (n: number, over: Partial<RequirementSummary> = {}): RequirementSummary => ({
-  requirement_id: id(n), code: `abcd1234:1.3.2:${n}`, equipment: 'GIS', task: null, attribute: '정격 전류', attribute_key: null, value_text: `${n}00 A`,
+  requirement_id: id(n), code: `abcd1234:1.3.2:${n}`, equipment: 'GIS', bucket: 'MV', task: null, attribute: '정격 전류', attribute_key: null, value_text: `${n}00 A`,
   necessity: 'MANDATORY', status: 'INSUFFICIENT_EVIDENCE', path: null, open_questions: 0, needs_rereview: false, needs_review: false,
   is_designated_item: false, rnd_check: 'NOT_REQUIRED', version: 1, provenance_kind: 'ai_draft', ...over,
 });
