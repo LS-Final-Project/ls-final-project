@@ -47,7 +47,7 @@ test('작성 중 요청은 C/S 담당자에게 검토만 열고 나머지는 이
   save();await waitFor(()=>expect(saved).toHaveBeenCalledTimes(1));
   const [url,init]=writes()[0];expect(url).toBe(`/api/v1/cs/improvement-requests/${ID}/review`);expect(init.method).toBe('POST');
   expect(JSON.parse(init.body as string)).toEqual({version:1});expect(init.headers).toMatchObject({'X-CSRF-Token':'synthetic-csrf'});
-  const status=screen.getByRole('status');expect(status.textContent).toMatch(/판본 2/);expect(status.textContent).not.toMatch(/승인|적용했/);expect(status.textContent).toMatch(/고객 장비 적용을 뜻하지 않습니다/);
+  const status=screen.getByRole('status');expect(status.textContent).toMatch(/기록을 저장했습니다/);expect(status.textContent).not.toMatch(/판본/);expect(status.textContent).not.toMatch(/승인|적용했/);expect(status.textContent).toMatch(/고객 장비 적용을 뜻하지 않습니다/);
 });
 
 test('검토 중 바꾼 제안 부서만 보내고 고장 요청은 부서를 비우지 못한다',async()=>{
@@ -82,7 +82,7 @@ test('받는 부서 담당자는 받은 상태에서 바로 회신한다(수신 
 });
 
 test.each([
-  [{roles:['dept_staff'],dept:'TS_LV'},/현재 회차에 내 부서가/],
+  [{roles:['dept_staff'],dept:'TS_LV'},/받는 부서에 내 부서가 없습니다/],
   [{roles:['manager'],managed_departments:['QA_CLAIM']},/C\/S 부서 관리자만/],
 ] as [Identity,RegExp][])('권한 밖 역할 %j는 실행 버튼 없이 이유만 본다',async(identity,reason)=>{
   const {writes}=setup(detail(d=>sent(d,dept('QA_CLAIM','SENT'))),identity);
@@ -209,13 +209,13 @@ test('모의 응답에서는 세션 조회와 쓰기를 하지 않는다',()=>{
   expect(screen.getByText('모의 응답에서는 저장하지 않습니다.')).toBeTruthy();expect(screen.queryByRole('button',{name:'검토 완료 기록'})).toBeNull();expect(fetch).not.toHaveBeenCalled();
 });
 
-test('재요청·재발 신호는 판정 이름을 쉬운 말로 보이고 새 회차를 열지 않는다',async()=>{
+test('재요청·재발 신호는 판정 이름을 쉬운 말로 보이고 자동으로 다시 보내지 않는다',async()=>{
   const data=detail(d=>sent(d,dept('QA_CLAIM','SENT')));
   const {fetch}=setup(data,{roles:['cs_agent']});
   fetch.mockImplementation(async url=>String(url).endsWith('/me')?meResponse({roles:['cs_agent']}):jsonResponse(200,{data:{request_id:ID,as_of:'2026-02-24T00:00:00Z',phase:'BEFORE_ACTION',decision:'REQUEST_AGAIN',reason_code:'NEW_RECORDS_3',baseline:{last_sent_at:'2025-11-16T00:00:00Z',round:1,action_dates:[]},counts:{new_since_sent:3,threshold:3,candidate_index:1,recurrence:0,pre_action_unit:0,application_unknown:0},records:[{ticket_id:'t-1',case_id:'c-1',known_at:'2026-01-09T00:00:00Z',customer_id:null,class:'NEW_SINCE_SENT',reason_code:null,basis:null,action_dept:null}],update_notice_customers:[],next_action:'OPEN_ROUND_REQUEST_AGAIN'}}));
   fireEvent.click(await screen.findByRole('button',{name:'신호 조회'}));
   await screen.findByText(/재요청 후보 · 직전 전달 뒤 새 해결 기록 3건 이상/);
-  expect(screen.getByText('3/3 (후보 1번)')).toBeTruthy();expect(screen.getByText('직전 전달 뒤 새 기록')).toBeTruthy();expect(screen.getByText(/이 화면에서는 새 회차를 열지 않습니다/)).toBeTruthy();
+  expect(screen.getByText('3/3 (후보 1번)')).toBeTruthy();expect(screen.getByText('직전 전달 뒤 새 기록')).toBeTruthy();expect(screen.getByText(/이 화면에서 자동으로 다시 보내지 않습니다/)).toBeTruthy();
   expect(document.body.textContent).not.toMatch(/REQUEST_AGAIN|NEW_RECORDS_3|NEW_SINCE_SENT/);
   expect((fetch.mock.calls as unknown as [string][]).some(([url])=>url===`/api/v1/cs/improvement-requests/${ID}/followup-signals`)).toBe(true);
 });
@@ -262,4 +262,17 @@ test('지금 할 수 있는 첫 동작을 상위 화면에 알리고, 그 실행
   const action=onPrimary.mock.calls.map(([a])=>a).filter(Boolean).at(-1);
   act(()=>action.run());
   expect(await screen.findByRole('form',{name:'검토 완료 기록 입력'})).toBeTruthy();
+});
+
+test('조치 기록은 채택 회신 사유·요청의 제품·고장·오늘 날짜로 미리 채우고 조치 근거는 비워 둔다',async()=>{
+  const data=detail(d=>{sent(d,dept('QA_CLAIM','ADOPTED'));
+    d.replies=[{...d.replies[0],id:'rp-1',dept_code:'QA_CLAIM',round:1,reply_type:'ADOPTED',reason:'개스킷 재질을 바꾸겠습니다.'}] as typeof d.replies;});
+  setup(data,{roles:['dept_staff'],dept:'QA_CLAIM'});
+  fireEvent.click(await screen.findByRole('button',{name:'개선 조치 기록'}));
+  expect((screen.getByLabelText('조치 내용') as HTMLTextAreaElement).value).toBe('개스킷 재질을 바꾸겠습니다.');
+  const r=data.data.request;
+  expect((screen.getByLabelText('적용 대상 설명') as HTMLTextAreaElement).value).toBe(`${r.product_code}${r.fault_id?` · ${r.fault_id}`:''}`);
+  expect((screen.getByLabelText('실제 적용일') as HTMLInputElement).value).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  expect((screen.getByLabelText('조치 근거') as HTMLTextAreaElement).value).toBe('');
+  expect(saveButton().disabled).toBe(true);
 });

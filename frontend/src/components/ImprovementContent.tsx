@@ -71,6 +71,8 @@ export default function ImprovementContent({ request: r, title, tags, locked, on
     && (!draft || Date.parse(ai.data.data.latest_attempt.created_at) > Date.parse(draft.created_at));
   const roles = Array.isArray(identity.data?.data?.roles) ? identity.data!.data.roles as string[] : [];
   const completed = r.status === 'COMPLETED';
+  // 부서 담당자 등 C/S 담당자가 아닌 사람은 C/S가 보낸 요청서를 읽기만 한다. 쓰는 단추(내용 수정·AI 초안 작성)를 두지 않는다.
+  const reader = identity.isSuccess && !roles.includes('cs_agent');
   const why = !live ? '모의 응답에서는 AI 초안을 만들지 않습니다'
     : off ? 'AI 초안 기능이 이 배포에서 꺼져 있습니다'
       : completed ? '완료된 요청입니다'
@@ -147,11 +149,11 @@ export default function ImprovementContent({ request: r, title, tags, locked, on
     try {
       const saved = await updateImprovement(r.id, body, current.signal);
       if (current.signal.aborted) return;
-      if (!review) { setNote({ kind: 'ok', text: `AI 초안으로 내용을 바꿨습니다(판본 ${saved.data.request.version}).` }); onSaved(saved); return; }
+      if (!review) { setNote({ kind: 'ok', text: 'AI 초안으로 내용을 바꿨습니다.' }); onSaved(saved); return; }
       try {
         const reviewed = await reviewImprovement(r.id, { version: saved.data.request.version }, current.signal);
         if (current.signal.aborted) return;
-        setNote({ kind: 'ok', text: `AI 초안으로 내용을 저장하고 검토 완료를 기록했습니다(판본 ${reviewed.data.request.version}). 다음은 부서 전달입니다.` });
+        setNote({ kind: 'ok', text: 'AI 초안으로 내용을 저장하고 검토 완료를 기록했습니다. 다음은 부서 전달입니다.' });
         onSaved(reviewed);
       } catch (error) {
         if (current.signal.aborted) return;
@@ -197,7 +199,7 @@ export default function ImprovementContent({ request: r, title, tags, locked, on
       const result = await updateImprovement(r.id, changes, current.signal);
       if (current.signal.aborted) return;
       setEditing(null);
-      setNote({ kind: 'ok', text: `내용을 저장했습니다(판본 ${result.data.request.version}).${r.status === 'DRAFT' ? ' 확인이 끝나면 아래 "검토 완료"를 누르세요.' : ''}` });
+      setNote({ kind: 'ok', text: `내용을 저장했습니다.${r.status === 'DRAFT' ? ' 확인이 끝나면 아래 "검토 완료"를 누르세요.' : ''}` });
       onSaved(result);
     } catch (error) {
       if (current.signal.aborted) return;
@@ -257,10 +259,10 @@ export default function ImprovementContent({ request: r, title, tags, locked, on
   return <div className="pane ir-content">
     <div className="ph">개선 요청 작성
       <div className="r">
-        {!showAi && !editing && <button className="kb3 sm" disabled={!editable} title={completed ? '완료된 요청은 고칠 수 없습니다' : locked ? '다른 입력이 열려 있습니다' : '요청 내용을 이 자리에서 고칩니다. 저장하면 새 판본이 됩니다'} onClick={() => openEditor(false)}>내용 수정</button>}
-        <button className="kb3 sm" disabled={!!why || busy || applying || editing !== null} title={why ?? `근거 문의를 읽고 요청 내용 초안을 씁니다(모델 호출 비용). 근거가 같으면 이미 만든 초안을 다시 보여 줍니다.${draft ? ` 마지막 초안 ${formatStamp(draft.created_at)}` : ''}`} onClick={() => void run()}>
+        {!reader && !showAi && !editing && <button className="kb3 sm" disabled={!editable} title={completed ? '완료된 요청은 고칠 수 없습니다' : locked ? '다른 입력이 열려 있습니다' : '요청 내용을 이 자리에서 고칩니다'} onClick={() => openEditor(false)}>내용 수정</button>}
+        {!reader && <button className="kb3 sm" disabled={!!why || busy || applying || editing !== null} title={why ?? `근거 문의를 읽고 요청 내용 초안을 씁니다(모델 호출 비용). 근거가 같으면 이미 만든 초안을 다시 보여 줍니다.${draft ? ` 마지막 초안 ${formatStamp(draft.created_at)}` : ''}`} onClick={() => void run()}>
           {phase === 'running' ? '✦ 작성 중…' : phase === 'checking' ? '✦ 결과 확인 중…' : '✦ AI 초안 작성'}
-        </button>
+        </button>}
       </div>
     </div>
     <div className="pb">
@@ -284,9 +286,9 @@ export default function ImprovementContent({ request: r, title, tags, locked, on
           {row('제안 부서', ruleOnly ? <div className="fact-box empty">-</div> : deptChips(r.proposed_depts))}
         </div>}
         {!editing && next && <div className="row2 ai-apply"><span className="btns2">{next}</span></div>}
-        {!editing && (ruleOnly || !draft) && !busy && !off && <div className="meta">{ruleOnly ? '아직 요청 내용이 없습니다. ' : ''}위의 "✦ AI 초안 작성"을 누르면 근거 문의를 읽고 내용을 씁니다.</div>}
+        {!reader && !editing && (ruleOnly || !draft) && !busy && !off && <div className="meta">{ruleOnly ? '아직 요청 내용이 없습니다. ' : ''}위의 "✦ AI 초안 작성"을 누르면 근거 문의를 읽고 내용을 씁니다.</div>}
       </> : <>
-        <div className="ai-head"><span className="ai">✦ AI 초안</span><span className="meta">{formatStamp(draft.created_at)} · 판본 {draft.request_version} 기준</span></div>
+        <div className="ai-head"><span className="ai">✦ AI 초안</span><span className="meta">{formatStamp(draft.created_at)}</span></div>
         {draft.stale && <div className="stale">이 초안을 만든 뒤 근거가 바뀌었습니다. "✦ AI 초안 작성"으로 새로 만드세요.</div>}
         {editor || <><h2 className="problem">{draft.problem_statement}</h2>
         <div className="facts">

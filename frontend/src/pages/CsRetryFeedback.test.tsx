@@ -1,6 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, screen } from '@testing-library/react';
-import ImprovementVersions from '../components/ImprovementVersions';
 import TicketUnits from '../components/TicketUnits';
 import CsAdmin from './CsAdmin';
 import CsImprovements from './CsImprovements';
@@ -8,7 +7,6 @@ import { setApiMode } from '../api/client';
 import { errorBody, jsonResponse, renderAt } from '../test/render';
 import examples from '../mocks/generated/cs.json';
 const cases=[
- {name:'판본',element:<ImprovementVersions requestId="test"/>,path:'/',pattern:'/',open:'작성 판본 이력',refresh:'새로고침',loaded:'저장된 판본이 없습니다.',body:()=>({data:{items:[]}})},
  {name:'장비',element:<TicketUnits ticketId="test"/>,path:'/',pattern:'/',open:'장비 정보 조회',refresh:'장비 정보 새로고침',loaded:'확정 장비가 없어 이전 문의를 표시하지 않습니다.',body:(url:string)=>({data:url.endsWith('/units')?{items:[]}:{status:'NO_CONFIRMED_UNIT',unit:null,items:[]}})},
  {name:'업무 통계',element:<CsAdmin/>,path:'/cs/admin',pattern:'/cs/admin',open:null,refresh:'조회',loaded:'SLA 기준 처리 현황',body:()=>examples.find(x=>x.path==='/api/v1/cs/stats/overview')!.body},
  {name:'개선 목록',element:<CsImprovements/>,path:'/cs/improvements',pattern:'/cs/improvements',open:null,refresh:'최신 요청 조회',loaded:'조회 가능한 개선요청이 없습니다.',body:()=>({data:{items:[]}})},
