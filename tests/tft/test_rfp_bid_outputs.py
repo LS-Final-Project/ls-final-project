@@ -132,3 +132,25 @@ def test_an_xlsx_retry_after_the_file_was_stored_reuses_that_file(tmp_path):
         asyncio.run(draft_exports.process(conn, job, lambda event: None, store))
     update = next(c for c in conn.execute.await_args_list if "UPDATE tft.exports" in c.args[0])
     assert update.args[1][2] == hashlib.sha256(first).hexdigest()
+
+
+def test_customer_columns_hide_internal_codes():
+    """40444 흐름 점검: 표에 OCR-DOCX-0001.7, 판본 앞 8자, 근거 ID, 영문 조건 이름이 그대로 나갔다."""
+    assert out.clause_label("OCR-DOCX-0001.7") == "본문 이미지 1"
+    assert out.clause_label("OCR-PDF-P3.1") == "PDF 3쪽"
+    assert out.clause_label("제7조.2") == "제7조.2"
+    assert out.requirement_label("ada13520:OCR-DOCX-0001.3:1") == "본문 이미지 1-1"
+    assert out.requirement_label("ada13520:제7조.2:2") == "제7조.2-2"
+    assert (
+        out.reason_text(
+            "원문 제2조.1 임피던스 요구 6 %, 자사 6 %(근거 DS-TRF-DRY-630 2.2): 값은 충족하나 조건이 달라 "
+            "확인 필요. 조건 차이: reference temperature 요구 75 °C, 후보 120 °C."
+        )
+        == "요구 6 %, 자사 6 %: 값은 맞지만 조건이 다릅니다. 기준온도 차이: 요구 75 °C, 자사 120 °C."
+    )
+    assert (
+        out.reason_text(
+            "이미지 전사 원문 확인 필요. 원문 OCR-DOCX-0001.7 정격전압 요구 11 kV, 자사 25.8 kV(근거 X 2.1): 값 다름."
+        )
+        == "요구 11 kV, 자사 25.8 kV. 값이 다릅니다."
+    )

@@ -281,4 +281,13 @@ uv run --frozen --python 3.12 python -m scripts.local_business set-concurrency \
 
 값을 낮춰도 이미 실행 중인 작업이나 호출을 취소하지 않는다. 기존 실행이 끝나 슬롯이 비면 새 요청부터 낮은 상한을 적용한다. 한 문서 내부의 병렬 분석은 최대 6개이며, 여러 문서가 공통 AI 슬롯을 나눠 쓴다. 분당 요청 수 제한이나 작업별 공평한 슬롯 배분을 보장하는 기능은 아니다. 같은 프로젝트의 중복 처리 금지와 정규 worker의 lease·권한 규칙은 유지한다.
 
+### 새 RFP를 시연 관리자(local-4)에게 맡기기
+
+manager는 `identity.manager_projects`에 등록된 프로젝트만 본다. 이 등록은 API가 아니라 서버 밖 등록 스크립트로만 한다([권한 계약](../contracts/platform/permissions.md)). 로컬에서 새로 만든 RFP를 local-4가 책임자 지정·확인하려면 프로젝트 번호로 한 번 등록한다.
+
+```bash
+uv run --frozen --python 3.12 python -m scripts.local_business manage-project \
+  --namespace "$NS" --project P26-0002
+```
+
 새 작업은 활성화 시각 이후의 정상 접수만 선택한다. SDK 호출 전 SQLite 트랜잭션에서 공통 슬롯을 예약하고 응답을 정산한 뒤 반환한다. 정상 진행 중인 다른 작업의 예약은 오류로 취급하지 않는다. UNKNOWN/worker 실패를 발견하면 새 접수·호출을 막고 다른 진행 중 호출은 정산하도록 기다린다. 각 worker의 기존 총수명은 유지하며, 명시적인 `disable-real`은 실행 중 worker도 종료하므로 미정산이 남을 수 있다. 프로세스 중단·lease 상실 후 자동 재처리나 비용 삭제는 하지 않는다.

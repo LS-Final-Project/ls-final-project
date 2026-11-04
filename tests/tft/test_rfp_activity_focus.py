@@ -40,3 +40,26 @@ def test_worker_passes_focus_that_platform_accepts():
 def test_worker_refuses_bad_focus(bad):
     with pytest.raises(ValueError, match="TFT_WORKER_BAD_EVENT"):
         event_payload({"step": "extract", "focus": bad})
+
+
+def test_section_label_uses_korean_head_text_when_title_is_empty():
+    from backend.api.tft.worker_processor import section_label
+    from backend.engine.rfp.requirements import ClauseInput, ExtractionInput
+
+    item = ExtractionInput(
+        section_no="제7조",
+        section_title=None,
+        clauses=[
+            ClauseInput(clause_no="제7조", path="", text="건식 변압기 (TR-01)", table_rows=[])
+        ],
+    )
+    assert section_label(item) == "제7조 건식 변압기 (TR-01)"
+
+
+def test_value_text_does_not_repeat_a_unit_already_in_the_value():
+    from backend.api.tft.rfp.routes_read import value_text
+
+    assert value_text("±2×2.5 %", "%") == "±2×2.5 %"
+    assert value_text("630", "kVA") == "630 kVA"
+    assert value_text(None, "kV") == "kV"
+    assert value_text(None, None) is None

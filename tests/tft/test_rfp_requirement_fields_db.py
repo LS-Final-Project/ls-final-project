@@ -78,6 +78,20 @@ def test_drawing_requirement_needs_a_check_even_when_met(client, chain, admin):
     assert requirement(client, chain)["decision"]["decided"] is False
 
 
+def test_confirmed_drawing_that_is_a_deviation_still_needs_the_deviation(client, chain, admin):
+    make_drawing(admin, chain)
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.requirement_versions SET status='SPEC_GAP' WHERE requirement_id=%s",
+            (chain["requirement"],),
+        )
+    assert requirement(client, chain)["bid_verdict"] == "DEVIATION"
+    ok(decide(client, chain, "confirm_drawing"))
+    # 도면 확인은 끝났지만 편차 기재가 남아 편차 묶음의 미결로 보인다(40444 P26-0002 저장 막힘).
+    state = requirement(client, chain)["decision"]
+    assert (state["drawing_check"], state["decided"], state["needed"]) == (False, False, True)
+
+
 def context_row(admin, chain, groups):
     payload = {
         "schema_version": "rfp-context-v1",

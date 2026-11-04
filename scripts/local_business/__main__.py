@@ -429,6 +429,43 @@ def set_concurrency(state, args):
     )
 
 
+DEMO_MANAGER = "00000000-0000-4000-8000-000000000004"  # seed_demo.sql local-4
+
+
+def manage_project(state, number):
+    """Grant the demo manager (local-4) one RFP project, like the server-external registration script.
+
+    A manager only sees projects listed in identity.manager_projects (contracts/platform/permissions.md 1.2);
+    no API grants it, so a project created in the local demo needs this before 책임자 지정.
+    """
+    if not re.fullmatch(r"P\d{2}-\d{4}", number):
+        raise ValueError("LOCAL_PROJECT_NUMBER_INVALID")
+    owned(state)
+    ns = state.name
+    sql = (
+        "INSERT INTO identity.manager_projects(user_id, project_id) "
+        f"SELECT '{DEMO_MANAGER}', id FROM tft.projects WHERE external_id = '{number}' "
+        "ON CONFLICT DO NOTHING RETURNING project_id"
+    )
+    out = docker(
+        "exec",
+        ns + "-pg",
+        "psql",
+        "-X",
+        "-U",
+        "postgres",
+        "-d",
+        "team4",
+        "-At",
+        "-v",
+        "ON_ERROR_STOP=1",
+        "-c",
+        sql,
+    ).decode()
+    rows = [line for line in out.splitlines() if re.fullmatch(r"[0-9a-f-]{36}", line)]
+    print(json.dumps({"project": number, "granted": len(rows)}))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -442,6 +479,7 @@ def main():
         "enable-real",
         "disable-real",
         "set-concurrency",
+        "manage-project",
     ):
         p = sub.add_parser(command)
         p.add_argument("--namespace", required=True)
@@ -449,6 +487,8 @@ def main():
             p.add_argument("--runtime-image", required=True)
             p.add_argument("--web-image", required=True)
             p.add_argument("--web-port", type=int, default=38443)
+        if command == "manage-project":
+            p.add_argument("--project", required=True, help="RFP project number, e.g. P26-0002")
         if command == "tunnel":
             p.add_argument("--tunnel-token", help=argparse.SUPPRESS)
         if command in {"enable-real", "set-concurrency"}:
@@ -530,6 +570,8 @@ def main():
         enable(state, args)
     elif args.command == "set-concurrency":
         set_concurrency(state, args)
+    elif args.command == "manage-project":
+        manage_project(state, args.project)
     elif args.command == "disable-real":
         config = owned(state)
         rows = running_drivers(config)

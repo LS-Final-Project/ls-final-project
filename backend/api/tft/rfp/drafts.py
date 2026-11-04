@@ -20,6 +20,58 @@ from backend.shared.errors import ApplicationError
 Row = dict[str, Any]
 
 
+# 비교에 쓰는 칸. 결정 승인(insert_approved_version)은 판단 칸만 바꾸므로 이 칸이 같으면 앞 판본의 비교가 그대로 맞다.
+COMPARED_FIELDS = (
+    "equipment",
+    "equipment_family",
+    "attribute",
+    "attribute_key",
+    "value",
+    "unit",
+    "operator",
+    "tolerance",
+    "standard_system",
+    "canonical_value",
+)
+
+
+async def same_compared_fields(
+    conn: AsyncConnection[Row], requirement_id: UUID, compared: int, current: int
+) -> bool:
+    """비교한 판본과 현재 판본의 비교 칸이 같은지. 결정만으로 판본이 올라간 경우 재검토를 붙이지 않는다."""
+    cursor = await conn.execute(
+        f"SELECT {', '.join(COMPARED_FIELDS)} FROM tft.requirement_versions "
+        "WHERE requirement_id = %s AND version = ANY(%s)",
+        (requirement_id, [compared, current]),
+    )
+    rows = await cursor.fetchall()
+    return len(rows) == 2 and rows[0] == rows[1]
+
+
+async def settled_requirements(conn: AsyncConnection[Row], project_id: UUID) -> set[UUID]:
+    """담당이 결정하고 책임자가 확인한 요구(와 그 중복 구성원). 추출의 '검토 필요' 표시가 풀린 것으로 본다.
+
+    KAN-219·220. 그러지 않으면 결정을 모두 끝내도 초안 문장에 재검토가 남아 검토본을 저장할 수 없다(40444 P26-0002).
+    """
+    from backend.api.tft.rfp.decisions import states
+
+    found = await states(conn, project_id)
+    # 결정 뒤 요구가 새 판본으로 바뀌었으면(재처리 등) 그 판본은 아직 사람이 보지 않았다.
+    cursor = await conn.execute(
+        "SELECT d.id FROM tft.requirement_decisions d JOIN tft.requirements r ON r.id = d.requirement_id "
+        "WHERE r.project_id = %s AND coalesce(d.result_version, d.base_version) >= r.latest_version",
+        (project_id,),
+    )
+    current = {row["id"] for row in await cursor.fetchall()}
+    settled = {
+        key
+        for key, (_, state) in found.items()
+        if state.decided and state.reviewed and state.decision_id in current
+    }
+    # 중복 구성원은 대표의 결정을 따른다(KAN-231).
+    return settled | {key for key, (_, state) in found.items() if state.follows in settled}
+
+
 async def requirements_of(
     conn: AsyncConnection[Row], project_id: UUID
 ) -> list[s.RequirementDetail]:
@@ -30,6 +82,7 @@ async def requirements_of(
         f"AND NOT {repository.EXCLUDED.format(requirement='req.id')} ORDER BY id",
         (project_id,),
     )
+    settled = await settled_requirements(conn, project_id)
     result = []
     for row in await cursor.fetchall():
         req = await repository.latest_requirement_version(conn, project_id, row["id"])
@@ -45,6 +98,8 @@ async def requirements_of(
                 needs_rereview=await repository.needs_rereview(conn, row["id"]),
             )
         )
+        if row["id"] in settled:
+            result[-1].needs_review = False
     return result
 
 
@@ -140,6 +195,20 @@ async def regenerate(
         action="draft.regenerate",
         detail={"previous_version": seen},
     )
+    # 결정 승인이 문장에 남긴 재검토 표시(명세 결정 10)는 그 문장을 다시 확인할 때 풀린다. 다시 만들기는 저장된
+    # 결정으로 시스템 문장을 새로 쓰는 일이라 그 확인에 해당한다. 사람이 고친 문장(이관)의 표시는 남긴다.
+    human = [
+        row.sentence_id
+        for part in result.sections
+        for row in part.sentences
+        if row.provenance_kind == "human_input"
+    ]
+    await conn.execute(
+        "UPDATE tft.rereview_marks SET cleared_by = %s, cleared_at = now() "
+        "WHERE project_id = %s AND target_kind = 'draft_sentence' AND cleared_at IS NULL "
+        "AND NOT (target_id = ANY(%s))",
+        (actor, project_id, human),
+    )
     return await loaded(conn, project_id, result.version)
 
 
@@ -177,7 +246,9 @@ async def build(conn: AsyncConnection[Row], project_id: UUID) -> tuple[s.Draft, 
         if raw is None:
             raise ValueError("TFT_DRAFT_REQUIREMENT_DISAPPEARED")
         compared = await comparison_of(conn, raw)
-        if compared.requirement_version != req.version:
+        if compared.requirement_version != req.version and not await same_compared_fields(
+            conn, req.requirement_id, compared.requirement_version, req.version
+        ):
             # An older match is evidence history, not a match for an approved new value.
             req.needs_rereview = True
             compared = compared.model_copy(

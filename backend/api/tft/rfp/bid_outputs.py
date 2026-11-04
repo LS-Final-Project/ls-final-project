@@ -81,11 +81,91 @@ def gate_text(found: s.DecisionGate) -> str:
     return "저장 조건 미충족: " + ", ".join(f"{name} {n}" for name, n in left)
 
 
+_OCR = re.compile(r"^OCR-(DOCX-|PDF-P)(\d+)(?:\.|$)")
+_CODE = re.compile(r"^[0-9a-f]{8}:(.+):(\d+)$")
+_CONDITION = {
+    "duration": "지속 시간",
+    "ambient temperature": "주위온도",
+    "temperature rise": "온도 상승",
+    "reference temperature": "기준온도",
+    "frequency": "주파수",
+    "altitude": "표고",
+    "voltage": "전압",
+    "current type": "전류 종류",
+    "duty": "사용 조건",
+    "cooling": "냉각 방식",
+    "tap type": "탭 방식",
+    "arc current": "아크 전류",
+}
+_VERDICT = {
+    "값 다름": "값이 다릅니다",
+    "미달": "요구에 못 미칩니다",
+    "초과": "요구를 넘습니다",
+    "범위 밖": "범위를 벗어납니다",
+    "충족": "충족합니다",
+}
+_FIXED = (
+    (
+        re.compile(r"요구값 미정\(자리표시자\)\.\s*충족 판정에서 제외\."),
+        "원문에 값이 비어 있습니다. 고객 질의가 필요합니다.",
+    ),
+    (
+        re.compile(r"^검색 범위\([^)]*\)에서 자사 후보를 찾지 못함\..*$"),
+        "자사 제품 자료에서 맞는 후보를 찾지 못했습니다.",
+    ),
+    (
+        re.compile(r"수행 과업 요구\.\s*수행 주체 확인\(자사/협력사\) 필요\."),
+        "수행 과업입니다. 자사가 할지 협력사가 할지 정합니다.",
+    ),
+    (re.compile(r"값은 충족하나 조건이 달라 확인 필요\."), "값은 맞지만 조건이 다릅니다."),
+)
+
+
+def clause_label(clause_no: str | None) -> str:
+    """고객에게 나가는 표의 조항 칸. 이미지 전사 조항 코드는 사람이 읽는 위치로(화면 labels.clauseLabel과 같음)."""
+    ocr = _OCR.match(clause_no or "")
+    if not ocr:
+        return clause_no or ""
+    return (
+        f"본문 이미지 {int(ocr.group(2))}"
+        if ocr.group(1) == "DOCX-"
+        else f"PDF {int(ocr.group(2))}쪽"
+    )
+
+
+def requirement_label(code: str) -> str:
+    """요구 번호 칸: 문서 판본 앞 8자를 빼고 조항 표시와 순번으로."""
+    match = _CODE.match(code)
+    return f"{clause_label(match.group(1))}-{match.group(2)}" if match else code
+
+
+def reason_text(reason: str | None) -> str:
+    """비교 판단 문장에서 근거 ID·조항 코드·영문 조건 이름을 빼고 판정 말을 문장으로(화면 labels.reasonText와 같음)."""
+    if not reason:
+        return ""
+    text = re.sub(r"^이미지 전사 원문 확인 필요\.\s*", "", reason)
+    text = re.sub(r"^원문\s+\S+(?:\s+(?:(?!요구 )[^:]){1,30})?:\s*", "", text)
+    text = re.sub(r"^원문\s+\S+\s+.*?(?=요구 )", "", text)
+    text = re.sub(r"\s*\(근거 [^)]*\)", "", text)
+    text = re.sub(
+        r":\s*(값 다름|미달|초과|범위 밖|충족)\.?$", lambda m: f". {_VERDICT[m.group(1)]}.", text
+    )
+    text = re.sub(
+        r"조건 차이:\s*([a-z][a-z ]*?) 요구",
+        lambda m: f"{_CONDITION.get(m.group(1), m.group(1))} 차이: 요구",
+        text,
+    )
+    text = re.sub(r",\s*(?:후보|자사 근거)\s", ", 자사 ", text)
+    for pattern, replacement in _FIXED:
+        text = pattern.sub(replacement, text)
+    return text.strip()
+
+
 def requirement_value(req: s.RequirementDetail) -> str:
     spec = req.spec
     if not spec.value:
         return ""
-    unit = " " + spec.unit if spec.unit else ""
+    unit = " " + spec.unit if spec.unit and not spec.value.rstrip().endswith(spec.unit) else ""
     tolerance = " " + spec.tolerance if spec.tolerance else ""
     return f"{spec.value}{unit}{tolerance}{OPERATOR.get(spec.operator, '')}"
 
@@ -112,7 +192,7 @@ async def collect(
     sources: dict[str, list[str]] = {}
     hidden: set[str] = set()
     for dup in result.duplicates if result else []:
-        sources[dup.canonical_requirement_id] = dup.clause_nos
+        sources[dup.canonical_requirement_id] = [clause_label(no) for no in dup.clause_nos]
         hidden |= set(dup.requirement_ids) - {dup.canonical_requirement_id}
     # 화면 묶음(KAN-231 grouping.equipment_groups)과 같은 규칙: 배정의 첫 설비 묶음, 없으면 근거로 든 설비 묶음.
     equipment = {
@@ -145,7 +225,7 @@ async def collect(
         deviation_rows.append(
             [
                 len(deviation_rows) + 1,
-                req.origin.clause_no or "",
+                clause_label(req.origin.clause_no),
                 eq(req),
                 req.spec.attribute or req.spec.task or "",
                 requirement_value(req) or req.origin.quote,
@@ -190,7 +270,7 @@ async def collect(
         query_rows.append(
             [
                 numbers[q["id"]],
-                asked.origin.clause_no or "" if asked else "",
+                clause_label(asked.origin.clause_no) if asked else "",
                 eq(asked) if asked else COMMON,
                 q["question_text"],
                 QUESTION_STATE[q["status"]],
@@ -224,8 +304,8 @@ async def collect(
         requirement_rows.append(
             [
                 number,
-                req.code,
-                req.origin.clause_no or "",
+                requirement_label(req.code),
+                clause_label(req.origin.clause_no),
                 eq(req),
                 req.spec.attribute or req.spec.task or "",
                 requirement_value(req),
@@ -234,7 +314,7 @@ async def collect(
                 VERDICT_WORDS[verdict],
                 state.summary or "",
                 review,
-                req.judgement.reason,
+                reason_text(req.judgement.reason),
                 OWNER.get(req.judgement.next_owner_field or "", ""),
                 "예" if state.manually_added else "",
                 ", ".join(sources.get(str(req.requirement_id), [])),

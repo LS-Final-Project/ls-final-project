@@ -32,6 +32,22 @@ export function originalQuote(origin?: RequirementDetail['origin']) {
 }
 
 // onSelectText: 원문에서 드래그로 고른 글. 표 안에서 고르면 빈 글로 알린다(표 글은 조항 텍스트에 없어 요구로 추가할 수 없다).
+// 원문 파일은 판본(sha256)마다 한 번만 받는다. 작업 공간은 요구를 고를 때마다 패널을 새로 그려 같은 파일을 다시 받았다
+// (40444 흐름 점검: 한 프로젝트 점검에 79번). 실패한 받기는 지워 다시 시도하게 둔다.
+const originals = new Map<string, Promise<ArrayBuffer>>();
+function cachedOriginal(document: DocumentVersion, retry: boolean) {
+  const id = `${document.document_id}:${document.sha256}`;
+  if (retry) originals.delete(id);
+  let pending = originals.get(id);
+  if (!pending) {
+    pending = readOriginal(document, new AbortController().signal);
+    originals.set(id, pending);
+    pending.catch(() => originals.delete(id));
+  }
+  // PDF 해석기가 버퍼를 옮겨(detach) 쓸 수 있어 화면마다 사본을 준다.
+  return pending.then(bytes => bytes.slice(0));
+}
+
 export function OriginalDocument({ document, origin, onQuoteClick, selectionRevision = 0, onSelectText }: { document: DocumentVersion; origin?: RequirementDetail['origin']; selectionRevision?: number; onQuoteClick: () => void; onSelectText?: (text: string) => void }) {
   const { quote, notice } = originalQuote(origin);
   const [bytes, setBytes] = useState<ArrayBuffer>();
@@ -39,7 +55,7 @@ export function OriginalDocument({ document, origin, onQuoteClick, selectionRevi
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     const controller = new AbortController(); setBytes(undefined); setError(undefined);
-    readOriginal(document, controller.signal).then(value => { if (!controller.signal.aborted) setBytes(value); }).catch(reason => { if (!controller.signal.aborted) setError(reason); });
+    cachedOriginal(document, attempt > 0).then(value => { if (!controller.signal.aborted) setBytes(value); }).catch(reason => { if (!controller.signal.aborted) setError(reason); });
     return () => controller.abort();
   }, [document.document_id, document.sha256, document.size, document.mime, attempt]);
   return <section className="rfp-original-pane" aria-label="실제 원문 문서">

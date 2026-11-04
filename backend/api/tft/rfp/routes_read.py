@@ -311,6 +311,13 @@ def requirement_cursor(value: str | None) -> tuple[int, str] | None:
     return int(rank), code
 
 
+def value_text(value: str | None, unit: str | None) -> str | None:
+    """값과 단위를 한 칸으로. 추출 값에 단위가 이미 붙어 있으면(예 "±2×2.5 %") 다시 붙이지 않는다."""
+    if value and unit and value.rstrip().endswith(unit):
+        return value
+    return " ".join(part for part in (value, unit) if part) or None
+
+
 async def summary_of(conn: AsyncConnection[Row], row: Mapping[str, Any]) -> s.RequirementSummary:
     """요구 행 → 목록 칸. 요구 응답에 칸을 더할 때는 이 함수와 detail_of만 고친다.
 
@@ -323,7 +330,7 @@ async def summary_of(conn: AsyncConnection[Row], row: Mapping[str, Any]) -> s.Re
     """
     # ponytail: 요구당 질의 1회(쪽 크기만큼). 목록이 느려지면 repository.rnd_check를 묶음 질의로 바꾼다.
     state, _ = await repository.rnd_check(conn, row["requirement_id"])
-    value = " ".join(part for part in (row["value"], row["unit"]) if part) or None
+    value = value_text(row["value"], row["unit"])
     return s.RequirementSummary(
         requirement_id=row["requirement_id"],
         code=row["code"],

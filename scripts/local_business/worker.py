@@ -93,6 +93,10 @@ def complete_usage(response) -> ai.Usage:
             "total_token_count",
         )
     ]
+    # Gemini omits thoughtsTokenCount when the call did no thinking (e.g. thinking LOW on a short reply read,
+    # 40444 2026-11-05). Count it as 0 only when the total proves it: total == prompt + candidates.
+    if values[2] is None and values[3] == (values[0] or 0) + (values[1] or 0):
+        values[2] = 0
     if any(type(value) is not int or value < 0 for value in values):
         raise ValueError("LOCAL_USAGE_INCOMPLETE")
     # Shared Usage contract: Gemini omits cachedContentTokenCount for an uncached call.

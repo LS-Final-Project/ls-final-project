@@ -504,12 +504,22 @@ def consolidate(
             update |= {
                 "group_ids": [*ids, target],
                 "relations": [*relations, ContextRelation(group_id=target, relation="APPLIES_TO")],
-                "reason": f"{assignment.reason} (원문 표기 {tag}로 연결)".strip(),
+                "reason": assignment.reason
+                if f"(원문 표기 {tag}로 연결)" in assignment.reason
+                else f"{assignment.reason} (원문 표기 {tag}로 연결)".strip(),
                 "needs_review": assignment.primary_category == "UNCLASSIFIED",
             }
         assignments.append(assignment.model_copy(update=update))
     issues = []
+    # 저장 전 안전 검사가 이 정리로 만든 제목 태그 묶음을 근거 부족으로 표시하고 지운다. 다시 만든 묶음의 그 표시는 뺀다.
+    remade = {g.entity_id for g in groups if g.tag}
     for issue in result.issues:
+        if (
+            issue.code == "INVALID_GROUP_EVIDENCE"
+            and issue.entity_ids
+            and set(issue.entity_ids) <= remade
+        ):
+            continue
         if issue.code != "AMBIGUOUS_GROUP_LINK":
             issues.append(issue)
             continue

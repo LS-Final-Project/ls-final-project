@@ -5,7 +5,7 @@ import { setApiMode } from '../api/client';
 import type { ProjectDetail } from '../api/tft';
 import { MOCK_WORKSPACE_REQUIREMENTS } from '../mocks/rfp-workspace';
 import { jsonResponse, renderAt } from '../test/render';
-import { clauseOf, Decide, historyText, pendingReviews, queryState, tqNumbers, viewerRole, workspacePhase } from './RfpWorkspace';
+import { clauseOf, Decide, TakeResponsibility, historyText, pendingReviews, queryState, tqNumbers, viewerRole, workspacePhase } from './RfpWorkspace';
 
 vi.mock('./OriginalDocument', () => ({ OriginalDocument: ({ onSelectText }: { onSelectText?: (text: string) => void }) => <><button onClick={() => onSelectText?.('정격전압은  12 kV 이상')}>원문에서 고르기</button><button onClick={() => onSelectText?.('표 안의 글')}>표에서 고르기</button></> }));
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); setApiMode('mock'); });
@@ -200,7 +200,7 @@ describe('고객 회신 반영', () => {
     show('sales');
     expect(await screen.findByText('회신 도착')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '상용주파 내전압' }));
-    expect(await screen.findByText(/회신에서 읽은 값: 28 kV, 1 min/)).toBeTruthy();
+    expect(await screen.findByText(/회신에서 읽은 값: 28 kV, 1분/)).toBeTruthy();
     expect(document.querySelector('mark.ws-mark')?.textContent).toBe('28 kV, 1분');
     expect((screen.getByLabelText('새 요구값') as HTMLInputElement).value).toBe('28');
     expect(screen.queryByText('AI가 읽음')).toBeNull();
@@ -347,6 +347,30 @@ describe('출력 탭 서버 출력 (KAN-221)', () => {
   const openOutput = () => { show('sales'); fireEvent.click(screen.getByRole('tab', { name: /출력/ })); };
   const saved = () => { const names: string[] = []; vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { names.push(this.download); }); vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: () => 'blob:x', revokeObjectURL: () => undefined })); return names; };
 
+  it('초안이 낡았으면 저장 전에 모델 없이 초안을 다시 만들고 그 판본으로 저장한다', async () => {
+    const f = server({ reviews: [] });
+    const base = f.getMockImplementation()!;
+    f.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/draft/regenerate')) return jsonResponse(200, { data: { project_id: 'p1', version: 6, sections: [] } });
+      if (url.endsWith('/draft/review-versions') && init?.method === 'POST') return jsonResponse(201, { data: { review_version: 1 } });
+      if (url.endsWith('/projects/p1/draft')) return jsonResponse(200, { data: { project_id: 'p1', version: 5, freshness: { status: 'STALE' }, sections: [] } });
+      return base(input, init);
+    });
+    const ready = { ...project, decision_gate: { undecided: 0, deviation_missing: 0, open_queries: 0, review_pending: 0 } } as ProjectDetail;
+    renderAt('/tft/projects/p1', 'tft/projects/:projectId', <Decide project={ready} documents={[]} rows={MOCK_WORKSPACE_REQUIREMENTS} role="sales" actorId="sales" />);
+    fireEvent.click(screen.getByRole('tab', { name: /출력/ }));
+    const save = screen.getByRole('button', { name: '검토본 저장' }) as HTMLButtonElement;
+    await waitFor(() => expect(save.disabled).toBe(false));
+    fireEvent.click(save);
+    const calls = f.mock.calls as unknown as [string, RequestInit][];
+    await waitFor(() => expect(calls.some(([u, i]) => u.endsWith('/draft/review-versions') && i?.method === 'POST')).toBe(true));
+    const order = calls.filter(([, i]) => i?.method === 'POST').map(([u]) => u.split('/').pop());
+    expect(order.indexOf('regenerate')).toBeLessThan(order.indexOf('review-versions'));
+    const body = JSON.parse(String(calls.find(([u, i]) => u.endsWith('/draft/review-versions') && i?.method === 'POST')![1].body));
+    expect(body.version).toBe(6);
+  });
+
   it('검토본이 없으면 버튼을 끄고 먼저 저장하라고 알린다', async () => {
     server({ reviews: [] });
     openOutput();
@@ -391,5 +415,17 @@ describe('출력 탭 서버 출력 (KAN-221)', () => {
     expect((await screen.findByText(/DOCX 출력을 만들지 못했습니다/)).getAttribute('role')).toBe('alert');
     expect(names).toEqual([]);
     vi.restoreAllMocks();
+  });
+});
+
+describe('책임자 맡기 (manager)', () => {
+  it('담당은 그대로 두고 자기 자신을 책임자로 지정한다', async () => {
+    const f = serve();
+    renderAt('/tft/projects/p1', 'tft/projects/:projectId', <TakeResponsibility project={{ ...project, version: 3, responsible_user_id: null } as ProjectDetail} actorId="mgr" />);
+    fireEvent.click(screen.getByRole('button', { name: '책임자 맡기' }));
+    await waitFor(() => expect((f.mock.calls as unknown as [string, RequestInit][]).some(([u]) => String(u).endsWith('/projects/p1/assignment'))).toBe(true));
+    const [, init] = (f.mock.calls as unknown as [string, RequestInit][]).find(([u]) => String(u).endsWith('/assignment'))!;
+    expect(init.method).toBe('PATCH');
+    expect(JSON.parse(String(init.body))).toMatchObject({ version: 3, sales_user_id: 'sales', responsible_user_id: 'mgr' });
   });
 });

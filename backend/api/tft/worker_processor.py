@@ -647,8 +647,17 @@ def focus(kind: str, text: str, n: int | None = None) -> dict[str, Any]:
 
 
 def section_label(item: Any) -> str:
-    """절 번호와 제목(예 "제7조 건식 변압기"). 시험의 가짜 입력은 그 값 자체를 쓴다."""
-    return f"{getattr(item, 'section_no', item)} {getattr(item, 'section_title', None) or ''}"
+    """절 번호와 제목(예 "제7조 건식 변압기"). 시험의 가짜 입력은 그 값 자체를 쓴다.
+
+    한국어 "제n조 제목" 머리는 제목 칸이 비고 머리 조항 본문이 제목이다(build_inputs가 맨 앞에 넣는다).
+    """
+    no = getattr(item, "section_no", item)
+    title = getattr(item, "section_title", None)
+    if not title:
+        head = next(iter(getattr(item, "clauses", None) or []), None)
+        if head is not None and head.clause_no == no and len(head.text.strip()) <= 30:
+            title = head.text.strip()
+    return f"{no} {title or ''}"
 
 
 def lease_keeping(

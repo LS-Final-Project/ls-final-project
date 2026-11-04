@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } fr
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ApiError, getApiMode } from '../api/client';
 import {
-  addRequirement, approveProposal, bulkDecide, listEquipment, markQuestionsSent, undoBulk, type BulkDecisionItem, createProject, listClauses, listProjectHistory, type Clause, type ManualRequirementRequest, listRequirementHistory, type HistoryItem, type HistoryKind, type HistoryPage, createProposal, createQuestion, decideRequirement, getAnalysis, getComparison, getRequirement, listAllRequirements, readReplyAgain, listDocuments, listQuestions, recompareRequirement, startProcess, uploadDocument,
+  addRequirement, approveProposal, assignProject, bulkDecide, listEquipment, markQuestionsSent, undoBulk, type BulkDecisionItem, createProject, listClauses, listProjectHistory, type Clause, type ManualRequirementRequest, listRequirementHistory, type HistoryItem, type HistoryKind, type HistoryPage, createProposal, createQuestion, decideRequirement, getAnalysis, getComparison, getRequirement, listAllRequirements, readReplyAgain, listDocuments, listQuestions, recompareRequirement, startProcess, uploadDocument,
   type BidVerdict, type DecisionRequest, type DocumentVersion, type Proposal, type ProposalCreate, type Question, type QuestionCreate, type RequirementDetail, type RequirementSummary,
 } from '../api/rfp';
 import { activeRfpJob, replayRfpJob, type RfpProgress, type RfpWatch } from '../api/rfp-job-events';
@@ -16,9 +16,11 @@ import { KvTitle } from '../ls-shell/kv';
 import { MOCK_WORKSPACE_REQUIREMENTS } from '../mocks/rfp-workspace';
 import { fileProblem, latestVersions } from './IntakeForms';
 import { OriginalDocument } from './OriginalDocument';
-import { clauseLabel, codeLabel, ISSUE_LABEL, label, NECESSITY_LABEL, OPERATOR_LABEL, PATH_LABEL, STATUS_LABEL } from './labels';
+import { clauseLabel, codeLabel, ISSUE_LABEL, reasonText, label, NECESSITY_LABEL, OPERATOR_LABEL, PATH_LABEL, STATUS_LABEL } from './labels';
 import { useNames } from './names';
 import { focusText } from './RfpReasoning';
+import { ReplyForm } from './QuestionForms';
+import IntegrationPanel from './IntegrationPanel';
 import { useRfpJobEvents } from './useRfpJobEvents';
 import { DEPARTMENT_LABEL } from './labels';
 import { constraintsBody, emptyConstraints } from './ProjectConstraintsForm';
@@ -59,6 +61,8 @@ export function viewerRole(actorId: string | undefined, project?: Pick<ProjectDe
 }
 
 const key = () => crypto.randomUUID();
+// 협력사 역할은 서버 필수다(select_partner needs text). 비워 두면 요구에서 만든 한 줄을 쓴다.
+const partnerRole = (row: { equipment?: string | null; attribute?: string | null }) => `${row.equipment ?? ''} ${row.attribute ?? ''} 보완 공급`.replace(/\s+/g, ' ').trim();
 const failureText = (error: unknown) => error instanceof ApiError
   ? error.code === 'TFT_JOB_IN_PROGRESS' ? '이미 분석 중입니다. 진행 화면으로 이어집니다.'
     : error.code === 'TFT_DUPLICATE_MEMBER' ? '원문 여러 곳에 반복된 같은 요구입니다. 대표 요구에서 결정하세요.' : error.message
@@ -70,6 +74,7 @@ export default function RfpWorkspace() {
   const access = useBusinessAccess('tft');
   const mode = getApiMode();
   const actorId = access.user.data?.data.id;
+  const manager = !!access.user.data?.data.roles?.includes('manager');
   const isNew = projectId === NEW;
   const project = useQuery({ queryKey: ['projects', mode, projectId], queryFn: () => getProject(projectId), enabled: access.ready && !isNew });
   const documents = useQuery({ queryKey: ['documents', mode, projectId], queryFn: () => listDocuments(projectId), enabled: access.ready && !isNew });
@@ -95,7 +100,10 @@ export default function RfpWorkspace() {
   const status = live?.job?.status ?? p.latest_job?.status;
   const phase = workspacePhase(docs.length, requirements.data.length, status ?? undefined);
   return <main className="ws rfp-ui">
-    <KvTitle path="제안 지원 › RFP 검토" title={p.name} code={p.external_id ?? undefined}><Link className="kb" to={`/tft/projects/${projectId}/settings`}>프로젝트 설정</Link></KvTitle>
+    <KvTitle path="제안 지원 › RFP 검토" title={p.name} code={p.external_id ?? undefined}>
+      {manager && actorId && p.responsible_user_id !== actorId && <TakeResponsibility project={p} actorId={actorId} />}
+      <Link className="kb" to={`/tft/projects/${projectId}/settings`}>프로젝트 설정</Link>
+    </KvTitle>
     {phase === 'running' || phase === 'failed'
       ? <AnalysisStrip projectId={projectId} documents={docs} live={live} failed={phase === 'failed'} />
       : null}
@@ -120,7 +128,7 @@ function NewProject() {
   const navigate = useNavigate();
   const client = useQueryClient();
   const recent = useQuery({ queryKey: ['projects', getApiMode(), 'resume'], queryFn: () => listProjects({}, undefined, 1) });
-  const resume = (recent.data?.data.items ?? []).filter(p => p.unresolved_mandatory_count > 0).slice(0, 3);
+  const resume = (recent.data?.data.items ?? []).filter(p => (p.decisions_remaining ?? p.unresolved_mandatory_count) > 0).slice(0, 3);
   const [file, setFile] = useState<File | null>(null);
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
@@ -140,7 +148,7 @@ function NewProject() {
     <KvTitle path="제안 지원 › RFP 검토" title="새 RFP 검토" />
     <div className="ws-grid">
       <section className="ws-sec ws-left">
-        {!file ? <DropZone onFile={next => { setFile(next); if (next && !name) setName(next.name.replace(/\.[^.]+$/, '')); }} /> : <div className="ws-ready">
+        {!file ? <DropZone onFile={next => { setFile(next); if (next && !name) setName(next.name.replace(/\.[^.]+$/, '').replace(/_+/g, ' ').trim()); }} /> : <div className="ws-ready">
           <div className="ws-file"><span className="ws-strong">{file.name}</span><span className="muted">{(file.size / 1024).toFixed(1)} KB</span><span className="sp" /><button className="ws-link" onClick={() => setFile(null)}>빼기</button></div>
           {problem && <p role="alert">{problem}</p>}
           <label className="ws-field">프로젝트 이름<input value={name} onChange={event => setName(event.target.value)} /></label>
@@ -152,7 +160,7 @@ function NewProject() {
       </section>
       <section className="ws-sec ws-right"><div className="ws-center muted">올린 원문이 여기에 보입니다</div>
         {resume.length > 0 && <div className="ws-resume"><p className="muted">이어서 할 프로젝트</p>
-          {resume.map(p => <p key={p.id}><Link to={`/tft/projects/${p.id}`}>{p.external_id} {p.name}</Link><span className="muted">미해결 필수 {p.unresolved_mandatory_count}</span></p>)}</div>}
+          {resume.map(p => <p key={p.id}><Link to={`/tft/projects/${p.id}`}>{p.external_id} {p.name}</Link><span className="muted">결정할 것 {p.decisions_remaining ?? p.unresolved_mandatory_count}</span></p>)}</div>}
       </section>
     </div>
   </main>;
@@ -193,6 +201,19 @@ function StartAnalysis({ projectId, documents }: { projectId: string; documents:
   </div>;
 }
 
+// 관리 대상 manager가 이 프로젝트의 책임자를 맡는다(보드: 책임자 지정). 담당 sales는 그대로 둔다.
+export function TakeResponsibility({ project, actorId }: { project: ProjectDetail; actorId: string }) {
+  const client = useQueryClient();
+  const take = useMutation({
+    mutationFn: () => assignProject(project.id, { version: project.version, sales_user_id: project.sales_user_id ?? null, responsible_user_id: actorId, reason: '관리자가 책임자를 맡음' }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['projects'] }),
+  });
+  return <>
+    <button className="kb primary" disabled={take.isPending} onClick={() => take.mutate()}>{project.responsible_user_id ? '책임자 바꾸기(나)' : '책임자 맡기'}</button>
+    {take.isError && <span role="alert" className="ws-alert">{failureText(take.error)}</span>}
+  </>;
+}
+
 // 분석 중 상태 띠. 서버 이벤트는 단계·요구 건수만 준다. 한 줄 문장은 단계 설명으로 대신한다(서버에 문장 필드가 생기면 바꾼다).
 // 분석 중 띠(보드 "분석 중"): 페르소나, 분석 중, 단계, 막대, 걸린 시간, 지금 하는 일 한 줄(연한 작은 글씨), [자세히].
 const STEP_NOW: Record<string, string> = {
@@ -215,7 +236,9 @@ function useElapsed(since?: string) {
 function ActivityLines({ activity }: { activity: RfpProgress[] }) {
   // 한 줄이 있는 단계는 단계 문장을 겹쳐 쓰지 않는다.
   const focused = new Set(activity.filter(a => a.focus).map(a => a.step));
-  const lines = bySequence(activity).filter(a => a.focus || (a.step && !focused.has(a.step)));
+  // 같은 한 줄이 이어 오면(분할 호출마다 "읽는 중") 한 번만 쓴다.
+  const lines = bySequence(activity).filter(a => a.focus || (a.step && !focused.has(a.step)))
+    .filter((a, i, all) => i === 0 || lineOf(a) !== lineOf(all[i - 1]));
   if (!lines.length) return <p className="muted">아직 받은 진행 기록이 없습니다.</p>;
   return <div className="ws-lines">{lines.map(a => <p key={a.sequence}><span>{STEP_LABEL[a.step ?? ''] ?? ''}</span>{lineOf(a)}</p>)}</div>;
 }
@@ -254,7 +277,7 @@ function AnalysisStrip({ projectId, documents, live, failed }: { projectId: stri
 
 function Skeleton({ count }: { count?: number }) {
   return <div className="ws-skel" aria-busy="true">
-    <p className="muted">{count ? `요구 ${count}건을 찾았습니다. 비교 중입니다.` : '요구를 찾는 중입니다.'}</p>
+    <p className="muted">{count ? `요구 ${count}건을 찾았습니다.` : '요구를 찾는 중입니다.'}</p>
     {[70, 110, 90, 130, 80, 100].map((w, i) => <span key={i} className="sk" style={{ width: `${w * 2}px` }} />)}
   </div>;
 }
@@ -505,12 +528,15 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
   const live = mode === 'live';
   const detail = useQuery({ queryKey: ['requirement', mode, row.requirement_id], queryFn: () => getRequirement(row.requirement_id), enabled: live });
   const comparison = useQuery({ queryKey: ['comparison', mode, row.requirement_id], queryFn: () => getComparison(row.requirement_id, { useMockFallback: false }), enabled: live });
-  const questions = useQuery({ queryKey: ['questions', mode, projectId], queryFn: () => listQuestions(projectId, undefined, { useMockFallback: false }), enabled: live && row.bid_verdict === 'QUERY' });
+  const questions = useQuery({ queryKey: ['questions', mode, projectId], queryFn: () => listQuestions(projectId, undefined, { useMockFallback: false }), enabled: live });
   const partners = useQuery({ queryKey: ['partner-candidates', mode, row.requirement_id], queryFn: () => listSupplementCandidates(projectId, row.requirement_id), enabled: live && row.bid_verdict === 'SUPPLEMENT' });
   const d = detail.data?.data;
   const reason = d?.judgement?.reason ?? '';
   const draftQuestion = questions.data?.data.items.find(q => q.requirement_id === row.requirement_id && q.status === 'DRAFT')?.question_text;
   const replied = questions.data?.data.items.filter(q => q.requirement_id === row.requirement_id && q.status === 'REPLIED' && q.reply).at(-1);
+  // 메일 연결 없이도 회신을 넣을 수 있게(시연·전화 회신): 보낸 뒤 회신 기다리는 고객 질의.
+  const waiting = questions.data?.data.items.find(q => q.requirement_id === row.requirement_id && q.target === 'CUSTOMER' && q.status === 'OPEN');
+  const [replying, setReplying] = useState(false);
   const [text, setText] = useState<string>();
   const [choice, setChoice] = useState<'deviate' | 'check'>('deviate');
   const [dept, setDept] = useState('TS_TRF');
@@ -519,7 +545,7 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
   const [partner, setPartner] = useState<string>();
   const [changing, setChanging] = useState(false);
   const [mode2, setMode2] = useState<'doc' | 'quote'>('doc');
-  const value = text ?? (row.bid_verdict === 'QUERY' ? draftQuestion ?? '' : reason);
+  const value = text ?? (row.bid_verdict === 'QUERY' ? draftQuestion ?? '' : reasonText(reason));
   const decide = useMutation({
     mutationFn: (body: Omit<DecisionRequest, 'version'>) => decideRequirement(row.requirement_id, { version: d?.version ?? row.version, ...body } as DecisionRequest, key()),
     onSuccess: (_result, body) => { client.invalidateQueries({ queryKey: ['workspace-requirements'] }); client.invalidateQueries({ queryKey: ['projects'] }); if (body.action !== 'undo') onDecided(body); },
@@ -539,13 +565,16 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
     : <div className="ws-pick">
       <div className="hd"><span className="name">{row.attribute ?? codeLabel(row.code)}</span><span className="muted">{codeLabel(row.code)} {row.equipment}</span><span className="sp" /><span>{decided ? '결정함' : VERDICT[kindOf(row)]}</span>{!decided && <span className="dot" title="AI가 정한 판정입니다" aria-label="AI 판정" />}</div>
       <div className="ws-cmp"><span className="k">요구</span><span className={row.value_text ? 'v' : 'v empty'}>{row.value_text ?? '빈 칸'}</span><span className="k">자사</span><span className="v">{ownText}{(row.own_value ?? own) && <small className="muted"> {row.own_value?.product_code ?? own?.product_code}{row.own_value?.note ? ` ${row.own_value.note}` : ''}</small>}</span></div>
-      {reason && <p className="ws-why">{reason}</p>}
+      {reason && <p className="ws-why" title={reason}>{reasonText(reason)}</p>}
       {followsOf(row) ? <div className="ws-decided"><span>원문 {row.duplicate?.member_count ?? 2}곳에 같은 요구가 있어 대표 요구에서 결정합니다.</span><span className="sp" /><button className="ws-link" onClick={() => onMove(followsOf(row) as string)}>대표로 이동</button></div>
-      : replied && d && !responsible && row.bid_verdict === 'QUERY' ? <>
+      : replied && d && !responsible ? <>
         <div className="ws-decided"><span>회신 받음</span><span className="sp" />{row.decision?.decision_id && <button className="ws-link" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'undo', decision_id: row.decision?.decision_id })}>되돌리기</button>}</div>
         <ReplyFlow projectId={projectId} detail={d} question={replied} onDone={() => onDecided({ action: 'confirm_met' })} /></>
-        : decided ? <div className="ws-decided"><span>{row.decision?.summary ?? '결정함'}</span><span className="sp" />
+        : decided ? <><div className="ws-decided"><span>{row.decision?.summary ?? '결정함'}</span><span className="sp" />
+        {!responsible && waiting && !replying && <button className="ws-link" onClick={() => setReplying(true)}>회신 기록</button>}
         {!responsible && row.decision?.decision_id && <button className="ws-link" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'undo', decision_id: row.decision?.decision_id })}>되돌리기</button>}</div>
+        {replying && waiting && <ReplyForm question={waiting} onCancel={() => setReplying(false)} onReload={() => client.invalidateQueries({ queryKey: ['questions'] })}
+          onSaved={() => { setReplying(false); client.invalidateQueries({ queryKey: ['questions'] }); client.invalidateQueries({ queryKey: ['workspace-requirements'] }); }} />}</>
         : responsible ? <p className="muted ws-note">결정은 담당자가 합니다.</p>
           : <div className="ws-form">
             {kindOf(row) === 'DEVIATION' && <>
@@ -569,8 +598,8 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
                   <input type="radio" name="partner" disabled={c.overall_grade === 'EXCLUDED'} checked={partner === c.candidate_code} onChange={() => setPartner(c.candidate_code)} /> {c.display_name}
                 </label>)}
               </div>
-              <label className="ws-field">역할<input value={text ?? ''} onChange={event => setText(event.target.value)} /></label>
-              <div className="ws-go"><button className="kb primary" disabled={!partner || decide.isPending} onClick={() => decide.mutate({ action: 'select_partner', candidate_codes: [partner as string], text: (text ?? '').trim() || null })}>{partner ? `${partner} 선정` : '협력사 선정'}</button>
+              <label className="ws-field">역할<input value={text ?? partnerRole(row)} onChange={event => setText(event.target.value)} /></label>
+              <div className="ws-go"><button className="kb primary" disabled={!partner || decide.isPending} onClick={() => decide.mutate({ action: 'select_partner', candidate_codes: [partner as string], text: (text ?? '').trim() || partnerRole(row) })}>{partner ? `${partner} 선정` : '협력사 선정'}</button>
                 <button className="ws-link" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'ask_rnd' })}>R&amp;D에 개발 문의</button></div>
             </>}
             {kindOf(row) === 'ASSIGN' && <>
@@ -638,8 +667,12 @@ function Output({ project, rows, excluded = [], responsible, actorId, onJump, on
   });
   const save = useMutation({
     mutationFn: async () => {
-      const draft = await getDraft(project.id);
-      return sendCommand(project.id, { actorId: actorId as string, kind: 'review', key: key(), body: { version: draft.version } });
+      let draft = await getDraft(project.id);
+      // 결정으로 요구가 바뀌면 초안이 낡아(STALE) 문장마다 재검토 표시가 붙어 저장이 422가 된다. 작업 공간에는 초안 문장
+      // 확인 칸이 없으므로 저장 전에 저장된 결정으로 초안을 다시 만든다(모델 호출 없음, 사람 문장은 이관).
+      const stale = draft?.freshness?.status === 'STALE' || draft?.sections.some(part => part.sentences.some(row => row.needs_rereview));
+      if (draft && stale) draft = await sendCommand(project.id, { actorId: actorId as string, kind: 'regenerate', key: key(), body: { version: draft.version } }) as typeof draft;
+      return sendCommand(project.id, { actorId: actorId as string, kind: 'review', key: key(), body: { version: draft?.version ?? 0 } });
     },
     onSuccess: () => client.invalidateQueries({ queryKey: ['rfp-draft-reviews', actorId, project.id] }),
   });
@@ -673,7 +706,10 @@ function Output({ project, rows, excluded = [], responsible, actorId, onJump, on
     },
     onSettled: () => client.invalidateQueries({ queryKey: ['rfp-draft-exports', actorId, project.id] }),
   });
-  const ready = !gate.undecided && !gate.deviation_missing && !gate.open_queries && !gate.review_pending;
+  // 통합 책임(조립품 통합)이 필요한데 정하지 않으면 서버가 검토본 저장을 거절한다(TFT_DRAFT_INCOMPLETE). 같은 조건을 여기서 보인다.
+  const integration = project.integration_responsibility;
+  const integrationOpen = !!integration?.required && (integration.holder ?? 'UNRESOLVED') === 'UNRESOLVED';
+  const ready = !gate.undecided && !gate.deviation_missing && !gate.open_queries && !gate.review_pending && !integrationOpen;
   const deviations = rows.filter(r => r.decision?.action === 'record_deviation');
   const byEq = useMemo(() => eqOrder(rows.filter(r => !followsOf(r)).map(eqKey)).map(eq => {
     const items = rows.filter(r => !followsOf(r) && eqKey(r) === eq);
@@ -694,6 +730,7 @@ function Output({ project, rows, excluded = [], responsible, actorId, onJump, on
       <GateItem n={gate.deviation_missing} label="편차표 누락" onClick={() => onJump('DEVIATION')} />
       <GateItem n={gate.open_queries} label="회신 대기 질의" onClick={() => onJump('QUERY')} />
       <GateItem n={gate.review_pending} label="책임자 확인 대기" />
+      {integrationOpen && <GateItem n={1} label="통합 책임 미지정" />}
       <span className="sp" />
       {!responsible && <button className="kb primary" disabled={!ready || save.isPending} onClick={() => save.mutate()}>검토본 저장</button>}
       <button className="kb" disabled={!latestReview || fileOut.isPending} title={latestReview ? `검토본 ${latestReview}판` : '검토본을 먼저 저장하세요'} onClick={() => fileOut.mutate('XLSX')}>대응 현황표 XLSX</button>
@@ -704,6 +741,7 @@ function Output({ project, rows, excluded = [], responsible, actorId, onJump, on
     {fileOut.isError && <p role="alert" className="ws-alert">{failureText(fileOut.error)}</p>}
     {save.isError && <p role="alert" className="ws-alert">{failureText(save.error)}</p>}
     {save.isSuccess && <p className="ws-alert">검토본을 저장했습니다.</p>}
+    {integrationOpen && <section className="ws-sec ws-review" aria-label="통합 책임"><IntegrationPanel projectId={project.id} canEdit={!responsible} /></section>}
     {reviewBlock}
     <div className="ws-dtabs" role="tablist" aria-label="출력 문서">
       {([['dev', '편차표', deviations.length], ['tq', '질의서', tq.length], ['eq', '현황표', byEq.length], ['sum', '요약서', ''], ['hist', '변경 이력', '']] as const).map(([k, l, n]) =>
@@ -739,7 +777,11 @@ export function queryState(q: Pick<Question, 'status' | 'sent_at' | 'waiting_day
   return '질의서에 넣음';
 }
 
-const ownValueText = (v: RequirementSummary['own_value']) => v ? [v.value, v.unit, ...(v.conditions ?? []).map(c => [c.value, c.unit].filter(Boolean).join(' '))].filter(Boolean).join(' ') : '';
+// 시간 단위는 화면에서 한글로(서버 정규형 min·s·h). 다른 단위(kV, A, °C)는 그대로.
+const TIME_UNIT: Record<string, string> = { min: '분', s: '초', h: '시간' };
+const unitText = (u?: string | null) => (u ? TIME_UNIT[u] ?? u : '');
+const amount = (value?: string | null, unit?: string | null) => (value && unit && TIME_UNIT[unit] ? `${value}${TIME_UNIT[unit]}` : [value, unitText(unit)].filter(Boolean).join(' '));
+const ownValueText = (v: RequirementSummary['own_value']) => v ? [amount(v.value, v.unit), ...(v.conditions ?? []).map(c => amount(c.value, c.unit))].filter(Boolean).join(' ') : '';
 
 const RECOMPARED: Record<string, string> = { EVIDENCE_FOUND: '충족', CONDITIONAL: '충족 확인', SPEC_GAP: '편차', INSUFFICIENT_EVIDENCE: '확인 필요' };
 
@@ -808,7 +850,7 @@ function ReplyFlow({ projectId, detail, question, onDone }: { projectId: string;
   return <div className="ws-form">
     <p className="ws-reply"><span className="muted">회신 </span>{marked(question.reply?.reply_text ?? '', read?.quote)}</p>
     {question.reply && <p className="muted ws-small">{[question.reply.source_ref, question.reply.received_at && `${question.reply.received_at.slice(0, 10)} 수신`].filter(Boolean).join(', ')}</p>}
-    {read ? <p className="ws-note">회신에서 읽은 값: {[read.value, read.unit].filter(Boolean).join(' ')}{read.conditions?.length ? `, ${read.conditions.map(c => [c.value, c.unit].filter(Boolean).join(' ')).join(', ')}` : ''}
+    {read ? <p className="ws-note">회신에서 읽은 값: {amount(read.value, read.unit)}{read.conditions?.length ? `, ${read.conditions.map(c => amount(c.value, c.unit)).join(', ')}` : ''}
       {read.method === 'ai' && <span className="muted ws-small"> AI가 읽음</span>}
 </p>
       : waiting ? <p className="muted ws-note">AI가 회신을 읽는 중입니다.</p>

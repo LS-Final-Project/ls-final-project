@@ -12,7 +12,7 @@ from psycopg.types.json import Jsonb
 from backend.api.tft.rfp import draft_repository
 from backend.api.tft.rfp.context_schemas import ContextResponse, SourceReference
 from backend.api.tft.rfp.repository import EXCLUDED
-from backend.engine.rfp.context_graph import validate_context
+from backend.engine.rfp.context_graph import consolidate, heading_tags, validate_context
 from backend.engine.rfp.context_models import ContextRequirement, ContextResult
 from backend.shared.errors import ApplicationError
 
@@ -217,8 +217,12 @@ async def load_context(
 def checked_result(
     result: ContextResult, source: SourceBundle, *, human: bool = False
 ) -> ContextResult:
-    validated = validate_context(
-        result, source.requirements, diagram_source_ids=source.diagram_source_ids
+    # 안전 검사(validate_context)는 근거 문장의 태그만 보므로 원문 제목 태그로 만든 결정적 정리(KAN-216 설비 묶음,
+    # KAN-223 중복)를 지운다. 검사한 결과에 같은 정리를 다시 적용한다(사람 수정도 같은 기준으로 비교한다).
+    validated = consolidate(
+        validate_context(result, source.requirements, diagram_source_ids=source.diagram_source_ids),
+        source.requirements,
+        heading_tags(source.snapshot.get("clauses", [])),
     )
     if human and validated.model_dump() != result.model_dump():
         raise ApplicationError(
