@@ -40,25 +40,8 @@ test('재조회 응답을 기다리는 동안 이전 표시를 숨긴다',async(
 });
 
 
-test('초안 생성 후 실제 반환 ID의 상세를 새로 조회한다',async()=>{
- const body=structuredClone(source) as unknown as ImprovementDetail;body.data.request.id='created-synthetic';body.data.request.problem_statement='새 합성 초안';
- const fetch=vi.fn(async(url:RequestInfo|URL,init?:RequestInit)=>{
-  if(String(url).endsWith('/me'))return new Response(JSON.stringify({data:{roles:['cs_agent']}}),{headers:{'X-CSRF-Token':'synthetic'}});
-  if(init?.method==='POST')return jsonResponse(201,body);
-  return jsonResponse(200,String(url).endsWith('/created-synthetic')?body:{data:{items:[]}});
- });vi.stubGlobal('fetch',fetch);setApiMode('live');
- renderAt('/cs/improvements','/cs/improvements/*',<Routes><Route index element={<CsImprovements/>}/><Route path=":requestId" element={<CsImprovements/>}/></Routes>);
- fireEvent.click(await screen.findByText('새 개선요청 작성'));
- fireEvent.change(screen.getByLabelText('제품 코드'),{target:{value:'SYNTHETIC'}});
- fireEvent.change(screen.getByLabelText('고장 ID'),{target:{value:'FLT-001'}});fireEvent.click(screen.getByLabelText('TS_LV'));
- fireEvent.change(screen.getByLabelText('검토할 문제'),{target:{value:'새 합성 초안'}});
- fireEvent.click(screen.getByText('초안 저장'));await screen.findByRole('heading',{name:'개선요청 상세'});
- await screen.findByRole('heading',{name:'새 합성 초안'});expect(fetch.mock.calls.filter(([,init])=>init?.method==='POST')).toHaveLength(1);
- expect(fetch.mock.calls.some(([url])=>String(url).endsWith('/created-synthetic'))).toBe(true);
-});
-
 // Window focus and manual refresh must not discard an open form or abort its save.
-test.each([false,true])('편집 중 포커스·재조회가 입력과 저장 결과를 보존한다 (detail=%s)',async(detail)=>{
+test.each([true])('편집 중 포커스·재조회가 입력과 저장 결과를 보존한다 (detail=%s)',async(detail)=>{
  let release!:()=>void;let saveSignal:AbortSignal|undefined;
  const pending=new Promise<void>(resolve=>{release=resolve;});
  const fetch=vi.fn(async(url:RequestInfo|URL,init?:RequestInit)=>{

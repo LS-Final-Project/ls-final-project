@@ -135,31 +135,7 @@ test('개선요청 목록은 누구에게나 미배정 건수(고장 요청, 담
   await screen.findByRole('table', { name: '개선요청 목록' });
   // r1·r4만 센다: r2는 완료, r3은 담당 있음, d1은 문서 요청(목록 밖).
   expect(screen.getByText('미배정 2건')).toBeTruthy();
-  const button = screen.getByRole('button', { name: '미배정 자동 배정' }) as HTMLButtonElement;
-  await waitFor(() => expect(button.getAttribute('title')).toBe('C/S 부서 관리자만 자동 배정할 수 있습니다'));
-  expect(button.disabled).toBe(true);
+  // 목록에서 직접 배정하는 버튼은 두지 않는다(새 요청은 만들 때 규칙으로 배정된다).
+  expect(screen.queryByRole('button', { name: '미배정 자동 배정' })).toBeNull();
 });
 
-test('C/S 관리자는 미배정 개선요청을 미리 보고 적용하면 결과 건수를 보고 목록을 다시 읽는다', async () => {
-  const calls = serveRequests(CS_MANAGER); requests();
-  await screen.findByRole('table', { name: '개선요청 목록' });
-  const button = screen.getByRole('button', { name: '미배정 자동 배정' }) as HTMLButtonElement;
-  await waitFor(() => expect(button.disabled).toBe(false));
-  fireEvent.click(button);
-  const table = within(await screen.findByRole('table', { name: '미배정 자동 배정 미리보기' }));
-  expect(await table.findByText('가정 상담원 1')).toBeTruthy();
-  expect(table.getByText('MCCB-ABS-103c · F-01')).toBeTruthy();
-  expect(table.getByText('제품군 담당 · 2명 중 진행 1건')).toBeTruthy();
-  expect(table.getByText('PLC-XGI-CPUU · 고장 미확인')).toBeTruthy(); expect(table.getByText('맞는 담당자 없음')).toBeTruthy();
-  expect(screen.getByText(/배정 대상 1건, 맞는 담당자 없음 1건/)).toBeTruthy();
-  expect(calls.some(c => c.url.endsWith('/improvements/apply'))).toBe(false);
-  const listCalls = calls.filter(c => c.url.includes('/api/v1/cs/improvement-requests')).length;
-  fireEvent.click(screen.getByRole('button', { name: '배정 적용' }));
-  expect(await screen.findByText(/끝남: 배정 1건, 미배정 1건 \(맞는 담당자 없음 1\)/)).toBeTruthy();
-  const apply = calls.find(c => c.url.endsWith('/assignments/improvements/apply'))!;
-  expect(apply.init?.headers).toMatchObject({ 'X-CSRF-Token': 'synthetic-csrf' });
-  expect(JSON.parse(String(apply.init?.body))).toEqual({ rule_version: 'cs-assign-request-v1', items: [{ request_id: 'r1', user_id: 'u-lv' }, { request_id: 'r4', user_id: null }] });
-  await waitFor(() => expect(calls.filter(c => c.url.includes('/api/v1/cs/improvement-requests')).length).toBeGreaterThan(listCalls));
-  fireEvent.click(screen.getByRole('button', { name: '닫기' }));
-  expect(screen.queryByRole('table', { name: '미배정 자동 배정 미리보기' })).toBeNull();
-});
