@@ -7,8 +7,11 @@ import { getTicketWorkflow, INVALID_TRANSITION_TEXT, isInvalidTransition, isVers
 import { me } from '../api/platform';
 import { ErrorState, Loading } from '../components/states';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
-import { KvBox, KvFormCell, KvFormRow, KvGrid, KvKey, KvNext, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
-import { DEPT_LABEL, formatStamp } from '../ls-shell/cs-labels';
+import { useHotkey } from '../ls-shell/kv';
+import LogTable, { type LogColumn } from './LogTable';
+import './ticket-detail-v3.css';
+import './dept-result-v3.css';
+import { CHANNEL_LABEL, DEPT_LABEL, formatStamp } from '../ls-shell/cs-labels';
 
 type Transfer = WorkflowRecord['transfers'][number];
 type Result = WorkflowRecord['dept_results'][number];
@@ -37,11 +40,11 @@ function ResultView() {
   useHotkey('F10', () => form.current?.requestSubmit(), !busy);
   useHotkey('Escape', () => navigate('/dept/inbox'));
 
-  if (ticket.isPending || workflow.isPending || identity.isPending) return <main><Loading /></main>;
+  if (ticket.isPending || workflow.isPending || identity.isPending) return <main className="td3 dr3"><div className="body"><Loading /></div></main>;
   const failure = ticket.error ?? workflow.error ?? identity.error;
-  if (failure) return <main><ErrorState error={failure} onRetry={() => { void ticket.refetch(); void workflow.refetch(); void identity.refetch(); }} /></main>;
-  if (!ticket.data || !workflow.data) return <main><ErrorState error={new ApiError(404, '문의를 찾을 수 없습니다.')} /></main>;
-  if (!identity.data) return <main><div className="kv-sub" style={{ margin: '14px' }}>로그인이 필요합니다. <Link to="/account">계정 확인</Link></div></main>;
+  if (failure) return <main className="td3 dr3"><div className="body"><ErrorState error={failure} onRetry={() => { void ticket.refetch(); void workflow.refetch(); void identity.refetch(); }} /></div></main>;
+  if (!ticket.data || !workflow.data) return <main className="td3 dr3"><div className="body"><ErrorState error={new ApiError(404, '문의를 찾을 수 없습니다.')} /></div></main>;
+  if (!identity.data) return <main className="td3 dr3"><div className="body"><div className="stale">로그인이 필요합니다. <Link to="/account">계정 확인</Link></div></div></main>;
 
   const t = ticket.data.data;
   const wf = workflow.data.data;
@@ -82,60 +85,83 @@ function ResultView() {
     void act('담당 아님으로 반송했습니다. C/S 담당자가 다시 검토합니다.', signal => returnTransfer(ticketId, { version: wf.version, reason }, signal));
   };
 
-  const columns: KvColumn<Transfer>[] = [
-    { key: 'round', header: '차수', width: 44, className: 'c', cell: row => row.round },
-    { key: 'dept', header: '부서', width: 130, headClass: '', cell: row => DEPT_LABEL[row.dept_code] ?? row.dept_code },
-    { key: 'summary', header: '답변 요약', headClass: '', cell: row => { const r = resultOf(row); return r ? short(r.result) : <span className="unc">{row.status === 'RETURNED_BY_DEPT' ? '반송' : row.status === 'RECALLED' ? '요청 취소' : '답변 없음'}</span>; } },
-    { key: 'rework', header: '다시 요청 사유', headClass: '', cell: row => resultOf(row)?.review_note ?? '' },
+  const columns: LogColumn<Transfer>[] = [
+    { key: 'round', header: '차수', width: 56, className: 'c', cell: row => `${row.round}차` },
+    { key: 'dept', header: '부서', width: 130, cell: row => DEPT_LABEL[row.dept_code] ?? row.dept_code },
+    { key: 'summary', header: '답변 요약', cell: row => { const r = resultOf(row); return r ? short(r.result) : <span className="none">{row.status === 'RETURNED_BY_DEPT' ? '반송' : row.status === 'RECALLED' ? '요청 취소' : '답변 없음'}</span>; } },
+    { key: 'rework', header: '다시 요청 사유', cell: row => resultOf(row)?.review_note ?? '' },
   ];
+  const code = t.external_id ?? t.id.slice(0, 8);
+  const nowText = answerable ? <>문의 부서 검토 요청 {current!.round}차에 <b>답변 보내기</b></>
+    : current ? <>이 요청은 지금 답변할 수 없습니다. {isDeptStaff ? '이미 답변했거나 요청이 끝났습니다' : '부서 담당자 계정만 답변할 수 있습니다'}</>
+      : <>이 부서로 이관된 요청이 없습니다</>;
 
-  return <main>
-    <KvTitle path="부서 검토" title="검토 답변" code="CS0203">
-      <button className="kb primary" disabled={!answerable || busy} onClick={() => form.current?.requestSubmit()}>답변 보내기<KvKey>F10</KvKey></button>
-      <button className="kb" disabled={!answerable || busy} onClick={() => returnForm.current?.requestSubmit()}>담당 아님 반송</button>
-      <Link className="kb" to="/dept/inbox">목록<KvKey>Esc</KvKey></Link>
-    </KvTitle>
-    {mode === 'mock' && <div className="kv-sub" role="status" style={{ margin: '6px 14px 0' }}>모의 응답 모드 — 계약 예시이며 실제 업무 기록이 아닙니다.</div>}
-    {notice && <div className="kv-sub" role={notice.kind === 'error' ? 'alert' : 'status'} style={{ margin: '6px 14px 0' }}>{notice.text}</div>}
-    <KvNext>{answerable ? <>다음 <b>답변 보내기</b>. 문의 부서 검토 요청, {current!.round}차</> : current ? <>이 요청은 지금 <b>답변할 수 없습니다</b>. {isDeptStaff ? '이미 답변했거나 요청이 끝났습니다' : '부서 담당자 계정만 답변할 수 있습니다'}</> : <>이 부서로 이관된 요청이 없습니다</>}</KvNext>
-    <div className="kv-form">
-      <KvFormRow columns={4}>
-        <KvFormCell label="문의번호">{t.external_id ?? t.id.slice(0, 8)}</KvFormCell>
-        <KvFormCell label="접수일시">{formatStamp(t.received_at)}</KvFormCell>
-        <KvFormCell label="고객">{t.customer_external_id}</KvFormCell>
-        <KvFormCell label="제품">{t.product_code}</KvFormCell>
-      </KvFormRow>
-      <KvFormRow columns={4}>
-        <KvFormCell label="요청 차수">{current ? `${current.round}차` : '-'}</KvFormCell>
-        <KvFormCell label="요청일시">{current ? formatStamp(current.transferred_at) : '-'}</KvFormCell>
-        <KvFormCell label="요청자">{current ? current.transferred_by.slice(0, 8) : '-'}</KvFormCell>
-        <KvFormCell label="펌웨어">{t.fw_version_reported ?? '미확인'}</KvFormCell>
-      </KvFormRow>
+  return <main className="td3 dr3">
+    <div className="title">
+      <span className="path">부서 검토 ›</span><h1>검토 답변</h1><code className="kv-code">CS0203</code>
+      <div className="btns">
+        <button className="kb3" disabled={!answerable || busy} onClick={() => returnForm.current?.requestSubmit()}>담당 아님 반송</button>
+        <span className="vsep" />
+        <button className="kb3 pri" disabled={!answerable || busy} onClick={() => form.current?.requestSubmit()}>답변 보내기 <kbd>F10</kbd></button>
+        <Link className="kb3" to="/dept/inbox">목록 <kbd>Esc</kbd></Link>
+      </div>
     </div>
-    {current && <div className="kv-line full"><b>요청 사유</b>{current.reason}</div>}
-    <div className="kv-split">
-      <KvBox title="고객 원문" note={`수신 ${formatStamp(t.received_at)}`}>
-        <div className="kv-text" lang={t.body_language} style={{ minHeight: 150 }}>{t.body}</div>
-        {previous.length > 0 && <>
-          <div className="kv-sub" style={{ margin: '10px 0 6px' }}>이전 차수</div>
-          <KvGrid label="이전 차수" columns={columns} rows={previous} rowKey={row => row.id} fallback="" />
-        </>}
-      </KvBox>
-      <KvBox title="답변 입력">
-        <form ref={form} aria-label="검토 답변 입력" onSubmit={event => { event.preventDefault(); send(new FormData(event.currentTarget)); }}>
-          <div className="kv-field"><span className="req">답변</span><textarea name="result" aria-label="답변" rows={6} required maxLength={10000} disabled={!answerable || busy} /></div>
-          <div className="kv-field"><span>고객 회신 문안</span><textarea name="reply" aria-label="고객 회신 문안" rows={4} maxLength={10000} disabled={!answerable || busy} /></div>
-          <div className="kv-actions">
-            <button type="button" className="kb" disabled title="임시 저장 경로가 서버에 아직 없습니다">임시 저장</button>
-            <button type="submit" className="kb primary" disabled={!answerable || busy}>{busy ? '보내는 중' : '답변 보내기'}</button>
+
+    <div className="body">
+      {mode === 'mock' && <div className="tier-note" role="status">모의 응답 모드 — 계약 예시이며 실제 업무 기록이 아닙니다.</div>}
+      {notice && <div className={notice.kind === 'error' ? 'note err' : 'note'} role={notice.kind === 'error' ? 'alert' : 'status'}>{notice.text}</div>}
+      <div className="info">
+        <div className="k">문의번호</div><div className="v">{code}</div>
+        <div className="k">접수일시</div><div className="v">{formatStamp(t.received_at)}</div>
+        <div className="k">고객</div><div className="v">{t.customer_external_id}</div>
+        <div className="k">제품</div><div className="v last">{t.product_code}</div>
+        <div className="k nb">요청 차수</div><div className="v nb">{current ? `${current.round}차` : '-'}</div>
+        <div className="k nb">요청일시</div><div className="v nb">{current ? formatStamp(current.transferred_at) : '-'}</div>
+        <div className="k nb">요청자</div><div className="v nb">{current ? current.transferred_by.slice(0, 8) : '-'}</div>
+        <div className="k nb">펌웨어</div><div className="v nb last">{t.fw_version_reported ?? '미확인'}</div>
+      </div>
+
+      <div className={answerable ? 'dr-now' : 'dr-now off'}><small>지금 할 일</small><span>{nowText}</span></div>
+      {current && <div className="dr-reason"><small>C/S 요청 사유</small><p>{current.reason}</p></div>}
+
+      <div className="dr-cols">
+        <div className="pane">
+          <div className="ph">고객 원문<div className="r"><span className="meta">수신 {formatStamp(t.received_at)}</span></div></div>
+          <div className="pb">
+            <div className="mail-card">
+              <div className="mail-head">
+                <span className="avatar" aria-hidden="true">{t.customer_external_id.slice(0, 1).toUpperCase()}</span>
+                <div className="who"><b>{t.customer_external_id}</b><small>{CHANNEL_LABEL[t.channel as keyof typeof CHANNEL_LABEL] ?? t.channel}</small></div>
+                <span className="when">{formatStamp(t.received_at)}</span>
+              </div>
+              {t.subject && <div className="mail-subj">{t.subject}</div>}
+              <div className="mail" lang={t.body_language}>{t.body}</div>
+            </div>
+            {previous.length > 0 && <>
+              <h3>이전 차수</h3>
+              <LogTable label="이전 차수" columns={columns} rows={previous} rowKey={row => row.id} fallback="" />
+            </>}
           </div>
-        </form>
-        <div className="kv-sub" style={{ margin: '12px 0 4px', borderTop: '1px solid var(--erp-border-soft)', paddingTop: 10 }}>담당 아님 반송</div>
-        <form ref={returnForm} aria-label="담당 아님 반송 입력" onSubmit={event => { event.preventDefault(); giveBack(new FormData(event.currentTarget)); }}>
-          <div className="kv-field"><span className="req">반송 사유</span><textarea name="reason" aria-label="반송 사유" rows={2} required maxLength={2000} disabled={!answerable || busy} /></div>
-          <div className="kv-actions"><button type="submit" className="kb" disabled={!answerable || busy}>담당 아님 반송</button></div>
-        </form>
-      </KvBox>
+        </div>
+        <div className="pane">
+          <div className="ph">답변 입력</div>
+          <div className="pb">
+            <form ref={form} className="dr-form" aria-label="검토 답변 입력" onSubmit={event => { event.preventDefault(); send(new FormData(event.currentTarget)); }}>
+              <label><span className="req">답변</span><textarea name="result" aria-label="답변" rows={7} required maxLength={10000} disabled={!answerable || busy} placeholder="원인, 판단, 필요한 조치를 적습니다. C/S 담당자가 확인합니다." /></label>
+              <label><span>고객 회신 문안 <small>선택</small></span><textarea name="reply" aria-label="고객 회신 문안" rows={4} maxLength={10000} disabled={!answerable || busy} placeholder="고객에게 그대로 전할 문장이 있으면 적습니다." /></label>
+              <div className="dr-acts">
+                <button type="button" className="kb3" disabled title="임시 저장 경로가 서버에 아직 없습니다">임시 저장</button>
+                <button type="submit" className="kb3 pri" disabled={!answerable || busy}>{busy ? '보내는 중' : '답변 보내기'}</button>
+              </div>
+            </form>
+            <form ref={returnForm} className="dr-form back" aria-label="담당 아님 반송 입력" onSubmit={event => { event.preventDefault(); giveBack(new FormData(event.currentTarget)); }}>
+              <h3>담당 아님 반송</h3>
+              <label><span className="req">반송 사유</span><textarea name="reason" aria-label="반송 사유" rows={2} required maxLength={2000} disabled={!answerable || busy} placeholder="우리 부서 일이 아닌 이유와 맞는 부서를 적습니다." /></label>
+              <div className="dr-acts"><button type="submit" className="kb3" disabled={!answerable || busy}>담당 아님 반송</button></div>
+            </form>
+          </div>
+        </div>
+      </div>
     </div>
   </main>;
 }
