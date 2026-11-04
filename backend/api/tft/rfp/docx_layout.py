@@ -11,8 +11,8 @@ def element(parent: ET.Element, name: str, **attributes: str) -> ET.Element:
     return ET.SubElement(parent, W + name, {W + key: value for key, value in attributes.items()})
 
 
-def paragraph(parent: ET.Element, text: str, style: str = "Normal") -> ET.Element:
-    """사용자 문자열을 자르거나 XML 제어 문자를 버리지 않는다."""
+def check_text(text: str) -> str:
+    """사용자 문자열을 자르거나 XML 제어 문자를 버리지 않는다. XML에 못 넣는 글자가 있으면 거부한다."""
     if any(
         not (
             char in "\n\r\t"
@@ -23,6 +23,12 @@ def paragraph(parent: ET.Element, text: str, style: str = "Normal") -> ET.Elemen
         for char in text
     ):
         raise ValueError("TFT_EXPORT_INVALID_CHARACTER")
+    return text
+
+
+def paragraph(parent: ET.Element, text: str, style: str = "Normal") -> ET.Element:
+    """사용자 문자열을 자르거나 XML 제어 문자를 버리지 않는다."""
+    check_text(text)
     para = element(parent, "p")
     element(element(para, "pPr"), "pStyle", val=style)
     run = element(para, "r")

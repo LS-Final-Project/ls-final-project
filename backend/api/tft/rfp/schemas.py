@@ -121,7 +121,8 @@ DraftSection = Literal[
     "QUESTIONS_NEXT_ACTIONS",
 ]
 EvidenceType = Literal["requirement", "product", "partner", "clause", "question"]
-ExportFormat = Literal["DOCX", "PDF"]
+# XLSX: 편차표·질의서·현황표·요구별 네 시트(KAN-221). PDF는 받지 않는다(422).
+ExportFormat = Literal["DOCX", "PDF", "XLSX"]
 Purpose = Literal["INITIAL_PROPOSAL"]
 ConfirmationStatus = Literal["UNCONFIRMED", "CONTACT_PLANNED", "CONFIRMED"]
 

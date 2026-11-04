@@ -2840,7 +2840,8 @@
           "format": {
             "enum": [
               "DOCX",
-              "PDF"
+              "PDF",
+              "XLSX"
             ],
             "title": "Format",
             "type": "string"
@@ -2915,7 +2916,8 @@
           "format": {
             "enum": [
               "DOCX",
-              "PDF"
+              "PDF",
+              "XLSX"
             ],
             "title": "Format",
             "type": "string"

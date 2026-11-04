@@ -28,6 +28,8 @@ FILE_TYPES = frozenset(
     (
         "application/pdf",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        # KAN-221 입찰 대응 XLSX 내보내기.
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 )
 DIAGRAM_TYPES = frozenset(("application/pdf", "image/png", "image/jpeg", "image/webp"))

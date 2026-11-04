@@ -146,7 +146,9 @@ async def exports(request: Request, principal: Principal, project_id: UUID) -> s
                 requested_by=row["created_by"],
                 requested_at=row["created_at"],
                 finished_at=row["completed_at"],
-                file_name=f"rfp-{row['id']}.docx" if row["completed_at"] else None,
+                file_name=draft_exports.file_name(row["id"], row["format"])
+                if row["completed_at"]
+                else None,
             )
             for row in rows
         ]
@@ -273,8 +275,8 @@ async def save_review(
 async def export(
     request: Request, principal: Principal, project_id: UUID, payload: s.ExportRequest, key: str
 ) -> s.ExportAccepted:
-    """PDF는 아무 예약/접수도 하기 전에 거부한다. DOCX는 기존 비동기 worker로 넘긴다."""
-    draft_exports.require_docx(payload.format)
+    """PDF는 아무 예약/접수도 하기 전에 거부한다. DOCX·XLSX는 기존 비동기 worker로 넘긴다."""
+    draft_exports.require_supported(payload.format)
     accepted = await jobs.admit(request, principal, project_id, "rfp.export", payload, key)
     return s.ExportAccepted(
         **accepted.model_dump(),
@@ -296,7 +298,7 @@ async def download(
         raise ApplicationError(404, "TFT_EXPORT_NOT_FOUND", "The export was not found.")
     if row["completed_at"] is None:
         raise ApplicationError(409, "TFT_EXPORT_NOT_READY", "The export is not complete.")
-    draft_exports.require_docx(row["format"])
+    draft_exports.require_supported(row["format"])
     store = storage.document_store(storage.DocumentStorageSettings())
     if store is None:
         raise ApplicationError(503, "TFT_DOCUMENT_NOT_READABLE", "Export storage is unavailable.")
@@ -310,9 +312,10 @@ async def download(
         ) from None
     return Response(
         data,
-        media_type=draft_exports.DOCX_MIME,
+        media_type=draft_exports.MIME[row["format"]],
         headers={
-            "Content-Disposition": f'attachment; filename="rfp-{export_id}.docx"',
+            "Content-Disposition": "attachment; "
+            f'filename="{draft_exports.file_name(export_id, row["format"])}"',
             "Cache-Control": "no-store",
             "X-Content-Type-Options": "nosniff",
         },

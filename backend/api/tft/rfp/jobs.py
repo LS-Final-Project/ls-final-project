@@ -145,7 +145,7 @@ async def admit(
             422, "TFT_ANNOTATION_UNAVAILABLE", "Memo PDF interpretation is not supported."
         )
     if isinstance(payload, s.ExportRequest):
-        draft_exports.require_docx(payload.format)
+        draft_exports.require_supported(payload.format)
     operation: commands.Operation
     if kind == "rfp.context":
         operation = "context.process"
