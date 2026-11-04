@@ -297,3 +297,16 @@ test('근거 비교에서 후보에 없는 문의도 문의·해결 사례 ID로
  await waitFor(()=>expect(fetch.mock.calls.some(([url,init])=>String(url).endsWith('/evidence')&&init?.method==='POST')).toBe(true));
  const call=fetch.mock.calls.find(([url])=>String(url).endsWith('/evidence'))!;expect(JSON.parse(call[1]!.body as string)).toEqual({ticket_id:'22222222-2222-4222-8222-222222222299',case_id:'44444444-4444-4444-8444-444444444499',version:r.version});
 });
+
+test('받은 부서에 보이는 limited 근거는 문의 링크 없이 번호만, 고객은 - 로 보인다',async()=>{
+ const base={row_kind:'EVIDENCE',ticket_subject:null,ticket_received_at:'2026-09-01T00:00:00Z',product_code:'P',case_id:null,case_external_id:null,symptom:'Oil leak',root_cause_type:'WEAR_PART',root_cause:null,action_taken:'Replace gasket',resolved_by_dept:'TS_TRF',known_at:null,fw_version_at_issue:null,onsite_visit:false};
+ const items=[{...base,ticket_id:'11111111-0000-4000-8000-000000000000',ticket_external_id:'T-OPEN',customer_external_id:'CUST-0001',limited:false},{...base,ticket_id:'22222222-0000-4000-8000-000000000000',ticket_external_id:'T-LIMIT',customer_external_id:null,limited:true}];
+ const fault=structuredClone(source) as unknown as ImprovementDetail;fault.data.request.request_type='FAULT';
+ vi.stubGlobal('fetch',vi.fn(async(url:RequestInfo|URL)=>String(url).includes('/case-comparison')?jsonResponse(200,{data:{request_id:'test',hidden_case_count:0,items}}):jsonResponse(200,fault)));view();
+ // 판단할 것이 없으면(모두 같음, 후보 없음) 접혀 시작한다. 머리를 눌러 편다.
+ fireEvent.click(await screen.findByRole('button',{name:/근거 비교/}));
+ const table=within(await screen.findByRole('table',{name:'근거 비교'}));
+ expect(table.getByRole('link',{name:'T-OPEN'})).toBeTruthy();
+ expect(table.queryByRole('link',{name:'T-LIMIT'})).toBeNull();expect(table.getByText('T-LIMIT')).toBeTruthy();
+ expect(table.getByText('CUST-0001')).toBeTruthy();expect(table.getByTitle('이관받지 않은 문의의 고객은 보이지 않습니다').textContent).toBe('-');
+});

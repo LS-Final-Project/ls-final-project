@@ -164,8 +164,11 @@ function EvidenceCompare({ data, locked, onSaved, onEditingChange, openSignal = 
       <LogTable label="근거 비교" rows={rows} rowKey={rowOf} fallback="비교할 근거가 없습니다."
         columns={[
           { key: 'kind', header: '구분', width: 56, className: 'c', cell: row => row.row_kind === 'CANDIDATE' ? <span className="chip w">후보</span> : <span className="chip">포함</span> },
-          { key: 'ticket', header: '문의', width: 120, cell: row => <Link className="link" to={`/cs/tickets/${encodeURIComponent(row.ticket_id)}`}>{row.ticket_external_id ?? row.ticket_id.slice(0, 8)}</Link> },
-          { key: 'customer', header: '고객', width: 96, cell: row => row.customer_external_id },
+          // limited: 요청을 받은 부서가 이관받지 않은 문의. 해결 기록만 보이고 문의 화면은 열 수 없다.
+          { key: 'ticket', header: '문의', width: 120, cell: row => row.limited
+            ? <span title="이관받지 않은 문의라 해결 기록만 보입니다">{row.ticket_external_id ?? row.ticket_id.slice(0, 8)}</span>
+            : <Link className="link" to={`/cs/tickets/${encodeURIComponent(row.ticket_id)}`}>{row.ticket_external_id ?? row.ticket_id.slice(0, 8)}</Link> },
+          { key: 'customer', header: '고객', width: 96, cell: row => row.customer_external_id ?? <span className="none" title="이관받지 않은 문의의 고객은 보이지 않습니다">-</span> },
           { key: 'received', header: '접수일', width: 92, className: 'c', cell: row => dayOf(row.ticket_received_at) },
           ...stats.map(stat => ({ key: stat.key, header: stat.label, cell: (row: CaseRow) => {
             const value = stat.value(row);
