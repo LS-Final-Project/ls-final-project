@@ -68,7 +68,7 @@ async def validate_owner(settings: Settings, principal: Principal, body: bytes) 
 
 
 class AssignmentItem(BaseModel):
-    ticket_id: UUID
+    # ticket_id or request_id: the C/S service checks the subject, the platform the owner.
     user_id: UUID | None
 
 

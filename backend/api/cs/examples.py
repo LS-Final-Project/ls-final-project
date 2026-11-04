@@ -40,7 +40,7 @@ from backend.api.cs.units.schemas import (
     UnitLink,
 )
 from backend.api.cs.workflow.schemas import DeptResult, Transfer, Workflow
-from backend.engine.cs.assignment import ASSIGNMENT_RULES_VERSION
+from backend.engine.cs.assignment import ASSIGNMENT_RULES_VERSION, IMPROVEMENT_RULES_VERSION
 from backend.shared.models import ResponseMeta, SuccessResponse
 
 META = ResponseMeta(request_id=UUID("11111111-1111-4111-8111-111111111111"))
@@ -284,6 +284,7 @@ def assignment_agents_example() -> dict:
     """The agent skill table (assumed data) with current loads (KAN-214)."""
     agents = AgentList(
         rule_version=ASSIGNMENT_RULES_VERSION,
+        request_rule_version=IMPROVEMENT_RULES_VERSION,
         items=[
             AgentSkill(
                 user_id=AGENT_ID,
@@ -291,6 +292,7 @@ def assignment_agents_example() -> dict:
                 families=["TRANSFORMER", "MV_EQUIP"],
                 active=True,
                 open_count=3,
+                open_request_count=1,
                 data_origin="demo",
                 derivation_kind="ASSUMED",
             ),

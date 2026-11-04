@@ -21,12 +21,32 @@ from backend.api.cs.assignments.schemas import (
     Preview,
     PreviewRequest,
     Proposal,
+    RequestApplyRequest,
+    RequestApplyResponse,
+    RequestApplyResult,
+    RequestPreview,
+    RequestProposal,
 )
-from backend.api.cs.assignments.service import agents_from, priority_of, record, ticket_input
+from backend.api.cs.assignments.service import (
+    RequestAssigner,
+    agents_from,
+    family_of,
+    priority_of,
+    record,
+    ticket_input,
+)
+from backend.api.cs.improvements import repository as improvements
+from backend.api.cs.improvements.routes import commit_version
 from backend.api.cs.tickets.access import sees_all_tickets
 from backend.api.cs.tickets.routes import PARTIAL, respond
 from backend.api.cs.workflow.service import lock
-from backend.engine.cs.assignment import ASSIGNMENT_RULES_VERSION, Decision, assign_batch
+from backend.engine.cs.assignment import (
+    ASSIGNMENT_RULES_VERSION,
+    IMPROVEMENT_RULES_VERSION,
+    Decision,
+    RequestDecision,
+    assign_batch,
+)
 from backend.shared.access import Principal, current_principal
 from backend.shared.database import connection
 from backend.shared.departments import CS_DEPARTMENT
@@ -94,11 +114,16 @@ async def list_agents(
         raise HTTPException(403)
     async with connection(request.app.state.settings) as conn:
         rows = await repository.list_agents(conn)
+        loads = await repository.request_loads(conn)
     return respond(
         request,
         AgentList(
             rule_version=ASSIGNMENT_RULES_VERSION,
-            items=[AgentSkill.model_validate(r) for r in rows],
+            request_rule_version=IMPROVEMENT_RULES_VERSION,
+            items=[
+                AgentSkill.model_validate({**r, "open_request_count": loads.get(r["user_id"], 0)})
+                for r in rows
+            ],
         ),
     )
 
@@ -208,4 +233,159 @@ def decision_of(item: Proposal) -> Decision:
         matched_family=item.matched_family,
         candidate_count=item.candidate_count,
         chosen_open_count=item.chosen_open_count,
+    )
+
+
+# --- Improvement requests (cs_owner) ------------------------------------------------------
+
+
+def request_proposals(assigner: RequestAssigner, rows: list[Row]) -> list[RequestProposal]:
+    """Decides `rows` oldest first; each proposal counts toward the next (load spreading)."""
+    proposals = []
+    for row in sorted(rows, key=lambda r: (r["created_at"], str(r["id"]))):
+        decision = assigner.decide(row["id"], row["product_code"], row["created_at"])
+        assert decision is not None
+        assigner.take(decision)
+        proposals.append(
+            RequestProposal(
+                request_id=row["id"],
+                request_type=row["request_type"],
+                product_code=row["product_code"],
+                fault_id=row["fault_id"],
+                family=family_of(row["product_code"]),
+                status=row["status"],
+                created_at=row["created_at"],
+                user_id=decision.user_id,
+                reason_code=decision.reason,
+                matched_family=decision.matched_family,
+                candidate_count=decision.candidate_count,
+                chosen_open_count=decision.chosen_open_count,
+            )
+        )
+    return proposals
+
+
+async def request_assigner(conn: Any) -> RequestAssigner:
+    """The skill table and request loads; here a read failure is an error, not a silent skip."""
+    return RequestAssigner(
+        agents_from(await repository.list_agents(conn)), await repository.request_loads(conn), True
+    )
+
+
+@router.post(
+    "/improvements/preview",
+    response_model=SuccessResponse[RequestPreview],
+    operation_id="cs_preview_improvement_assignments",
+    openapi_extra=PARTIAL,
+)
+async def preview_requests(
+    payload: PreviewRequest, request: Request, principal: Principal = Depends(current_principal)
+) -> SuccessResponse[RequestPreview]:
+    """Proposed C/S owners for open improvement requests without one. Writes nothing."""
+    require_cs_manager(principal)
+    async with connection(request.app.state.settings) as conn:
+        rows = await repository.unassigned_requests(conn, payload.limit)
+        items = request_proposals(await request_assigner(conn), rows)
+    return respond(request, RequestPreview(rule_version=IMPROVEMENT_RULES_VERSION, items=items))
+
+
+@router.post(
+    "/improvements/apply",
+    response_model=SuccessResponse[RequestApplyResponse],
+    operation_id="cs_apply_improvement_assignments",
+    responses={
+        409: {"model": ErrorResponse, "description": "The rules changed since the preview"},
+        422: {"model": ErrorResponse},
+    },
+    openapi_extra=PARTIAL,
+)
+async def apply_requests(
+    payload: RequestApplyRequest,
+    request: Request,
+    principal: Principal = Depends(current_principal),
+) -> SuccessResponse[RequestApplyResponse]:
+    """Writes the previewed owners the rules still give, like the ticket apply. Idempotent.
+
+    Each request is locked and must still be open without a C/S owner. The owner change gets a
+    new request version and audit event like a manager reassignment.
+    """
+    require_cs_manager(principal)
+    if payload.rule_version != IMPROVEMENT_RULES_VERSION:
+        raise ApplicationError(
+            409, "CS_ASSIGNMENT_RULES_CHANGED", "The assignment rules changed. Preview again."
+        )
+    wanted = {item.request_id: item.user_id for item in payload.items}
+    if len(wanted) != len(payload.items):
+        raise ApplicationError(422, "VALIDATION_ERROR", "A request appears twice.")
+    results: dict[UUID, RequestApplyResult] = {}
+    async with connection(request.app.state.settings) as conn:
+        locked: dict[UUID, Row] = {}
+        for request_id in sorted(wanted, key=str):
+            row = await improvements.lock_request(conn, request_id)
+            if row is None:
+                results[request_id] = RequestApplyResult(
+                    request_id=request_id, outcome="NOT_FOUND", user_id=None, reason_code=None
+                )
+            else:
+                locked[request_id] = row
+        open_rows = []
+        for row in await repository.requests_by_ids(conn, list(locked)):
+            if row["cs_owner"] is not None:
+                outcome = "ALREADY_ASSIGNED"
+            elif not row["is_open"]:
+                outcome = "NOT_OPEN"
+            else:
+                open_rows.append(row)
+                continue
+            results[row["id"]] = RequestApplyResult(
+                request_id=row["id"], outcome=outcome, user_id=row["cs_owner"], reason_code=None
+            )
+        assigner = await request_assigner(conn)
+        for item in request_proposals(assigner, open_rows):
+            if item.user_id != wanted[item.request_id]:
+                outcome = "PREVIEW_CHANGED"
+            elif item.user_id is None:
+                outcome = "NO_MATCH"
+            else:
+                row = locked[item.request_id]
+                await improvements.update_request(
+                    conn, item.request_id, row["version"], {"cs_owner": item.user_id}
+                )
+                decision = RequestDecision(
+                    request_id=item.request_id,
+                    user_id=item.user_id,
+                    reason=item.reason_code,
+                    matched_family=item.matched_family,
+                    candidate_count=item.candidate_count,
+                    chosen_open_count=item.chosen_open_count,
+                )
+                await assigner.record(conn, decision, "BATCH", principal.user_id)
+                await commit_version(
+                    conn,
+                    row,
+                    principal.user_id,
+                    "update",
+                    {
+                        "cs_owner": {"from": None, "to": str(item.user_id)},
+                        "assignment_reason": {"to": item.reason_code},
+                        "rule_version": {"to": IMPROVEMENT_RULES_VERSION},
+                    },
+                )
+                outcome = "ASSIGNED"
+            results[item.request_id] = RequestApplyResult(
+                request_id=item.request_id,
+                outcome=outcome,
+                user_id=item.user_id,
+                reason_code=item.reason_code,
+            )
+    ordered = [results[item.request_id] for item in payload.items]
+    assigned = sum(r.outcome == "ASSIGNED" for r in ordered)
+    return respond(
+        request,
+        RequestApplyResponse(
+            rule_version=IMPROVEMENT_RULES_VERSION,
+            assigned=assigned,
+            skipped=len(ordered) - assigned,
+            items=ordered,
+        ),
     )

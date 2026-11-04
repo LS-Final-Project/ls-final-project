@@ -56,11 +56,23 @@
 - 운영 플랫폼 중계는 `POST /apply`를 넘기기 전에 C/S 관리 권한과 **제안된 모든 담당이 활성 cs_agent인지** 확인한다(KAN-195와 같은 검사, 아니면 422 `CS_INVALID_OWNER`, 본문 형식 위반 422 `VALIDATION_ERROR`). 로컬에서 C/S 서비스를 직접 부르면 이 검증을 거치지 않는다.
 - 업무 상태 조회(`GET /tickets/{id}/workflow` 등 `Workflow` 응답)의 `assignment`: 위 저장 절의 배정 근거. 부서 사용자에게는 null.
 
+## 개선요청 담당 (`cs_owner`, `IMPROVEMENT_RULES_VERSION = cs-assign-request-v1`)
+
+2026-11-04 김나영 추가 결정. 개선요청은 여러 언어의 문의를 묶고 부서에 가는 내용은 한국어라 **언어를 보지 않고 제품군만** 본다.
+
+- 규칙: 요청 제품의 제품군(`product_family`)을 맡는 활성 담당자 중 **진행 개선요청이 가장 적은** 사람(`FAMILY`). 같으면 `user_id` 순. 없으면 `NO_MATCH`로 비워 둔다. 진행 = 집계와 같은 정의(`COMPLETED`가 아니고 반려 확인으로 끝나지 않음).
+- 언제: 시스템 후보를 저장할 때(`save_candidates`: 수집 `POST /improvement-candidates/collect`, 해결 사례 등록 직후 판정, 로컬 부트스트랩). 한 번의 실행에서 여러 후보를 저장하면 배정할 때마다 부하를 센다. 기준표를 읽지 못하면(C29 없음 등) 아무도 배정하지 않고 후보 저장은 그대로다(로그 `CS_REQUEST_ASSIGN_FAILED`). 수동 작성 요청은 기존대로 작성자가 담당이다.
+- 검토: 검토 완료를 기록한 사람은 **담당이 비어 있을 때만** 담당이 된다. 규칙으로 정해진 담당은 바꾸지 않는다. 관리자 재배정(`PUT /improvement-requests/{id}/owner`)은 그대로다.
+- 저장: `cs.improvement_assignments`(추가 전용, `NO_MATCH` 포함, `trigger` = `CANDIDATE`·`BATCH`). 문의용 표와 따로 둔 이유는 각자 외래 키(문의/개선요청)와 사유 목록이 달라서다. 담당 자체는 `improvement_requests.cs_owner`이고, 후보 저장의 `create` 감사와 판본 내용에 `cs_owner`·`assignment_reason`이 들어간다.
+- 일괄 배정: `POST /api/v1/cs/assignments/improvements/preview`(본문 `{"limit"}`, 담당 없는 진행 요청을 오래된 순으로)와 `POST /api/v1/cs/assignments/improvements/apply`(본문 `{"rule_version", "items": [{"request_id", "user_id"}]}`). 권한·재확인·멱등·결과 코드는 문의와 같고, 진행이 아니면 `NOT_OPEN`이다. 적용은 요청 판본을 올리고 `update` 감사를 남긴다. 운영 중계는 제안 담당이 활성 cs_agent인지 같은 방식으로 확인한다. 화면은 아직 없다(API만).
+- `GET /agents`는 사람마다 `open_request_count`(진행 개선요청)와 `request_rule_version`을 함께 준다.
+
 ## 화면
 
 - 문의 조회(CS0101): C/S 관리자에게 제목 줄 "자동 배정" 단추. 미리보기 표(문의, 언어, 제품군, 배정 대상, 사유) → "배정 적용"/"취소" → 결과 건수(배정 N, 미배정 M과 사유별 건수) 뒤 목록을 다시 읽는다. 관리자가 아니면 단추를 잠그고 이유를 툴팁으로 보인다.
 - 문의 처리(CS0102): 담당 옆에 "자동 배정: 태국어·저압 차단기 담당 2명 중 진행 1건으로 가장 적음" 같은 한 줄.
-- 운영 현황(CS0901): "담당자 배정 기준" 구역. 담당자, 언어, 제품군, 사용 여부, 현재 진행. 읽기 전용, "가정 자료" 표시.
+- 운영 현황(CS0901): "담당자 배정 기준" 구역. 담당자, 언어, 제품군, 사용 여부, 진행 문의, 진행 개선요청. 읽기 전용, "가정 자료" 표시.
+- 업무 홈(CS0001): "개선요청 할 일"은 내가 C/S 담당인 요청만 센다(`?owner=` 서버 필터). 초안(검토 완료 기록)도 오늘 할 일에 들어간다. 목록을 못 읽으면 합계에 `+`와 빠진 이유를 보인다.
 
 ## 로컬 시연 기준표
 

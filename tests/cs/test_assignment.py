@@ -9,11 +9,15 @@ from uuid import UUID
 
 from backend.engine.cs.assignment import (
     ASSIGNMENT_RULES_VERSION,
+    IMPROVEMENT_RULES_VERSION,
     Agent,
+    RequestInput,
     TicketInput,
     assign_batch,
+    assign_requests,
     batch_order,
     decide,
+    decide_request,
     primary_language,
 )
 
@@ -146,3 +150,42 @@ def test_same_input_gives_the_same_result():
     agents = [agent(A, ["th", "en"], ["LV_BREAKER"]), agent(B, ["th"], ["DRIVE"])]
     tickets = [ticket(n, ["th", "pl", "es"][n % 3], minutes=n) for n in range(9)]
     assert assign_batch(tickets, agents) == assign_batch(list(reversed(tickets)), agents)
+
+
+# --- Improvement requests: product family only, fewest open requests ----------------------
+
+
+def request(n, family="LV_BREAKER", minutes=0):
+    return RequestInput(UUID(int=n), family, T0 + timedelta(minutes=minutes))
+
+
+def test_request_goes_to_the_family_agent_with_the_fewest_open_requests():
+    # Language is not used: a Thai-only agent handling the family qualifies.
+    agents = [agent(A, ["en"], ["LV_BREAKER"]), agent(B, ["th"], ["LV_BREAKER"])]
+    d = decide_request(request(1), agents, {A: 2, B: 1})
+    assert (d.user_id, d.reason, d.matched_family, d.candidate_count, d.chosen_open_count) == (
+        B,
+        "FAMILY",
+        "LV_BREAKER",
+        2,
+        1,
+    )
+    assert d.rule_version == IMPROVEMENT_RULES_VERSION
+    assert decide_request(request(1), list(reversed(agents)), {}).user_id == A  # tie → user_id
+
+
+def test_request_without_a_family_agent_is_no_match():
+    agents = [agent(A, ["en"], ["DRIVE"]), agent(B, ["en"], ["LV_BREAKER"], active=False)]
+    assert decide_request(request(1), agents, {}).reason == "NO_MATCH"
+    assert decide_request(request(2, family=None), agents, {}).user_id is None
+
+
+def test_request_batch_spreads_load_oldest_first():
+    agents = [agent(A, ["en"], ["LV_BREAKER"]), agent(B, ["en"], ["LV_BREAKER"])]
+    loads = {A: 1}
+    decisions = assign_requests(
+        [request(1, minutes=3), request(2, minutes=0), request(3, minutes=1)], agents, loads
+    )
+    assert [d.request_id.int for d in decisions] == [2, 3, 1]
+    assert [d.user_id for d in decisions] == [B, A, B]
+    assert loads == {A: 2, B: 2}

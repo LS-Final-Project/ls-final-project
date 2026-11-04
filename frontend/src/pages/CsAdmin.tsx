@@ -176,7 +176,8 @@ function AssignmentAgents() {
     { key: 'lang', header: '언어', headClass: '', cell: item => item.languages.map(languageName).join('·') },
     { key: 'family', header: '제품군', headClass: '', cell: item => item.families.map(familyName).join('·') },
     { key: 'active', header: '사용', width: 56, className: 'c', cell: item => item.active ? '사용' : '중지' },
-    { key: 'open', header: '진행', width: 56, className: 'c', cell: item => item.open_count },
+    { key: 'open', header: '진행 문의', width: 70, className: 'c', cell: item => item.open_count },
+    { key: 'requests', header: '진행 개선', width: 70, className: 'c', cell: item => item.open_request_count ?? 0 },
   ];
   return <section className="kv-box" style={{ margin: '12px 14px 0' }} aria-label="담당자 배정 기준">
     <h2>담당자 배정 기준<small>가정 자료 · 규칙 {rows ? agents.data?.data.rule_version : '-'}</small></h2>
@@ -185,7 +186,7 @@ function AssignmentAgents() {
         : denied ? <div className="kv-sub" style={{ margin: 0, padding: 10 }}>C/S 담당자와 C/S 관리자만 볼 수 있습니다.</div>
           : !rows ? <div className="kv-sub" style={{ margin: 0, padding: 10 }}>배정 기준을 불러오지 못했습니다.</div>
             : <KvGrid label="담당자 배정 기준" columns={columns} rows={rows} rowKey={item => item.user_id} fallback="등록된 기준 없음. 기준이 없으면 새 문의는 자동 배정되지 않습니다." />}
-      <div className="kv-sub" style={{ margin: 0, padding: '6px 10px' }}>새 문의는 언어와 제품군이 맞는 담당자 중 진행 건수가 가장 적은 사람에게 규칙으로 배정됩니다(AI 아님). 언어·제품군은 기획서 직원 기준표의 가정 자료이며 화면에서 고치지 않습니다.</div>
+      <div className="kv-sub" style={{ margin: 0, padding: '6px 10px' }}>새 문의는 언어와 제품군이 맞는 담당자 중 진행 문의가 가장 적은 사람에게, 시스템 개선 후보는 제품군 담당자 중 진행 개선요청이 가장 적은 사람에게 규칙으로 배정됩니다(AI 아님). 언어·제품군은 기획서 직원 기준표의 가정 자료이며 화면에서 고치지 않습니다.</div>
     </div>
   </section>;
 }

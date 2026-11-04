@@ -1,4 +1,4 @@
-"""Rule-based assignment of new C/S tickets to agents (KAN-214, contracts/cs/assignment.md).
+"""Rule-based assignment of new C/S tickets and improvement requests to agents (KAN-214).
 
 Pure Python, no LLM, no DB: the same tickets, agents and loads always give the same result.
 Who can take a ticket is decided by the agent skill table (proposal p.23 employee table,
@@ -127,6 +127,65 @@ def assign_batch(tickets: Iterable[TicketInput], agents: Sequence[Agent]) -> lis
     decisions = []
     for ticket in batch_order(tickets):
         decision = decide(ticket, agents, loads)
+        if decision.user_id is not None:
+            loads[decision.user_id] = loads.get(decision.user_id, 0) + 1
+        decisions.append(decision)
+    return decisions
+
+
+# --- Improvement requests (KAN-214 scope addition, 2026-11-04) -----------------------------
+# A request bundles tickets in many languages and its content to departments is Korean, so only
+# the product family decides. The load is the agent's open improvement requests.
+IMPROVEMENT_RULES_VERSION = "cs-assign-request-v1"
+RequestReason = Literal["FAMILY", "NO_MATCH"]
+
+
+@dataclass(frozen=True)
+class RequestInput:
+    request_id: UUID
+    family: str | None
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class RequestDecision:
+    request_id: UUID
+    user_id: UUID | None
+    reason: RequestReason
+    matched_family: str | None
+    candidate_count: int = 0
+    chosen_open_count: int | None = None
+    rule_version: str = field(default=IMPROVEMENT_RULES_VERSION)
+
+
+def decide_request(
+    request: RequestInput, agents: Sequence[Agent], loads: dict[UUID, int]
+) -> RequestDecision:
+    """The active agent handling the family with the fewest open requests; tie → user_id."""
+    candidates = [a for a in agents if a.active and request.family in a.families]
+    if request.family is None or not candidates:
+        return RequestDecision(request.request_id, None, "NO_MATCH", None)
+    chosen = min(candidates, key=lambda a: (loads.get(a.user_id, 0), str(a.user_id)))
+    return RequestDecision(
+        request.request_id,
+        chosen.user_id,
+        "FAMILY",
+        request.family,
+        candidate_count=len(candidates),
+        chosen_open_count=loads.get(chosen.user_id, 0),
+    )
+
+
+def assign_requests(
+    requests: Iterable[RequestInput], agents: Sequence[Agent], loads: dict[UUID, int]
+) -> list[RequestDecision]:
+    """Oldest first (created_at, request_id); each assignment adds one to the chosen load.
+
+    `loads` is updated in place so a caller deciding more requests later keeps spreading.
+    """
+    decisions = []
+    for request in sorted(requests, key=lambda r: (r.created_at, str(r.request_id))):
+        decision = decide_request(request, agents, loads)
         if decision.user_id is not None:
             loads[decision.user_id] = loads.get(decision.user_id, 0) + 1
         decisions.append(decision)

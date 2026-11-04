@@ -654,6 +654,7 @@
     "body": {
       "data": {
         "rule_version": "cs-assign-v1",
+        "request_rule_version": "cs-assign-request-v1",
         "items": [
           {
             "user_id": "88888888-8888-4888-8888-888888888881",
@@ -668,6 +669,7 @@
             ],
             "active": true,
             "open_count": 3,
+            "open_request_count": 1,
             "data_origin": "demo",
             "derivation_kind": "ASSUMED"
           },
@@ -684,6 +686,7 @@
             ],
             "active": true,
             "open_count": 1,
+            "open_request_count": 0,
             "data_origin": "demo",
             "derivation_kind": "ASSUMED"
           }

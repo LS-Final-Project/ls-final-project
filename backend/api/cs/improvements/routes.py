@@ -244,6 +244,7 @@ async def list_requests(
     origin: RequestOrigin | None = Query(
         None, description="SYSTEM_CANDIDATE for saved candidates, MANUAL for written requests."
     ),
+    owner: UUID | None = Query(None, description="Only requests whose C/S owner is this user."),
     principal: Principal = Depends(current_principal),
 ) -> SuccessResponse[RequestList]:
     require_list(principal)
@@ -260,6 +261,7 @@ async def list_requests(
             request_type=request_type,
             dept=dept,
             origin=origin,
+            owner=owner,
         )
     return respond(request, RequestList(items=[RequestSummary.model_validate(r) for r in rows]))
 

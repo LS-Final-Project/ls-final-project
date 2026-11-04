@@ -7,7 +7,7 @@ import { STATE_LABEL, formatStamp, type TicketState } from './cs-labels';
 import { getApiMode } from '../api/client';
 import { listTicketsBy, type TicketListResponse } from '../api/cs';
 import { me } from '../api/platform';
-import { listImprovements } from '../api/cs-improvements';
+import { listMyImprovements } from '../api/cs-improvements';
 import '../pages/ticket-detail-v3.css';
 import './cs-home.css';
 
@@ -24,6 +24,8 @@ const REQUEST_TASK: [string, string][] = [
 const taskOf = new Map(REQUEST_TASK);
 const rank = new Map(REQUEST_TASK.map(([status], index) => [status, index]));
 const countText = (n: number, more: boolean) => `${n}${more ? '+' : ''}`;
+// 개선요청 목록 API가 한 번에 주는 최대 건수(backend LIST_LIMIT). 꽉 차면 더 있을 수 있다.
+const REQUEST_PAGE = 200;
 
 // 업무 홈 CS0001. 출근해서 처음 여는 화면: 오늘 내가 할 일을 한눈에 보인다.
 // 건수는 서버 필터(상태·담당자)로 센다. 한 번에 최대 100건까지 받고 넘으면 '+'를 붙인다.
@@ -41,7 +43,8 @@ function HomeView() {
   const fresh = useQuery({ queryKey: ['cs-home', mode, 'new'], queryFn: ({ signal }) => listTicketsBy({ state: 'RECEIVED', sort: 'received_at_asc', limit: LIMIT }, signal), retry: false, staleTime: 0 });
   const mine = useQuery({ queryKey: ['cs-home', mode, 'mine', myId], queryFn: ({ signal }) => listTicketsBy({ state: 'IN_REVIEW,ANSWERED', owner: myId!, sort: 'received_at_asc', limit: LIMIT }, signal), enabled: !!myId, retry: false, staleTime: 0 });
   const waiting = useQuery({ queryKey: ['cs-home', mode, 'waiting', myId], queryFn: ({ signal }) => listTicketsBy({ state: 'TRANSFERRED,WAITING_CUSTOMER', owner: myId!, limit: LIMIT }, signal), enabled: !!myId, retry: false, staleTime: 0 });
-  const requests = useQuery({ queryKey: ['cs-home', mode, 'requests'], queryFn: ({ signal }) => listImprovements(signal), retry: false, staleTime: 0 });
+  // 개선요청도 내 담당(cs_owner)만. 팀 전체 요청은 개선요청 화면에서 본다(KAN-214 자동 배정 뒤).
+  const requests = useQuery({ queryKey: ['cs-home', mode, 'requests', myId], queryFn: ({ signal }) => listMyImprovements(myId!, signal), enabled: !!myId, retry: false, staleTime: 0 });
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ['cs-home', mode] });
   useHotkey('F8', refresh);
 
@@ -52,14 +55,19 @@ function HomeView() {
   const waitItems = waiting.data?.data.items ?? [];
   const todo = [...mineItems, ...newItems].sort((a, b) => ageOf(b) - ageOf(a));
   const late = todo.filter(item => ageOf(item) >= 7).length;
-  const reqTodo = (requests.data?.data.items ?? [])
-    .filter(item => item.request_type === 'FAULT' && taskOf.has(item.status))
+  const reqItems = requests.data?.data.items ?? [];
+  // 서버가 담당으로 걸렀지만, 화면도 내 담당만 센다(다른 사람 요청이 섞이지 않게).
+  const reqTodo = reqItems
+    .filter(item => item.cs_owner === myId && item.request_type === 'FAULT' && taskOf.has(item.status))
     .sort((a, b) => (rank.get(a.status)! - rank.get(b.status)!) || Date.parse(a.created_at) - Date.parse(b.created_at));
-  const reqUrgent = reqTodo.filter(item => item.status !== 'DRAFT').length;
-  const reqDraft = reqTodo.length - reqUrgent;
+  const reqMore = reqItems.length >= REQUEST_PAGE;
+  // 초안(DRAFT)도 내가 검토 완료를 기록할 일이라 오늘 할 일에 센다.
+  const reqDraft = reqTodo.filter(item => item.status === 'DRAFT').length;
   const name = identity.data?.data?.display_name;
   const today = new Date().toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' });
-  const total = todo.length + reqUrgent;
+  const total = todo.length + reqTodo.length;
+  // 개선요청을 못 읽었으면 합계에서 그만큼 빠졌다는 것을 숨기지 않는다.
+  const totalMore = !!(fresh.data?.data.next_cursor || mine.data?.data.next_cursor) || reqMore || requests.isError;
   const failed = fresh.isError ? fresh.error : mine.isError ? mine.error : null;
 
   return <main className="td3 home3">
@@ -75,7 +83,7 @@ function HomeView() {
 
     <div className="body">
       <div className="hello">
-        <div><small>{today}</small><h2>{name ? `${name}님, ` : ''}오늘 할 일 <b>{fresh.isPending || (myId && mine.isPending) ? '…' : `${total}${fresh.data?.data.next_cursor || mine.data?.data.next_cursor ? '+' : ''}건`}</b></h2></div>
+        <div><small>{today}</small><h2>{name ? `${name}님, ` : ''}오늘 할 일 <b>{fresh.isPending || (myId && mine.isPending) ? '…' : `${total}${totalMore ? '+' : ''}건`}</b></h2>{requests.isError && <small className="req-miss" role="status">개선요청을 불러오지 못해 합계에서 빠졌습니다</small>}</div>
         {late > 0 && <span className="late">7일 넘은 문의 {late}건부터 처리하세요</span>}
       </div>
       {(identity.isError || (identity.isSuccess && !myId)) && <div className="stale">로그인 정보를 확인하지 못해 내 담당 문의는 비워 둡니다. 다시 로그인하세요.</div>}
@@ -95,8 +103,8 @@ function HomeView() {
           <span>{waiting.isError ? '불러오지 못함 · 새로고침하세요' : <>부서 {waitItems.filter(item => item.workflow_state === 'TRANSFERRED').length} · 고객 {waitItems.filter(item => item.workflow_state === 'WAITING_CUSTOMER').length} · 답이 오면 다시 내 차례</>}</span>
         </Link>
         <Link className="card req" to="/cs/improvements">
-          <small>개선요청 할 일</small><b>{requests.isPending ? '…' : reqUrgent}</b>
-          <span>{requests.isError ? '불러오지 못함' : `검토 기다리는 초안 ${reqDraft}건 별도`}</span>
+          <small>내 개선요청 할 일</small><b>{!myId ? '-' : requests.isPending ? '…' : requests.isError ? '!' : countText(reqTodo.length, reqMore)}</b>
+          <span>{requests.isError ? '불러오지 못함 · 합계에서 빠짐' : `내 담당만 · 초안 검토 ${reqDraft}건 포함`}</span>
         </Link>
       </div>}
 
@@ -115,8 +123,8 @@ function HomeView() {
           </table></div>}
         </div>
         <div className="pane">
-          <div className="ph"><h2>개선요청 할 일</h2><div className="r"><Link className="link" to="/cs/improvements">모두 보기</Link></div></div>
-          {requests.isPending ? <Loading /> : requests.isError ? <div className="pb"><ErrorState error={requests.error} onRetry={() => void requests.refetch()} /></div>
+          <div className="ph"><h2>개선요청 할 일</h2><div className="r"><span className="meta">내 담당</span><Link className="link" to="/cs/improvements">모두 보기</Link></div></div>
+          {!myId ? <ul className="req-list"><li className="none">로그인 정보를 확인하지 못했습니다.</li></ul> : requests.isPending ? <Loading /> : requests.isError ? <div className="pb"><ErrorState error={requests.error} onRetry={() => void requests.refetch()} /></div>
             : <ul className="req-list">{reqTodo.length === 0 ? <li className="none">할 일이 없습니다.</li> : reqTodo.slice(0, 7).map(item => <li key={item.id}>
               <Link to={`/cs/improvements/${encodeURIComponent(item.id)}`}><b>{item.product_code}{item.fault_id ? ` · ${item.fault_id}` : ''}</b><small>{formatStamp(item.created_at)}</small></Link>
               <span className={item.status === 'DRAFT' ? 'task draft' : 'task'}>{taskOf.get(item.status)}</span>

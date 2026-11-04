@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from backend.engine.cs.assignment import AssignedReason, Reason
+from backend.engine.cs.assignment import AssignedReason, Reason, RequestReason
 
 Trigger = Literal["INTAKE", "BATCH"]
 ApplyOutcome = Literal[
@@ -38,12 +38,16 @@ class AgentSkill(BaseModel):
     families: list[str]
     active: bool
     open_count: int = Field(description="Owned tickets that are not closed, now.")
+    open_request_count: int = Field(
+        default=0, description="Owned improvement requests that are open (stats definition)."
+    )
     data_origin: str
     derivation_kind: str = Field(description="ASSUMED: the employee table is assumed data.")
 
 
 class AgentList(BaseModel):
     rule_version: str
+    request_rule_version: str
     items: list[AgentSkill] = Field(description="By user_id.")
 
 
@@ -101,3 +105,57 @@ class ApplyResponse(BaseModel):
     assigned: int
     skipped: int
     items: list[ApplyResult]
+
+
+# --- Improvement requests (cs_owner) ------------------------------------------------------
+RequestApplyOutcome = Literal[
+    "ASSIGNED", "ALREADY_ASSIGNED", "NOT_OPEN", "NOT_FOUND", "PREVIEW_CHANGED", "NO_MATCH"
+]
+
+
+class RequestProposal(BaseModel):
+    request_id: UUID
+    request_type: str
+    product_code: str
+    fault_id: str | None
+    family: str | None = Field(description="product_master family; null for an unknown product.")
+    status: str
+    created_at: datetime
+    user_id: UUID | None
+    reason_code: RequestReason
+    matched_family: str | None
+    candidate_count: int
+    chosen_open_count: int | None = Field(description="Open requests of the chosen agent.")
+
+
+class RequestPreview(BaseModel):
+    rule_version: str
+    items: list[RequestProposal] = Field(description="Oldest first, the decision order.")
+
+
+class RequestApplyItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: UUID
+    user_id: UUID | None = Field(description="The previewed agent; null for NO_MATCH.")
+
+
+class RequestApplyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rule_version: str = Field(min_length=1, max_length=64)
+    items: Annotated[list[RequestApplyItem], Field(min_length=1, max_length=200)]
+
+
+class RequestApplyResult(BaseModel):
+    request_id: UUID
+    outcome: RequestApplyOutcome
+    user_id: UUID | None = Field(description="Owner after the call (or the new proposal).")
+    reason_code: RequestReason | None
+
+
+class RequestApplyResponse(BaseModel):
+    rule_version: str
+    assigned: int
+    skipped: int
+    items: list[RequestApplyResult]

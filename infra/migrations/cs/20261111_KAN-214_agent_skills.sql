@@ -1,6 +1,7 @@
 -- KAN-214: C/S agent skills (proposal p.23 employee table, assumed data) and the rule-based
--- assignment decisions of tickets (contracts/cs/assignment.md). Apply after C1 (tickets) and
--- C4 (ticket_workflows), before deploying the C/S service with automatic assignment.
+-- assignment decisions of tickets and improvement requests (contracts/cs/assignment.md). Apply
+-- after C1 (tickets), C4 (ticket_workflows) and C6 (improvement_requests), before deploying the
+-- C/S service with automatic assignment.
 -- Re-runnable; only the owning migrator creates the tables. Local bootstrap applies this as postgres.
 \set ON_ERROR_STOP on
 BEGIN;
@@ -52,7 +53,30 @@ CREATE TABLE IF NOT EXISTS cs.ticket_assignments (
 CREATE INDEX IF NOT EXISTS ticket_assignments_ticket
     ON cs.ticket_assignments (ticket_id, created_at DESC, id DESC);
 
-REVOKE ALL ON cs.agent_skills, cs.ticket_assignments FROM cs_app;
+-- Improvement requests (cs_owner): one row per rule decision, NO_MATCH included, append-only.
+-- A separate table, not a subject kind on ticket_assignments, so each keeps its foreign key and
+-- its own reason list. ON DELETE CASCADE only matters to administrators: cs_app cannot delete
+-- requests.
+CREATE TABLE IF NOT EXISTS cs.improvement_assignments (
+    id uuid PRIMARY KEY,
+    request_id uuid NOT NULL REFERENCES cs.improvement_requests(id) ON DELETE CASCADE,
+    user_id uuid,
+    rule_version text NOT NULL,
+    reason_code text NOT NULL CHECK (reason_code IN ('FAMILY', 'NO_MATCH')),
+    matched_family text,
+    candidate_count integer NOT NULL CHECK (candidate_count >= 0),
+    chosen_open_count integer CHECK (chosen_open_count IS NULL OR chosen_open_count >= 0),
+    -- CANDIDATE: when the system saves a candidate. BATCH: applied by a C/S manager.
+    trigger text NOT NULL CHECK (trigger IN ('CANDIDATE', 'BATCH')),
+    decided_by uuid,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    CHECK ((reason_code = 'NO_MATCH') = (user_id IS NULL)),
+    CHECK ((trigger = 'BATCH') = (decided_by IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS improvement_assignments_request
+    ON cs.improvement_assignments (request_id, created_at DESC, id DESC);
+
+REVOKE ALL ON cs.agent_skills, cs.ticket_assignments, cs.improvement_assignments FROM cs_app;
 GRANT SELECT ON cs.agent_skills TO cs_app;
-GRANT SELECT, INSERT ON cs.ticket_assignments TO cs_app;
+GRANT SELECT, INSERT ON cs.ticket_assignments, cs.improvement_assignments TO cs_app;
 COMMIT;

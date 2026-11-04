@@ -5,6 +5,8 @@ from uuid import UUID
 
 from psycopg import AsyncConnection
 
+from backend.api.cs.stats.repository import REJECTION_ENDED
+
 Row = dict[str, Any]
 
 ASSIGNMENT_COLUMNS = (
@@ -65,3 +67,50 @@ async def latest_assignment(conn: AsyncConnection[Row], ticket_id: UUID) -> Row 
         (ticket_id,),
     )
     return await cursor.fetchone()
+
+
+# --- Improvement requests (cs_owner) ------------------------------------------------------
+
+# Open = the stats definition (KAN-111): not completed and not ended by reviewed rejection.
+OPEN_REQUEST = f"r.status <> 'COMPLETED' AND NOT {REJECTION_ENDED}"
+REQUEST_COLUMNS = (
+    "r.id, r.request_type, r.origin, r.product_code, r.fault_id, r.status, r.cs_owner, "
+    "r.problem_statement, r.created_at"
+)
+
+
+async def request_loads(conn: AsyncConnection[Row]) -> dict[UUID, int]:
+    """Open improvement requests per C/S owner."""
+    cursor = await conn.execute(
+        "SELECT r.cs_owner AS user_id, count(*)::int AS open_count "
+        f"FROM cs.improvement_requests r WHERE r.cs_owner IS NOT NULL AND {OPEN_REQUEST} "
+        "GROUP BY r.cs_owner"
+    )
+    return {row["user_id"]: row["open_count"] for row in await cursor.fetchall()}
+
+
+async def unassigned_requests(conn: AsyncConnection[Row], limit: int) -> list[Row]:
+    cursor = await conn.execute(
+        f"SELECT {REQUEST_COLUMNS} FROM cs.improvement_requests r "
+        f"WHERE r.cs_owner IS NULL AND {OPEN_REQUEST} ORDER BY r.created_at, r.id LIMIT %s",
+        (limit,),
+    )
+    return await cursor.fetchall()
+
+
+async def requests_by_ids(conn: AsyncConnection[Row], ids: list[UUID]) -> list[Row]:
+    cursor = await conn.execute(
+        f"SELECT {REQUEST_COLUMNS}, ({OPEN_REQUEST}) AS is_open "
+        "FROM cs.improvement_requests r WHERE r.id = ANY(%s)",
+        (ids,),
+    )
+    return await cursor.fetchall()
+
+
+async def insert_request_assignment(conn: AsyncConnection[Row], values: Row) -> None:
+    columns = ", ".join(values)
+    await conn.execute(
+        f"INSERT INTO cs.improvement_assignments ({columns}) "
+        f"VALUES ({', '.join(['%s'] * len(values))})",
+        tuple(values.values()),
+    )

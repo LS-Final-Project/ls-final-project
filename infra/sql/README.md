@@ -100,7 +100,7 @@ T13을 재적용해도 허용집합을 과거로 되돌리지 않는다. 정렬�
 | C26 | `cs/20261108_KAN-202_improvement_candidates.sql` | C6·C14(헤더) | cs_migrator | 가능 | 열 `cs.improvement_requests.candidate_reason_code` | 미확인 |
 | C27 | `cs/20261109_KAN-115_improvement_ai_drafts.sql` | C6(헤더) | cs_migrator | 가능 | to_regclass('cs.improvement_ai_drafts') | 미확인 |
 | C28 | `cs/20261110_KAN-213_ticket_translations.sql` | C1(헤더) | cs_migrator | 가능 | to_regclass('cs.ticket_translations') | 미확인 |
-| C29 | `cs/20261111_KAN-214_agent_skills.sql` | C1·C4(헤더) | cs_migrator | 가능 | to_regclass('cs.agent_skills') | 미확인 |
+| C29 | `cs/20261111_KAN-214_agent_skills.sql` | C1·C4·C6(헤더) | cs_migrator | 가능 | to_regclass('cs.agent_skills') | 미확인 |
 | T1 | `tft/20261023_KAN-119_projects.sql` | 001 | tft_migrator | 가능 | to_regclass('tft.organizations') | 미확인 |
 | T2 | `tft/20261023_KAN-122_staffing_requests.sql` | T1(헤더) | tft_migrator | 가능 | to_regclass('tft.staffing_request_revisions') | 미확인 |
 | T3 | `tft/20261025_KAN-123_competency_rechecks.sql` | T1 | postgres(SET ROLE 없음) | 가능 | to_regclass('tft.competency_checks_recommendation_competency_time') | 미확인 |

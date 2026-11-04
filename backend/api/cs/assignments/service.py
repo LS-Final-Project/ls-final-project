@@ -5,6 +5,8 @@ decision itself goes to cs.ticket_assignments. Every write locks the ticket row 
 """
 
 import logging
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -13,7 +15,15 @@ from psycopg import AsyncConnection
 from backend.api.cs.analysis import service as analysis
 from backend.api.cs.assignments import repository
 from backend.api.cs.workflow.service import lock, save
-from backend.engine.cs.assignment import Agent, Decision, TicketInput, decide
+from backend.engine.cs.assignment import (
+    Agent,
+    Decision,
+    RequestDecision,
+    RequestInput,
+    TicketInput,
+    decide,
+    decide_request,
+)
 from backend.engine.cs.rules import RuleInputError, product_family
 from backend.shared.database import connection
 from backend.shared.settings import Settings
@@ -123,4 +133,73 @@ async def assign_on_intake(settings: Settings, ticket_id: UUID) -> None:
         logger.warning(
             "cs auto assignment failed",
             extra={"code": "CS_AUTO_ASSIGN_FAILED", "ticket_id": str(ticket_id)},
+        )
+
+
+# --- Improvement requests (cs_owner) ------------------------------------------------------
+
+
+@dataclass
+class RequestAssigner:
+    """Assigns improvement requests one by one inside the caller's transaction.
+
+    Built once per run so a batch of candidates spreads the load as it goes. When the skill
+    table cannot be read (C29 missing, any failure) it assigns nobody and records nothing, so
+    saving candidates never fails because of assignment.
+    """
+
+    agents: list[Agent]
+    loads: dict[UUID, int]
+    enabled: bool
+
+    @classmethod
+    async def load(cls, conn: AsyncConnection[Row]) -> "RequestAssigner":
+        try:
+            # Savepoint: a failed read must not abort the caller's transaction.
+            async with conn.transaction():
+                agents = agents_from(await repository.list_agents(conn))
+                loads = await repository.request_loads(conn)
+        except Exception:  # noqa: BLE001 - 배정 실패로 후보 저장을 막지 않는다.
+            logger.warning(
+                "cs request assignment unavailable", extra={"code": "CS_REQUEST_ASSIGN_FAILED"}
+            )
+            return cls([], {}, False)
+        return cls(agents, loads, True)
+
+    def decide(
+        self, request_id: UUID, product_code: str, created_at: datetime
+    ) -> RequestDecision | None:
+        if not self.enabled:
+            return None
+        return decide_request(
+            RequestInput(request_id, family_of(product_code), created_at), self.agents, self.loads
+        )
+
+    def take(self, decision: RequestDecision) -> None:
+        """Counts the decided owner's new request so the next decision sees it."""
+        if decision.user_id is not None:
+            self.loads[decision.user_id] = self.loads.get(decision.user_id, 0) + 1
+
+    async def record(
+        self,
+        conn: AsyncConnection[Row],
+        decision: RequestDecision,
+        trigger: str,
+        actor: UUID | None,
+    ) -> None:
+        """Stores the decision, NO_MATCH included."""
+        await repository.insert_request_assignment(
+            conn,
+            {
+                "id": uuid4(),
+                "request_id": decision.request_id,
+                "user_id": decision.user_id,
+                "rule_version": decision.rule_version,
+                "reason_code": decision.reason,
+                "matched_family": decision.matched_family,
+                "candidate_count": decision.candidate_count,
+                "chosen_open_count": decision.chosen_open_count,
+                "trigger": trigger,
+                "decided_by": actor,
+            },
         )

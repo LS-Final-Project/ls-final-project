@@ -95,7 +95,7 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     (
         "/api/v1/cs/improvement-requests",
         ("GET", "POST"),
-        ("status", "request_type", "dept", "origin"),
+        ("status", "request_type", "dept", "origin", "owner"),
     ),
     ("/api/v1/cs/improvement-requests/{uuid}", ("GET", "PATCH"), ()),
     ("/api/v1/cs/improvement-requests/{uuid}/versions", ("GET",), ()),
@@ -127,6 +127,8 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ("/api/v1/cs/assignments/agents", ("GET",), ()),
     ("/api/v1/cs/assignments/preview", ("POST",), ()),
     ("/api/v1/cs/assignments/apply", ("POST",), ()),
+    ("/api/v1/cs/assignments/improvements/preview", ("POST",), ()),
+    ("/api/v1/cs/assignments/improvements/apply", ("POST",), ()),
     (
         "/api/v1/tft/projects",
         ("GET", "POST"),
@@ -408,7 +410,10 @@ async def relay(request: Request, path: str) -> Response:
         path,
     ):
         await validate_owner(settings, principal, body)
-    if request.method == "POST" and path == "/api/v1/cs/assignments/apply":
+    if request.method == "POST" and path in (
+        "/api/v1/cs/assignments/apply",
+        "/api/v1/cs/assignments/improvements/apply",
+    ):
         await validate_assignment_apply(settings, principal, body)
     target = (
         settings.business_cs_url if path.startswith("/api/v1/cs/") else settings.business_tft_url
