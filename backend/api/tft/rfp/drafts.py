@@ -24,8 +24,11 @@ async def requirements_of(
     conn: AsyncConnection[Row], project_id: UUID
 ) -> list[s.RequirementDetail]:
     """페이지 결과가 아니라 프로젝트 최신 요구 전체를 기존 상세 변환으로 읽는다."""
+    # 뺀 요구(KAN-225)는 초안·출력에 넣지 않는다.
     cursor = await conn.execute(
-        "SELECT id FROM tft.requirements WHERE project_id = %s ORDER BY id", (project_id,)
+        "SELECT id FROM tft.requirements req WHERE project_id = %s "
+        f"AND NOT {repository.EXCLUDED.format(requirement='req.id')} ORDER BY id",
+        (project_id,),
     )
     result = []
     for row in await cursor.fetchall():

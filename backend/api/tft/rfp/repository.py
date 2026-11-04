@@ -1505,8 +1505,9 @@ async def insert_requirement(
     clause: Mapping[str, Any] | None,
     spec: Mapping[str, Any],
     judgement: Mapping[str, Any],
+    actor: UUID | None = None,
 ) -> UUID:
-    """AI 초안 요구와 판본 1(판단 포함)·조건을 쓴다.
+    """AI 초안 요구와 판본 1(판단 포함)·조건을 쓴다. actor가 있으면 사람이 원문에서 직접 추가한 요구다(KAN-225).
 
     Args:
         conn: 진행 중 트랜잭션.
@@ -1518,6 +1519,7 @@ async def insert_requirement(
             designated_manufacturer·assembly_clause·tolerance·needs_review·attribute_key·
             equipment_family·conditions(name·value·unit 목록).
         judgement: status·reason·unresolved·next_owner.
+        actor: 직접 추가한 사람. 판본은 human_input·PROVIDED이고 판단자가 남는다.
 
     Returns:
         UUID: 요구 ID.
@@ -1525,10 +1527,11 @@ async def insert_requirement(
     requirement_id = uuid4()
     origin = document_version["data_origin"]
     designated = spec["designated_model"] is not None
+    derivation = "DERIVED" if actor is None else "PROVIDED"
     await conn.execute(
         "INSERT INTO tft.requirements (id, project_id, code, data_origin, derivation_kind, known_at) "
-        "VALUES (%s,%s,%s,%s,'DERIVED',now())",
-        (requirement_id, project_id, code[:64], origin),
+        "VALUES (%s,%s,%s,%s,%s,now())",
+        (requirement_id, project_id, code[:64], origin, derivation),
     )
     await conn.execute(
         "INSERT INTO tft.requirement_versions (requirement_id, version, document_version_id, "
@@ -1536,9 +1539,10 @@ async def insert_requirement(
         "necessity, designated_model, designated_manufacturer, designated_clause_id, "
         "designated_procurement, assembly_clause, tolerance, "
         "needs_review, attribute_key, equipment_family, status, reason, unresolved, "
-        "next_owner_field, kind, certification_listed, canonical_value, provenance_kind, data_origin, derivation_kind, known_at) "
+        "next_owner_field, kind, certification_listed, canonical_value, provenance_kind, data_origin, derivation_kind, "
+        "decided_by, decided_at, known_at) "
         "VALUES (%s,1,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
-        "%s,%s,%s,'ai_draft',%s,'DERIVED',now())",
+        "%s,%s,%s,%s,%s,%s,%s,CASE WHEN %s::uuid IS NULL THEN NULL ELSE now() END,now())",
         (
             requirement_id,
             document_version["id"],
@@ -1570,7 +1574,11 @@ async def insert_requirement(
             spec.get("kind"),
             spec.get("certification_listed"),
             spec.get("canonical_value"),
+            "ai_draft" if actor is None else "human_input",
             origin,
+            derivation,
+            actor,
+            actor,
         ),
     )
     for ordinal, condition in enumerate(spec["conditions"]):
@@ -1922,6 +1930,14 @@ REQUIREMENT_STATUS_RANK = (
 )
 
 
+# KAN-225: 요구를 뺐는지. 빼기·되살리기·책임자 되돌림 행의 detail.excluded 중 마지막 값이다(행은 지우지 않는다).
+EXCLUDED = (
+    "coalesce((SELECT (d.detail->>'excluded')::boolean FROM tft.requirement_decisions d "
+    "WHERE d.requirement_id = {requirement} AND d.detail ? 'excluded' "
+    "ORDER BY d.created_at DESC, d.id DESC LIMIT 1), false)"
+)
+
+
 def requirement_sort_key(rank: str, code: str) -> str:
     """대응표 정렬·쪽 비교에 함께 쓰는 값 묶음(SQL 조각)을 만든다.
 
@@ -1995,6 +2011,9 @@ async def list_requirements(
     if filters.get("unresolved_mandatory") is not None:
         where.append(f"({UNRESOLVED_MANDATORY}) = %s")
         params.append(filters["unresolved_mandatory"])
+    if filters.get("excluded") is not None:
+        where.append(f"{EXCLUDED.format(requirement='req.id')} = %s")
+        params.append(filters["excluded"])
     if after is not None:
         where.append(
             f"{requirement_sort_key(REQUIREMENT_STATUS_RANK, 'req.code')} > "

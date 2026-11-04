@@ -15,12 +15,16 @@ from langgraph.graph import END, START, StateGraph
 from pydantic import ValidationError
 
 from backend.engine.rfp.context_models import (
+    ConflictValue,
     ContextAssignment,
     ContextGroup,
     ContextIssue,
     ContextProposal,
+    ContextRelation,
     ContextRequirement,
     ContextResult,
+    DuplicateSet,
+    ValueConflict,
 )
 from backend.shared import ai
 from backend.shared.tracing import TRACING_BLOCKED, tracing_requested
@@ -325,6 +329,266 @@ def validate_context(
     )
 
 
+# 원문이 적은 설비 태그(MV-SWG-01, TR-01). 하이픈과 숫자가 있어야 하고 정격·규격 번호(IEC 60076, 12kV)는 아니다.
+TAG = r"[A-Z]{1,5}(?:-[A-Z]{1,5})*-\d{1,4}"
+_TAG_TOKEN = re.compile(rf"(?<![\w-])({TAG})(?![\w-])")
+_HEADING = re.compile(rf"^\s*([^()\n]{{1,60}}?)\s*\(\s*({TAG})\s*\)\s*$")
+Headings = dict[tuple[str, str], tuple[str, str]]
+
+
+def heading_tags(clauses: list[dict[str, Any]]) -> Headings:
+    """'중전압 개폐반 (MV-SWG-01)' 꼴 조항 제목에서 (판본, 조항 번호) → (설비 이름, 태그)."""
+    out: Headings = {}
+    for clause in clauses:
+        for text in (clause.get("title"), clause.get("text")):
+            match = _HEADING.match(text or "")
+            if match:
+                out[(clause["document_version_id"], clause["clause_no"])] = (
+                    match.group(1).strip(),
+                    match.group(2),
+                )
+                break
+    return out
+
+
+def _norm(text: str | None) -> str:
+    return re.sub(r"[\s()]", "", (text or "")).casefold()
+
+
+def _tag_of(row: ContextRequirement, headings: Headings) -> str | None:
+    """원문에 적힌 근거로만 태그를 정한다. 여러 태그가 걸리면 정하지 않는다."""
+    declared = {
+        tag: name for (doc, _), (name, tag) in headings.items() if doc == row.document_version_id
+    }
+    if not declared:
+        return None
+    equipment = (row.equipment or "").strip()
+    if equipment in declared:
+        return equipment
+    by_name = [tag for tag, name in declared.items() if _norm(name) == _norm(equipment)]
+    if equipment and len(by_name) == 1:
+        return by_name[0]
+    for part in reversed(row.section_path):
+        heading = headings.get((row.document_version_id, part.split(" ", 1)[0]))
+        if heading:
+            return heading[1]
+    mentioned = {t for t in _TAG_TOKEN.findall(f"{row.quote}\n{equipment}") if t in declared}
+    if len(mentioned) == 1:
+        return mentioned.pop()
+    # "변압기"처럼 일반 이름이 선언된 이름 하나에만 들어가면 그 설비다(둘 이상이면 정하지 않음).
+    contains = [
+        t
+        for t, n in declared.items()
+        if len(_norm(equipment)) >= 2 and _norm(equipment) in _norm(n)
+    ]
+    return contains[0] if len(contains) == 1 and not mentioned else None
+
+
+def _value(text: str | None) -> str:
+    return re.sub(r"[\s,]|이상|이하|초과|미만|≥|≤|>=|<=", "", text or "").casefold()
+
+
+_UNIT = re.compile(r"^(k|M)?(V|A|VA|W|Hz)$")
+
+
+def _quantity(value: str | None, unit: str | None) -> tuple[str, str] | None:
+    """'0.415 kV'와 '415 V'를 같은 값으로 본다. 숫자 하나와 SI 접두 단위일 때만."""
+    number = re.fullmatch(r"[-+]?\d+(?:\.\d+)?", _value(value))
+    match = _UNIT.match((unit or "").strip())
+    if not number or not match:
+        return None
+    scale = {"k": 1e3, "M": 1e6}.get(match.group(1) or "", 1)
+    return match.group(2), f"{float(number.group()) * scale:g}"
+
+
+def consolidate(
+    result: ContextResult, requirements: list[ContextRequirement], headings: Headings
+) -> ContextResult:
+    """모델 묶음 뒤의 결정적 정리(KAN-216, KAN-223). 원문 제목의 태그로만 묶고, 새 사실은 만들지 않는다.
+
+    - 태그 없는 설비 묶음에 근거 요구들의 태그가 하나로 모이면 그 태그를 붙이고, 같은 문서·같은 태그 묶음은 합친다.
+    - 태그 묶음이 없는 선언 태그에 요구가 있으면 원문 제목 이름으로 묶음을 만든다.
+    - 묶음이 없는 요구는 태그가 정해지면 그 묶음에 APPLIES_TO로 붙인다.
+    - 같은 태그·속성·값 요구는 중복 묶음으로, 값이 다르면 값 충돌로 남긴다(요구 행은 지우지 않는다).
+    """
+    if not headings:
+        return result
+    rows = {r.requirement_id: r for r in requirements}
+    tags = {key: _tag_of(row, headings) for key, row in rows.items()}
+    names = {(doc, tag): name for (doc, _), (name, tag) in headings.items()}
+    aliases: dict[str, str] = {}
+    merged: dict[tuple[str, ...], ContextGroup] = {}
+    for group in result.groups:
+        refs = [r for r in group.evidence_requirement_ids if r in rows]
+        if not refs:
+            merged[("id", group.entity_id)] = group
+            continue
+        doc = rows[refs[0]].document_version_id
+        tag = group.tag
+        if group.kind == "EQUIPMENT" and tag is None:
+            found = {tags[r] for r in refs}
+            tag = found.pop() if len(found) == 1 else None
+        if group.kind == "EQUIPMENT" and tag:
+            key: tuple[str, ...] = ("tag", doc, tag.casefold())
+            group = group.model_copy(
+                update={
+                    "tag": tag,
+                    "name": names.get((doc, tag), group.name),
+                    "needs_review": any(tags[r] != tag for r in refs),
+                }
+            )
+        elif group.kind == "EQUIPMENT":
+            path = rows[refs[0]].section_path
+            key = ("name", doc, _norm(group.name), path[0] if path else "")
+        else:
+            key = ("id", group.entity_id)
+        previous = merged.get(key)
+        if previous is None:
+            merged[key] = group
+            continue
+        aliases[group.entity_id] = previous.entity_id
+        merged[key] = previous.model_copy(
+            update={
+                "evidence_requirement_ids": list(
+                    dict.fromkeys(
+                        previous.evidence_requirement_ids + group.evidence_requirement_ids
+                    )
+                ),
+                "diagram_source_ids": list(
+                    dict.fromkeys(previous.diagram_source_ids + group.diagram_source_ids)
+                ),
+                "needs_review": previous.needs_review or group.needs_review,
+            }
+        )
+    by_tag = {key[1:]: g.entity_id for key, g in merged.items() if key[0] == "tag"}
+    for requirement_id, tag in sorted(tags.items(), key=lambda kv: kv[0]):
+        doc = rows[requirement_id].document_version_id
+        if tag and (doc, tag.casefold()) not in by_tag:
+            entity = "tag:" + hashlib.sha256(f"{doc}:{tag}".encode()).hexdigest()[:24]
+            members = [
+                k for k, t in tags.items() if t == tag and rows[k].document_version_id == doc
+            ]
+            merged[("tag", doc, tag.casefold())] = ContextGroup(
+                entity_id=entity,
+                name=names.get((doc, tag), tag),
+                kind="EQUIPMENT",
+                tag=tag,
+                evidence_requirement_ids=members,
+                needs_review=False,
+            )
+            by_tag[(doc, tag.casefold())] = entity
+    groups = [
+        g.model_copy(update={"parent_id": aliases.get(g.parent_id, g.parent_id)})
+        if g.parent_id
+        else g
+        for g in merged.values()
+    ]
+    linked: set[str] = set()
+    assignments = []
+    for assignment in result.assignments:
+        ids = list(dict.fromkeys(aliases.get(g, g) for g in assignment.group_ids))
+        relations = list(
+            {
+                aliases.get(r.group_id, r.group_id): r.model_copy(
+                    update={"group_id": aliases.get(r.group_id, r.group_id)}
+                )
+                for r in assignment.relations
+            }.values()
+        )
+        update: dict[str, Any] = {"group_ids": ids, "relations": relations}
+        row = rows.get(assignment.requirement_id)
+        tag = tags.get(assignment.requirement_id)
+        target = by_tag.get((row.document_version_id, tag.casefold())) if row and tag else None
+        if target and target not in ids and not any(i in by_tag.values() for i in ids):
+            linked.add(assignment.requirement_id)
+            update |= {
+                "group_ids": [*ids, target],
+                "relations": [*relations, ContextRelation(group_id=target, relation="APPLIES_TO")],
+                "reason": f"{assignment.reason} (원문 표기 {tag}로 연결)".strip(),
+                "needs_review": assignment.primary_category == "UNCLASSIFIED",
+            }
+        assignments.append(assignment.model_copy(update=update))
+    issues = []
+    for issue in result.issues:
+        if issue.code != "AMBIGUOUS_GROUP_LINK":
+            issues.append(issue)
+            continue
+        left = [r for r in issue.requirement_ids if r not in linked]
+        if left:
+            issues.append(issue.model_copy(update={"requirement_ids": left}))
+    duplicates, conflicts = _duplicates(rows, tags)
+    partial = bool(issues) or any(a.needs_review for a in assignments)
+    return result.model_copy(
+        update={
+            "outcome": "PARTIAL" if partial else "VALID",
+            "groups": groups,
+            "assignments": assignments,
+            "issues": issues,
+            "duplicates": duplicates,
+            "value_conflicts": conflicts,
+        }
+    )
+
+
+def _duplicates(
+    rows: dict[str, ContextRequirement], tags: dict[str, str | None]
+) -> tuple[list[DuplicateSet], list[ValueConflict]]:
+    buckets: dict[tuple[str, ...], dict[str, list[ContextRequirement]]] = {}
+    for key, row in rows.items():
+        tag = tags.get(key)
+        if not tag or not row.attribute or not row.value:
+            continue
+        quantity = _quantity(row.value, row.unit)
+        unit = quantity[0] if quantity else _norm(row.unit)
+        key = ("#" + quantity[1]) if quantity else _value(row.value)
+        bucket = (row.document_version_id, tag, _norm(row.attribute), unit)
+        buckets.setdefault(bucket, {}).setdefault(key, []).append(row)
+
+    def order(row: ContextRequirement) -> tuple[bool, int, str]:
+        # 본문 조항을 대표로: 도면 OCR이 아니고 더 깊은 조항.
+        return (row.clause_no.startswith("OCR-"), -len(row.section_path), row.clause_no)
+
+    duplicates: list[DuplicateSet] = []
+    conflicts: list[ValueConflict] = []
+    for (_, tag, _, _), by_value in sorted(buckets.items()):
+        for members in by_value.values():
+            if len(members) > 1:
+                members = sorted(members, key=order)
+                duplicates.append(
+                    DuplicateSet(
+                        canonical_requirement_id=members[0].requirement_id,
+                        requirement_ids=[m.requirement_id for m in members],
+                        tag=tag,
+                        attribute=members[0].attribute or "",
+                        value=members[0].value or "",
+                        unit=members[0].unit,
+                        clause_nos=[m.clause_no for m in members],
+                    )
+                )
+        # 값 충돌은 숫자 값만. 문장형 값(형식 등)은 표현 차이일 수 있어 충돌로 보지 않는다.
+        if len(by_value) > 1 and all(k.startswith("#") for k in by_value):
+            first = next(iter(by_value.values()))[0]
+            conflicts.append(
+                ValueConflict(
+                    tag=tag,
+                    attribute=first.attribute or "",
+                    unit=first.unit,
+                    values=[
+                        ConflictValue(
+                            value=sorted(m, key=order)[0].value or "",
+                            requirement_ids=[x.requirement_id for x in m],
+                            clause_nos=[x.clause_no for x in m],
+                        )
+                        for m in by_value.values()
+                    ],
+                    drawing=any(
+                        x.clause_no.startswith("OCR-") for m in by_value.values() for x in m
+                    ),
+                )
+            )
+    return duplicates, conflicts
+
+
 def build_input(row: ContextRequirement, *, inventory: bool = False) -> dict[str, Any]:
     """Explicit whitelist. Comparison status/necessity are read-only and never model inputs."""
     return {
@@ -361,8 +625,12 @@ async def run_context(
     *,
     diagram_source_ids: list[str] | None = None,
     progress: Callable[[str], None] | None = None,
+    headings: Headings | None = None,
 ) -> ContextResult:
-    """Chunked inventory/linking (max 6 concurrent), then at most one 24-row repair."""
+    """Chunked inventory/linking (max 6 concurrent), then at most one 24-row repair.
+
+    headings: 원문 조항 제목의 설비 태그(heading_tags). 있으면 끝에 결정적 정리(consolidate)를 한다.
+    """
     _guard()
     diagrams = list(diagram_source_ids or [])
 
@@ -631,7 +899,7 @@ async def run_context(
     output = await compiled.ainvoke(
         {"requirements": requirements, "diagrams": diagrams}, config={"recursion_limit": 12}
     )
-    return output["result"]
+    return consolidate(output["result"], requirements, headings or {})
 
 
 def _light_schema(value: Any) -> Any:

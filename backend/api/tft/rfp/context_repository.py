@@ -11,6 +11,7 @@ from psycopg.types.json import Jsonb
 
 from backend.api.tft.rfp import draft_repository
 from backend.api.tft.rfp.context_schemas import ContextResponse, SourceReference
+from backend.api.tft.rfp.repository import EXCLUDED
 from backend.engine.rfp.context_graph import validate_context
 from backend.engine.rfp.context_models import ContextRequirement, ContextResult
 from backend.shared.errors import ApplicationError
@@ -54,7 +55,7 @@ async def load_source(conn: AsyncConnection[Row], project_id: UUID) -> SourceBun
             FROM tft.requirement_conditions c WHERE c.requirement_id=r.id AND c.version=v.version),'[]') AS conditions
           FROM tft.requirements r JOIN tft.requirement_versions v ON v.requirement_id=r.id AND v.version=r.latest_version
           JOIN tft.document_versions dv ON dv.id=v.document_version_id JOIN tft.documents d ON d.id=dv.document_id
-          WHERE r.project_id=%(p)s) q),'[]') AS requirements,
+          WHERE r.project_id=%(p)s AND NOT EXCLUDED_R) q),'[]') AS requirements,
         coalesce((SELECT jsonb_agg(to_jsonb(q) ORDER BY q.document_id,q.version) FROM (
           SELECT d.id::text AS document_id,d.kind,d.title,d.latest_version,
           v.id::text AS document_version_id,v.version,v.sha256
@@ -70,7 +71,7 @@ async def load_source(conn: AsyncConnection[Row], project_id: UUID) -> SourceBun
           JOIN tft.document_versions v ON v.id=g.document_version_id JOIN tft.documents d ON d.id=v.document_id WHERE d.project_id=%(p)s
         ) q),'[]') AS diagrams,
         coalesce((SELECT max(version) FROM tft.context_versions WHERE project_id=%(p)s),0) AS base_context_version
-        """,
+        """.replace("EXCLUDED_R", EXCLUDED.format(requirement="r.id")),
         {"p": project_id},
     )
     collected = await cursor.fetchone()

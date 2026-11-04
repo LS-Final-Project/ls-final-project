@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from backend.api.tft.projects.access import require_project_list
 from backend.api.tft.rfp import (
     context_routes,
+    history,
     jobs,
     routes_diagrams,
     routes_draft,
@@ -345,8 +346,9 @@ async def list_requirements(
     has_open_question: bool | None = None,
     next_owner_field: s.NextOwner | None = None,
     unresolved_mandatory: bool | None = None,
+    excluded: bool = False,
 ) -> SuccessResponse[s.RequirementList]:
-    """12. 요구 목록·필터 10개."""
+    """12. 요구 목록·필터 11개. 뺀 요구는 excluded=true일 때만 나온다(KAN-225 별도 목록)."""
     data = await routes_read.list_requirements(
         request,
         principal,
@@ -362,6 +364,7 @@ async def list_requirements(
             "has_open_question": has_open_question,
             "next_owner_field": next_owner_field,
             "unresolved_mandatory": unresolved_mandatory,
+            "excluded": excluded,
         },
         limit=limit,
         cursor=cursor,
@@ -874,3 +877,84 @@ async def decide_requirement(
     return respond(
         request, await decide(request, principal, requirement_id, payload, idempotency_key)
     )
+
+
+# KAN-226 변경 이력(읽기 전용). 이벤트 종류와 출처는 history.py와 contracts/tft/rfp-data.md.
+# 두 중계가 같은 query 키 반복을 막아 kind는 쉼표로 잇는다(kind=decision,recompared).
+HistoryKinds = Annotated[str | None, Query(pattern=history.KIND_PATTERN, max_length=200)]
+
+
+@router.get(
+    P + "/history",
+    response_model=SuccessResponse[history.HistoryPage],
+    operation_id="tft_list_rfp_project_history",
+)
+async def project_history(
+    request: Request,
+    user: User,
+    project_id: UUID,
+    kind: HistoryKinds = None,
+    actor: UUID | None = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    cursor: str | None = None,
+) -> SuccessResponse[history.HistoryPage]:
+    """프로젝트 변경 이력, 최신순. 사람(actor)·종류(kind) 필터."""
+    return respond(
+        request,
+        await history.project_history(
+            request,
+            user,
+            project_id,
+            kinds=history.split_kinds(kind),
+            actor=actor,
+            limit=limit,
+            cursor=cursor,
+        ),
+    )
+
+
+@router.get(
+    "/requirements/{requirement_id}/history",
+    response_model=SuccessResponse[history.HistoryPage],
+    operation_id="tft_list_rfp_requirement_history",
+)
+async def requirement_history(
+    request: Request,
+    user: User,
+    requirement_id: UUID,
+    kind: HistoryKinds = None,
+    actor: UUID | None = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    cursor: str | None = None,
+) -> SuccessResponse[history.HistoryPage]:
+    """요구 한 건의 이력, 최신순."""
+    return respond(
+        request,
+        await history.requirement_history(
+            request,
+            user,
+            requirement_id,
+            kinds=history.split_kinds(kind),
+            actor=actor,
+            limit=limit,
+            cursor=cursor,
+        ),
+    )
+
+
+@router.post(
+    P + "/requirements",
+    response_model=SuccessResponse[s.DecisionResult],
+    operation_id="tft_add_rfp_requirement",
+)
+async def add_requirement(
+    project_id: UUID,
+    payload: s.ManualRequirementRequest,
+    idempotency_key: Key,
+    request: Request,
+    principal: User,
+) -> SuccessResponse[s.DecisionResult]:
+    """원문에서 고른 글로 요구를 직접 추가하고 규칙 비교로 바로 판정한다(KAN-225)."""
+    from backend.api.tft.rfp.manual_requirements import add
+
+    return respond(request, await add(request, principal, project_id, payload, idempotency_key))

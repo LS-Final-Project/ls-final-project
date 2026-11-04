@@ -96,6 +96,10 @@ async def decide(
         assert requirement is not None
         if requirement["version"] != payload.version:
             raise repository.version_conflict()
+        if payload.action not in ON_EXCLUDED and await is_excluded(conn, requirement_id):
+            raise ApplicationError(
+                409, "TFT_REQUIREMENT_EXCLUDED", "The requirement is excluded. Restore it first."
+            )
         decision_id = uuid4()
         act = ACTIONS[payload.action]
         summary, detail, undoes, question_id, after = await act(
@@ -103,52 +107,93 @@ async def decide(
         )
         latest = await repository.latest_requirement_version(conn, project["id"], requirement_id)
         assert latest is not None
-        result = s.DecisionResult(
+        result = await record(
+            conn,
             decision_id=decision_id,
+            project_id=project["id"],
+            requirement_id=requirement_id,
+            base_version=requirement["version"],
+            result_version=latest["version"],
             action=payload.action,
             summary=summary,
-            requirement_id=requirement_id,
-            requirement_version=latest["version"],
+            detail=detail,
+            undoes=undoes,
             question_id=question_id,
-        ).model_dump(mode="json")
-        try:
-            await conn.execute(
-                "INSERT INTO tft.requirement_decisions (id, project_id, requirement_id, "
-                "base_version, result_version, action, summary, detail, undoes, actor_user_id, "
-                "idempotency_key, request_hash, result) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                (
-                    decision_id,
-                    project["id"],
-                    requirement_id,
-                    requirement["version"],
-                    latest["version"],
-                    payload.action,
-                    summary,
-                    Jsonb(detail),
-                    undoes,
-                    principal.user_id,
-                    key,
-                    digest,
-                    Jsonb(result),
-                ),
-            )
-        except UniqueViolation:
-            raise ApplicationError(
-                409, "IDEMPOTENCY_CONFLICT", "The same request key is in progress. Retry later."
-            ) from None
+            actor=principal.user_id,
+            key=key,
+            digest=digest,
+        )
         for write in after:
             await write(decision_id)
-        await commands.audit(
-            conn,
-            project_id=project["id"],
-            entity="requirement",
-            entity_id=requirement_id,
-            action=f"decision.{payload.action}",
-            actor=principal.user_id,
-            detail={"summary": summary, "undoes": str(undoes) if undoes else None},
-        )
     return s.DecisionResult.model_validate(result)
+
+
+async def record(
+    conn: AsyncConnection[Row],
+    *,
+    decision_id: UUID,
+    project_id: UUID,
+    requirement_id: UUID,
+    base_version: int,
+    result_version: int,
+    action: str,
+    summary: str,
+    detail: dict[str, Any],
+    undoes: UUID | None,
+    question_id: UUID | None,
+    actor: UUID,
+    key: str,
+    digest: str,
+) -> dict[str, Any]:
+    """결정 기록 한 행과 감사 한 건을 쓴다. 같은 키가 진행 중이면 409 IDEMPOTENCY_CONFLICT다.
+
+    Returns:
+        dict: 저장한 결과(DecisionResult JSON). 같은 키 재전송은 이 값을 돌려준다.
+    """
+    result = s.DecisionResult(
+        decision_id=decision_id,
+        action=action,  # type: ignore[arg-type]
+        summary=summary,
+        requirement_id=requirement_id,
+        requirement_version=result_version,
+        question_id=question_id,
+    ).model_dump(mode="json")
+    try:
+        await conn.execute(
+            "INSERT INTO tft.requirement_decisions (id, project_id, requirement_id, "
+            "base_version, result_version, action, summary, detail, undoes, actor_user_id, "
+            "idempotency_key, request_hash, result) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (
+                decision_id,
+                project_id,
+                requirement_id,
+                base_version,
+                result_version,
+                action,
+                summary[:200],
+                Jsonb(detail),
+                undoes,
+                actor,
+                key,
+                digest,
+                Jsonb(result),
+            ),
+        )
+    except UniqueViolation:
+        raise ApplicationError(
+            409, "IDEMPOTENCY_CONFLICT", "The same request key is in progress. Retry later."
+        ) from None
+    await commands.audit(
+        conn,
+        project_id=project_id,
+        entity="requirement",
+        entity_id=requirement_id,
+        action=f"decision.{action}",
+        actor=actor,
+        detail={"summary": summary, "undoes": str(undoes) if undoes else None},
+    )
+    return result
 
 
 async def replay(
@@ -552,6 +597,15 @@ async def undo(
 
 
 REVIEW = frozenset({"review_confirm", "review_return"})
+# KAN-225: 요구 목록을 바꾸는 행동. 판단이 아니라 요구가 있는지를 바꾸고, 책임자 확인 대상이다.
+STRUCTURAL = frozenset({"add_requirement", "exclude_requirement", "restore_requirement"})
+STRUCTURAL_WORDS = {
+    "add_requirement": "직접 추가",
+    "exclude_requirement": "요구에서 뺌",
+    "restore_requirement": "되살림",
+}
+# 뺀 요구에도 할 수 있는 행동. 나머지 결정은 되살린 뒤에 한다.
+ON_EXCLUDED = frozenset({"restore_requirement", "review_confirm", "review_return"})
 
 
 def check_role(project: Row, principal: Principal, action: str) -> None:
@@ -570,11 +624,11 @@ def check_role(project: Row, principal: Principal, action: str) -> None:
 
 
 async def current_decision(conn: AsyncConnection[Row], requirement: Row, decision_id: UUID) -> Row:
-    """요구의 지금 결정(되돌리지 않았고 지금 판본에서 한 결정)이 decision_id인지 확인한다."""
+    """요구의 지금 결정(되돌리지 않았고 지금 판본에서 한 결정)이나 마지막 추가·빼기·되살리기가 decision_id인지 확인한다."""
     found = (await states(conn, requirement["project_id"], [requirement["requirement_id"]])).get(
         requirement["requirement_id"]
     )
-    if found is None or found[1].decision_id != decision_id:
+    if found is None or decision_id not in (found[1].decision_id, found[1].change_id):
         raise ApplicationError(404, "TFT_DECISION_NOT_FOUND", "The decision was not found.")
     cursor = await conn.execute(
         "SELECT * FROM tft.requirement_decisions WHERE id = %s", (decision_id,)
@@ -604,7 +658,9 @@ async def review_return(
     payload: s.DecisionRequest,
 ) -> Outcome:
     assert payload.decision_id is not None
-    await current_decision(conn, requirement, payload.decision_id)
+    target = await current_decision(conn, requirement, payload.decision_id)
+    if target["action"] in STRUCTURAL:
+        return revert(target)
     summary, detail, undoes, question, after = await undo(
         conn, project, requirement, principal, payload
     )
@@ -671,7 +727,8 @@ async def states(
     params = {"p": project_id, "ids": list(requirement_ids or [])}
     cursor = await conn.execute(
         "SELECT v.requirement_id, v.version, v.status, v.kind, v.task, v.attribute_key, v.operator, "
-        "v.value, v.unresolved, v.next_owner_field FROM tft.requirements req "
+        "v.value, v.unresolved, v.next_owner_field, req.derivation_kind = 'PROVIDED' AS manually_added "
+        "FROM tft.requirements req "
         "JOIN tft.requirement_versions v ON v.requirement_id = req.id AND v.version = req.latest_version "
         f"WHERE req.project_id = %(p)s{only}",
         params,
@@ -727,16 +784,29 @@ async def states(
             override=override,
         )
         current = next((d for d in reversed(mine) if d["action"] in DECIDING), None)
+        history = [d for d in decisions if d["requirement_id"] == row["requirement_id"]]
+        mark = next((d for d in reversed(history) if "excluded" in d["detail"]), None)
+        excluded = bool(mark and mark["detail"]["excluded"])
+        change = next(
+            (d for d in reversed(history) if d["action"] in STRUCTURAL and d["id"] not in undone),
+            None,
+        )
         out[row["requirement_id"]] = (
             verdict,
             s.DecisionState(
-                needed=verdict != "MET",
+                needed=verdict != "MET" and not excluded,
                 decided=current is not None,
                 decision_id=current["id"] if current else None,
                 action=current["action"] if current else None,
                 summary=current["summary"] if current else None,
                 decided_at=current["created_at"] if current else None,
                 reviewed=current is not None and str(current["id"]) in confirmed,
+                manually_added=row["manually_added"],
+                excluded=excluded,
+                excluded_reason=mark["detail"].get("reason") if mark and excluded else None,
+                change_id=change["id"] if change else None,
+                change_action=change["action"] if change else None,
+                change_reviewed=change is not None and str(change["id"]) in confirmed,
             ),
         )
     return out
@@ -759,20 +829,24 @@ async def gate(conn: AsyncConnection[Row], project_id: UUID) -> s.DecisionGate:
         "WHERE d.project_id = %s ORDER BY d.requirement_id, d.created_at DESC",
         (project_id,),
     )
+    excluded = {rid for rid, (_, state) in found.items() if state.excluded}
     stale = {
         r["requirement_id"]
         for r in await cursor.fetchall()
         if r["state"] == "RECORDED" and r["requirement_version"] != r["latest_version"]
-    }
+    } - excluded
     missing = {
         rid
         for rid, (verdict, state) in found.items()
-        if verdict == "DEVIATION" and state.action not in ("record_deviation", "request_check")
+        if verdict == "DEVIATION"
+        and not state.excluded
+        and state.action not in ("record_deviation", "request_check")
     }
     cursor = await conn.execute(
         "SELECT count(*) AS n FROM tft.customer_questions q WHERE q.project_id = %s "
         "AND q.target = 'CUSTOMER' AND q.status = 'OPEN' "
-        "AND NOT EXISTS (SELECT 1 FROM tft.question_withdrawals w WHERE w.question_id = q.id)",
+        "AND NOT EXISTS (SELECT 1 FROM tft.question_withdrawals w WHERE w.question_id = q.id) "
+        f"AND NOT {repository.EXCLUDED.format(requirement='q.requirement_id')}",
         (project_id,),
     )
     row = await cursor.fetchone()
@@ -785,8 +859,66 @@ async def gate(conn: AsyncConnection[Row], project_id: UUID) -> s.DecisionGate:
         undecided=sum(state.needed and not state.decided for _, state in found.values()),
         deviation_missing=len(missing | stale),
         open_queries=row["n"] if row else 0,
-        review_pending=sum(state.decided and not state.reviewed for _, state in found.values()),
+        # 뺀 요구의 결정은 확인하지 않는다. 추가·빼기·되살리기는 빼도 확인한다(KAN-225).
+        review_pending=sum(
+            (state.decided and not state.reviewed and not state.excluded)
+            + (state.change_id is not None and not state.change_reviewed)
+            for _, state in found.values()
+        ),
         self_review=bool(same and same["same"]),
+    )
+
+
+async def is_excluded(conn: AsyncConnection[Row], requirement_id: UUID) -> bool:
+    cursor = await conn.execute(
+        f"SELECT {repository.EXCLUDED.format(requirement='%s')} AS excluded", (requirement_id,)
+    )
+    row = await cursor.fetchone()
+    return bool(row and row["excluded"])
+
+
+async def exclude(
+    conn: AsyncConnection[Row],
+    project: Row,
+    requirement: Row,
+    principal: Principal,
+    payload: s.DecisionRequest,
+) -> Outcome:
+    """요구에서 뺀다(사유 필수, KAN-225). 이미 뺀 요구는 decide가 409 TFT_REQUIREMENT_EXCLUDED로 막는다."""
+    assert payload.text is not None
+    return (
+        f"요구에서 뺌: {payload.text}",
+        {"excluded": True, "reason": payload.text},
+        None,
+        None,
+        [],
+    )
+
+
+async def restore(
+    conn: AsyncConnection[Row],
+    project: Row,
+    requirement: Row,
+    principal: Principal,
+    payload: s.DecisionRequest,
+) -> Outcome:
+    """뺀 요구를 되살린다. 빼지 않은 요구면 409다."""
+    if not await is_excluded(conn, requirement["requirement_id"]):
+        raise ApplicationError(
+            409, "TFT_REQUIREMENT_NOT_EXCLUDED", "The requirement is not excluded."
+        )
+    return "되살림", {"excluded": False}, None, None, []
+
+
+def revert(target: Row) -> Outcome:
+    """책임자가 추가·빼기·되살리기를 되돌려 보낸다. 추가와 되살리기는 빼고, 빼기는 되살린다."""
+    excluded = target["action"] != "exclude_requirement"
+    return (
+        f"책임자가 되돌림: {STRUCTURAL_WORDS[target['action']]}",
+        {"undone_action": target["action"], "excluded": excluded},
+        target["id"],
+        None,
+        [],
     )
 
 
@@ -802,4 +934,6 @@ ACTIONS: dict[str, Callable[..., Awaitable[Outcome]]] = {
     "undo": undo,
     "review_confirm": review_confirm,
     "review_return": review_return,
+    "exclude_requirement": exclude,
+    "restore_requirement": restore,
 }

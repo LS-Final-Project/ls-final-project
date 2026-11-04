@@ -18,6 +18,7 @@ from backend.api.tft.partners.grading import Grade
 from backend.api.tft.partners.schemas import Attribute, LeadTime, Scope
 from backend.api.tft.rfp.integration import FallbackPath
 from backend.engine.documents.diagrams import DiagramGraph
+from backend.engine.rfp.vocabulary import AttributeKeyOrOther, FamilyOrOther
 
 # --- 공통 축 -----------------------------------------------------------------------------
 
@@ -1103,7 +1104,12 @@ DecisionAction = Literal[
     "undo",
     "review_confirm",
     "review_return",
+    # KAN-225: 요구에서 빼기·되살리기.
+    "exclude_requirement",
+    "restore_requirement",
 ]
+# 기록에 남는 행동. 원문에서 직접 추가(KAN-225)는 결정 API가 아니라 요구 추가 경로로만 한다.
+RecordedAction = Literal[DecisionAction, "add_requirement"]
 # 과업 수행 주체. 공동 수행(JOINT_PROPOSAL)은 과업 요구의 보완 경로가 아니라 받지 않는다(supplement.FIRST_PATHS).
 ExecutionHolder = Literal["OWN", "PARTNER"]
 AssignOwner = Literal["SALES", "TECH", "PURCHASE"]
@@ -1116,6 +1122,8 @@ REQUIRED_BY_ACTION: dict[str, tuple[str, ...]] = {
     "undo": ("decision_id",),
     "review_confirm": ("decision_id",),
     "review_return": ("decision_id",),
+    # 빼는 사유는 필수다(text).
+    "exclude_requirement": ("text",),
 }
 
 
@@ -1143,7 +1151,7 @@ class DecisionRequest(Model):
 
 class DecisionResult(Model):
     decision_id: UUID
-    action: DecisionAction
+    action: RecordedAction
     summary: str
     requirement_id: UUID
     requirement_version: int
@@ -1157,11 +1165,19 @@ class DecisionState(Model):
     needed: bool
     decided: bool
     decision_id: UUID | None = None
-    action: DecisionAction | None = None
+    action: RecordedAction | None = None
     summary: str | None = None
     decided_at: datetime | None = None
     # 책임자가 출력 전에 확인했는지.
     reviewed: bool = False
+    # KAN-225: 원문에서 사람이 직접 추가한 요구인지, 요구에서 뺐는지(빼도 지우지 않는다).
+    manually_added: bool = False
+    excluded: bool = False
+    excluded_reason: str | None = None
+    # 추가·빼기·되살리기 중 마지막 것. 책임자 확인 대상이다(review_confirm의 decision_id로 확인).
+    change_id: UUID | None = None
+    change_action: RecordedAction | None = None
+    change_reviewed: bool = False
 
 
 class DecisionGate(Model):
@@ -1173,6 +1189,29 @@ class DecisionGate(Model):
     review_pending: int = 0
     # 담당 sales와 책임자가 같은 사람이면 결정한 사람이 확인도 한다. 확인 대기는 그대로 두고 화면에 "본인 결정"으로 표시한다.
     self_review: bool = False
+
+
+class ManualRequirementRequest(Model):
+    """원문에서 고른 글로 요구를 직접 추가한다(KAN-225). 값은 사람이 넣고 AI는 쓰지 않는다."""
+
+    clause_id: UUID
+    # 고른 글 그대로. 조항 현행 텍스트 안에 있어야 한다(추출과 같은 근거 검사, 공백·따옴표 정규화).
+    quote: str = Field(min_length=1, max_length=4000)
+    kind: Literal["SPEC", "TASK", "DOCUMENT"]
+    equipment: str | None = Field(default=None, max_length=200)
+    task: str | None = Field(default=None, max_length=200)
+    attribute: str = Field(min_length=1, max_length=200)
+    # 비교 어휘 키·제품 계열. 고르지 않으면 OTHER·None이고 자사 비교를 하지 않는다.
+    attribute_key: AttributeKeyOrOther = "OTHER"
+    equipment_family: FamilyOrOther | None = None
+    # 값은 인용 안에 있어야 한다. 값 없는 요구(과업·제출물)는 null.
+    value: str | None = Field(default=None, min_length=1, max_length=200)
+    unit: str | None = Field(default=None, max_length=32)
+    operator: Operator = "EQ"
+    conditions: list[Condition] = Field(default_factory=list, max_length=10)
+    necessity: Necessity = "MANDATORY"
+    # 설비·속성·값이 같은 요구가 있어도 추가한다(첫 요청은 409 TFT_REQUIREMENT_DUPLICATE로 알린다).
+    allow_duplicate: bool = False
 
 
 RequirementSummary.model_rebuild()

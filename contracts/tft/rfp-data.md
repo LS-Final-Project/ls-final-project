@@ -294,3 +294,94 @@ OPEN), `review_pending`(결정했는데 책임자 확인이 없는 요구). 책�
 `review_return`(대상 `decision_id`, 프로젝트 책임자만)이다. 되돌려 보내기는 되돌리기와 같은 반대 기록을 쓴다.
 담당 sales와 책임자가 같은 사람인 프로젝트는 그 사람이 결정도 확인도 한다. 이때 확인을 생략하지 않고 `review_pending`에 그대로
 남기며, `decision_gate.self_review=true`로 화면이 "본인 결정"을 표시한다(확인 기록은 출력 전 한 번 더 보는 절차로 남긴다).
+
+## 맥락 정리의 결정적 후처리 (KAN-216·KAN-223, 2026-11-04)
+
+모델이 만든 맥락 결과(`run_context`) 끝에서 `consolidate`가 원문 근거만으로 한 번 더 정리한다. 모델을 다시 부르지 않고, 저장된 결과에도
+같은 함수로 재현할 수 있다(`artifacts/kan188-demo-rfp/real-run-20261104/replay_context.py`).
+
+**설비 태그(KAN-216).** 조항 제목(제목 칸 또는 짧은 본문)이 `이름 (태그)` 꼴이면(예: `중전압 개폐반 (MV-SWG-01)`) 그 판본의 선언 태그다.
+태그는 하이픈과 숫자가 있는 대문자 식별자만이다(정격·규격 번호는 아님). 선언 태그가 없는 문서(D20~D22 등)는 결과를 바꾸지 않는다.
+요구의 태그는 다음 순서로 원문 근거가 있을 때만 정한다: 설비 칸이 선언 태그와 같음 → 설비 칸이 선언 이름과 같음 → 조상 조항이 태그
+제목 → 인용·설비 칸에 선언 태그가 하나만 나옴 → 일반 이름("변압기")이 선언 이름 하나에만 들어감. 둘 이상 걸리면 정하지 않는다.
+- 태그 없는 설비 묶음은 근거 요구의 태그가 하나로 모이면 그 태그를 받는다. 같은 판본·같은 태그 묶음은 하나로 합치고 이름은 제목 이름을 쓴다.
+  태그가 다르면 합치지 않는다. 태그 없는 설비 묶음은 같은 판본·같은 정규화 이름·같은 장일 때만 합친다.
+- 선언 태그에 요구가 있는데 묶음이 없으면 제목 이름으로 묶음을 만든다.
+- 묶음이 없는 요구는 태그가 정해지면 그 묶음에 `APPLIES_TO`로 붙이고, 그 요구의 `AMBIGUOUS_GROUP_LINK` 이슈를 지운다.
+- 묶음의 `needs_review`는 근거 요구가 모두 같은 태그로 정해질 때만 false다. 나머지는 true로 둔다.
+
+**중복 요구와 값 충돌(KAN-223).** 요구 행은 지우거나 합치지 않는다. 맥락 결과에 두 목록을 더한다.
+- `duplicates`: 같은 판본·같은 태그·같은 속성 이름(공백 무시)·같은 값인 요구 2건 이상. 값은 쉼표·이상/이하 표기를 무시하고,
+  kV/V·kA/A·kVA/VA 같은 SI 접두는 같은 단위로 환산한다. 대표 요구는 도면 OCR이 아닌 더 깊은 조항이다. 화면은 대표 하나와
+  "원문 n곳에서 같은 요구"로 보인다.
+- `value_conflicts`: 같은 판본·태그·속성·단위인데 숫자 값이 다른 경우. 합치지 않고 질의 대상으로 남기며, 도면 OCR 출처가 있으면
+  `drawing=true`(도면 불일치 질의). 문장형 값(형식 등)의 표현 차이는 충돌로 보지 않는다.
+- 일반 조항(사업 개요·사용 환경)에서 나온 요구는 지우지 않는다. 사용 환경(표고·주위온도)은 정격 판단에 쓰이는 실제 요구이고,
+  사업 개요의 설비 요약 문장(예: "630 kVA 변압기 1대")은 위 중복 규칙으로 본문 요구에 합쳐진다. 판정·결정 집계(KAN-220)가
+  중복 목록을 아직 읽지 않으므로, 결정 대상 수에서 중복을 빼는 일은 화면·집계 쪽 다음 단계다.
+
+## 변경 이력 (KAN-226, 2026-11-04)
+
+`GET /projects/{id}/history`(프로젝트 전체)와 `GET /requirements/{id}/history`(요구 한 건)는 이미 쌓인 표를 읽어
+시간순 이벤트로 합친다. 저장 구조를 바꾸지 않고, 기록에 없는 사건은 만들지 않는다. 범위 밖 프로젝트·요구는 다른 RFP 경로와
+같은 404(`TFT_PROJECT_NOT_FOUND`·`TFT_REQUIREMENT_NOT_FOUND`)다. 구현은 `backend/api/tft/rfp/history.py` `SOURCES` 한 곳이다.
+
+query: `kind`(아래 값을 쉼표로 이음, 예 `kind=decision,recompared`, 그 밖은 422. 두 중계가 같은 키 반복을 400으로 막아 반복형이 아니다), `actor`(사용자 UUID), `limit`(1~200, 기본 50), `cursor`. 정렬은
+`(at, id)` 최신순이고 커서는 마지막 행의 `(at, id)` 키셋이다. 틀린 커서는 400 `TFT_INVALID_CURSOR`다.
+응답은 `{items: [{id, at, kind, actor_user_id, requirement_id, requirement_version, summary, before, after}], next_cursor}`이고
+`next_cursor`가 null이면 마지막 쪽이다. 행위자 표시 이름은 화면이 플랫폼 사용자 조회로 붙인다(tft는 identity 스키마를 읽지 않는다).
+
+| kind | 출처 | actor | summary | before·after |
+|---|---|---|---|---|
+| ai_verdict | `requirement_versions` provenance_kind `ai_draft` | null | 판본 `reason` | 앞 판본과 달라진 칸(status·value·unit·operator·necessity·path), 첫 판본은 after만 |
+| human_change | `requirement_versions` `human_input`(제안 출처 web·pdf_annot) | `decided_by` | 판본 `reason` | 같음 |
+| reply_applied | `requirement_versions` `human_input`, 제안 `origin=customer_reply` | `decided_by` | 판본 `reason` | 같음 |
+| system_record | `requirement_versions` `system_record` | `decided_by` | 판본 `reason` | 같음 |
+| decision | `requirement_decisions`(undo·review_* 외 action) | `actor_user_id` | 결정 `summary` | after `{action}` |
+| decision_undone | `requirement_decisions` action `undo` | 같음 | 같음 | 같음 |
+| review_confirmed | `requirement_decisions` action `review_confirm` | 같음 | 같음 | 같음 |
+| review_returned | `requirement_decisions` action `review_return` | 같음 | 같음 | 같음 |
+| recompared | `rfp_audit_events` action `requirement.recompare` | `actor_user_id` | `다시 비교` | 없음 |
+| reply_recorded | `question_replies`(질문의 요구·issue_type) | `recorded_by` | `회신 기록 (issue_type)` | 없음. 회신 원문은 내지 않는다 |
+
+판단을 바꾸는 결정은 결정 행과 그 결정이 만든 판본 행이 같은 시각으로 둘 다 나온다. 재비교는 `requirement_recomparisons`가
+아니라 감사 행을 읽는다. 그 표에는 제안 승인 때 물려받은 비교 사본도 쌓이고 행위자가 없어서다. 직접 추가·빼기(KAN-225)처럼
+아직 저장 표가 없는 사건은 나오지 않으며, 표가 생기면 `SOURCES`에 SELECT 하나를 더한다.
+
+### 원문에서 요구 직접 추가와 요구에서 빼기 (KAN-225, 2026-11-04 사용자 확정)
+
+`POST /projects/{id}/requirements`는 원문에서 고른 글로 요구를 직접 추가한다. 본문은 `{clause_id, quote, kind(SPEC·TASK·
+DOCUMENT), equipment?, task?, attribute, attribute_key?, equipment_family?, value?, unit?, operator?, conditions?, necessity?,
+allow_duplicate?}`이고 Idempotency-Key가 필수다. 값은 사람이 넣고 AI는 쓰지 않는다. 응답은 결정 결과(`action=add_requirement`,
+`requirement_id`는 새 요구)다. 권한은 결정과 같다(담당 sales만, 책임자 403 `TFT_DECISION_SALES_ONLY`).
+
+- 근거 검사는 추출과 같다(공백 하나·곧은 따옴표·대소문자 무시). 고른 글이 조항 현행 텍스트에 없으면 422
+  `TFT_QUOTE_NOT_IN_CLAUSE`, 값이 고른 글에 없으면 422 `TFT_VALUE_NOT_IN_QUOTE`, 다른 프로젝트 조항은 404다.
+  조항 현행 텍스트는 `tft.clauses.text`라 표 행(table_rows)의 글은 아직 고를 수 없다.
+- 설비·속성·값이 같은 빼지 않은 요구가 있으면(속성은 원문 표현이나 비교 어휘 키가 같으면 같다) 409
+  `TFT_REQUIREMENT_DUPLICATE`, `details[].reason`이 그 요구 ID다. `allow_duplicate=true`로 다시 보내면 추가한다.
+- 판본 1은 `human_input`·`PROVIDED`(판단자 기록), 요구 행 `derivation_kind=PROVIDED`가 "직접 추가" 표시다
+  (`decision.manually_added`). 코드는 `문서판본8자:조항:m순번`이라 같은 조항의 추출 요구 뒤에 정렬된다.
+- 판정은 처리와 같은 규칙 비교(`compare_in_family`, 모델 호출 없음)와 보완 선택지다. 계열·비교 어휘 키를 고르지 않으면
+  비교하지 않아 근거 부족이다. 규격 체계는 NONE, 지정품·허용 오차는 받지 않는다.
+
+요구에서 빼기·되살리기는 결정 경로의 `exclude_requirement`(사유 `text` 필수)·`restore_requirement`다. 요구 행과 판본은
+지우거나 올리지 않는다. 뺐는지는 그 요구의 결정 기록 중 `detail.excluded`가 있는 마지막 행이다(`repository.EXCLUDED`).
+
+- 요구 목록은 기본으로 뺀 요구를 숨기고 `excluded=true`면 뺀 요구만 낸다(별도 목록). 상세·목록의 `decision`에
+  `excluded`, `excluded_reason`을 낸다.
+- 뺀 요구는 판정·결정 대상이 아니다(`needed=false`, `undecided`·`deviation_missing`·보낼 질의 `open_queries`에서 빠진다).
+  초안·출력(`drafts.requirements_of`)과 맥락 정리(`context_repository.load_source`)에도 넣지 않는다. 초안 입력 지문은 뺀 요구에만
+  `excluded:true`를 더해, 빼지 않은 요구가 있는 기존 초안은 STALE이 되지 않는다.
+- 뺀 요구에는 되살리기와 책임자 확인·되돌려 보내기만 한다(그 밖은 409 `TFT_REQUIREMENT_EXCLUDED`). 빼지 않은 요구를 되살리면
+  409 `TFT_REQUIREMENT_NOT_EXCLUDED`다.
+
+직접 추가·빼기·되살리기도 책임자 확인 대상이다. `decision.change_id`·`change_action`·`change_reviewed`가 마지막 것이고,
+`review_confirm`·`review_return`의 `decision_id`로 받는다. `review_pending`은 확인 안 된 결정(뺀 요구 제외)과 확인 안 된
+추가·빼기·되살리기를 함께 센다. 되돌려 보내기는 추가와 되살리기를 빼고, 빼기를 되살린다(요약 "책임자가 되돌림: …").
+
+재처리 보존: 처리 작업은 처리하지 않은 문서 판본의 요구만 새로 쓰고 기존 요구 행·판본을 지우거나 고치지 않는다
+(`tft.requirement_versions`를 쓰는 곳은 처리의 판본 1과 승인한 제안의 새 판본뿐이다). 그래서 직접 추가한 요구와 빼기 기록은
+재처리 뒤에도 그대로이고, 재처리가 다시 만드는 초안도 뺀 요구를 넣지 않는다. 처리 작업(tft_worker)은 빼기 표시를 계산하는
+`requirement_decisions` 열(id·requirement_id·detail·created_at)만 읽는다. 새 문서 판본을 처리해 같은 내용의 요구가 다시
+추출되면 그 요구는 새 요구다(이전 판본 요구의 빼기는 따라가지 않는다).
