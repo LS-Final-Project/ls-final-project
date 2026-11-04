@@ -87,6 +87,7 @@ const TEXT: Record<string, string> = {
 
   TFT_ANNOTATION_UNAVAILABLE: '검토 메모(PDF) 해석은 지원하지 않습니다.',
   TFT_CANDIDATE_EXCLUDED: '제외된 후보는 고를 수 없습니다.',
+  TFT_DECISION_GATE_OPEN: '결정이나 책임자 확인이 남아 있어 검토본을 저장할 수 없습니다.',
   TFT_DOCUMENT_NOT_FOUND: '문서를 찾을 수 없습니다.',
   TFT_DOCUMENT_TOO_LARGE: '문서가 25 MB를 넘습니다.',
   TFT_DRAFT_INCOMPLETE: '초안에 검토가 필요한 문장이 남아 있습니다.',

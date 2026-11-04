@@ -722,3 +722,35 @@ def test_compact_child_without_sentence_ending_is_requirement_body():
     assert rows["1.1.1"].title is None
     assert rows["1.1.1"].text == "시험 기록 제출"
     assert rows["1.1.2"].text == "공급 부품 목록 제출"
+
+
+def test_pdf_paragraph_lines_open_section_articles_without_part():
+    """KAN-229: 도면 PDF 글자층은 줄들을 한 문단으로 준다. PART 없이 SECTION 뒤 대문자 절과 항목을 읽는다."""
+    blocks = [
+        p("SECTION 26 12 19 - POWER EQUIPMENT\n2.1 EQUIPMENT REQUIREMENTS"),
+        p(
+            "A. TR-01 transformer shall have a 1000 kVA rating.\n"
+            "B. CB-01 circuit breaker shall have a 630 A rating."
+        ),
+        p("2.2 SINGLE-LINE DIAGRAM - SHEET 1"),
+        p("CB-01\n630 A"),
+    ]
+    tree = build_clause_tree(doc(blocks, kind="PDF"))
+    assert [c.clause_no for c in tree.clauses] == ["2.1", "2.1.A", "2.1.B", "2.2"]
+    assert tree.clauses[1].text == "TR-01 transformer shall have a 1000 kVA rating."
+    # 나눈 조각은 원래 블록 하나를 가리킨다.
+    assert tree.clauses[1].block_ids == tree.clauses[2].block_ids == [blocks[1].block_id]
+    assert tree.clauses[3].text == "CB-01\n630 A"
+    assert tree.preamble_block_ids == [blocks[0].block_id]
+
+
+def test_pdf_wrapped_decimal_line_is_not_split():
+    """끊긴 줄(앞 줄이 문장 끝이 아님)의 소수는 나누지 않는다."""
+    blocks = [
+        p("PART 2 - PRODUCTS"),
+        p("2.1 SWITCHGEAR"),
+        p("A. Switchgear shall be rated\n13.8 kV class and 1200 A.\nB. Bus shall be copper."),
+    ]
+    pdf = build_clause_tree(doc(blocks, kind="PDF"))
+    assert [c.clause_no for c in pdf.clauses] == ["PART 2", "2.1", "2.1.A", "2.1.B"]
+    assert pdf.clauses[2].text == "Switchgear shall be rated\n13.8 kV class and 1200 A."

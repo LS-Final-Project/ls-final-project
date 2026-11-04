@@ -32,7 +32,10 @@
             "strategic_customer": null,
             "integration_responsibility": {
               "holder": "UNRESOLVED"
-            }
+            },
+            "submission_due_at": null,
+            "decisions_remaining": 0,
+            "review_pending": 0
           },
           {
             "supply_region": null,
@@ -60,7 +63,10 @@
             "strategic_customer": null,
             "integration_responsibility": {
               "holder": "UNRESOLVED"
-            }
+            },
+            "submission_due_at": null,
+            "decisions_remaining": 0,
+            "review_pending": 0
           }
         ],
         "next_cursor": null,
@@ -104,7 +110,10 @@
             "strategic_customer": null,
             "integration_responsibility": {
               "holder": "UNRESOLVED"
-            }
+            },
+            "submission_due_at": null,
+            "decisions_remaining": 0,
+            "review_pending": 0
           },
           {
             "supply_region": null,
@@ -132,7 +141,10 @@
             "strategic_customer": null,
             "integration_responsibility": {
               "holder": "UNRESOLVED"
-            }
+            },
+            "submission_due_at": null,
+            "decisions_remaining": 0,
+            "review_pending": 0
           }
         ],
         "next_cursor": null,

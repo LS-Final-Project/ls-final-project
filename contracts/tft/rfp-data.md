@@ -295,6 +295,15 @@ OPEN), `review_pending`(결정했는데 책임자 확인이 없는 요구). 책�
 담당 sales와 책임자가 같은 사람인 프로젝트는 그 사람이 결정도 확인도 한다. 이때 확인을 생략하지 않고 `review_pending`에 그대로
 남기며, `decision_gate.self_review=true`로 화면이 "본인 결정"을 표시한다(확인 기록은 출력 전 한 번 더 보는 절차로 남긴다).
 
+**서버도 저장을 막는다(2026-11-05 사용자 확정).** 검토본 저장(27)은 초안 조건(422 `TFT_DRAFT_INCOMPLETE`)을 통과한 뒤 같은
+트랜잭션에서 프로젝트 요구·질문 행을 `FOR SHARE`로 잠그고 `decision_gate`를 다시 센다. `undecided`·`deviation_missing`·
+`open_queries`·`review_pending` 중 하나라도 남으면 409 `TFT_DECISION_GATE_OPEN`이고 `details`는 남은 항목마다
+`{field: 항목 이름, reason: 건수}`다. `self_review` 프로젝트도 확인을 건너뛰지 않으므로 `review_pending`이 남으면 막힌다.
+출력(XLSX 머리 줄)의 저장 조건은 내보낼 때 다시 센 값이라, 저장 뒤 결정을 되돌리면 "저장 조건 미충족"이 다시 보일 수 있다.
+판본을 바꾸는 결정(충족 확정·배정·판정 바꾸기 등)은 제안 승인이 요구 자체에 남기는 재검토 표시를 같은 트랜잭션에서 지운다.
+결정이 곧 사람의 재검토라서이고, 남기면 그 요구를 근거로 쓴 초안 문장이 계속 재검토로 잡혀 저장할 수 없다. 초안 문장 표시는 그대로 두어
+문장을 다시 확인할 때 지운다.
+
 ## 맥락 정리의 결정적 후처리 (KAN-216·KAN-223, 2026-11-04)
 
 모델이 만든 맥락 결과(`run_context`) 끝에서 `consolidate`가 원문 근거만으로 한 번 더 정리한다. 모델을 다시 부르지 않고, 저장된 결과에도
@@ -385,3 +394,52 @@ allow_duplicate?}`이고 Idempotency-Key가 필수다. 값은 사람이 넣고 A
 재처리 뒤에도 그대로이고, 재처리가 다시 만드는 초안도 뺀 요구를 넣지 않는다. 처리 작업(tft_worker)은 빼기 표시를 계산하는
 `requirement_decisions` 열(id·requirement_id·detail·created_at)만 읽는다. 새 문서 판본을 처리해 같은 내용의 요구가 다시
 추출되면 그 요구는 새 요구다(이전 판본 요구의 빼기는 따라가지 않는다).
+
+## 일괄 결정·질의서 발송 기록·목록의 남은 일 (KAN-228, 2026-11-05)
+
+**일괄 결정.** `POST /projects/{id}/decisions/bulk`(Idempotency-Key) 본문 `{items: [{requirement_id, version, action, ...}]}`
+(1~200건). 항목은 결정 경로 본문과 같고 행동은 결정 행동(`confirm_met`·`record_deviation`·`request_check`·`add_query`·
+`select_partner`·`ask_rnd`·`assign`)과 `change_verdict`만이다(되돌리기·책임자 확인·추가·빼기는 단건으로). 서버는 항목마다
+단건 결정(`decisions.decide_on`)을 한 트랜잭션에서 부르므로 권한·판본·뺀 요구 규칙이 단건과 같다. 한 건이라도 실패하면
+아무것도 저장하지 않고 그 오류를 그대로 돌려주며 `details[0]`에 `index`·`requirement_id`·`reason`(오류 코드)을 붙인다.
+첫 실패만 알린다. 같은 요구를 두 번 넣으면 두 번째가 판본 409다. 응답은 `{batch_id, items: [DecisionResult]}`이고
+`batch_id`는 사용자·키로 정해진다. 같은 키 재전송은 건마다 첫 결과를 재생한다(본문이 다르면 409 `IDEMPOTENCY_CONFLICT`).
+건별 결정 기록은 `detail.batch_id`를 갖고 이력(KAN-226)에는 단건 결정과 똑같이 나온다.
+
+**묶음 되돌리기.** `POST /projects/{id}/decisions/bulk/{batch_id}/undo`(Idempotency-Key). 묶음에서 아직 되돌리지 않은 결정을
+최근 것부터 단건 `undo`로 되돌린다(한 트랜잭션, 한 건이라도 안 되면 모두 그대로). 판단을 바꾼 결정 뒤에 다른 판본이
+생겼으면 단건과 같이 409다. 되돌릴 것이 없으면 이미 되돌린 기록(`detail.undoes_batch`)을 돌려주고, 그것도 없으면 404
+`TFT_BATCH_NOT_FOUND`다.
+
+**질의서 발송 기록.** `POST /projects/{id}/questions/sent` 본문 `{question_ids, mail_ref?}`. 메일 화면에서 질의서를 보낸 뒤
+화면이 부른다. 담당 sales만(403), 그 프로젝트의 철회하지 않은 고객 질의(OPEN·REPLIED)만(아니면 422). 질문마다 처음 보낸
+기록 한 행(`tft.question_sends`)만 남기고 다시 보내도 바꾸지 않는다(멱등 키 불필요). 질문 목록(경로 18)의 각 질문에
+`sent_at`과, 보냈고 OPEN이면 `waiting_days`(보낸 날부터 한국 날짜로 지난 날수)가 붙는다. 메일 발송 자체와 질의-메일 연결은
+플랫폼 메일이 하고 tft는 보낸 사실만 안다.
+
+**프로젝트 목록.** `GET /api/v1/tft/projects` 항목에 `submission_due_at`(제안서 제출 마감, 날짜, 접수·수정 본문으로 입력,
+null은 입력 전), `decisions_remaining`(= 상세 `decision_gate.undecided`), `review_pending`(= `decision_gate.review_pending`).
+남은 수는 쪽마다 프로젝트별로 상세와 같은 함수로 계산한다.
+
+웹·플랫폼 중계 허용표에는 아직 넣지 않았다. 화면을 붙일 때 세 경로를 `relay.py`·`frontend/server.mjs`·
+`docs/openapi/business-relay-routes.json`에 함께 더한다.
+
+## 요구 화면 서버 필드 (KAN-227, 2026-11-05)
+
+**자사 보증값 `own_value`.** 요구 목록·상세 응답에 싣는다. 저장된 비교에서만 읽고 새로 계산하지 않는다. 출처는 요구 상세의
+비교(`GET /requirements/{id}/comparison`)와 같다: 지금 판본의 재비교 사본(`requirement_recomparisons`)이 있으면 그 후보,
+없으면 비교가 저장된 가장 최근 판본의 후보별 최신 `product_comparisons`. 자사 값(`our_value`)이 있는 후보 중 결과가
+충족(MEETS) → 다름(DIFFERS) → 비교 불가 → 자료 없음 순, 같으면 제품 코드·변형 순으로 하나를 고른다. 없으면 null.
+형식: `{product_code, variant, value, unit, conditions: [{name, value, unit}], result}`.
+
+**도면 확인 `decision.drawing_check`.** 도면 OCR 조항(`OCR-DOCX-`·`OCR-PDF-P` 접두, worker `is_ocr`과 같음)에서 나온 요구는
+`drawing_check=true`다. 입찰 판정(`bid_verdict`) 값은 늘리지 않는다(화면 타입이 판정 값 전체를 쓰므로). 도면 요구는 판정이
+충족이어도 결정이 필요하고(`needed`), 결정은 둘 중 하나다: 맞음 `confirm_drawing`(판단은 바꾸지 않고 결정 기록만, 도면
+요구가 아니면 422), 다름 `add_query`(질의서에 넣음, 기존 질의 규칙). 권한·책임자 확인·되돌리기는 다른 결정과 같다(KAN-219).
+화면은 `drawing_check=true`인 요구를 "도면 확인" 묶음으로 모은다. 규격서 쪽 값은 맥락 결과의 `duplicates`(같은 값)와
+`value_conflicts`(`drawing=true`, 다른 값)에서 찾는다(KAN-223).
+
+**설비 목록 `GET /projects/{id}/equipment`.** 직접 추가 칸의 설비 선택용. 프로젝트 열람 권한과 같다(범위 밖 404).
+응답 `{source, items: [{tag, name}]}`. `source=context`면 최신 맥락 결과의 설비 묶음(`kind=EQUIPMENT`, tag는 원문 제목의
+설비 태그 또는 null), 맥락이 없으면 `source=requirements`로 최신 요구 판본의 설비 칸을 모은다(tag null). 태그 있는 것 먼저,
+태그·이름 순.

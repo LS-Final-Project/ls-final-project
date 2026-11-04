@@ -13,6 +13,7 @@ from psycopg.rows import dict_row
 from backend.agent.processor_registry import TftJob
 from backend.api.tft.rfp import draft_exports
 from backend.api.tft.rfp.storage import LocalDocumentStore
+from tests.tft.decision_gate import settle_decisions
 from tests.tft.test_a09_demo_flow_db import (  # noqa: F401
     client_for,
     demo_profiles,
@@ -75,6 +76,7 @@ def test_xlsx_and_summary_docx_from_a_saved_review(
     base = f"/api/v1/tft/projects/{project['project']}/draft"
     with client_for(app_dsn) as client:
         draft = client.get(base, headers=sales_headers()).json()["data"]
+        recorded = settle_decisions(client, admin, project["project"])
         saved = client.post(
             f"{base}/review-versions",
             json={"version": draft["version"]},
@@ -96,8 +98,11 @@ def test_xlsx_and_summary_docx_from_a_saved_review(
         meta = sheets["요구별"][0][0]
         assert "검토본 1" in meta and "저장 조건" in meta
         assert sheets["요구별"][1][:4] == ["No", "요구 번호", "조항", "설비"]
-        # 결정 전이라 편차 기재·질의서 행은 없다. 요구별은 모든 요구(뺀 요구·합친 중복 없음).
-        assert len(sheets["편차표"]) == 2 and len(sheets["요구별"]) == 2 + requirements
+        # 저장 조건(KAN-220)을 채우려고 결정이 필요한 요구를 모두 편차표에 기재했다. 질의서 행은 없다.
+        # 요구별은 모든 요구(뺀 요구·합친 중복 없음).
+        assert recorded and len(sheets["편차표"]) == 2 + recorded
+        assert len(sheets["요구별"]) == 2 + requirements
+        assert "저장 조건 충족" in meta
         total = sheets["현황표"][-1]
         assert total[0] == "합계" and sum(map(int, total[1:6])) == requirements
 

@@ -197,6 +197,7 @@ async def create_project(
                             "off_list_permission",
                             "review_departments",
                             "data_origin",
+                            "submission_due_at",
                         )
                     },
                     **strategic_values(fields, principal.user_id, now),
@@ -253,6 +254,7 @@ async def update_project(
                 "supply_region",
                 "customer_manufacturer_list",
                 "off_list_permission",
+                "submission_due_at",
             )
             if k in fields
         }

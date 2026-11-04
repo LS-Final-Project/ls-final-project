@@ -623,6 +623,13 @@
       ]
     },
     {
+      "path": "/api/v1/tft/projects/{uuid}/equipment",
+      "methods": [
+        "GET"
+      ],
+      "query": []
+    },
+    {
       "path": "/api/v1/tft/requirements/{uuid}/supplement-options",
       "methods": [
         "GET"
@@ -1464,6 +1471,17 @@
     {
       "method": "POST",
       "path": "/api/v1/tft/requirements/11111111-1111-4111-8111-111111111111/history",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/equipment",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/equipment",
       "forward": false,
       "status": 405
     }

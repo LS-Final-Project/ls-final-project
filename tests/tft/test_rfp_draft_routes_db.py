@@ -24,6 +24,7 @@ from backend.engine.rfp.draft import DISCLAIMER
 from backend.engine.rfp.vocabulary import DERIVED_SOURCE_NOTE
 from backend.shared.access import Principal, principal_header
 from backend.shared.settings import Settings
+from tests.tft.decision_gate import settle_decisions
 from tests.tft.test_rfp_http_base_db import SALES, admin, app_dsn, chain  # noqa: F401
 from tests.tft.test_worker_processor_db import worker_dsn  # noqa: F401
 
@@ -225,6 +226,7 @@ def test_review_unresolved_with_next_action_is_conditional_and_idempotent(
     client, app_dsn, chain, admin
 ):
     ready(app_dsn, admin, chain)
+    settle_decisions(client, admin, chain["project"])
     body = {"version": 1, "note": "사람이 확인한 검토본"}
     first = call(client, "POST", chain, "/review-versions", body, "review-snapshot-key")
     assert first.status_code == 201, first.text
@@ -262,6 +264,7 @@ def test_export_id_replay_docx_file_scope_and_integrity(
     client, app_dsn, chain, admin, tmp_path, worker_dsn, finish_before_receipt
 ):
     ready(app_dsn, admin, chain)
+    settle_decisions(client, admin, chain["project"])
     saved = call(client, "POST", chain, "/review-versions", {"version": 1}, "review-for-export")
     assert saved.status_code == 201, saved.text
     jobs = Jobs()
@@ -422,6 +425,7 @@ def test_review_export_snapshot_survives_live_changes_and_put_before_db_retry(
     from backend.api.tft.rfp import draft_repository as db
 
     ready(app_dsn, admin, chain)
+    settle_decisions(client, admin, chain["project"])
     saved = call(client, "POST", chain, "/review-versions", {"version": 1}, "snapshot-review")
     assert saved.status_code == 201, saved.text
     jobs = Jobs()
@@ -1070,6 +1074,7 @@ def test_review_and_export_history_newest_first(
     assert call(client, "GET", chain, "/review-versions", user=OUTSIDER).status_code == 404
     assert call(client, "GET", chain, "/exports", user=OUTSIDER).status_code == 404
     ready(app_dsn, admin, chain)
+    settle_decisions(client, admin, chain["project"])
     for key, note in (("history-review-1", None), ("history-review-2", "두 번째 확인")):
         saved = call(client, "POST", chain, "/review-versions", {"version": 1, "note": note}, key)
         assert saved.status_code == 201, saved.text
@@ -1124,3 +1129,38 @@ def test_review_and_export_history_newest_first(
     assert done["export_id"] == ids[1] and done["status"] == "SUCCEEDED"
     assert done["review_version"] == 2 and done["format"] == "DOCX" and done["finished_at"]
     assert done["file_name"] == f"rfp-{ids[1]}.docx" and done["requested_by_name"] is None
+
+
+def test_review_save_is_refused_until_decisions_and_reviews_are_done(client, app_dsn, chain, admin):
+    """KAN-220 저장 조건은 화면만이 아니라 서버도 막는다(2026-11-05). 본인 결정 프로젝트도 확인을 건너뛰지 않는다."""
+    ready(app_dsn, admin, chain)
+
+    def save(key):
+        return call(client, "POST", chain, "/review-versions", {"version": 1}, key)
+
+    def left(response):
+        assert response.status_code == 409, response.text
+        error = response.json()["error"]
+        assert error["code"] == "TFT_DECISION_GATE_OPEN"
+        return {item["field"]: int(item["reason"]) for item in error["details"]}
+
+    def decide(who, **body):
+        headers = principal_header(who) | {"Idempotency-Key": uuid4().hex}
+        url = f"/api/v1/tft/requirements/{chain['requirement']}/decision"
+        response = client.post(url, json={"version": 1, **body}, headers=headers)
+        assert response.status_code == 200, response.text
+        return response.json()["data"]
+
+    first = left(save("gate-open"))
+    assert first.get("undecided") == 1 and "review_pending" not in first
+    made = decide(OWNER, action="record_deviation", text="기준온도 120 °C 값만 보유")
+    assert left(save("gate-review")) == {"review_pending": 1}
+    # 담당 sales가 책임자도 맡으면 본인이 확인한다. 확인 전에는 여전히 막힌다.
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.projects SET responsible_user_id=%s WHERE id=%s", (SALES, chain["project"])
+        )
+    assert left(save("gate-self")) == {"review_pending": 1}
+    decide(OWNER, action="review_confirm", decision_id=made["decision_id"])
+    saved = save("gate-closed")
+    assert saved.status_code == 201, saved.text

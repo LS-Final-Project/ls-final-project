@@ -36,6 +36,7 @@ DECIDING = frozenset(
         "select_partner",
         "ask_rnd",
         "assign",
+        "confirm_drawing",
     }
 )
 VERDICT_WORDS = {
@@ -81,51 +82,77 @@ async def decide(
     Returns:
         s.DecisionResult: 저장한(또는 같은 키로 처음 저장한) 결정.
     """
+    # 본체는 decide_on(같은 트랜잭션에서 여러 건을 부르는 일괄 결정과 공유).
+    async with connection(request.app.state.settings) as conn:
+        result = await decide_on(conn, principal, requirement_id, payload, key)
+    return s.DecisionResult.model_validate(result)
+
+
+async def decide_on(
+    conn: AsyncConnection[Row],
+    principal: Principal,
+    requirement_id: UUID,
+    payload: s.DecisionRequest,
+    key: str,
+    *,
+    project_id: UUID | None = None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """decide의 본체. 호출자의 트랜잭션에서 돈다(일괄 결정 KAN-228이 여러 번 부른다).
+
+    Args:
+        project_id: 있으면 요구가 이 프로젝트 것이어야 한다(아니면 404).
+        extra: 결정 기록 detail에 더할 칸(일괄 묶음 ID 등).
+
+    Returns:
+        dict: DecisionResult JSON.
+    """
     digest = commands.request_hash(
         {"requirement_id": requirement_id}, payload.model_dump(mode="json")
     )
-    async with connection(request.app.state.settings) as conn:
-        project = await requirement_project(conn, principal, requirement_id)
-        check_role(project, principal, payload.action)
-        stored = await replay(conn, principal.user_id, key, digest)
-        if stored is not None:
-            return s.DecisionResult.model_validate(stored)
-        requirement = await repository.latest_requirement_version(
-            conn, project["id"], requirement_id, lock=True
+    project = await requirement_project(conn, principal, requirement_id)
+    if project_id is not None and project["id"] != project_id:
+        raise ApplicationError(404, "TFT_REQUIREMENT_NOT_FOUND", "The requirement was not found.")
+    check_role(project, principal, payload.action)
+    stored = await replay(conn, principal.user_id, key, digest)
+    if stored is not None:
+        return stored
+    requirement = await repository.latest_requirement_version(
+        conn, project["id"], requirement_id, lock=True
+    )
+    assert requirement is not None
+    if requirement["version"] != payload.version:
+        raise repository.version_conflict()
+    if payload.action not in ON_EXCLUDED and await is_excluded(conn, requirement_id):
+        raise ApplicationError(
+            409, "TFT_REQUIREMENT_EXCLUDED", "The requirement is excluded. Restore it first."
         )
-        assert requirement is not None
-        if requirement["version"] != payload.version:
-            raise repository.version_conflict()
-        if payload.action not in ON_EXCLUDED and await is_excluded(conn, requirement_id):
-            raise ApplicationError(
-                409, "TFT_REQUIREMENT_EXCLUDED", "The requirement is excluded. Restore it first."
-            )
-        decision_id = uuid4()
-        act = ACTIONS[payload.action]
-        summary, detail, undoes, question_id, after = await act(
-            conn, project, requirement, principal, payload
-        )
-        latest = await repository.latest_requirement_version(conn, project["id"], requirement_id)
-        assert latest is not None
-        result = await record(
-            conn,
-            decision_id=decision_id,
-            project_id=project["id"],
-            requirement_id=requirement_id,
-            base_version=requirement["version"],
-            result_version=latest["version"],
-            action=payload.action,
-            summary=summary,
-            detail=detail,
-            undoes=undoes,
-            question_id=question_id,
-            actor=principal.user_id,
-            key=key,
-            digest=digest,
-        )
-        for write in after:
-            await write(decision_id)
-    return s.DecisionResult.model_validate(result)
+    decision_id = uuid4()
+    act = ACTIONS[payload.action]
+    summary, detail, undoes, question_id, after = await act(
+        conn, project, requirement, principal, payload
+    )
+    latest = await repository.latest_requirement_version(conn, project["id"], requirement_id)
+    assert latest is not None
+    result = await record(
+        conn,
+        decision_id=decision_id,
+        project_id=project["id"],
+        requirement_id=requirement_id,
+        base_version=requirement["version"],
+        result_version=latest["version"],
+        action=payload.action,
+        summary=summary,
+        detail={**detail, **(extra or {})},
+        undoes=undoes,
+        question_id=question_id,
+        actor=principal.user_id,
+        key=key,
+        digest=digest,
+    )
+    for write in after:
+        await write(decision_id)
+    return result
 
 
 async def record(
@@ -252,7 +279,15 @@ async def propose_and_approve(
         actor=actor,
         detail={"to": {"status": row["status"], "origin": "decision"}},
     )
-    return await apply_approval(conn, project, row, requirement, actor, NOTE)
+    approved = await apply_approval(conn, project, row, requirement, actor, NOTE)
+    # 결정은 사람이 지금 이 요구를 본 결과다. 승인이 요구 자체에 남긴 재검토 표시는 지운다(KAN-220 저장 조건과 함께
+    # 쓰면 배정·판정 바꾸기 뒤 검토본을 영영 저장할 수 없다). 초안 문장 표시는 문장을 다시 확인할 때 지운다.
+    await conn.execute(
+        "UPDATE tft.rereview_marks SET cleared_by = %s, cleared_at = now() "
+        "WHERE cause_proposal_id = %s AND target_kind = 'requirement' AND cleared_at IS NULL",
+        (actor, row["id"]),
+    )
+    return approved
 
 
 async def new_question(
@@ -727,9 +762,12 @@ async def states(
     params = {"p": project_id, "ids": list(requirement_ids or [])}
     cursor = await conn.execute(
         "SELECT v.requirement_id, v.version, v.status, v.kind, v.task, v.attribute_key, v.operator, "
-        "v.value, v.unresolved, v.next_owner_field, req.derivation_kind = 'PROVIDED' AS manually_added "
+        "v.value, v.unresolved, v.next_owner_field, req.derivation_kind = 'PROVIDED' AS manually_added, "
+        # 도면 OCR 조항(worker_processor.is_ocr과 같은 접두). 검토용 OCR-REVIEW는 요구를 만들지 않는다.
+        "coalesce(c.clause_no LIKE 'OCR-DOCX-%%' OR c.clause_no LIKE 'OCR-PDF-P%%', false) AS drawing "
         "FROM tft.requirements req "
         "JOIN tft.requirement_versions v ON v.requirement_id = req.id AND v.version = req.latest_version "
+        "LEFT JOIN tft.clauses c ON c.id = v.clause_id "
         f"WHERE req.project_id = %(p)s{only}",
         params,
     )
@@ -794,7 +832,7 @@ async def states(
         out[row["requirement_id"]] = (
             verdict,
             s.DecisionState(
-                needed=verdict != "MET" and not excluded,
+                needed=(verdict != "MET" or row["drawing"]) and not excluded,
                 decided=current is not None,
                 decision_id=current["id"] if current else None,
                 action=current["action"] if current else None,
@@ -802,6 +840,7 @@ async def states(
                 decided_at=current["created_at"] if current else None,
                 reviewed=current is not None and str(current["id"]) in confirmed,
                 manually_added=row["manually_added"],
+                drawing_check=row["drawing"],
                 excluded=excluded,
                 excluded_reason=mark["detail"].get("reason") if mark and excluded else None,
                 change_id=change["id"] if change else None,
@@ -922,6 +961,25 @@ def revert(target: Row) -> Outcome:
     )
 
 
+async def confirm_drawing(
+    conn: AsyncConnection[Row],
+    project: Row,
+    requirement: Row,
+    principal: Principal,
+    payload: s.DecisionRequest,
+) -> Outcome:
+    """도면 값이 규격서와 맞음(KAN-227). 판단은 바꾸지 않고 결정 기록만 남긴다. 다르면 add_query로 질의한다."""
+    clause_no = requirement.get("clause_no") or ""
+    if not clause_no.startswith(("OCR-DOCX-", "OCR-PDF-P")):
+        raise ApplicationError(
+            422,
+            "VALIDATION_ERROR",
+            "Only a requirement read from a drawing can be confirmed against the drawing.",
+            details=[{"field": "action", "reason": "not a drawing requirement"}],
+        )
+    return "도면과 일치 확인", {"clause_no": clause_no}, None, None, []
+
+
 ACTIONS: dict[str, Callable[..., Awaitable[Outcome]]] = {
     "confirm_met": confirm_met,
     "record_deviation": record_deviation,
@@ -936,4 +994,5 @@ ACTIONS: dict[str, Callable[..., Awaitable[Outcome]]] = {
     "review_return": review_return,
     "exclude_requirement": exclude,
     "restore_requirement": restore,
+    "confirm_drawing": confirm_drawing,
 }

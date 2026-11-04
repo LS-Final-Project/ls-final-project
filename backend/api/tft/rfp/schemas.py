@@ -171,6 +171,8 @@ class ProjectCreate(Model):
     # 영업 입력 표시값(가설). 상태·등급·경로 순위·검토본 조건·평가 어디에도 입력으로 쓰지 않는다(명세 v1.3 §6).
     strategic_customer: bool | None = None
     strategic_customer_note: str | None = Field(default=None, min_length=1, max_length=200)
+    # KAN-228: 제안서 제출 마감(입력 안 하면 null).
+    submission_due_at: date | None = None
 
 
 class IntegrationUpdate(Model):
@@ -197,6 +199,8 @@ class ProjectUpdate(Model):
     strategic_customer: bool | None = None
     strategic_customer_note: str | None = Field(default=None, min_length=1, max_length=200)
     integration_responsibility: IntegrationUpdate | None = None
+    # null이면 마감을 지운다.
+    submission_due_at: date | None = None
 
 
 class Assignment(Model):
@@ -268,6 +272,7 @@ class RfpProjectSummary(Provenance):
     # 명세 v1.3 §4 #1: 화면은 "전략 고객(영업 입력, 가설)" 배지로만 보여 준다.
     strategic_customer: bool | None = None
     integration_responsibility: IntegrationSummary = Field(default_factory=IntegrationSummary)
+    submission_due_at: date | None = None
 
 
 class RfpProjectList(Model):
@@ -298,6 +303,7 @@ class RfpProjectDetail(RfpProjectSummary):
 
 # 저장 행에서 그대로 옮기는 프로젝트 칸. 집계 칸은 routes_write.project_detail이 채운다.
 PROJECT_COLUMNS = (
+    "submission_due_at",
     "external_id",
     "id",
     "version",
@@ -431,6 +437,30 @@ class Condition(Model):
     unit: str | None
 
 
+class OwnValue(Model):
+    """자사 보증값(KAN-227). 저장된 비교의 대표 후보에서 읽는다(충족 → 다름 → 비교 불가 → 자료 없음)."""
+
+    product_code: str
+    variant: str | None
+    value: str
+    unit: str | None
+    conditions: list[Condition]
+    result: Literal["MEETS", "DIFFERS", "NOT_COMPARABLE", "NO_DATA"]
+
+
+class Equipment(Model):
+    """프로젝트 설비 하나(KAN-227). tag는 원문 제목의 설비 태그(KAN-216), 없으면 null."""
+
+    tag: str | None
+    name: str
+
+
+class EquipmentList(Model):
+    # context: 최신 맥락 결과의 설비 묶음. requirements: 맥락이 없어 요구 판본의 설비 칸을 모은 것.
+    source: Literal["context", "requirements"]
+    items: list[Equipment]
+
+
 class RequirementOrigin(Model):
     document_version_id: UUID
     clause_id: UUID | None
@@ -515,6 +545,8 @@ class RequirementSummary(Model):
     is_designated_item: bool = False
     bid_verdict: "BidVerdict | None" = None
     decision: "DecisionState | None" = None
+    # KAN-227: 비교에 쓴 자사 값. 비교가 없거나 자사 값이 없으면 null.
+    own_value: OwnValue | None = None
 
 
 class RequirementList(Model):
@@ -540,6 +572,8 @@ class RequirementDetail(Provenance):
     needs_review: bool = False
     bid_verdict: "BidVerdict | None" = None
     decision: "DecisionState | None" = None
+    # KAN-227: 비교에 쓴 자사 값. 비교가 없거나 자사 값이 없으면 null.
+    own_value: OwnValue | None = None
 
 
 # --- 자사 비교 (§4.5) -------------------------------------------------------------------
@@ -838,6 +872,9 @@ class Question(Provenance):
     follows_question_id: UUID | None = None
     # 요구에 이어진 CUSTOMER 질의의 회신에서 읽은 새 요구값 후보(KAN-224). 회신 전이나 대상 밖이면 없다.
     value_candidate: ReplyValueCandidate | None = None
+    # KAN-228: 질의서를 메일로 처음 보낸 시각과, 보냈는데 회신이 없으면 보낸 뒤 지난 날수(질문 목록에서만 채운다).
+    sent_at: datetime | None = None
+    waiting_days: int | None = None
 
 
 class QuestionList(Model):
@@ -1108,6 +1145,8 @@ DecisionAction = Literal[
     # KAN-225: 요구에서 빼기·되살리기.
     "exclude_requirement",
     "restore_requirement",
+    # KAN-227: 도면 출처 요구를 규격서와 맞는다고 확인. 다르면 질의서에 넣는다(add_query).
+    "confirm_drawing",
 ]
 # 기록에 남는 행동. 원문에서 직접 추가(KAN-225)는 결정 API가 아니라 요구 추가 경로로만 한다.
 RecordedAction = Literal[DecisionAction, "add_requirement"]
@@ -1173,12 +1212,70 @@ class DecisionState(Model):
     reviewed: bool = False
     # KAN-225: 원문에서 사람이 직접 추가한 요구인지, 요구에서 뺐는지(빼도 지우지 않는다).
     manually_added: bool = False
+    # KAN-227: 도면 OCR 조항에서 나온 요구. 판정과 관계없이 도면 확인(맞음 confirm_drawing, 다름 add_query)이 필요하다.
+    drawing_check: bool = False
     excluded: bool = False
     excluded_reason: str | None = None
     # 추가·빼기·되살리기 중 마지막 것. 책임자 확인 대상이다(review_confirm의 decision_id로 확인).
     change_id: UUID | None = None
     change_action: RecordedAction | None = None
     change_reviewed: bool = False
+
+
+# 일괄 결정(KAN-228)으로 할 수 있는 행동. 묶음 되돌리기가 늘 되는 결정 행동만 받는다.
+BULK_ACTIONS = frozenset(
+    {
+        "confirm_met",
+        "record_deviation",
+        "request_check",
+        "add_query",
+        "select_partner",
+        "ask_rnd",
+        "assign",
+        "change_verdict",
+    }
+)
+
+
+class BulkDecisionItem(DecisionRequest):
+    requirement_id: UUID
+
+    @model_validator(mode="after")
+    def check_bulk_action(self) -> Self:
+        if self.action not in BULK_ACTIONS:
+            raise ValueError(f"{self.action} cannot be applied in bulk")
+        return self
+
+
+class BulkDecisionRequest(Model):
+    """같은 프로젝트의 결정 여러 건을 한 트랜잭션으로. 한 건이라도 실패하면 모두 저장하지 않는다."""
+
+    items: list[BulkDecisionItem] = Field(min_length=1, max_length=200)
+
+
+class BulkDecisionResult(Model):
+    # 같은 사용자·Idempotency-Key면 같은 값이다. 묶음 되돌리기에 쓴다.
+    batch_id: UUID
+    items: list[DecisionResult]
+
+
+class QuestionsSent(Model):
+    """질의서를 메일로 보냈다는 기록(KAN-228). 질문마다 처음 보낸 시각만 남는다."""
+
+    question_ids: list[UUID] = Field(min_length=1, max_length=200)
+    # 플랫폼 메일 발송 ID 등. 없으면 비운다.
+    mail_ref: str | None = Field(default=None, min_length=1, max_length=200)
+
+
+class QuestionSend(Model):
+    question_id: UUID
+    sent_at: datetime
+    sent_by: UUID
+    mail_ref: str | None = None
+
+
+class QuestionSendList(Model):
+    items: list[QuestionSend]
 
 
 class DecisionGate(Model):

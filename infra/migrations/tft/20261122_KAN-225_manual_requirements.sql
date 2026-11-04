@@ -12,7 +12,9 @@ ALTER TABLE tft.requirement_decisions DROP CONSTRAINT IF EXISTS requirement_deci
 ALTER TABLE tft.requirement_decisions ADD CONSTRAINT requirement_decisions_action_check
     CHECK (action IN ('confirm_met', 'record_deviation', 'request_check', 'add_query', 'select_partner',
         'ask_rnd', 'assign', 'change_verdict', 'undo', 'review_confirm', 'review_return',
-        'add_requirement', 'exclude_requirement', 'restore_requirement'));
+        'add_requirement', 'exclude_requirement', 'restore_requirement',
+        -- KAN-227이 넓힌 값. 이 파일이 다시 적용될 때 좁혀 그 행을 깨지 않도록 같은 집합을 둔다.
+        'confirm_drawing'));
 -- 처리 작업의 초안·맥락은 뺀 요구를 넣지 않는다. 빼기 표시를 계산하는 열만 읽는다
 -- (20261104_KAN-199_tft_worker.sql이 재적용될 때도 같은 권한을 복구한다).
 GRANT SELECT (id, requirement_id, detail, created_at) ON tft.requirement_decisions TO tft_worker;

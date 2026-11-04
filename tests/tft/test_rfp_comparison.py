@@ -1939,3 +1939,26 @@ def test_equipment_of_another_voltage_class_is_not_a_candidate():
     # 저압 2차 전압만으로는 등급을 정하지 않는다(1차를 모르면 거르지 않음).
     assert equipment_voltages([("tr", "secondary_voltage", "415", "V")]) == {}
     assert equipment_voltages([("tr", "secondary_voltage", "154", "kV")]) == {"tr": 154}
+
+
+@pytest.mark.parametrize(
+    "item", ["저압 붓싱", "LV bushings", "Current Transformers", "계기용 변성기", "변류기"]
+)
+def test_part_requirement_is_not_compared_with_assembly_product(item):
+    """KAN-229: 부품(붓싱·변류기·계기용 변성기) 요구를 본체 설비 제품과 견주지 않는다(감사: 붓싱 vs 유입 변압기)."""
+    wanted = Requirement(
+        clause_no="5.2", item=item, attribute="secondary_voltage", value="400", unit="V"
+    )
+    outcome = compare_in_family(wanted, "TRANSFORMER", load_own_products())
+    assert outcome.status == "INSUFFICIENT_EVIDENCE"
+    assert not outcome.candidates
+    assert "부품 요구라 본체 제품과 비교하지 않음" in outcome.reason
+
+
+def test_transformer_tap_requirement_is_still_compared():
+    """탭 범위는 변압기 자체 사양이다. 부품 규칙에 걸리지 않는다."""
+    wanted = Requirement(
+        clause_no="2.5.M", item="tap changer", attribute="tap", value="±2×2.5%", operator="TEXT"
+    )
+    outcome = compare_in_family(wanted, "TRANSFORMER", load_own_products())
+    assert any(c.comparable for c in outcome.candidates)
