@@ -318,3 +318,5 @@
 @keyframes ir-glow{0%,100%{filter:brightness(1)}50%{filter:brightness(1.45)}}
 @media (prefers-reduced-motion:reduce){.ls-root .kv .td3 .st.cur .dot,.ls-root .kv .td3 .st.cur .dot::before,.ls-root .kv .td3 .st.cur .dot::after{animation:none}.ls-root .kv .td3 .st.cur .dot::before,.ls-root .kv .td3 .st.cur .dot::after{opacity:0}}
 @media (forced-colors:active){.ls-root .kv .td3 .st.cur .dot{background:CanvasText;color:Canvas}}
+/* 설치 장비 상자: 문의 정보 칸 아래, 다른 상자와 같은 얇은 테두리 */
+.ls-root .kv .td3 .unit{border:1px solid #d9dde4;background:#fbfcfe;margin-top:4px}
