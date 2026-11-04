@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import AwareDatetime
 
+from backend.api.cs.assignments.service import RequestAssigner
 from backend.api.cs.improvements import repository
 from backend.api.cs.improvements.routes import commit_version
 from backend.api.cs.improvements.schemas import (
@@ -278,6 +279,8 @@ async def save_candidates(
     if group is not None:
         judged = [p for p in judged if (p[0], p[1].product_code, p[1].fault_id) == group]
     requests = await repository.fault_requests(conn)
+    # KAN-214: the C/S owner comes from the skill table (product family, fewest open requests).
+    assigner = await RequestAssigner.load(conn)
     for origin, candidate in judged:
         if (origin, candidate.product_code, candidate.fault_id) in requests:
             already_requested += 1
@@ -300,9 +303,14 @@ async def save_candidates(
             )
             continue
         values = draft(origin, candidate, proposed, at)
+        decision = assigner.decide(values["id"], candidate.product_code, at)
+        values["cs_owner"] = decision.user_id if decision else None
         if not await repository.insert_candidate(conn, values):
             already_requested += 1
             continue
+        if decision is not None:
+            assigner.take(decision)
+            await assigner.record(conn, decision, "CANDIDATE", None)
         stored = await repository.get_request(conn, values["id"])
         assert stored is not None
         for item in candidate.evidence:
@@ -325,6 +333,8 @@ async def save_candidates(
                 "origin": {"to": "SYSTEM_CANDIDATE"},
                 "reason_code": {"to": candidate.reason_code},
                 "run_id": {"to": str(run_id)},
+                "cs_owner": {"to": str(values["cs_owner"]) if values["cs_owner"] else None},
+                "assignment_reason": {"to": decision.reason if decision else None},
             },
         )
         created.append(values["id"])

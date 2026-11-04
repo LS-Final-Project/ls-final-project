@@ -17,6 +17,91 @@
         "title": "Action",
         "type": "object"
       },
+      "AgentList": {
+        "properties": {
+          "items": {
+            "description": "By user_id.",
+            "items": {
+              "$ref": "#/components/schemas/AgentSkill"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "request_rule_version": {
+            "title": "Request Rule Version",
+            "type": "string"
+          },
+          "rule_version": {
+            "title": "Rule Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_version",
+          "request_rule_version",
+          "items"
+        ],
+        "title": "AgentList",
+        "type": "object"
+      },
+      "AgentSkill": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "data_origin": {
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "derivation_kind": {
+            "description": "ASSUMED: the employee table is assumed data.",
+            "title": "Derivation Kind",
+            "type": "string"
+          },
+          "families": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Families",
+            "type": "array"
+          },
+          "languages": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Languages",
+            "type": "array"
+          },
+          "open_count": {
+            "description": "Owned tickets that are not closed, now.",
+            "title": "Open Count",
+            "type": "integer"
+          },
+          "open_request_count": {
+            "default": 0,
+            "description": "Owned improvement requests that are open (stats definition).",
+            "title": "Open Request Count",
+            "type": "integer"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "languages",
+          "families",
+          "active",
+          "open_count",
+          "data_origin",
+          "derivation_kind"
+        ],
+        "title": "AgentSkill",
+        "type": "object"
+      },
       "AiDraftAttempt": {
         "properties": {
           "created_at": {
@@ -409,6 +494,262 @@
           "created_at"
         ],
         "title": "AnalysisRun",
+        "type": "object"
+      },
+      "ApplyItem": {
+        "additionalProperties": false,
+        "properties": {
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The previewed agent; null for NO_MATCH.",
+            "title": "User Id"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "user_id"
+        ],
+        "title": "ApplyItem",
+        "type": "object"
+      },
+      "ApplyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ApplyItem"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          },
+          "rule_version": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Rule Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_version",
+          "items"
+        ],
+        "title": "ApplyRequest",
+        "type": "object"
+      },
+      "ApplyResponse": {
+        "properties": {
+          "assigned": {
+            "title": "Assigned",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ApplyResult"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "rule_version": {
+            "title": "Rule Version",
+            "type": "string"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rule_version",
+          "assigned",
+          "skipped",
+          "items"
+        ],
+        "title": "ApplyResponse",
+        "type": "object"
+      },
+      "ApplyResult": {
+        "properties": {
+          "outcome": {
+            "enum": [
+              "ASSIGNED",
+              "ALREADY_ASSIGNED",
+              "NOT_RECEIVED",
+              "NOT_FOUND",
+              "PREVIEW_CHANGED",
+              "NO_MATCH"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "enum": [
+                  "LANGUAGE_AND_FAMILY",
+                  "LANGUAGE_ONLY",
+                  "FAMILY_ENGLISH_FALLBACK"
+                ],
+                "type": "string"
+              },
+              {
+                "const": "NO_MATCH",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Owner after the call (or the new proposal).",
+            "title": "User Id"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "outcome",
+          "user_id",
+          "reason_code"
+        ],
+        "title": "ApplyResult",
+        "type": "object"
+      },
+      "AssignmentRecord": {
+        "description": "A stored rule assignment. Rule results, not AI output.",
+        "properties": {
+          "candidate_count": {
+            "description": "Agents in the tier that decided.",
+            "title": "Candidate Count",
+            "type": "integer"
+          },
+          "chosen_open_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Open tickets of the chosen agent when decided, before this one.",
+            "title": "Chosen Open Count"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decided_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null for the system at intake.",
+            "title": "Decided By"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "matched_family": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matched Family"
+          },
+          "matched_language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matched Language"
+          },
+          "reason_code": {
+            "enum": [
+              "LANGUAGE_AND_FAMILY",
+              "LANGUAGE_ONLY",
+              "FAMILY_ENGLISH_FALLBACK"
+            ],
+            "title": "Reason Code",
+            "type": "string"
+          },
+          "rule_version": {
+            "title": "Rule Version",
+            "type": "string"
+          },
+          "trigger": {
+            "enum": [
+              "INTAKE",
+              "BATCH"
+            ],
+            "title": "Trigger",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "user_id",
+          "rule_version",
+          "reason_code",
+          "matched_language",
+          "matched_family",
+          "candidate_count",
+          "chosen_open_count",
+          "trigger",
+          "decided_by",
+          "created_at"
+        ],
+        "title": "AssignmentRecord",
         "type": "object"
       },
       "AuditEvent": {
@@ -5467,6 +5808,195 @@
         "title": "Period",
         "type": "object"
       },
+      "Preview": {
+        "properties": {
+          "items": {
+            "description": "In decision order: priority, then received.",
+            "items": {
+              "$ref": "#/components/schemas/Proposal"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "rule_version": {
+            "title": "Rule Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_version",
+          "items"
+        ],
+        "title": "Preview",
+        "type": "object"
+      },
+      "PreviewRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 50,
+            "description": "Oldest unassigned tickets first.",
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "title": "PreviewRequest",
+        "type": "object"
+      },
+      "Proposal": {
+        "properties": {
+          "body_language": {
+            "title": "Body Language",
+            "type": "string"
+          },
+          "candidate_count": {
+            "title": "Candidate Count",
+            "type": "integer"
+          },
+          "chosen_open_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chosen Open Count"
+          },
+          "external_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Id"
+          },
+          "family": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "product_master family; null for an unknown product.",
+            "title": "Family"
+          },
+          "matched_family": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matched Family"
+          },
+          "matched_language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matched Language"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rule priority from the latest analysis, if any.",
+            "title": "Priority"
+          },
+          "product_code": {
+            "title": "Product Code",
+            "type": "string"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "enum": [
+                  "LANGUAGE_AND_FAMILY",
+                  "LANGUAGE_ONLY",
+                  "FAMILY_ENGLISH_FALLBACK"
+                ],
+                "type": "string"
+              },
+              {
+                "const": "NO_MATCH",
+                "type": "string"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "external_id",
+          "subject",
+          "product_code",
+          "family",
+          "body_language",
+          "received_at",
+          "priority",
+          "user_id",
+          "reason_code",
+          "matched_language",
+          "matched_family",
+          "candidate_count",
+          "chosen_open_count"
+        ],
+        "title": "Proposal",
+        "type": "object"
+      },
       "ReadinessData": {
         "properties": {
           "database": {
@@ -5735,6 +6265,149 @@
           "recorded_at"
         ],
         "title": "RequestAction",
+        "type": "object"
+      },
+      "RequestApplyItem": {
+        "additionalProperties": false,
+        "properties": {
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The previewed agent; null for NO_MATCH.",
+            "title": "User Id"
+          }
+        },
+        "required": [
+          "request_id",
+          "user_id"
+        ],
+        "title": "RequestApplyItem",
+        "type": "object"
+      },
+      "RequestApplyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RequestApplyItem"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          },
+          "rule_version": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Rule Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_version",
+          "items"
+        ],
+        "title": "RequestApplyRequest",
+        "type": "object"
+      },
+      "RequestApplyResponse": {
+        "properties": {
+          "assigned": {
+            "title": "Assigned",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RequestApplyResult"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "rule_version": {
+            "title": "Rule Version",
+            "type": "string"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rule_version",
+          "assigned",
+          "skipped",
+          "items"
+        ],
+        "title": "RequestApplyResponse",
+        "type": "object"
+      },
+      "RequestApplyResult": {
+        "properties": {
+          "outcome": {
+            "enum": [
+              "ASSIGNED",
+              "ALREADY_ASSIGNED",
+              "NOT_OPEN",
+              "NOT_FOUND",
+              "PREVIEW_CHANGED",
+              "NO_MATCH"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "enum": [
+                  "FAMILY",
+                  "NO_MATCH"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Owner after the call (or the new proposal).",
+            "title": "User Id"
+          }
+        },
+        "required": [
+          "request_id",
+          "outcome",
+          "user_id",
+          "reason_code"
+        ],
+        "title": "RequestApplyResult",
         "type": "object"
       },
       "RequestCreate": {
@@ -6119,6 +6792,140 @@
           "items"
         ],
         "title": "RequestList",
+        "type": "object"
+      },
+      "RequestPreview": {
+        "properties": {
+          "items": {
+            "description": "Oldest first, the decision order.",
+            "items": {
+              "$ref": "#/components/schemas/RequestProposal"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "rule_version": {
+            "title": "Rule Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_version",
+          "items"
+        ],
+        "title": "RequestPreview",
+        "type": "object"
+      },
+      "RequestProposal": {
+        "properties": {
+          "candidate_count": {
+            "title": "Candidate Count",
+            "type": "integer"
+          },
+          "chosen_open_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Open requests of the chosen agent.",
+            "title": "Chosen Open Count"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "family": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "product_master family; null for an unknown product.",
+            "title": "Family"
+          },
+          "fault_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fault Id"
+          },
+          "matched_family": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matched Family"
+          },
+          "product_code": {
+            "title": "Product Code",
+            "type": "string"
+          },
+          "reason_code": {
+            "enum": [
+              "FAMILY",
+              "NO_MATCH"
+            ],
+            "title": "Reason Code",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "request_type": {
+            "title": "Request Type",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          }
+        },
+        "required": [
+          "request_id",
+          "request_type",
+          "product_code",
+          "fault_id",
+          "family",
+          "status",
+          "created_at",
+          "user_id",
+          "reason_code",
+          "matched_family",
+          "candidate_count",
+          "chosen_open_count"
+        ],
+        "title": "RequestProposal",
         "type": "object"
       },
       "RequestRound": {
@@ -7628,6 +8435,22 @@
         "title": "Signal",
         "type": "object"
       },
+      "SuccessResponse_AgentList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AgentList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[AgentList]",
+        "type": "object"
+      },
       "SuccessResponse_AnalysisJob_": {
         "properties": {
           "data": {
@@ -7642,6 +8465,22 @@
           "meta"
         ],
         "title": "SuccessResponse[AnalysisJob]",
+        "type": "object"
+      },
+      "SuccessResponse_ApplyResponse_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ApplyResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[ApplyResponse]",
         "type": "object"
       },
       "SuccessResponse_AuditList_": {
@@ -7820,6 +8659,22 @@
         "title": "SuccessResponse[OwnerList]",
         "type": "object"
       },
+      "SuccessResponse_Preview_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Preview"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[Preview]",
+        "type": "object"
+      },
       "SuccessResponse_ReadinessData_": {
         "properties": {
           "data": {
@@ -7834,6 +8689,22 @@
           "meta"
         ],
         "title": "SuccessResponse[ReadinessData]",
+        "type": "object"
+      },
+      "SuccessResponse_RequestApplyResponse_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RequestApplyResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[RequestApplyResponse]",
         "type": "object"
       },
       "SuccessResponse_RequestDetail_": {
@@ -7866,6 +8737,22 @@
           "meta"
         ],
         "title": "SuccessResponse[RequestList]",
+        "type": "object"
+      },
+      "SuccessResponse_RequestPreview_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RequestPreview"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[RequestPreview]",
         "type": "object"
       },
       "SuccessResponse_RequestVersionList_": {
@@ -9579,6 +10466,17 @@
       },
       "Workflow": {
         "properties": {
+          "assignment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentRecord"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Latest assignment decision when it still matches the current owner."
+          },
           "closed_at": {
             "anyOf": [
               {
@@ -9812,6 +10710,371 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/cs/assignments/agents": {
+      "get": {
+        "description": "The agent skill table (assumed data) with each agent's open tickets. Names are not\nhere: the C/S service cannot read identity, so the screen reads them from the platform.",
+        "operationId": "cs_list_assignment_agents",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_AgentList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "List Agents",
+        "tags": [
+          "assignments"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/assignments/apply": {
+      "post": {
+        "description": "Writes the previewed owners that the rules still give. Running it again changes nothing.\n\nEach ticket is locked and must still be RECEIVED without an owner. A ticket whose decision\nnow differs from the preview (another agent's load or skills changed) is not written and\ncomes back as PREVIEW_CHANGED with the new proposal; preview again to see it.",
+        "operationId": "cs_apply_assignments",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ApplyResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The rules changed since the preview"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Apply",
+        "tags": [
+          "assignments"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/assignments/improvements/apply": {
+      "post": {
+        "description": "Writes the previewed owners the rules still give, like the ticket apply. Idempotent.\n\nEach request is locked and must still be open without a C/S owner. The owner change gets a\nnew request version and audit event like a manager reassignment.",
+        "operationId": "cs_apply_improvement_assignments",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestApplyResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The rules changed since the preview"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Apply Requests",
+        "tags": [
+          "assignments"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/assignments/improvements/preview": {
+      "post": {
+        "description": "Proposed C/S owners for open improvement requests without one. Writes nothing.",
+        "operationId": "cs_preview_improvement_assignments",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestPreview_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Preview Requests",
+        "tags": [
+          "assignments"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/assignments/preview": {
+      "post": {
+        "description": "Proposed owners for the oldest unassigned RECEIVED tickets. Writes nothing.",
+        "operationId": "cs_preview_assignments",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Preview_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Preview",
+        "tags": [
+          "assignments"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
     "/api/v1/cs/condition-comparisons": {
       "get": {
         "description": "\ubb36\uc74c\uc758 \ube44\uad50 \uacb0\uacfc. \uc804\uccb4 \ubb38\uc758\ub97c \ubcf4\uc9c0 \uc54a\ub294 \uc0ac\uc6a9\uc790\ub294 \ubcfc \uc218 \uc788\ub294 \uc694\uccad\uc11c\uc5d0 \uc5f0\uacb0\ub41c \ube44\uad50\ub9cc \ubcf8\ub2e4.\n\nArgs:\n    request: \uc694\uccad.\n    product_code: \uc81c\ud488 \ucf54\ub4dc.\n    fault_id: \uace0\uc7a5 ID(FLT-000).\n    version: \ud310\ubcf8. \uc0dd\ub7b5\ud558\uba74 \ucd5c\uc2e0.\n    principal: \uc870\ud68c \uc0ac\uc6a9\uc790.\n\nReturns:\n    SuccessResponse[ConditionComparison]: \ube44\uad50 \uacb0\uacfc \ud55c \ud310\ubcf8.",
@@ -10668,6 +11931,25 @@
               ],
               "description": "SYSTEM_CANDIDATE for saved candidates, MANUAL for written requests.",
               "title": "Origin"
+            }
+          },
+          {
+            "description": "Only requests whose C/S owner is this user.",
+            "in": "query",
+            "name": "owner",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only requests whose C/S owner is this user.",
+              "title": "Owner"
             }
           }
         ],

@@ -6,6 +6,7 @@ Values come from the provided training data (CSV1-000044 / RC-0007, gasket leak 
 from datetime import UTC, date, datetime
 from uuid import UUID
 
+from backend.api.cs.assignments.schemas import AgentList, AgentSkill, AssignmentRecord
 from backend.api.cs.comparisons.examples import response as comparison_response
 from backend.api.cs.improvements.schemas import (
     Evidence,
@@ -39,6 +40,7 @@ from backend.api.cs.units.schemas import (
     UnitLink,
 )
 from backend.api.cs.workflow.schemas import DeptResult, Transfer, Workflow
+from backend.engine.cs.assignment import ASSIGNMENT_RULES_VERSION, IMPROVEMENT_RULES_VERSION
 from backend.shared.models import ResponseMeta, SuccessResponse
 
 META = ResponseMeta(request_id=UUID("11111111-1111-4111-8111-111111111111"))
@@ -256,12 +258,60 @@ def workflow_example() -> dict:
                 review_note=None,
             )
         ],
+        assignment=AssignmentRecord(
+            id=UUID("dddddddd-dddd-4ddd-8ddd-ddddddddddd1"),
+            user_id=AGENT_ID,
+            rule_version=ASSIGNMENT_RULES_VERSION,
+            reason_code="LANGUAGE_AND_FAMILY",
+            matched_language="tr",
+            matched_family="TRANSFORMER",
+            candidate_count=2,
+            chosen_open_count=3,
+            trigger="INTAKE",
+            decided_by=None,
+            created_at=datetime(2025, 10, 5, 16, 43, 0, tzinfo=UTC),
+        ),
     )
     return {
         "method": "GET",
         "path": f"/api/v1/cs/tickets/{SECOND_TICKET_ID}/workflow",
         "status": 200,
         "body": SuccessResponse(data=workflow, meta=META).model_dump(mode="json"),
+    }
+
+
+def assignment_agents_example() -> dict:
+    """The agent skill table (assumed data) with current loads (KAN-214)."""
+    agents = AgentList(
+        rule_version=ASSIGNMENT_RULES_VERSION,
+        request_rule_version=IMPROVEMENT_RULES_VERSION,
+        items=[
+            AgentSkill(
+                user_id=AGENT_ID,
+                languages=["en", "tr", "ru"],
+                families=["TRANSFORMER", "MV_EQUIP"],
+                active=True,
+                open_count=3,
+                open_request_count=1,
+                data_origin="demo",
+                derivation_kind="ASSUMED",
+            ),
+            AgentSkill(
+                user_id=UUID("88888888-8888-4888-8888-888888888883"),
+                languages=["en", "th", "vi"],
+                families=["LV_BREAKER", "DRIVE"],
+                active=True,
+                open_count=1,
+                data_origin="demo",
+                derivation_kind="ASSUMED",
+            ),
+        ],
+    )
+    return {
+        "method": "GET",
+        "path": "/api/v1/cs/assignments/agents",
+        "status": 200,
+        "body": SuccessResponse(data=agents, meta=META).model_dump(mode="json"),
     }
 
 
@@ -537,6 +587,7 @@ def examples() -> list[dict]:
         + write_examples()
         + unit_examples()
         + [workflow_example(), case_example(), improvement_example(), stats_example()]
+        + [assignment_agents_example()]
         + [
             {
                 "method": "GET",

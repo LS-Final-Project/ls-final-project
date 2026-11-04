@@ -12,6 +12,8 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
+from backend.api.cs.assignments import repository as assignments
+from backend.api.cs.assignments.schemas import AssignmentRecord
 from backend.api.cs.tickets import repository as tickets
 from backend.api.cs.tickets.access import sees_all_tickets, transfer_departments
 from backend.api.cs.tickets.routes import PARTIAL, check_visible, not_found, respond
@@ -110,7 +112,11 @@ async def view(conn: Any, workflow: Row, principal: Principal) -> Workflow:
         # Customer mail (KAN-110): what was sent to and received from the customer is C/S
         # business, not shown to department users.
         origin = await repository.get_mail_origin(conn, ticket_id)
+        decision = await assignments.latest_assignment(conn, ticket_id)
         mail = {
+            "assignment": AssignmentRecord.model_validate(decision)
+            if decision and decision["user_id"] == workflow["owner_user_id"]
+            else None,
             "mail_origin": MailOrigin.model_validate(origin) if origin else None,
             "customer_sends": [
                 CustomerSend.model_validate(s) for s in await repository.list_sends(conn, ticket_id)

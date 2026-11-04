@@ -45,6 +45,7 @@ async def list_requests(
     request_type: str | None = None,
     dept: str | None = None,
     origin: str | None = None,
+    owner: UUID | None = None,
 ) -> list[Row]:
     """Newest first, up to LIST_LIMIT. Filters narrow the caller's scope and never widen it."""
     conditions = [IN_DEPARTMENTS] if departments is not None else []
@@ -56,6 +57,8 @@ async def list_requests(
         conditions.append(INVOLVES_DEPT)
     if origin is not None:
         conditions.append("r.origin = %(origin)s")
+    if owner is not None:
+        conditions.append("r.cs_owner = %(owner)s")
     where = f"WHERE {' AND '.join(conditions)} " if conditions else ""
     cursor = await conn.execute(
         "SELECT r.id, r.request_type, r.origin, r.product_code, r.fault_id, r.doc_signal, "
@@ -72,6 +75,7 @@ async def list_requests(
             "request_type": request_type,
             "dept": dept,
             "origin": origin,
+            "owner": owner,
             "limit": LIST_LIMIT,
         },
     )

@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from backend.api.cs.analysis.routes import router as analysis
+from backend.api.cs.assignments.routes import router as assignments
 from backend.api.cs.comparisons.routes import router as comparisons
 from backend.api.cs.faults.routes import router as faults
 from backend.api.cs.improvements.ai_draft import router as improvement_ai_draft
@@ -38,3 +39,4 @@ router.include_router(improvement_ai_draft)
 router.include_router(comparisons)
 router.include_router(faults)
 router.include_router(stats)
+router.include_router(assignments)

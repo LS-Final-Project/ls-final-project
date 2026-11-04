@@ -7,6 +7,7 @@ import type { TicketListResponse } from '../api/cs';
 import { ErrorState, Loading } from '../components/states';
 import TicketCreateDialog from '../components/TicketCreateDialog';
 import BatchOwnerDialog from '../components/BatchOwnerDialog';
+import AutoAssignDialog from '../components/AutoAssignDialog';
 import { me } from '../api/platform';
 import { useTicketPages } from '../ls-shell/use-tickets';
 import { downloadCsv, useHotkey } from '../ls-shell/kv';
@@ -44,10 +45,12 @@ export default function Tickets() {
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
   const [creating, setCreating] = useState(false);
   const [batchOwner, setBatchOwner] = useState(false);
-  // 담당 변경은 C/S 관리자만 한다(서버도 확인). 업무 접근 확인(['me'])과 캐시를 섞지 않으려고 키를 따로 둔다.
-  const identity = useQuery({ queryKey: ['tickets-identity', mode], queryFn: me, retry: false, enabled: access.ready && mode === 'live' && picked.size > 0 });
+  const [autoAssign, setAutoAssign] = useState(false);
+  // 담당 변경·자동 배정은 C/S 관리자만 한다(서버도 확인). 업무 접근 확인(['me'])과 캐시를 섞지 않으려고 키를 따로 둔다.
+  const identity = useQuery({ queryKey: ['tickets-identity', mode], queryFn: me, retry: false, enabled: access.ready && mode === 'live' });
   // 서버는 manager 역할과 C/S 부서(GCS_L1) 관리를 함께 본다. 다른 부서 관리자에게는 열지 않는다.
   const isManager = identity.data?.data?.roles?.includes('manager') === true && (identity.data?.data?.managed_departments ?? []).includes('GCS_L1');
+  const managerReason = (denied: string) => isManager ? undefined : mode !== 'live' ? '실제 API 모드에서만 할 수 있습니다' : identity.isPending ? '세션을 확인하는 중입니다' : identity.isError ? '세션을 확인하지 못했습니다. 새로고침하세요' : denied;
 
   const tickets = useTicketPages(access.ready);
   // 조회 중에는 다시 부르지 않는다. 단추만 잠그면 다시 그려지기 전에 들어온 연타나 F8 키 반복이 요청을 겹친다.
@@ -119,6 +122,8 @@ export default function Tickets() {
       <span className="path">C/S 관리 ›</span><h1>문의 조회</h1><code className="kv-code">CS0101</code>
       <div className="btns">
         <button className="kb3" disabled={mode !== 'live'} title={mode !== 'live' ? '실제 API 모드에서만 등록할 수 있습니다' : undefined} onClick={() => setCreating(true)}>신규 등록</button>
+        {/* KAN-214: 담당 없는 접수 문의를 규칙으로 배정한다. 미리보기 뒤 적용. */}
+        <button className="kb3" disabled={!isManager} title={managerReason('C/S 부서 관리자만 자동 배정할 수 있습니다') ?? '담당 없는 접수 문의를 언어·제품군 규칙으로 배정합니다(미리보기 뒤 적용)'} onClick={() => setAutoAssign(true)}>자동 배정</button>
         <button className="kb3" disabled={rows.length === 0} onClick={exportCsv} title={pickedRows.length ? `선택한 ${pickedRows.length}건만 내려받습니다` : '표시된 행 전체를 내려받습니다'}>엑셀{pickedRows.length > 0 && <small> {pickedRows.length}</small>}</button>
         <button className="kb3" onClick={() => window.print()}>인쇄</button>
         <span className="vsep" />
@@ -149,7 +154,7 @@ export default function Tickets() {
           <div className="r">
             {pickedRows.length > 0 ? <span className="picked" role="toolbar" aria-label="선택한 문의">
               <span><b>{pickedRows.length}</b>건 선택</span>
-              <button type="button" className="kb3 sm" disabled={!isManager} title={isManager ? undefined : mode !== 'live' ? '실제 API 모드에서만 할 수 있습니다' : identity.isPending ? '세션을 확인하는 중입니다' : identity.isError ? '세션을 확인하지 못했습니다. 새로고침하세요' : 'C/S 부서 관리자만 담당을 바꿀 수 있습니다'} onClick={() => setBatchOwner(true)}>담당 변경</button>
+              <button type="button" className="kb3 sm" disabled={!isManager} title={managerReason('C/S 부서 관리자만 담당을 바꿀 수 있습니다')} onClick={() => setBatchOwner(true)}>담당 변경</button>
               <button type="button" className="kb3 sm" aria-label="선택한 문의 엑셀" onClick={exportCsv}>엑셀</button>
               <button type="button" className="kb3 sm" onClick={() => setPicked(new Set())}>선택 해제</button>
             </span> : <span className="meta" title={tickets.hasNextPage ? '받아 온 문의 기준입니다. 마지막 쪽의 다음을 누르면 더 받아 옵니다.' : undefined}>총 {all.length}건 중 {rows.length}건</span>}
@@ -170,6 +175,7 @@ export default function Tickets() {
       </div>}
     </div>
 
+    {autoAssign && <AutoAssignDialog onClose={() => setAutoAssign(false)} onDone={() => { void tickets.refetch(); }} />}
     {batchOwner && <BatchOwnerDialog targets={pickedRows.map(item => ({ id: item.id, label: number(item) }))} onClose={() => setBatchOwner(false)} onDone={() => { void tickets.refetch(); }} />}
     {creating && <TicketCreateDialog products={products} onClose={() => setCreating(false)} onCreated={() => { void tickets.refetch(); }} />}
   </main>;

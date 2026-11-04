@@ -51,7 +51,6 @@
 .ls-root .kv .td3.home3 .due{font-size:12.5px;color:#5b6475;white-space:nowrap;font-variant-numeric:tabular-nums}
 .ls-root .kv .td3.home3 .due.over{color:#a3221a;font-weight:700}
 .ls-root .kv .td3.home3 .due.today{color:#8a5a00;font-weight:700}
-.ls-root .kv .td3.home3 .ex{text-decoration:underline dotted;text-underline-offset:3px}
 .ls-root .kv .td3.home3 .flag.raw{background:#f1f2f5;color:#7a8394;font-weight:500}
 /* 지금 할 일(1순위 크게 + 다음 순서) · 부서 검토·회신. 문의 처리 화면과 같은 각진 상자·색. */
 .ls-root .kv .td3.home3 .home-cols{grid-template-columns:1.25fr 1fr}

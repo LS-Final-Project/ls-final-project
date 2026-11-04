@@ -16,7 +16,7 @@ import CustomerThread, { isUnsettledSend, latestUnansweredReply } from '../compo
 import AiDraftDialog, { OPTION_LABEL, optionsOf, pickDraft, textOf, type SendOptions } from '../components/AiDraftDialog';
 import AnalysisCorrection from '../components/AnalysisCorrection';
 import { KvGrid, KvModal, useHotkey, type KvColumn } from '../ls-shell/kv';
-import { CATEGORY_LABEL, CHANNEL_LABEL, RETURN_STATED_LABEL, STATE_LABEL, formatStamp, infoName } from '../ls-shell/cs-labels';
+import { CATEGORY_LABEL, CHANNEL_LABEL, LANGUAGE_LABEL, RETURN_STATED_LABEL, STATE_LABEL, assignmentText, formatStamp, infoName } from '../ls-shell/cs-labels';
 import './ticket-detail-v3.css';
 
 const MOCK_BLOCKED = '모의 응답 모드에서는 실행할 수 없습니다';
@@ -29,7 +29,7 @@ const TRANSFER_STATUS: Record<WorkflowRecord['transfers'][number]['status'], str
   OPEN: '검토 중', RESULT_SUBMITTED: '결과 제출', RETURNED_BY_DEPT: '부서 반송', RECALLED: 'C/S 회수',
 };
 const URGENCY_LABEL: Record<string, string> = { SAFETY: '안전 위험', SITE_DOWN: '현장 정지', PROD_IMPACT: '생산 영향', COMMISSION: '시운전', DEADLINE: '기한', NONE: '아니오' };
-const LANG_LABEL: Record<string, string> = { en: '영어', ko: '한국어', es: '스페인어', tr: '튀르키예어', de: '독일어', fr: '프랑스어', zh: '중국어', ja: '일본어', vi: '베트남어' };
+const LANG_LABEL = LANGUAGE_LABEL;
 const COMMISSIONING_LABEL: Record<string, string> = { CONFIRMED: '설치 확정', PLANNED: '설치 예정', UNKNOWN: '설치일 모름' };
 const UNIT_STATUS_LABEL: Record<string, string> = { ACTIVE: '사용 중', REPLACED: '교체됨', RETIRED: '사용 종료' };
 const STEPS = ['접수', '분류 확인', '장비 확인', '고객 회신', '종결'];
@@ -361,6 +361,7 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
     const moved = entries.find(([key]) => key === 'state');
     if (moved) return `상태 ${STATE_LABEL[moved[1]?.from as keyof typeof STATE_LABEL] ?? moved[1]?.from ?? ''} → ${STATE_LABEL[moved[1]?.to as keyof typeof STATE_LABEL] ?? moved[1]?.to}`;
     if (entries.some(([key]) => key === 'provenance_kind')) return `분류 정정 ${entries.filter(([key]) => ['category_code', 'secondary_category', 'urgency_flag', 'provided_info'].includes(key)).length}개`;
+    if (entries.some(([key, value]) => key === 'action' && value?.to === 'auto_assign')) return '자동 배정(규칙)';
     if (entries.some(([key]) => key === 'owner_user_id')) return '담당 변경';
     return entries.slice(0, 3).map(([key]) => key).join(', ') || '기록';
   };
@@ -453,7 +454,10 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
         <div className="k">접수 경로</div><div className="v last">{CHANNEL_LABEL[data.channel]}, {LANG_LABEL[data.body_language] ?? data.body_language}</div>
         <div className="k nb">제품</div><div className="v nb">{data.product_code}</div>
         <div className="k nb">상태</div><div className="v nb"><strong className="state">{state}</strong></div>
-        <div className="k nb">담당</div><div className="v nb">{owner}<button className="mini" disabled={busy || reasons.owner !== undefined} title={reasons.owner} onClick={() => setDialog('owner')}>담당 변경</button></div>
+        <div className="k nb">담당</div><div className="v nb">{owner}
+          {/* KAN-214: 지금 담당이 규칙으로 정해졌을 때만 서버가 근거를 준다. 사람이 바꾼 담당이면 없다. */}
+          {wf?.assignment && <small className="assign-why" title={`${assignmentText(wf.assignment)} · ${wf.assignment.trigger === 'BATCH' ? '관리자 일괄 배정' : '접수 시 자동'} · 규칙 ${wf.assignment.rule_version}`}>{assignmentText(wf.assignment)}</small>}
+          <button className="mini" disabled={busy || reasons.owner !== undefined} title={reasons.owner} onClick={() => setDialog('owner')}>담당 변경</button></div>
         <div className="k nb">고객 맥락</div><div className="v nb last">{others.isSuccess ? `진행 ${openCount} · 장비 ${unitRows.length} · 최근 ${latestOther ? md(latestOther) : '-'}` : '-'}</div>
       </div>
 
