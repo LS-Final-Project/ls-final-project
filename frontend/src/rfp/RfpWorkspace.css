@@ -157,14 +157,12 @@ button.ws-gateitem{color:#24518a;cursor:pointer}
 .ws-table td small{white-space:nowrap}
 .ws-outnote{margin:6px 16px}
 
-/* 보드 재현(2026-11-05, 사본 캔버스 "RFP 검토 화면 개편안"). 글꼴·굵기·크기·표 치수는 보드 CSS 값을 그대로 쓴다.
-   사용자 윈도우 Chrome에서 보드는 Pretendard 가족 중 설치된 Bold 한 벌로 모든 굵기를 그린다(CDP getPlatformFontsForNode로 확인).
-   그 화면을 PC 설치와 무관하게 재현하려고 Pretendard Bold(OFL, public/fonts)를 모든 굵기에 묶어 싣는다.
-   ponytail: 굵기 위계가 필요해지면 Pretendard Variable을 싣고 --rfp-font만 바꾼다.
-   .rfp-ui는 업무 홈·RFP 목록·작업 공간의 <main>에만 붙는다. 셸(메뉴·상단)과 다른 업무 화면은 바꾸지 않는다. */
-@font-face{font-family:"LS Board Pretendard";src:url("/fonts/Pretendard-Bold.woff2") format("woff2");font-weight:100 900;font-display:swap}
-/* RFP 화면이 떠 있을 때만 셸(메뉴·상단·탭)도 같은 글꼴로 그린다. C/S 등 다른 화면에는 .rfp-ui가 없어 그대로다. */
-.ls-root:has(.rfp-ui){--erp-font:"LS Board Pretendard","Noto Sans KR",system-ui,sans-serif}
+/* 보드 재현(2026-11-05, 사본 캔버스 "RFP 검토 화면 개편안"). 글꼴·크기·표 치수는 보드 CSS 값을 쓴다.
+   글꼴은 Pretendard Variable(OFL, public/fonts)을 자체 호스팅해 PC 설치와 무관하게 같게 그린다. 보드 사본도 같은 파일·같은 굵기 규칙을 싣는다.
+   굵기 위계(사용자 결정 2026-11-05): 본문·표 셀·보조 글 500, 라벨·표 머리·탭·버튼 600, 제목·패널 제목·묶음 제목 700, 숫자는 tabular-nums.
+   .rfp-ui는 업무 홈·RFP 목록·작업 공간의 <main>에만 붙는다. 셸은 RFP 화면이 떠 있을 때만 같은 규칙을 쓴다(C/S 등은 그대로). */
+@font-face{font-family:"LS Board Pretendard";src:url("/fonts/PretendardVariable.woff2") format("woff2-variations");font-weight:45 920;font-display:swap}
+.ls-root:has(.rfp-ui){--erp-font:"LS Board Pretendard","Noto Sans KR",system-ui,sans-serif;--mm-bg:#f4f6f9}
 .ls-root .kv .rfp-ui{--rfp-font:"LS Board Pretendard","Noto Sans KR",system-ui,sans-serif;font-size:13px;font-weight:300;line-height:normal;color:#1f2a37}
 .ls-root .kv .rfp-ui,.ls-root .kv .rfp-ui :is(button,input,select,textarea,h1,h2,h3,th,td,a){font-family:var(--rfp-font)!important}
 .ls-root .kv .rfp-ui :is(button,input,select,textarea){font-weight:300}
@@ -235,3 +233,13 @@ button.ws-gateitem{color:#24518a;cursor:pointer}
 .ls-root .kv .rfp-ui .ws-table tr.member td{color:#8a94a1;background:#fbfcfd}
 .ls-root .kv .rfp-ui .ws-table tr.member td:nth-child(3){padding-left:20px}
 .ls-root .kv .rfp-ui .ws-stale{margin:6px 0 0;font-size:12px;color:#9a6b00}
+
+/* 굵기 위계와 평면 바탕(보드와 같은 규칙, 2026-11-05). 앞의 개별 굵기 선언보다 이 블록이 우선한다. */
+.ls-root .kv .rfp-ui,.ls-root .kv .rfp-ui *,.ls-root:has(.rfp-ui) :is(.sidebar,.ls-topbar,.kt-tabs) *{font-weight:500!important}
+.ls-root .kv .rfp-ui{font-variant-numeric:tabular-nums}
+.ls-root .kv .rfp-ui :is(th,label,button,select,.kb,[role=tab],.ws-tabs button,.ws-chip,.ws-link),.ls-root:has(.rfp-ui) :is(.sidebar .km-g,.sidebar a,.ls-topbar button,.ls-topbar a,.kt-tabs [role=tab]){font-weight:600!important}
+.ls-root .kv .rfp-ui :is(h1,h2,h3,.hd .name,tr.g td,.kv-box>h2),.ls-root:has(.rfp-ui) .sidebar .brand{font-weight:700!important}
+.ls-root:has(.rfp-ui),.ls-root:has(.rfp-ui) :is(.content,.kv,main.rfp-ui){background-color:#f4f6f9;background-image:none}
+.ls-root:has(.rfp-ui) .main::before{display:none}
+.ls-root .kv .rfp-ui .kv-grid th{text-align:left!important}
+.ls-root .kv .rfp-ui .kv-grid th:last-child{text-align:right!important}
