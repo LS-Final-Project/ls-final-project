@@ -23,7 +23,7 @@ function serve(byState: Record<string, unknown[]>, requests: unknown[] | 'error'
 }
 const req = (id: string, status: string, owner: string | null = 'u1') => ({ id, status, request_type: 'FAULT', product_code: 'P1', fault_id: 'FLT-001', created_at: day(2), origin: 'SYSTEM_CANDIDATE', problem_statement: 'p', version: 1, evidence_count: 3, cs_owner: owner });
 
-test('오늘 할 일은 새 문의와 내 담당 진행 문의를 세고, 오래된 순으로 할 일을 보인다', async () => {
+test('오늘 할 일은 새 문의와 내 담당 진행 문의를 세고, 1순위를 크게 보이고 다음 순서를 이어 보인다', async () => {
   const fetch = serve({
     'RECEIVED|': [item('a', 'RECEIVED', 10)],
     'IN_REVIEW,ANSWERED|u1': [item('b', 'IN_REVIEW', 2), item('f', 'ANSWERED', 5)],
@@ -31,18 +31,20 @@ test('오늘 할 일은 새 문의와 내 담당 진행 문의를 세고, 오래
   }, [req('r1', 'DRAFT'), req('r2', 'REVIEWED'), req('r3', 'COMPLETED'), req('r4', 'REVIEWED', 'someone-else')]);
   vi.stubGlobal('fetch', fetch);
   view();
-  const table = within(await screen.findByRole('table', { name: '처리할 문의' }));
-  await table.findByRole('link', { name: 'ID-a' });
-  expect(table.getAllByRole('link').map(x => x.textContent)).toEqual(['ID-a', 'ID-f', 'ID-b']);
-  expect(table.getByText('검토 시작')).toBeTruthy();expect(table.getByText('종결 여부 확인')).toBeTruthy();
-  expect(table.queryByText('ID-c')).toBeNull();
+  // 분석(우선순위·기한)이 없으면 오래된 순: a(10일) → f(5일) → b(2일). 기다리는 c는 빠진다.
+  const go = await screen.findByRole('link', { name: /문의 처리/ });
+  expect(go.getAttribute('href')).toBe('/cs/tickets/a');
+  expect(screen.getByRole('heading', { name: /번역 전/ }).textContent).toContain('a');
+  const queue = [...document.querySelectorAll('.hm-queue a.hm-q')].map(a => a.getAttribute('href'));
+  expect(queue).toEqual(['/cs/tickets/f', '/cs/tickets/b']);
+  expect(screen.queryByText('ID-c')).toBeNull();
   // 오늘 할 일 = 새 1 + 내 담당 2 + 내 개선요청 2(초안 검토 포함, 다른 사람 담당·완료는 빠짐)
   expect(await screen.findByText('5건')).toBeTruthy();
   expect(screen.getByText('내 담당만 · 초안 검토 1건 포함')).toBeTruthy();
   expect(screen.getByText('검토 완료 기록')).toBeTruthy();
   expect(screen.getByText(/김상담님/)).toBeTruthy();
-  expect(screen.getByText('7일 넘은 문의 1건부터 처리하세요')).toBeTruthy();
-  expect(screen.getByText('부서 전달')).toBeTruthy();
+  // 분석이 없으면 기한·긴급 값을 만들어 보이지 않는다.
+  expect(screen.queryByText(/기한 넘긴|오늘 기한|긴급 P1/)).toBeNull();
   expect(screen.queryByText('용어 풀이')).toBeNull();expect(screen.queryByText('다음 할 일')).toBeNull();
   const urls = fetch.mock.calls.map(([url]) => String(url));
   expect(urls.some(url => url.includes('state=IN_REVIEW%2CANSWERED') && url.includes('owner=u1'))).toBe(true);
@@ -63,7 +65,7 @@ test('목록 조회가 거부되면 이전 값을 보이지 않고 오류를 안
   vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(403, errorBody('FORBIDDEN', '권한 없음'))));
   view();
   await screen.findByText('권한이 없습니다');
-  expect(screen.queryByRole('table', { name: '처리할 문의' })).toBeNull();
+  expect(screen.queryByText('지금 할 일')).toBeNull();
 });
 
 // 개발 환경 화면(DevCheck)은 ['tickets', mode]에 쪽수 없는 목록을 저장한다. 그 캐시가 있어도 업무 홈이 깨지면 안 된다.
@@ -73,5 +75,5 @@ test('개발 환경 화면이 남긴 문의 목록 캐시와 충돌하지 않는
   client.setQueryData(['tickets', 'live'], { data: { items: [item('x', 'RECEIVED', 1)], next_cursor: null } });
   vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { data: { items: [item('a', 'RECEIVED', 10)], next_cursor: null } })));
   render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/cs']}><Routes><Route path="/cs" element={<CsHome />} /></Routes></MemoryRouter></QueryClientProvider>);
-  await screen.findByRole('link', { name: 'ID-a' });
+  expect((await screen.findByRole('link', { name: /문의 처리/ })).getAttribute('href')).toBe('/cs/tickets/a');
 });

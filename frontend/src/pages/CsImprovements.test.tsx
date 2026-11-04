@@ -31,7 +31,7 @@ test('대기중 반복 클릭을 막고 이탈 시 조회를 취소한다',async
 });
 
 test('목록은 실제 응답 제목과 상세 링크를 표시한다',async()=>{
- vi.stubGlobal('fetch',vi.fn(async()=>jsonResponse(200,{data:{items:[{id:'request-doc',problem_statement:'숨길 문서 요청',request_type:'DOCUMENT',product_code:'TEST',status:'DRAFT',version:1,evidence_count:0,cs_owner:null},{id:'request-one',problem_statement:'합성 문서 검토',request_type:'FAULT',product_code:'TEST',status:'DRAFT',version:1,evidence_count:0,cs_owner:null}]}})));view(false);const link=await screen.findByRole('link',{name:'합성 문서 검토'});expect(link.getAttribute('href')).toBe('/cs/improvements/request-one');expect(screen.getByText('담당자 ID: 미배정')).toBeTruthy();expect(screen.queryByText('숨길 문서 요청')).toBeNull();
+ vi.stubGlobal('fetch',vi.fn(async()=>jsonResponse(200,{data:{items:[{id:'request-doc',problem_statement:'숨길 문서 요청',request_type:'DOCUMENT',product_code:'TEST',status:'DRAFT',version:1,evidence_count:0,cs_owner:null},{id:'request-one',problem_statement:'합성 문서 검토',request_type:'FAULT',product_code:'TEST',status:'DRAFT',version:1,evidence_count:0,cs_owner:null}]}})));view(false);const link=await screen.findByRole('link',{name:'합성 문서 검토'});expect(link.getAttribute('href')).toBe('/cs/improvements/request-one');expect(screen.queryByText('숨길 문서 요청')).toBeNull();
 });
 
 test('재조회 응답을 기다리는 동안 이전 표시를 숨긴다',async()=>{
