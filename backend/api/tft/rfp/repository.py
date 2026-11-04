@@ -1764,6 +1764,21 @@ async def equipment_voltages(
     )
 
 
+async def equipment_insulations(
+    conn: AsyncConnection[Row], project_id: UUID, document_version_id: UUID
+) -> dict[str, comparison.Insulation]:
+    """같은 문서 판본 요구(현행 판본)의 설비별 변압기 절연 형식. 다시 비교·직접 추가가 처리 때와 같은 형식을 쓴다."""
+    cursor = await conn.execute(
+        "SELECT v.equipment, v.attribute_key, v.value FROM tft.requirements r "
+        "JOIN tft.requirement_versions v ON v.requirement_id=r.id AND v.version=r.latest_version "
+        "WHERE r.project_id=%s AND v.document_version_id=%s",
+        (project_id, document_version_id),
+    )
+    return comparison.equipment_insulations(
+        (r["equipment"], r["attribute_key"], r["value"]) for r in await cursor.fetchall()
+    )
+
+
 async def prior_grades_for_regrading(conn: AsyncConnection[Row], project_id: UUID) -> list[Row]:
     """과거 의미 미보존 행의 비상승 경계만 위한 마지막 판정. 공개 최신 조회에는 쓰지 않는다."""
     cursor = await conn.execute(

@@ -21,6 +21,7 @@
         "kind": "SPEC",
         "core_equipment": false,
         "equipment_voltage_kv": null,
+        "equipment_insulation": null,
         "origin": {
           "document": "RFP-14 261116.11",
           "document_version_id": null,
@@ -50,6 +51,7 @@
         "kind": "SPEC",
         "core_equipment": false,
         "equipment_voltage_kv": null,
+        "equipment_insulation": null,
         "origin": {
           "document": "RFP-14 261116.11",
           "document_version_id": null,
@@ -79,6 +81,7 @@
         "kind": "SPEC",
         "core_equipment": false,
         "equipment_voltage_kv": null,
+        "equipment_insulation": null,
         "origin": {
           "document": "RFP-14 261116.11",
           "document_version_id": null,
@@ -114,6 +117,7 @@
         "kind": "SPEC",
         "core_equipment": false,
         "equipment_voltage_kv": null,
+        "equipment_insulation": null,
         "origin": {
           "document": "RFP-14 261116.11",
           "document_version_id": null,
@@ -143,6 +147,7 @@
         "kind": "SPEC",
         "core_equipment": false,
         "equipment_voltage_kv": null,
+        "equipment_insulation": null,
         "origin": {
           "document": "RFP-14 261116.11",
           "document_version_id": null,
@@ -172,6 +177,7 @@
         "kind": "SPEC",
         "core_equipment": false,
         "equipment_voltage_kv": null,
+        "equipment_insulation": null,
         "origin": {
           "document": "RFP-14 261116.11",
           "document_version_id": null,
@@ -201,6 +207,7 @@
         "kind": "SPEC",
         "core_equipment": false,
         "equipment_voltage_kv": null,
+        "equipment_insulation": null,
         "origin": {
           "document": "RFP-14 261116.11",
           "document_version_id": null,
@@ -230,6 +237,7 @@
         "kind": "SPEC",
         "core_equipment": false,
         "equipment_voltage_kv": null,
+        "equipment_insulation": null,
         "origin": {
           "document": "RFP-14 261116.11",
           "document_version_id": null,
@@ -259,6 +267,7 @@
         "kind": "SPEC",
         "core_equipment": false,
         "equipment_voltage_kv": null,
+        "equipment_insulation": null,
         "origin": {
           "document": "RFP-14 261116.11",
           "document_version_id": null,
@@ -288,6 +297,7 @@
         "kind": "SPEC",
         "core_equipment": false,
         "equipment_voltage_kv": null,
+        "equipment_insulation": null,
         "origin": {
           "document": "RFP-14 261116.11",
           "document_version_id": null,
@@ -317,6 +327,7 @@
         "kind": "SPEC",
         "core_equipment": false,
         "equipment_voltage_kv": null,
+        "equipment_insulation": null,
         "origin": {
           "document": "RFP-14 261116.11",
           "document_version_id": null,
@@ -346,6 +357,7 @@
         "kind": "SPEC",
         "core_equipment": false,
         "equipment_voltage_kv": null,
+        "equipment_insulation": null,
         "origin": {
           "document": "RFP-14 261116.11",
           "document_version_id": null,
@@ -375,6 +387,7 @@
         "kind": "SPEC",
         "core_equipment": false,
         "equipment_voltage_kv": null,
+        "equipment_insulation": null,
         "origin": {
           "document": "RFP-14 261116.11",
           "document_version_id": null,
@@ -404,6 +417,7 @@
         "kind": "SPEC",
         "core_equipment": false,
         "equipment_voltage_kv": null,
+        "equipment_insulation": null,
         "origin": {
           "document": "RFP-14 261116.11",
           "document_version_id": null,

@@ -12,6 +12,7 @@ from uuid import UUID
 from fastapi import Request
 from psycopg import AsyncConnection
 
+from backend.api.tft.rfp import comparison
 from backend.api.tft.rfp import schemas as s
 from backend.api.tft.rfp.routes_questions import visible_project
 from backend.shared.access import Principal
@@ -20,16 +21,34 @@ from backend.shared.database import connection
 Row = dict[str, Any]
 # 대표 후보: 충족 → 다름 → 비교 불가 → 자료 없음, 같으면 제품 코드 순. 자사 값이 없는 후보는 고르지 않는다.
 RANK = {"MEETS": 0, "DIFFERS": 1, "NOT_COMPARABLE": 2, "NO_DATA": 3}
+# 자사 변압기 제품 코드 → 절연 형식(건식·유입). 제품 마스터는 배포 파일이라 한 번 읽는다.
+INSULATION = {
+    p.product_code: kind
+    for p in comparison.load_own_products()
+    if (kind := comparison.product_insulation(p)) is not None
+}
 
 
-def pick(candidates: Iterable[Mapping[str, Any]]) -> s.OwnValue | None:
-    """비교 후보(product_code·variant·result·our_value·our_unit·our_conditions) 중 대표 하나."""
+def pick(candidates: Iterable[Mapping[str, Any]], reason: str = "") -> s.OwnValue | None:
+    """비교 후보(product_code·variant·result·our_value·our_unit·our_conditions) 중 대표 하나.
+
+    판정 사유(reason)에 제품 코드가 하나만 나오면 그 후보가 판정 근거라 먼저 고른다. 판정과 다른 후보를
+    자사 보증값으로 보이지 않게 한다(KAN-217). 형식이 다른 변압기 후보가 함께 남으면 note="형식 미확인".
+    """
     usable = [c for c in candidates if c.get("our_value")]
     if not usable:
         return None
+    named = {c["product_code"] for c in usable if c["product_code"] in reason}
     best = min(
-        usable, key=lambda c: (RANK.get(c["result"], 9), c["product_code"], c["variant"] or "")
+        usable,
+        key=lambda c: (
+            len(named) == 1 and c["product_code"] not in named,
+            RANK.get(c["result"], 9),
+            c["product_code"],
+            c["variant"] or "",
+        ),
     )
+    kinds = {INSULATION.get(c["product_code"]) for c in usable} - {None}
     return s.OwnValue(
         product_code=best["product_code"],
         variant=best["variant"],
@@ -40,6 +59,7 @@ def pick(candidates: Iterable[Mapping[str, Any]]) -> s.OwnValue | None:
             for c in best["our_conditions"]
         ],
         result=best["result"],
+        note="형식 미확인" if len(kinds) > 1 else None,
     )
 
 
@@ -80,6 +100,13 @@ async def own_values(
     )
     snapshots = {r["requirement_id"]: r["result"] for r in await cursor.fetchall()}
     cursor = await conn.execute(
+        "SELECT req.id, v.reason FROM tft.requirements req JOIN tft.requirement_versions v "
+        "ON v.requirement_id = req.id AND v.version = req.latest_version "
+        "WHERE req.project_id = %(p)s AND req.id = ANY(%(ids)s)",
+        params,
+    )
+    reasons = {r["id"]: r["reason"] for r in await cursor.fetchall()}
+    cursor = await conn.execute(
         "SELECT DISTINCT ON (p.requirement_id, p.product_code, p.variant) p.requirement_id, "
         "p.product_code, p.variant, p.result, p.our_value, p.our_unit, p.our_conditions "
         "FROM tft.product_comparisons p JOIN tft.requirements req ON req.id = p.requirement_id "
@@ -98,7 +125,8 @@ async def own_values(
         candidates = (
             [flat(c) for c in snapshot.get("candidates", [])] if snapshot else stored.get(rid, [])
         )
-        chosen = pick(candidates)
+        reason = (snapshot or {}).get("reason") or reasons.get(rid) or ""
+        chosen = pick(candidates, reason)
         if chosen is not None:
             out[rid] = chosen
     return out

@@ -1962,3 +1962,50 @@ def test_transformer_tap_requirement_is_still_compared():
     )
     outcome = compare_in_family(wanted, "TRANSFORMER", load_own_products())
     assert any(c.comparable for c in outcome.candidates)
+
+
+def test_dry_transformer_requirement_never_uses_oil_product():
+    """KAN-217: 건식(몰드) 변압기 요구에 유입 제품(TRF-OIL-1000)을 후보·자사 보증값으로 쓰지 않는다."""
+    from backend.api.tft.rfp.comparison import equipment_insulations, insulation
+    from backend.api.tft.rfp.requirement_fields import pick
+
+    assert insulation("몰드(cast resin) 건식") == "DRY"
+    assert insulation("Oil-immersed transformer 1000kVA, ONAN") == "OIL"
+    assert insulation("유입식 아닌 건식") is None
+    # TR-01 정격 용량 행은 장비 이름만으로 형식을 모른다. 같은 설비의 형식 요구가 근거다.
+    forms = equipment_insulations(
+        [("TR-01", "form", "몰드 건식 변압기"), ("TR-01", "rated_power", "630")]
+    )
+    wanted = Requirement(
+        clause_no="OCR-DOCX-0001.12",
+        item="TR-01",
+        attribute="rated_power",
+        value="630",
+        unit="kVA",
+        equipment_insulation=forms.get("tr-01"),
+    )
+    outcome = compare_in_family(wanted, "TRANSFORMER", load_own_products())
+    assert [c.product_code for c in outcome.candidates] == ["TRF-DRY-630"]
+    assert "insulation=DRY" in outcome.search_trace.filters
+    # 형식을 모르면 두 후보가 남고 자사 보증값에 형식 미확인을 붙인다. 판정 사유에 나온 후보를 먼저 고른다.
+    unknown = compare_in_family(
+        wanted.model_copy(update={"equipment_insulation": None}), "TRANSFORMER", load_own_products()
+    )
+    assert {c.product_code for c in unknown.candidates} == {"TRF-DRY-630", "TRF-OIL-1000"}
+    rows = [
+        {
+            "product_code": c.product_code,
+            "variant": None,
+            "result": c.result,
+            "our_value": c.our_value,
+            "our_unit": c.our_unit,
+            "our_conditions": [],
+        }
+        for c in unknown.candidates
+    ]
+    chosen = pick(rows, "근거 TRF-OIL-1000 1000 kVA")
+    assert (
+        chosen is not None
+        and chosen.product_code == "TRF-OIL-1000"
+        and chosen.note == "형식 미확인"
+    )

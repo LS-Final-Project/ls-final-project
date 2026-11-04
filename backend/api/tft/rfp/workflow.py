@@ -116,6 +116,9 @@ async def recompare(
                         voltages=await repository.equipment_voltages(
                             conn, project["id"], requirement["document_version_id"]
                         ),
+                        insulations=await repository.equipment_insulations(
+                            conn, project["id"], requirement["document_version_id"]
+                        ),
                     ),
                     requirement["equipment_family"],
                     comparison.load_own_products(),

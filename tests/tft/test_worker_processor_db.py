@@ -379,8 +379,11 @@ def test_a_transformer_rating_is_not_met_by_breaker_evidence_on_the_worker_path(
             (project["project"],),
         ).fetchall()
     assert status == [("INSUFFICIENT_EVIDENCE",)]
-    assert {code for code, _ in compared} == {"TRF-DRY-630", "TRF-OIL-1000"}
-    assert all(trace["filters"] == ["family=TRANSFORMER"] for _, trace in compared)
+    # 장비가 "dry-type transformer"라 유입 제품(TRF-OIL-1000)은 후보에서 빠진다(KAN-217 후속, 절연 형식).
+    assert {code for code, _ in compared} == {"TRF-DRY-630"}
+    assert all(
+        trace["filters"] == ["family=TRANSFORMER", "insulation=DRY"] for _, trace in compared
+    )
 
 
 def test_annotate_fails_instead_of_reporting_empty_success(worker_dsn, project):
