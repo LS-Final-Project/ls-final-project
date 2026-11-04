@@ -51,6 +51,8 @@ const TEXT: Record<string, string> = {
   CS_REQUEST_VERSION_CONFLICT: '요청이 그 사이 바뀌었습니다. 최신 내용을 다시 읽은 뒤 실행하세요.',
   CS_RESOLUTION_CASE_EXISTS: '이 문의에는 이미 해결 기록이 있습니다.',
   CS_SUMMARY_INPUT_INVALID: '이 문의 본문은 요약할 수 없습니다.',
+  CS_TRANSLATION_INPUT_INVALID: '이 문의 본문은 번역할 수 없습니다.',
+  CS_TRANSLATION_NOT_NEEDED: '원문이 이미 한국어라 번역하지 않습니다.',
   CS_TICKET_NOT_FOUND: '문의를 찾을 수 없습니다.',
   CS_TICKET_UNIT_ALREADY_CONFIRMED: '이 문의에는 이미 확정된 다른 장비가 있습니다.',
   CS_TICKET_UNIT_LINKED: '이 문의에 확정 장비가 연결돼 있습니다.',

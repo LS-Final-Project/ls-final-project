@@ -35,3 +35,7 @@ export const getTicketAudit = (id: string, signal?: AbortSignal) => request<Tick
 export type TicketSummaryResponse = paths['/api/v1/cs/tickets/{ticket_id}/summary']['get']['responses'][200]['content']['application/json'];
 // 저장된 한국어 요약을 읽는다. 모델을 부르지 않는다. 요약 기능이 꺼진 배포는 404를 돌려준다.
 export const getTicketSummary = (id: string, signal?: AbortSignal) => request<TicketSummaryResponse>(`/api/v1/cs/tickets/${encodeURIComponent(id)}/summary`, { signal, mockFallback: () => ({ data: { ticket_id: id, provenance: 'ai_draft', summary: null, latest_attempt: null } }) });
+
+export type TicketTranslationResponse = paths['/api/v1/cs/tickets/{ticket_id}/translation']['get']['responses'][200]['content']['application/json'];
+// 저장된 한국어 번역(제목·본문 전체)을 읽는다. 모델을 부르지 않는다. 번역 기능이 꺼진 배포는 404를 돌려준다.
+export const getTicketTranslation = (id: string, signal?: AbortSignal) => request<TicketTranslationResponse>(`/api/v1/cs/tickets/${encodeURIComponent(id)}/translation`, { signal, mockFallback: () => ({ data: { ticket_id: id, provenance: 'ai_draft', translation: null, latest_attempt: null } }) });
