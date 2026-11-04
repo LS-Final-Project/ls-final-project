@@ -1080,6 +1080,18 @@
             "title": "Customer External Id",
             "type": "string"
           },
+          "fw_version_at_issue": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Firmware version when the fault happened, as recorded.",
+            "title": "Fw Version At Issue"
+          },
           "known_at": {
             "anyOf": [
               {
@@ -1091,6 +1103,18 @@
               }
             ],
             "title": "Known At"
+          },
+          "onsite_visit": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether an engineer visited.",
+            "title": "Onsite Visit"
           },
           "product_code": {
             "title": "Product Code",

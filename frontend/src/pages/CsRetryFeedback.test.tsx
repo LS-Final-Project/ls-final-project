@@ -8,11 +8,11 @@ import { setApiMode } from '../api/client';
 import { errorBody, jsonResponse, renderAt } from '../test/render';
 import examples from '../mocks/generated/cs.json';
 const cases=[
- {name:'판본',element:<ImprovementVersions requestId="test"/>,path:'/',pattern:'/',open:'판본 이력 조회',refresh:'판본 이력 새로고침',loaded:'저장된 판본이 없습니다.',body:()=>({data:{items:[]}})},
+ {name:'판본',element:<ImprovementVersions requestId="test"/>,path:'/',pattern:'/',open:'작성 판본 이력',refresh:'새로고침',loaded:'저장된 판본이 없습니다.',body:()=>({data:{items:[]}})},
  {name:'장비',element:<TicketUnits ticketId="test"/>,path:'/',pattern:'/',open:'장비 정보 조회',refresh:'장비 정보 새로고침',loaded:'확정 장비가 없어 이전 문의를 표시하지 않습니다.',body:(url:string)=>({data:url.endsWith('/units')?{items:[]}:{status:'NO_CONFIRMED_UNIT',unit:null,items:[]}})},
  {name:'운영 현황',element:<CsAdmin/>,path:'/cs/admin',pattern:'/cs/admin',open:null,refresh:'조회',loaded:'판단이 필요한 것',body:()=>examples.find(x=>x.path==='/api/v1/cs/stats/overview')!.body},
  {name:'개선 목록',element:<CsImprovements/>,path:'/cs/improvements',pattern:'/cs/improvements',open:null,refresh:'최신 요청 조회',loaded:'조회 가능한 개선요청이 없습니다.',body:()=>({data:{items:[]}})},
- {name:'개선 상세',element:<CsImprovements/>,path:'/cs/improvements/test',pattern:'/cs/improvements/:requestId',open:null,refresh:'최신 요청 조회',loaded:'근거 문의',body:()=>examples.find(x=>x.path==='/api/v1/cs/improvement-requests/dddddddd-dddd-4ddd-8ddd-ddddddddddd1')!.body},
+ {name:'개선 상세',element:<CsImprovements/>,path:'/cs/improvements/test',pattern:'/cs/improvements/:requestId',open:null,refresh:'최신 요청 조회',loaded:'수신 부서와 할 일',body:()=>examples.find(x=>x.path==='/api/v1/cs/improvement-requests/dddddddd-dddd-4ddd-8ddd-ddddddddddd1')!.body},
 ];
 afterEach(()=>{cleanup();vi.unstubAllGlobals();setApiMode('mock');});
 test.each(cases)('$name: 지연 재시도 중 이전 alert를 숨기고 새 실패를 표시한다',async c=>{

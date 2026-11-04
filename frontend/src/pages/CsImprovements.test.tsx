@@ -9,22 +9,22 @@ import { errorBody, jsonResponse, renderAt } from '../test/render';
 import examples from '../mocks/generated/cs.json';
 const source=examples.find(x=>x.path==='/api/v1/cs/improvement-requests/dddddddd-dddd-4ddd-8ddd-ddddddddddd1')!.body;
 afterEach(()=>{cleanup();vi.unstubAllGlobals();vi.unstubAllEnvs();setApiMode('mock');});
-// 상세 화면은 역할 확인용 세션 조회(/me)를 함께 부른다. 상세 조회 횟수만 센다.
-const detailCalls=(fetch:{mock:{calls:unknown[][]}})=>fetch.mock.calls.filter(([url])=>!String(url).endsWith('/me'));
+// 상세 화면은 역할 확인용 세션 조회(/me)와 근거 비교(case-comparison)·고장 목록(faults)을 함께 부른다. 상세 조회 횟수만 센다.
+const detailCalls=(fetch:{mock:{calls:unknown[][]}})=>fetch.mock.calls.filter(([url])=>!String(url).endsWith('/me')&&!String(url).includes('/case-comparison')&&!String(url).includes('/cs/faults')&&!String(url).includes('/ai-draft'));
 function view(detail=true){setApiMode('live');return renderAt(detail?'/cs/improvements/test':'/cs/improvements',detail?'/cs/improvements/:requestId':'/cs/improvements',<CsImprovements/>);}
 test('근거·조건·회신·조치를 분리하고 확인되지 않은 고객 적용을 추측하지 않는다',async()=>{
  const fetch=vi.fn(async()=>jsonResponse(200,source));vi.stubGlobal('fetch',fetch);view();
- await screen.findByText('근거 문의');expect(screen.getByText('부서 조치')).toBeTruthy();expect(screen.getByText(/고객별 적용·재발 여부는 이 응답만으로/)).toBeTruthy();expect(screen.queryByRole('button',{name:'전달'})).toBeNull();expect(detailCalls(fetch)).toHaveLength(1);
+ await screen.findByText('수신 부서와 할 일');expect(screen.getByText('부서 조치와 후속 확인')).toBeTruthy();expect(screen.queryByRole('button',{name:'전달'})).toBeNull();expect(detailCalls(fetch)).toHaveLength(1);
 });
 test('빈 목록은 완료 건수가 아닌 조회 가능한 기록 없음으로 표시한다',async()=>{
  vi.stubGlobal('fetch',vi.fn(async()=>jsonResponse(200,{data:{items:[]}})));view(false);await screen.findByText('조회 가능한 개선요청이 없습니다.');
 });
 test.each([401,403,404,503])('오류 %i 뒤 이전 상세를 숨기고 복구한다',async(status)=>{
- let fail=false;vi.stubGlobal('fetch',vi.fn(async()=>jsonResponse(fail?status:200,fail?errorBody('FAIL','합성 오류'):source)));view();await screen.findByText('근거 문의');fail=true;fireEvent.click(screen.getByText('최신 요청 조회'));await screen.findByRole('alert');expect(screen.queryByText('근거 문의')).toBeNull();fail=false;fireEvent.click(screen.getByText('최신 요청 조회'));await screen.findByText('근거 문의');
+ let fail=false;vi.stubGlobal('fetch',vi.fn(async()=>jsonResponse(fail?status:200,fail?errorBody('FAIL','합성 오류'):source)));view();await screen.findByText('수신 부서와 할 일');fail=true;fireEvent.click(screen.getByText('최신 요청 조회'));await screen.findByRole('alert');expect(screen.queryByText('수신 부서와 할 일')).toBeNull();fail=false;fireEvent.click(screen.getByText('최신 요청 조회'));await screen.findByText('수신 부서와 할 일');
 });
 test('미배정·조건 미확인·제외 근거를 성공으로 표시하지 않는다',async()=>{
  const body=structuredClone(source) as unknown as ImprovementDetail;body.data.request.condition_status='UNKNOWN';body.data.request.receiver_unconfirmed=true;body.data.next_owners=[{actor:'CS_OWNER',user_id:null,dept_code:null,task:'REVIEW'}];body.data.evidence=[{id:'e',ticket_id:'t',ticket_external_id:'SYNTHETIC',case_id:null,case_external_id:null,added_by:null,added_at:'2026-10-27',removed_by:null,removed_at:'2026-10-27',removal_reason:'제품 불일치'}];
- vi.stubGlobal('fetch',vi.fn(async()=>jsonResponse(200,body)));view();await screen.findByText(/수신 부서 미확인/);expect(screen.getByText(/담당자 미배정/)).toBeTruthy();expect(screen.getByText(/제외됨: 제품 불일치/)).toBeTruthy();
+ vi.stubGlobal('fetch',vi.fn(async()=>jsonResponse(200,body)));view();await screen.findByText(/수신 부서 미확인/);expect(screen.getByText('검토 완료 기록',{selector:'.now b'})).toBeTruthy();expect(screen.getByText('미확인',{selector:'.chip'})).toBeTruthy();
 });
 test('대기중 반복 클릭을 막고 이탈 시 조회를 취소한다',async()=>{
  let signal:AbortSignal|undefined;const fetch=vi.fn((_url:RequestInfo|URL,init?:RequestInit)=>{signal=init?.signal as AbortSignal;return new Promise<Response>((_r,reject)=>signal?.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError'))));});vi.stubGlobal('fetch',fetch);const page=view();await waitFor(()=>expect(fetch).toHaveBeenCalledTimes(1));fireEvent.click(screen.getByText('최신 요청 조회'));expect(fetch).toHaveBeenCalledTimes(1);page.unmount();expect(signal?.aborted).toBe(true);
@@ -36,7 +36,7 @@ test('목록은 실제 응답 제목과 상세 링크를 표시한다',async()=>
 
 test('재조회 응답을 기다리는 동안 이전 표시를 숨긴다',async()=>{
  let count=0;const fetch=vi.fn((url:RequestInfo|URL,init?:RequestInit)=>{if(String(url).endsWith('/me'))return Promise.resolve(jsonResponse(401,errorBody('SESSION','세션 없음')));if(count++===0)return Promise.resolve(jsonResponse(200,source));return new Promise<Response>((_resolve,reject)=>init?.signal?.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError'))));});
- vi.stubGlobal('fetch',fetch);const page=view();await screen.findByText('근거 문의');fireEvent.click(screen.getByText('최신 요청 조회'));await waitFor(()=>expect(detailCalls(fetch)).toHaveLength(2));expect(screen.queryByText('근거 문의')).toBeNull();page.unmount();
+ vi.stubGlobal('fetch',fetch);const page=view();await screen.findByText('수신 부서와 할 일');fireEvent.click(screen.getByText('최신 요청 조회'));await waitFor(()=>expect(detailCalls(fetch)).toHaveLength(2));expect(screen.queryByText('수신 부서와 할 일')).toBeNull();page.unmount();
 });
 
 
@@ -94,15 +94,15 @@ test('운영 빌드는 준비 중 대신 실제 상세와 역할별 동작을 �
  const fetch=vi.fn(async(url:RequestInfo|URL)=>String(url).endsWith('/me')?new Response(JSON.stringify({data:{roles:['cs_agent'],dept:null,managed_departments:[]}}),{headers:{'X-CSRF-Token':'synthetic'}}):jsonResponse(200,source));
  vi.stubGlobal('fetch',fetch);
  render('/cs/improvements/test','/cs/improvements/:requestId',<Page/>);
- await screen.findByText('근거 문의');expect(screen.queryByText(/운영 인증 중계와 권한 검증 후/)).toBeNull();
- expect(await screen.findByRole('button',{name:'검토 완료 기록'})).toBeTruthy();expect(screen.getByRole('button',{name:'내용 수정'})).toBeTruthy();
+ await screen.findByText('수신 부서와 할 일');expect(screen.queryByText(/운영 인증 중계와 권한 검증 후/)).toBeNull();
+ expect(await screen.findByRole('button',{name:/^검토 완료 기록/})).toBeTruthy();expect(screen.getByRole('button',{name:'내용 수정'})).toBeTruthy();
 });
 test('운영 빌드에서 업무 UI가 꺼져 있으면 조회하지 않는다',async()=>{
  vi.stubEnv('DEV',false);vi.stubEnv('VITE_BUSINESS_UI_ENABLED','false');vi.resetModules();
  const [{default:Page},{renderAt:render}]=await Promise.all([import('./CsImprovements'),import('../test/render')]);
  const fetch=vi.fn(async()=>jsonResponse(200,source));vi.stubGlobal('fetch',fetch);
  render('/cs/improvements/test','/cs/improvements/:requestId',<Page/>);
- await screen.findByRole('heading',{name:'개선요청'});expect(fetch).not.toHaveBeenCalled();expect(screen.queryByText('근거 문의')).toBeNull();
+ await screen.findByRole('heading',{name:'개선요청'});expect(fetch).not.toHaveBeenCalled();expect(screen.queryByText('수신 부서와 할 일')).toBeNull();
 });
 
 // 결과 불명 뒤 다시 읽기: 최신 상세를 실제로 받으면 처리 동작을 다시 열고, 다시 읽기가 실패하면 막은 채로 둔다.
@@ -114,7 +114,7 @@ function uncertainFlow(){
   return jsonResponse(state.detail,state.detail===200?source:errorBody('FAIL','합성 조회 실패'));
  });vi.stubGlobal('fetch',fetch);view();return {state,fetch};
 }
-const reviewButton=async()=>(await screen.findByRole('button',{name:'검토 완료 기록'})) as HTMLButtonElement;
+const reviewButton=async()=>(await screen.findByRole('button',{name:/^검토 완료 기록/})) as HTMLButtonElement;
 async function becomeUncertain(){
  fireEvent.click(await reviewButton());fireEvent.click(screen.getByRole('button',{name:'기록 저장'}));
  await screen.findByText('합성 처리 결과 불확실');
@@ -143,4 +143,157 @@ test('처리 입력과 내용 수정은 동시에 열지 않는다',async()=>{
  fireEvent.click(await reviewButton());expect((screen.getByRole('button',{name:'내용 수정'}) as HTMLButtonElement).disabled).toBe(true);
  fireEvent.click(screen.getByRole('button',{name:'입력 취소'}));
  fireEvent.click(await screen.findByRole('button',{name:'내용 수정'}));expect((await reviewButton()).disabled).toBe(true);
+});
+
+test('근거 비교는 해결 기록 칸을 나란히 두고 다수와 다른 값과 확인할 줄을 표시한다',async()=>{
+ const row=(ticket:string,fw:string|null,cause:string,dept:string)=>({row_kind:'EVIDENCE',ticket_id:`${ticket}-0000-4000-8000-000000000000`.slice(0,36),ticket_external_id:ticket,ticket_subject:null,ticket_received_at:'2026-09-01T00:00:00Z',customer_external_id:`C-${ticket}`,product_code:'P',case_id:null,case_external_id:null,symptom:null,root_cause_type:cause,root_cause:null,action_taken:null,resolved_by_dept:dept,known_at:null,fw_version_at_issue:fw,onsite_visit:false});
+ const items=[row('T-1','1.72','SETTING','TS_LV'),row('T-2','1.72','SETTING','TS_LV'),row('T-3','1.80','HARDWARE','TS_MV')];
+ const fault=structuredClone(source) as unknown as ImprovementDetail;fault.data.request.request_type='FAULT';
+ vi.stubGlobal('fetch',vi.fn(async(url:RequestInfo|URL)=>String(url).includes('/case-comparison')?jsonResponse(200,{data:{request_id:'test',hidden_case_count:0,items}}):jsonResponse(200,fault)));view();
+ const table=await screen.findByRole('table',{name:'근거 비교'});
+ const rows=[...table.querySelectorAll('tbody tr')];
+ expect(rows.map(r=>r.querySelector('td:nth-last-child(2)')!.textContent)).toEqual(['같음','같음','원문 확인']);
+ // 원인·FW(묶음을 가르는 조건)는 노랑, 해결 부서(참고)는 회색으로 다르게 표시한다.
+ // 원인 유형·해결 부서는 값마다 색(많은 값부터 tone-0), FW는 다수와 다른 값만 노랑.
+ expect([...rows[2].querySelectorAll('.cmp.tone')].map(c=>c.className)).toEqual(['cmp tone tone-1','cmp tone tone-1']);
+ expect(rows[0].querySelectorAll('.cmp.tone-0')).toHaveLength(2);expect(rows[2].querySelectorAll('.cmp.diff')).toHaveLength(1);
+ expect(screen.getByText('판단 필요 2')).toBeTruthy();expect(screen.getByText('참고 1')).toBeTruthy();
+});
+
+test('근거 비교에서 후보는 넣고 포함된 근거는 사유를 적어 뺀다',async()=>{
+ const base=structuredClone(source) as unknown as ImprovementDetail;base.data.request.request_type='FAULT';
+ const ev=base.data.evidence[0];
+ const row=(kind:'EVIDENCE'|'CANDIDATE',ticket:string,caseId:string|null,ext:string)=>({row_kind:kind,ticket_id:ticket,ticket_external_id:ext,ticket_subject:null,ticket_received_at:'2026-09-01T00:00:00Z',customer_external_id:'C-1',product_code:'P',case_id:caseId,case_external_id:null,symptom:null,root_cause_type:'SETTING',root_cause:null,action_taken:null,resolved_by_dept:'TS_LV',known_at:null,fw_version_at_issue:null,onsite_visit:null});
+ const items=[row('EVIDENCE',ev.ticket_id,ev.case_id,'IN-1'),row('CANDIDATE','cccccccc-cccc-4ccc-8ccc-cccccccccccc','44444444-4444-4444-8444-444444444499','CAND-1')];
+ const fetch=vi.fn(async(url:RequestInfo|URL,init?:RequestInit)=>{
+  const path=String(url);
+  if(path.endsWith('/me'))return new Response(JSON.stringify({data:{roles:['cs_agent'],dept:null,managed_departments:[]}}),{headers:{'X-CSRF-Token':'synthetic'}});
+  if(init?.method)return jsonResponse(200,base);
+  if(path.includes('/case-comparison'))return jsonResponse(200,{data:{request_id:base.data.request.id,hidden_case_count:0,items}});
+  return jsonResponse(200,base);
+ });vi.stubGlobal('fetch',fetch);view();
+ const table=await screen.findByRole('table',{name:'근거 비교'});
+ // FW·현장 방문은 어느 근거에도 값이 없어 칸을 그리지 않는다.
+ expect(table.textContent).not.toMatch(/고장 당시 FW|현장 방문/);
+ const writes=()=>fetch.mock.calls.filter(([,init])=>init?.method==='POST');
+ await waitFor(()=>expect((screen.getByRole('button',{name:'넣기'}) as HTMLButtonElement).disabled).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'넣기'}));
+ await waitFor(()=>expect(writes()).toHaveLength(1));
+ expect(String(writes()[0][0])).toMatch(/\/evidence$/);expect(JSON.parse(writes()[0][1]!.body as string)).toEqual({ticket_id:'cccccccc-cccc-4ccc-8ccc-cccccccccccc',case_id:'44444444-4444-4444-8444-444444444499',version:base.data.request.version});
+ await screen.findByText('CAND-1를 근거에 넣었습니다.');
+ fireEvent.click(await screen.findByRole('button',{name:'빼기'}));
+ const submit=screen.getByRole('button',{name:'근거에서 빼기'}) as HTMLButtonElement;expect(submit.disabled).toBe(true);
+ fireEvent.change(screen.getByLabelText('빼는 사유'),{target:{value:'합성 제외'}});fireEvent.click(submit);
+ await waitFor(()=>expect(writes()).toHaveLength(2));
+ expect(String(writes()[1][0])).toMatch(new RegExp(`/evidence/${ev.id}/remove$`));expect(JSON.parse(writes()[1][1]!.body as string)).toEqual({reason:'합성 제외',version:base.data.request.version});
+});
+
+test('AI 초안은 버튼으로 만들고, 검토 완료를 눌러야 저장과 검토를 기록한다',async()=>{
+ const base=structuredClone(source) as unknown as ImprovementDetail;const id=base.data.request.id;
+ const draft={id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',created_at:'2026-11-03T01:00:00Z',request_version:base.data.request.version,stale:false,input_version:'v1',prompt_version:'v1',requested_model:'m',model_version:null,
+  problem_statement:'합성 AI 문제',confirmed_facts:[{text:'합성 사실',evidence_refs:['REF-1']}],inconsistencies:[{text:'합성 불일치',evidence_refs:[]}],missing_info:['합성 미확인'],not_claimed:['합성 단정 금지'],review_task:'합성 검토 과제',
+  proposed_depts:['TS_LV','NOT_A_DEPT'],dept_questions:[{dept_code:'TS_LV',question:'합성 질문'}],evidence:[{ref:'REF-1',ticket_id:'11111111-1111-4111-8111-111111111111',case_id:null}]};
+ let made=false;
+ const fetch=vi.fn(async(url:RequestInfo|URL,init?:RequestInit)=>{
+  const path=String(url);
+  if(path.endsWith('/me'))return new Response(JSON.stringify({data:{roles:['cs_agent'],dept:null,managed_departments:[]}}),{headers:{'X-CSRF-Token':'synthetic'}});
+  if(path.endsWith('/ai-draft')){if(init?.method==='POST')made=true;return jsonResponse(init?.method==='POST'?201:200,{data:{request_id:id,provenance:'ai_draft',draft:made?draft:null,latest_attempt:null}});}
+  return jsonResponse(200,base);
+ });vi.stubGlobal('fetch',fetch);view();
+ const run=await screen.findByRole('button',{name:'✦ AI 초안 작성'}) as HTMLButtonElement;
+ await waitFor(()=>expect(run.disabled).toBe(false));fireEvent.click(run);
+ await screen.findByRole('heading',{name:'합성 AI 문제'});
+ expect(screen.getByText('불일치 정보')).toBeTruthy();expect(screen.getByText('미확인 정보')).toBeTruthy();expect(screen.getByText('합성 질문')).toBeTruthy();
+ expect(screen.getByRole('link',{name:'REF-1'}).getAttribute('href')).toBe('/cs/tickets/11111111-1111-4111-8111-111111111111');
+ expect(fetch.mock.calls.filter(([,init])=>init?.method==='PATCH')).toHaveLength(0);
+ // 반영하지 않은 초안이 있으면 단계 바의 검토 완료 기록은 막고 이유를 보인다.
+ await waitFor(()=>expect((screen.getByRole('button',{name:/^검토 완료 기록/}) as HTMLButtonElement).disabled).toBe(true));expect((screen.getByRole('button',{name:/^검토 완료 기록/}) as HTMLButtonElement).title).toMatch(/반영하지 않은 AI 초안이 있습니다/);
+ // 수정은 초안 값으로 입력 칸을 연다(저장하지 않음).
+ fireEvent.click(screen.getByRole('button',{name:'수정'}));expect((screen.getByLabelText('검토할 문제') as HTMLTextAreaElement).value).toBe('합성 AI 문제');expect((screen.getByLabelText('불일치 정보') as HTMLTextAreaElement).value).toBe('합성 불일치');
+ fireEvent.click(screen.getByRole('button',{name:'수정 취소'}));
+ fireEvent.click(await screen.findByRole('button',{name:'검토 완료'}));
+ await waitFor(()=>expect(fetch.mock.calls.filter(([,init])=>init?.method==='PATCH')).toHaveLength(1));
+ const body=JSON.parse(fetch.mock.calls.find(([,init])=>init?.method==='PATCH')![1]!.body as string);
+ expect(body).toEqual({version:base.data.request.version,problem_statement:'합성 AI 문제',confirmed_facts:'합성 사실',inconsistencies:'합성 불일치',missing_info:'합성 미확인',not_claimed:'합성 단정 금지',review_task:expect.stringMatching(/^합성 검토 과제\n.+: 합성 질문$/),proposed_depts:['TS_LV']});
+ await waitFor(()=>expect(fetch.mock.calls.some(([url,init])=>String(url).endsWith('/review')&&init?.method==='POST')).toBe(true));
+ const review=fetch.mock.calls.find(([url])=>String(url).endsWith('/review'))!;expect(JSON.parse(review[1]!.body as string)).toEqual({version:base.data.request.version});
+});
+
+test('목록은 최근 작성순 10건씩 쪽으로 나누고, 머리를 눌러 정렬하면 첫 쪽으로 간다',async()=>{
+ const items=Array.from({length:12},(_,i)=>({id:`r-${i}`,origin:'MANUAL',problem_statement:`합성 요청 ${String(i).padStart(2,'0')}`,request_type:'DOCUMENT',product_code:'TEST',fault_id:null,doc_signal:'NOT_FOUND',status:'DRAFT',version:1,evidence_count:i,cs_owner:null,created_at:`2026-10-${String(i+1).padStart(2,'0')}T00:00:00Z`}));
+ vi.stubGlobal('fetch',vi.fn(async()=>jsonResponse(200,{data:{items}})));view(false);
+ const table=await screen.findByRole('table',{name:'개선요청 목록'});
+ const titles=()=>[...table.querySelectorAll('tbody tr td:first-child')].map(td=>td.textContent);
+ expect(titles()).toHaveLength(10);expect(titles()[0]).toBe('합성 요청 11');
+ fireEvent.click(screen.getByRole('button',{name:'2쪽'}));expect(titles()).toEqual(['합성 요청 01','합성 요청 00']);expect(screen.getByText(/11–12 \/ 12건/)).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:/^문제 정렬/}));expect(titles()[0]).toBe('합성 요청 00');expect(titles()).toHaveLength(10);
+ fireEvent.click(screen.getByRole('button',{name:/^문제 오름차순/}));expect(titles()[0]).toBe('합성 요청 11');
+});
+
+test('규칙 값만 있는 시스템 초안은 칸을 비워(-) 보이고 AI 초안 작성을 안내한다',async()=>{
+ const body=structuredClone(source) as unknown as ImprovementDetail;const r=body.data.request;
+ r.origin='SYSTEM_CANDIDATE';r.request_type='FAULT';r.fault_id='FLT-067';r.problem_statement=`${r.product_code} FLT-067: 90일 안 서로 다른 고객 3/3 도달`;r.confirmed_facts='해결 기록 5건, 고객 5곳, 고객 식별자 없는 기록 0건.';
+ vi.stubGlobal('fetch',vi.fn(async()=>jsonResponse(200,body)));view();
+ await screen.findByText(/아직 요청 내용이 없습니다/);expect(screen.queryByText(/해결 기록 5건, 고객 5곳/)).toBeNull();expect(screen.getByText('미확인 정보')).toBeTruthy();expect(screen.getAllByText('-',{selector:'.fact-box'}).length).toBe(7);
+ cleanup();r.confirmed_facts='사람이 쓴 사실';vi.stubGlobal('fetch',vi.fn(async()=>jsonResponse(200,body)));view();
+ await screen.findByText('사람이 쓴 사실');expect(screen.queryByText(/아직 요청 내용이 없습니다/)).toBeNull();
+});
+
+test('저장된 AI 초안이 있으면 새로 들어와도 초안을 보이고, 반영한 뒤에는 현재 내용을 보인다',async()=>{
+ const base=structuredClone(source) as unknown as ImprovementDetail;const id=base.data.request.id;
+ const draft={id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab',created_at:'2026-11-03T01:00:00Z',request_version:base.data.request.version,stale:false,input_version:'v1',prompt_version:'v1',requested_model:'m',model_version:null,
+  problem_statement:'저장된 AI 문제',confirmed_facts:[],inconsistencies:[],missing_info:[],not_claimed:[],review_task:'',proposed_depts:[],dept_questions:[],evidence:[]};
+ const fetch=vi.fn(async(url:RequestInfo|URL,_init?:RequestInit)=>String(url).endsWith('/ai-draft')?jsonResponse(200,{data:{request_id:id,provenance:'ai_draft',draft,latest_attempt:null}}):jsonResponse(200,base));
+ vi.stubGlobal('fetch',fetch);view();
+ await screen.findByRole('heading',{name:'저장된 AI 문제'});expect(screen.getByRole('button',{name:'검토 완료'})).toBeTruthy();
+ expect(fetch.mock.calls.some(([url,init])=>String(url).endsWith('/ai-draft')&&init?.method==='POST')).toBe(false);
+ cleanup();base.data.request.problem_statement='저장된 AI 문제';view();
+ await screen.findByRole('heading',{name:'저장된 AI 문제'});expect(screen.queryByRole('button',{name:'검토 완료'})).toBeNull();
+});
+
+test('처리 상자 없이 부서 동작은 수신 부서 줄에 두고 입력도 그 표 아래에 연다',async()=>{
+ const body=structuredClone(source) as unknown as ImprovementDetail;const r=body.data.request;
+ r.status='SENT';r.version=3;r.current_round=1;body.data.next_owners=[{actor:'DEPARTMENT',user_id:null,dept_code:'TS_TRF',task:'ACKNOWLEDGE'}];
+ body.data.departments=[{round:1,dept_code:'TS_TRF',status:'SENT',carried_over:false,sent_version:2,reply_due_at:'2999-01-01T00:00:00Z',rejection_reviewed_at:null,rejection_reviewed_by:null}];
+ vi.stubGlobal('fetch',vi.fn(async(url:RequestInfo|URL)=>String(url).endsWith('/me')?new Response(JSON.stringify({data:{roles:['dept_staff'],dept:'TS_TRF',managed_departments:[]}}),{headers:{'X-CSRF-Token':'synthetic'}}):jsonResponse(200,body)));view();
+ await screen.findByText('수신 부서와 할 일');expect(screen.queryByText('검토·전달·부서 처리')).toBeNull();
+ const reply=await screen.findByRole('button',{name:'회신'}) as HTMLButtonElement;expect(reply.disabled).toBe(true);expect(reply.title).toMatch(/수신 확인/);
+ const ack=screen.getAllByRole('button',{name:/^수신 확인/}).find(b=>b.closest('td.acts'))!;fireEvent.click(ack);
+ const form=await screen.findByRole('form',{name:'수신 확인 입력'});expect(form.closest('#ia-slot-dept')).toBeTruthy();
+});
+
+test('검토를 마친 요청은 개선 요청 작성 상자의 부서 전달로 입력 없이 제안 부서에 바로 보낸다',async()=>{
+ const body=structuredClone(source) as unknown as ImprovementDetail;const r=body.data.request;
+ r.status='REVIEWED';r.proposed_depts=['TS_TRF'];body.data.next_owners=[{actor:'CS_OWNER',user_id:null,dept_code:null,task:'SEND'}];
+ const fetch=vi.fn(async(url:RequestInfo|URL,_init?:RequestInit)=>String(url).endsWith('/me')?new Response(JSON.stringify({data:{roles:['cs_agent'],dept:null,managed_departments:[]}}),{headers:{'X-CSRF-Token':'synthetic'}}):jsonResponse(200,body));
+ vi.stubGlobal('fetch',fetch);view();
+ const send=await screen.findByRole('button',{name:'부서 전달'});expect(screen.queryByRole('button',{name:/부서 전달 →/})).toBeNull();expect(send.closest('.ir-content')).toBeTruthy();
+ await waitFor(()=>expect((send as HTMLButtonElement).disabled).toBe(false));fireEvent.click(send);
+ await waitFor(()=>expect(fetch.mock.calls.some(([url])=>String(url).endsWith('/send'))).toBe(true));
+ expect(screen.queryByRole('form',{name:'부서 전달 입력'})).toBeNull();
+ const call=fetch.mock.calls.find(([url])=>String(url).endsWith('/send'))!;expect(JSON.parse(call[1]!.body as string)).toEqual({version:r.version,dept_codes:['TS_TRF'],reply_due_days:7});
+});
+
+test('내용 수정에서 제안 부서를 고르고, 고장 요청은 부서를 비우면 저장하지 않는다',async()=>{
+ const body=structuredClone(source) as unknown as ImprovementDetail;const r=body.data.request;r.request_type='FAULT';r.fault_id='FLT-001';r.proposed_depts=['TS_TRF'];
+ const fetch=vi.fn(async(url:RequestInfo|URL,_init?:RequestInit)=>String(url).endsWith('/me')?new Response(JSON.stringify({data:{roles:['cs_agent'],dept:null,managed_departments:[]}}),{headers:{'X-CSRF-Token':'synthetic'}}):jsonResponse(200,body));
+ vi.stubGlobal('fetch',fetch);view();
+ fireEvent.click(await screen.findByRole('button',{name:'내용 수정'}));
+ fireEvent.click(screen.getByRole('button',{name:/ 빼기$/}));
+ expect((screen.getByRole('button',{name:'내용 저장'}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.change(screen.getByLabelText('제안 부서 추가'),{target:{value:'TS_LV'}});expect(screen.getByRole('button',{name:/저압기기 기술지원.* 빼기/})).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'내용 저장'}));
+ await waitFor(()=>expect(fetch.mock.calls.some(([,init])=>init?.method==='PATCH')).toBe(true));
+ expect(JSON.parse(fetch.mock.calls.find(([,init])=>init?.method==='PATCH')![1]!.body as string)).toEqual({version:r.version,proposed_depts:['TS_LV']});
+});
+
+test('단계 바는 지금 해야 할 단계를 표시하고, 근거 칸을 누르면 근거 비교를 연다',async()=>{
+ const body=structuredClone(source) as unknown as ImprovementDetail;const r=body.data.request;r.status='REVIEWED';r.request_type='FAULT';r.fault_id='FLT-001';
+ vi.stubGlobal('fetch',vi.fn(async(url:RequestInfo|URL)=>String(url).includes('/case-comparison')?jsonResponse(200,{data:{request_id:r.id,hidden_case_count:0,items:[]}}):jsonResponse(200,body)));view();
+ await screen.findByText('수신 부서와 할 일');
+ expect(document.querySelector('.steps .st.cur')!.textContent).toMatch(/부서 전달/);
+ expect([...document.querySelectorAll('.steps .st.done')].map(e=>e.textContent)).toEqual(['✓작성','✓검토']);
+ const fold=screen.getByRole('button',{name:/근거 비교/});expect(fold.getAttribute('aria-expanded')).toBe('false');
+ fireEvent.click(screen.getByTitle('근거 비교 열기'));
+ await waitFor(()=>expect(fold.getAttribute('aria-expanded')).toBe('true'));
 });
