@@ -159,3 +159,38 @@ describe('셸 메뉴', () => {
     await screen.findByText('세션 확인 실패');
   });
 });
+
+describe('역할별 메뉴', () => {
+  const groups = (container: HTMLElement) => [...container.querySelectorAll('.sidebar .km-g')].map(button => button.textContent);
+  const as = (roles: string[], dept: string | null = null) => {
+    vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL) => String(url).endsWith('/me')
+      ? jsonResponse(200, { data: { id: 'u', display_name: '합성', email: 'a@b.invalid', roles, dept, managed_departments: [] } })
+      : jsonResponse(200, { data: { items: [], next_cursor: null } })));
+    setApiMode('live');
+  };
+
+  it.each([
+    [['cs_agent'], ['메일', 'C/S 관리']],
+    [['dept_staff'], ['메일', '부서 검토']],
+    [['manager'], ['메일', '통계/보고서']],
+    [['cs_agent', 'manager'], ['메일', 'C/S 관리', '통계/보고서']],
+  ])('%j 역할은 자기 업무 메뉴와 메일만 본다', async (roles, expected) => {
+    as(roles, roles.includes('dept_staff') ? 'TS_TRF' : null);
+    const { container } = show('/account');
+    await waitFor(() => expect(groups(container).filter(name => name !== '시스템 관리')).toEqual(expected));
+  });
+
+  it('부서 검토 메뉴는 문의 검토와 개선 요청 둘이고 검토 답변 항목은 없다', async () => {
+    as(['dept_staff'], 'TS_TRF');
+    const { container } = show('/dept/inbox');
+    await waitFor(() => expect(groups(container)).toContain('부서 검토'));
+    const items = [...container.querySelectorAll('.sidebar li.open ul a')].map(a => a.textContent);
+    expect(items).toEqual(['문의 검토', '개선 요청']);
+  });
+
+  it('부서 개선 요청은 같은 개선요청 화면을 부서 검토 경로로 연다', async () => {
+    const { container } = show('/dept/improvements');
+    await waitFor(() => expect(container.querySelector('.kv-code')?.textContent).toBe('CS0301'));
+    expect(container.querySelector('.title .path')?.textContent).toBe('부서 검토 ›');
+  });
+});

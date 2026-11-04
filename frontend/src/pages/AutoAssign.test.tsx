@@ -27,6 +27,9 @@ function serve(me: object) {
     if (url.endsWith('/assignments/preview')) return jsonResponse(200, { data: PREVIEW });
     if (url.endsWith('/assignments/apply')) return jsonResponse(200, { data: { rule_version: 'cs-assign-v1', assigned: 1, skipped: 1, items: [{ ticket_id: '1', outcome: 'ASSIGNED', user_id: 'u-th', reason_code: 'LANGUAGE_AND_FAMILY' }, { ticket_id: '2', outcome: 'NO_MATCH', user_id: null, reason_code: 'NO_MATCH' }] } });
     if (url.includes('/platform/users?')) return jsonResponse(200, { data: { items: [{ user_id: 'u-th', display_name: '가정 상담원 3' }] } });
+    if (url.includes('/platform/assignees')) return jsonResponse(200, { data: { items: [{ user_id: 'u-th', display_name: '가정 상담원 3' }] } });
+    if (url.includes('/assignments/agents')) return jsonResponse(200, { data: { rule_version: 'cs-assign-v1', items: [] } });
+    if (url.includes('/cs/stats/')) return jsonResponse(503, { error: { code: 'X', message: '합성' } });
     return jsonResponse(200, { data: { items: [ticket], next_cursor: null } });
   }));
   return calls;
@@ -139,3 +142,24 @@ test('개선요청 목록은 누구에게나 미배정 건수(고장 요청, 담
   expect(screen.queryByRole('button', { name: '미배정 자동 배정' })).toBeNull();
 });
 
+
+// 관리자 메뉴는 통계/보고서뿐이라 배정 기능을 운영 현황에 모았다.
+const admin = () => { setApiMode('live'); renderAt('/cs/admin', '/cs/admin', <CsAdmin />); };
+test('운영 현황의 담당 배정: C/S 부서 관리자는 미배정 자동 배정과 선택 담당 변경을 한다', async () => {
+  serve(CS_MANAGER); admin();
+  const section = within(await screen.findByRole('region', { name: '담당 배정' }));
+  expect(await section.findByText('Breaker trips')).toBeTruthy();
+  expect(section.getByText(/미배정 1건/)).toBeTruthy();
+  const change = section.getByRole('button', { name: /선택 담당 변경/ }) as HTMLButtonElement;
+  expect(change.disabled).toBe(true);
+  fireEvent.click(section.getByRole('checkbox', { name: 'ID-1 선택' }));
+  expect((section.getByRole('button', { name: /선택 담당 변경 \(1\)/ }) as HTMLButtonElement).disabled).toBe(false);
+  fireEvent.click(section.getByRole('button', { name: '미배정 문의 자동 배정' }));
+  expect(await screen.findByRole('table', { name: '자동 배정 미리보기' })).toBeTruthy();
+});
+test('운영 현황의 담당 배정은 C/S 부서 관리자가 아니면 보이지 않는다', async () => {
+  serve({ id: 'm', roles: ['manager'], managed_departments: ['TS_TRF'] }); admin();
+  await screen.findByRole('heading', { name: /운영 현황/ });
+  await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([u]) => String(u).endsWith('/platform/me'))).toBe(true));
+  expect(screen.queryByRole('region', { name: '담당 배정' })).toBeNull();
+});

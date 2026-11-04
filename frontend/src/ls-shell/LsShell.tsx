@@ -14,22 +14,23 @@ import './ls-shell.css';
 
 // inProject: 프로젝트를 열면 그 프로젝트 안으로 가는 화면. 경로 뒷부분을 적는다(빈 값은 프로젝트 화면).
 type Leaf = { label: string; to?: string; end?: boolean; devOnly?: boolean; inProject?: string; also?: RegExp };
-type Group = { key: string; label: string; leaves: Leaf[] };
+// roles: 이 메뉴를 보는 역할. 없으면 모든 사용자(메일). 서버 권한 검사는 그대로이고 메뉴만 나눈다.
+type Group = { key: string; label: string; leaves: Leaf[]; roles?: string[] };
 
 // 경로가 아직 없는 항목은 링크 없이 자리만 둔다. 화면이 생기면 to만 채운다.
 const MENU: Group[] = [
   { key: 'mail', label: '메일', leaves: [{ label: '받은 메일 검토', to: '/mail/inbox' }, { label: '발송 상태', to: '/mail/sent' }, { label: '메일 계정', to: '/mail/account' }] },
   {
-    key: 'cs', label: 'C/S 관리', leaves: [
+    key: 'cs', label: 'C/S 관리', roles: ['cs_agent'], leaves: [
       { label: '업무 홈', to: '/cs', end: true },
       { label: '문의 조회', to: '/cs/tickets' },
       { label: '고객 이력', to: '/cs/customers' },
       { label: '개선요청', to: '/cs/improvements' },
     ],
   },
-  { key: 'dept', label: '부서 검토', leaves: [{ label: '받은 요청', to: '/dept/inbox' }, { label: '검토 답변' }] },
+  { key: 'dept', label: '부서 검토', roles: ['dept_staff'], leaves: [{ label: '문의 검토', to: '/dept/inbox' }, { label: '개선 요청', to: '/dept/improvements' }] },
   {
-    key: 'rfp', label: '제안 지원', leaves: [
+    key: 'rfp', label: '제안 지원', roles: ['sales'], leaves: [
       { label: '업무 홈', to: '/tft', end: true },
       { label: '접수 및 요구 검토', to: '/tft/projects', end: true, inProject: '', also: /\/requirements\// },
       { label: '자사 대응표', inProject: 'table' },
@@ -37,7 +38,7 @@ const MENU: Group[] = [
       { label: '초안 및 검토 이력', inProject: 'draft' },
     ],
   },
-  { key: 'stats', label: '통계/보고서', leaves: [{ label: '운영 현황', to: '/cs/admin' }] },
+  { key: 'stats', label: '통계/보고서', roles: ['manager'], leaves: [{ label: '운영 현황', to: '/cs/admin' }] },
   { key: 'system', label: '시스템 관리', leaves: [{ label: '평가', to: '/evaluations', devOnly: true }] },
 ];
 
@@ -50,7 +51,8 @@ function tabOf(pathname: string) {
   if (pathname === '/cs/admin') return { kind: 'admin', name: '운영 현황' };
   if (pathname === '/mail/inbox') return { kind: 'mail-inbox', name: '받은 메일 검토' };
   if (pathname.startsWith('/dept/result/')) return { kind: 'dept-result', name: '검토 답변' };
-  if (pathname === '/dept/inbox') return { kind: 'dept-inbox', name: '받은 요청' };
+  if (pathname === '/dept/inbox') return { kind: 'dept-inbox', name: '문의 검토' };
+  if (pathname.startsWith('/dept/improvements')) return { kind: 'dept-improvements', name: '개선 요청' };
   if (pathname === '/mail/account') return { kind: 'mail-account', name: '메일 계정' };
   if (pathname === '/mail/sent') return { kind: 'mail-sent', name: '발송 상태' };
   if (pathname.startsWith('/cs/improvements')) return { kind: 'improvements', name: '개선요청' };
@@ -123,7 +125,10 @@ export default function LsShell({ children }: { children?: ReactNode } = {}) {
       navigate(left.at(-1)?.to ?? '/tft');
     }
   };
-  const menu = MENU.map(group => ({
+  // 역할별 메뉴: C/S 담당자는 C/S 관리, 부서 담당자는 부서 검토, 관리자는 통계/보고서, 메일은 모두.
+  // 사용자를 아직 모르면(모의 응답·개발 확인) 모두 보인다.
+  const roles = identity?.roles as string[] | undefined;
+  const menu = MENU.filter(group => !group.roles || !roles || group.roles.some(role => roles.includes(role))).map(group => ({
     ...group,
     leaves: group.leaves
       .filter(leaf => !leaf.devOnly || import.meta.env.DEV)

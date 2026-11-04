@@ -6,6 +6,7 @@ import { getOverview, getOwners, type Overview, type Owners, type StatsFilters }
 import { getAssignmentAgents, type AgentSkillRow } from '../api/cs-assignments';
 import { listUserNames } from '../api/platform';
 import { ErrorState, Loading } from '../components/states';
+import AdminAssign from '../components/AdminAssign';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { KvCond, KvCondField, KvCondRow, KvGrid, KvKey, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
 import { DEPT_CODES, REQUEST_STATUS_LABEL, STATE_LABEL, UNCONFIRMED_LABEL, deptName, familyName, languageName } from '../ls-shell/cs-labels';
@@ -156,6 +157,7 @@ function AdminView() {
         </section>
       </div>
     </>}
+    <AdminAssign />
     <AssignmentAgents />
   </main>;
 }

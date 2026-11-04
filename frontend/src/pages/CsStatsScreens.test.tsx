@@ -71,7 +71,8 @@ test('담당자별 집계가 관리자 범위 밖이면 그 구역만 안내하�
 test('운영 현황은 조회 중 반복 클릭을 막고 이탈하면 두 요청을 취소하며 재진입은 다시 조회한다', async () => {
   const signals: AbortSignal[] = []; let calls = 0;
   vi.stubGlobal('fetch', vi.fn((url: RequestInfo | URL, init?: RequestInit) => {
-    // 담당자 배정 기준(KAN-214)은 조회 단추와 별개로 한 번 읽는다. 집계 두 요청만 센다.
+    // 담당자 배정 기준(KAN-214)과 담당 배정 구역의 사용자 확인은 조회 단추와 별개로 한 번 읽는다. 집계 두 요청만 센다.
+    if (String(url).endsWith('/platform/me')) return Promise.resolve(jsonResponse(200, { data: { id: 'c', roles: ['cs_agent'], managed_departments: [] } }));
     if (String(url).includes('/assignments/')) return Promise.resolve(jsonResponse(200, { data: { rule_version: 'cs-assign-v1', items: [] } }));
     calls++;
     if (calls > 2) return Promise.resolve(jsonResponse(200, String(url).includes('/owners') ? owners([]) : example));

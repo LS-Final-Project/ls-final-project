@@ -35,7 +35,7 @@ describe('운영 빌드에서 C/S·메일 화면을 연다', () => {
     ['발송 상태', '/mail/sent', 'MailSent', '/api/v1/platform/mail/send-intents'],
     ['받은 메일 검토', '/mail/inbox', 'MailInbox', '/api/v1/platform/mail/reply-reviews'],
     ['메일 계정', '/mail/account', 'MailAccount', '/api/v1/platform/auth/mailbox'],
-    ['받은 요청', '/dept/inbox', 'DeptInbox', '/api/v1/cs/tickets'],
+    ['문의 검토', '/dept/inbox', 'DeptInbox', '/api/v1/cs/tickets'],
     ['운영 현황', '/cs/admin', 'CsAdmin', '/api/v1/cs/stats/'],
     ['문의 조회', '/cs/tickets', 'Tickets', '/api/v1/cs/tickets'],
   ])('%s 화면은 준비 중 대신 실제 API를 읽는다', async (_, path, page, api) => {
