@@ -32,6 +32,7 @@ from backend.api.cs.stats.schemas import (
 from backend.api.cs.tickets.access import sees_all_tickets
 from backend.api.cs.tickets.routes import PARTIAL, respond
 from backend.api.cs.tickets.schemas import WorkflowState
+from backend.api.cs.translation import repository as translations
 from backend.shared.access import Principal, current_principal
 from backend.shared.database import connection
 from backend.shared.departments import TransferDepartment
@@ -187,13 +188,16 @@ async def customer_history(
         tickets = await repository.customer_tickets(conn, p)
         units = await repository.customer_units(conn, customer_external_id)
         requests = await repository.customer_requests(conn, customer_external_id)
+        korean = await translations.korean_subjects(conn, [t["id"] for t in tickets])
     data = CustomerHistory(
         customer_external_id=customer_external_id,
         period=window,
         received=counts["received"],
         by_state={state: states.get(state, 0) for state in STATES},
         by_product=products,
-        tickets=[CustomerTicket.model_validate(t) for t in tickets],
+        tickets=[
+            CustomerTicket.model_validate({**t, "subject_ko": korean.get(t["id"])}) for t in tickets
+        ],
         units=[CustomerUnit.model_validate(u) for u in units],
         improvement_requests=[CustomerRequest.model_validate(r) for r in requests],
         unconfirmed=UNCONFIRMED,

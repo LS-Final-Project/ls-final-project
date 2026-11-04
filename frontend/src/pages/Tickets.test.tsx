@@ -90,3 +90,10 @@ test('문의 목록은 한 쪽에 10건씩 보이고 쪽 번호로 넘긴다',as
   expect(subjects()).toHaveLength(10);expect(subjects()[0]).toBe('문의 00');
   fireEvent.click(screen.getByRole('button',{name:'2쪽'}));expect(subjects()).toEqual(['문의 10','문의 11']);
 });
+test('한국어 번역 제목이 있으면 목록에 보이고 원문은 툴팁으로 남긴다, 검색은 둘 다 찾는다',async()=>{
+  stub(()=>only([{...items[0],subject_ko:'알파 고장'},items[1]]));view();
+  const link=await screen.findByRole('link',{name:'알파 고장'});
+  expect(link.getAttribute('title')).toBe('원문: Alpha');expect(subjects()).toEqual(['알파 고장','Beta']);
+  fireEvent.change(screen.getByLabelText('검색어'),{target:{value:'Alpha'}});expect(subjects()).toEqual(['알파 고장']);
+  fireEvent.change(screen.getByLabelText('검색어'),{target:{value:'고장'}});expect(subjects()).toEqual(['알파 고장']);
+});

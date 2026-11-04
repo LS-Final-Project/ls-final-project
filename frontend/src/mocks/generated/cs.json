@@ -9,6 +9,7 @@
           {
             "id": "22222222-2222-4222-8222-222222222223",
             "subject": "Problem with Oil-immersed Transformer 1000kVA",
+            "subject_ko": null,
             "data_origin": "synthetic",
             "external_id": "CSV1-000120",
             "derivation_kind": "PROVIDED",
@@ -22,6 +23,7 @@
           {
             "id": "22222222-2222-4222-8222-222222222222",
             "subject": "Kurulum sorusu TRF-OIL-1000",
+            "subject_ko": null,
             "data_origin": "synthetic",
             "external_id": "CSV1-000044",
             "derivation_kind": "PROVIDED",

@@ -2,7 +2,7 @@
 
 원본: `backend/api/cs/translation/`(조회·생성·저장), `backend/engine/cs/translation.py`(입력·프롬프트·출력 검사), 마이그레이션 `infra/migrations/cs/20261110_KAN-213_ticket_translations.sql`(README C28). 구조는 [한국어 요약](summary.md)과 같다.
 
-**상태: API·화면 구현(가짜 모델 검사). 기본 비활성.** 기획서에는 아직 없는 기능이다(4.2절 다국어 분석은 "번역 없이 5칸만 판정"). 문의 처리 화면(CS0102) "고객 원문" 칸의 원문/한국어 전환에 쓴다. 영어가 아닌 문의(es·fr·th·it·id·zh·tr·ru·ar·vi·pt·de·ja·pl 등)가 많아 담당자가 원문 전체를 한국어로 읽을 수 있게 한다. 기획서 반영은 팀에서 따로 정한다.
+**상태: API·화면 구현(가짜 모델 검사). 기본 비활성.** 기획서에는 아직 없는 기능이다(4.2절 다국어 분석은 "번역 없이 5칸만 판정"). 문의 처리 화면(CS0102) "고객 원문" 칸의 원문/한국어 전환과, 목록(문의 조회·고객 이력·업무 홈)의 한국어 제목에 쓴다. 영어가 아닌 문의(es·fr·th·it·id·zh·tr·ru·ar·vi·pt·de·ja·pl 등)가 많아 담당자가 원문 전체를 한국어로 읽을 수 있게 한다. 기획서 반영은 팀에서 따로 정한다.
 
 ## 무엇을 하나
 
@@ -33,6 +33,19 @@
 - 순서는 permissions.md 1.3: 범위 밖 문의 404 `CS_TICKET_NOT_FOUND`, 역할 403. 번역할 수 없는 문의(빈 본문·잘못된 언어 표기 등)에 POST하면 422 `CS_TRANSLATION_INPUT_INVALID`이고, GET은 저장본을 `stale = true`로 보여 준다.
 - `translation`: `id`·`subject_ko`·`body_ko`·`created_at`(AI 작성 시각)·`requested_model`·`model_version`·`prompt_version`·`input_version`·`stale`.
 - 웹 중계 허용표에 `GET`·`POST`(query 없음)로 있다.
+
+## 접수 때 자동 번역
+
+- 새 문의(수동 접수 `POST /api/v1/cs/tickets`, 메일 접수 `POST /internal/v1/cs/tickets/from-mail`)는 접수 응답을 보낸 뒤 배경에서 한 번 번역한다. 자동 배정(assignment.md)처럼 접수의 보조 단계라 실패해도 접수는 201 그대로이고, 시도만 남긴다(로그 `CS_TRANSLATE_ON_INTAKE_FAILED` 또는 저장된 실패 코드). 담당자는 문의 처리 화면에서 다시 번역할 수 있다.
+- 번역이 꺼져 있거나 원문이 한국어면 모델을 부르지 않는다. 같은 원문·판본의 성공한 번역이 있으면 다시 만들지 않는다(POST와 같은 줄 세우기·고유 색인).
+- `requested_by`는 고정 값 `INTAKE_ACTOR`(`uuid5(NAMESPACE_URL, "team4-cs/translation-on-intake")`)다. 로그인 사용자가 아니다.
+- 과거 적재 문의(`scripts/cs_import_provided.py` 등)는 번역하지 않는다. 일괄 번역은 비용 때문에 두지 않았다.
+- 비용: 새 문의마다 모델을 한 번 부른다(제목·본문을 한 번에). 로컬 runner는 real 모드·예산(`enable-real`) 안에서만 부른다.
+
+## 목록의 한국어 제목
+
+- 문의 목록(`GET /api/v1/cs/tickets`)의 각 항목과 고객 이력(`GET /api/v1/cs/stats/customers/{id}`)의 `tickets[]`에 `subject_ko`(문의별 가장 최근의 성공한 번역 제목, 없으면 null)를 같이 준다. 원문은 바뀌지 않으므로 판본 차이로 숨기지 않는다. 번역 표(C28)가 없는 DB에서는 null이다(`CS_TRANSLATION_TABLE_MISSING` 로그).
+- 화면은 한국어 제목을 먼저 보이고 원문 제목을 툴팁("원문: …")으로 남긴다. 검색은 두 제목을 모두 찾는다. 엑셀은 "제목(한국어)"와 "원문 제목"을 따로 낸다.
 
 ## 저장 (`cs.ticket_translations`, 추가만)
 

@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from backend.api.cs.main import create_app
 from backend.api.cs.tickets import repository, routes
+from backend.api.cs.translation import repository as translations
 from backend.shared.access import Principal, principal_header
 from backend.shared.settings import Settings
 
@@ -91,8 +92,12 @@ def client(monkeypatch):
     async def fake_transferred_to(conn, ticket_id, departments):
         return bool(TRANSFERS.get(ticket_id, set()) & departments)
 
+    async def fake_korean(conn, ticket_ids):
+        return {}
+
     monkeypatch.setattr(repository, "get_resolution_case", fake_case)
     monkeypatch.setattr(repository, "transferred_to", fake_transferred_to)
+    monkeypatch.setattr(translations, "korean_subjects", fake_korean)
     app = create_app(Settings(_env_file=None, environment="test"))
     with TestClient(app, headers=principal_header(CS_AGENT)) as test_client:
         yield test_client

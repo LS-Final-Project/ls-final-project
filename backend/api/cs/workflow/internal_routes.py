@@ -14,7 +14,7 @@ from typing import Annotated, Any
 from uuid import UUID, uuid4
 
 import psycopg
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.api.cs.assignments.service import assign_on_intake
@@ -22,6 +22,7 @@ from backend.api.cs.tickets import repository as tickets
 from backend.api.cs.tickets.access import require_ticket_write
 from backend.api.cs.tickets.routes import detail, not_found, respond
 from backend.api.cs.tickets.schemas import Code, CustomerId, Subject, TicketDetail
+from backend.api.cs.translation.routes import translate_on_intake
 from backend.api.cs.workflow import repository
 from backend.api.cs.workflow.schemas import CustomerReplyIn, CustomerReplyResult
 from backend.api.cs.workflow.service import record_customer_reply
@@ -75,6 +76,7 @@ def already_registered(ticket_id: UUID) -> ApplicationError:
 async def register_from_mail(
     payload: MailTicketCreate,
     request: Request,
+    background: BackgroundTasks,
     principal: Principal = Depends(current_principal),
 ) -> SuccessResponse[TicketDetail]:
     """Registers a mail as an EMAIL ticket and keeps the mail reference and sender.
@@ -153,6 +155,8 @@ async def register_from_mail(
             raise already_registered(existing) from None
     # KAN-214: after the ticket is committed. Never fails the intake.
     await assign_on_intake(settings, ticket_id)
+    # KAN-213: Korean subject for the lists, after the response. Never fails the intake.
+    background.add_task(translate_on_intake, request.app.state, ticket_id)
     return respond(request, detail({**values, "version": 1, "workflow_state": "RECEIVED"}, None))
 
 

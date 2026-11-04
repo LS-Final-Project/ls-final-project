@@ -48,8 +48,8 @@ function CustomersView() {
   // 다시 읽는 동안에는 이전 값을 보이지 않는다.
   const data: Data | undefined = history.isSuccess && !history.isFetching ? history.data.data : undefined;
   const unapplied = typed(draft.customer) !== filters.customer;
-  const exportCsv = () => data && downloadCsv(`고객_이력_${data.customer_external_id}`, ['문의번호', '접수일시', '제목', '접수 경로', '제품', '상태'],
-    data.tickets.map(item => [item.external_id ?? item.id, formatStamp(item.received_at), item.subject ?? '', item.channel, item.product_code, stateName(item.workflow_state)]));
+  const exportCsv = () => data && downloadCsv(`고객_이력_${data.customer_external_id}`, ['문의번호', '접수일시', '제목(한국어)', '원문 제목', '접수 경로', '제품', '상태'],
+    data.tickets.map(item => [item.external_id ?? item.id, formatStamp(item.received_at), item.subject_ko ?? '', item.subject ?? '', item.channel, item.product_code, stateName(item.workflow_state)]));
   const reset = () => { setDraft({ ...emptyFilters, customer: PREFIX }); setFilters(emptyFilters); setError(''); };
 
   return <main className="td3 cu3">
@@ -100,7 +100,7 @@ function CustomersView() {
                 <tbody>{data.tickets.length === 0 ? <tr><td colSpan={6} className="none">문의 기록 없음</td></tr> : data.tickets.map(item => <tr key={item.id}>
                   <td><Link className="link" to={`/cs/tickets/${encodeURIComponent(item.id)}`}>{item.external_id ?? item.id.slice(0, 8)}</Link></td>
                   <td className="meta">{formatStamp(item.received_at)}</td>
-                  <td className="subj" title={item.subject ?? ''}>{item.subject || '(제목 없음)'}</td>
+                  <td className="subj" title={item.subject ? `원문: ${item.subject}` : ''}>{item.subject_ko || item.subject || '(제목 없음)'}</td>
                   <td>{CHANNEL_LABEL[item.channel as keyof typeof CHANNEL_LABEL] ?? item.channel}</td>
                   <td>{item.product_code}</td>
                   <td><span className={item.workflow_state === 'CLOSED' ? 'chip st-closed' : 'chip st-open'}>{stateName(item.workflow_state)}</span></td>
