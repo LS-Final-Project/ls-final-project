@@ -11,6 +11,7 @@ import MailSent from './pages/MailSent';
 import Tickets from './pages/Tickets';
 import CsCustomers from './pages/CsCustomers';
 import CsAdmin from './pages/CsAdmin';
+import CsAssign from './pages/CsAssign';
 import CsImprovements from './pages/CsImprovements';
 import TicketDetail from './pages/TicketDetail';
 import Evaluations from './pages/Evaluations';
@@ -48,6 +49,7 @@ export default function App() {
       <Route path="mail/sent" element={<MailSent />} />
       <Route path="cs/customers" element={<CsCustomers />} />
       <Route path="cs/admin" element={<CsAdmin />} />
+      <Route path="cs/admin/assign" element={<CsAssign />} />
       <Route path="cs/tickets" element={<Tickets />} />
       <Route path="cs/tickets/:ticketId" element={<TicketDetail />} />
       <Route path="tft" element={<RfpHome />} />

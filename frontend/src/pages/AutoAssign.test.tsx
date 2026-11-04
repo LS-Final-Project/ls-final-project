@@ -2,14 +2,14 @@ import { afterEach, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import Tickets from './Tickets';
 import TicketDetail from './TicketDetail';
-import CsAdmin from './CsAdmin';
+import CsAssign from './CsAssign';
 import CsImprovements from './CsImprovements';
 import { setApiMode } from '../api/client';
 import { jsonResponse, renderAt } from '../test/render';
 import examples from '../mocks/generated/cs.json';
 import { assignmentText } from '../ls-shell/cs-labels';
 
-// KAN-214 담당자 자동 배정 화면: 문의 조회의 관리자 단추·미리보기→적용, 문의 처리의 배정 근거, 운영 현황의 기준표.
+// KAN-214 담당자 자동 배정 화면: 문의 조회의 관리자 단추·미리보기→적용, 문의 처리의 배정 근거, 업무 배정의 기준표.
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); setApiMode('mock'); });
 
 const CS_MANAGER = { id: 'm', display_name: '관리자', roles: ['manager'], managed_departments: ['GCS_L1'] };
@@ -93,7 +93,7 @@ test('문의 처리는 지금 담당이 규칙으로 정해졌으면 담당 옆�
   await waitFor(() => expect(document.querySelector('.assign-why')).toBeNull());
 });
 
-test('운영 현황은 담당자 배정 기준을 한국어 이름으로 읽기 전용으로 보이고 가정 자료라고 적는다', async () => {
+test('업무 배정은 담당자 배정 기준을 한국어 이름으로 읽기 전용으로 보이고 가정 자료라고 적는다', async () => {
   const overview = examples.find(x => x.path === '/api/v1/cs/stats/overview')!.body;
   const agents = examples.find(x => x.path === '/api/v1/cs/assignments/agents')!.body as { data: { items: { user_id: string }[] } };
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
@@ -102,12 +102,12 @@ test('운영 현황은 담당자 배정 기준을 한국어 이름으로 읽기 
     if (url.includes('/platform/users?')) return jsonResponse(200, { data: { items: [{ user_id: agents.data.items[0].user_id, display_name: '시연 C/S 담당자' }] } });
     return jsonResponse(200, url.includes('/owners') ? { data: { period: { start: null, end: null }, items: [] } } : overview);
   }));
-  setApiMode('live'); renderAt('/cs/admin', '/cs/admin', <CsAdmin />);
+  setApiMode('live'); renderAt('/cs/admin/assign', '/cs/admin/assign', <CsAssign />);
   const section = within(await screen.findByRole('region', { name: '담당자 배정 기준' }));
   expect(await section.findByText('시연 C/S 담당자')).toBeTruthy();
   expect(section.getByText('영어·튀르키예어·러시아어')).toBeTruthy();
   expect(section.getByText('변압기·중압 차단기·배전반')).toBeTruthy();
-  expect(section.getByText(/가정 자료/, { selector: 'small' })).toBeTruthy();
+  expect(section.getByText(/가정 자료 · 규칙/, { selector: '.meta' })).toBeTruthy();
   // 아직 이름을 못 찾은 사람은 ID 앞부분으로 보인다. 고치는 단추는 없다.
   expect(section.getByText(/^사용자 88888888/)).toBeTruthy();
   expect(section.queryByRole('button')).toBeNull();
@@ -143,23 +143,26 @@ test('개선요청 목록은 누구에게나 미배정 건수(고장 요청, 담
 });
 
 
-// 관리자 메뉴는 통계/보고서뿐이라 배정 기능을 운영 현황에 모았다.
-const admin = () => { setApiMode('live'); renderAt('/cs/admin', '/cs/admin', <CsAdmin />); };
-test('운영 현황의 담당 배정: C/S 부서 관리자는 미배정 자동 배정과 선택 담당 변경을 한다', async () => {
+// 관리자 메뉴는 통계/보고서뿐이라 배정 기능을 업무 배정(CS0902)에 모았다.
+const admin = () => { setApiMode('live'); renderAt('/cs/admin/assign', '/cs/admin/assign', <CsAssign />); };
+test('업무 배정: 자동 배정 단추 없이 맞는 담당자 없는 문의를 보이고, 선택 담당 변경을 한다', async () => {
   serve(CS_MANAGER); admin();
   const section = within(await screen.findByRole('region', { name: '담당 배정' }));
   expect(await section.findByText('Breaker trips')).toBeTruthy();
-  expect(section.getByText(/미배정 1건/)).toBeTruthy();
+  // 과거 적재 자료(synthetic)는 '맞는 담당자 없는 문의'에 넣지 않는다.
+  const unmatched = within(screen.getByRole('region', { name: '맞는 담당자 없는 문의' }));
+  expect(unmatched.queryByText('Breaker trips')).toBeNull();
+  expect(await unmatched.findByText(/맞는 담당자가 없는 문의가 없습니다/)).toBeTruthy();
   const change = section.getByRole('button', { name: /선택 담당 변경/ }) as HTMLButtonElement;
   expect(change.disabled).toBe(true);
   fireEvent.click(section.getByRole('checkbox', { name: 'ID-1 선택' }));
   expect((section.getByRole('button', { name: /선택 담당 변경 \(1\)/ }) as HTMLButtonElement).disabled).toBe(false);
-  fireEvent.click(section.getByRole('button', { name: '미배정 문의 자동 배정' }));
-  expect(await screen.findByRole('table', { name: '자동 배정 미리보기' })).toBeTruthy();
+  // 새 문의는 접수 때 규칙으로 배정되므로 관리자 일괄 자동 배정 단추는 두지 않는다.
+  expect(screen.queryByRole('button', { name: '미배정 문의 자동 배정' })).toBeNull();
 });
-test('운영 현황의 담당 배정은 C/S 부서 관리자가 아니면 보이지 않는다', async () => {
+test('업무 배정의 담당 배정은 C/S 부서 관리자가 아니면 보이지 않는다', async () => {
   serve({ id: 'm', roles: ['manager'], managed_departments: ['TS_TRF'] }); admin();
-  await screen.findByRole('heading', { name: /운영 현황/ });
+  await screen.findByRole('heading', { name: /업무 배정/ });
   await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([u]) => String(u).endsWith('/platform/me'))).toBe(true));
   expect(screen.queryByRole('region', { name: '담당 배정' })).toBeNull();
 });
