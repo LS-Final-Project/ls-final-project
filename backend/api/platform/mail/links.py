@@ -377,7 +377,7 @@ async def notify_cs_replies(
         caller: C/S 내부 경로 클라이언트(`business.CsCaller`).
         limit: 한 번에 알릴 최대 수.
         store: 원문 저장소(`ObjectReader`). 주면 회신 제목·본문(인용 제외)을 같이 보낸다(KAN-230).
-            원문을 읽지 못한 연결은 알리지 않고 다음 실행에서 다시 한다. 없으면 본문 없이 알린다.
+            원문을 읽거나 파싱하지 못하면 본문 없이 알리고 `without_text`로 센다. 없으면 본문 없이 알린다.
 
     Returns:
         dict[str, int]: `notified`(C/S가 받음), `missing`(C/S에 없는 문의, 다시 알리지 않음),
@@ -396,6 +396,8 @@ async def notify_cs_replies(
         )
         pending = await cursor.fetchall()
     counts = {"notified": 0, "missing": 0, "failed": 0}
+    if store is not None:
+        counts["without_text"] = 0
     for link in pending:
         ticket_id = link["business_ref"].removeprefix("cs_ticket:")
         body: dict[str, Any] = {
@@ -407,17 +409,17 @@ async def notify_cs_replies(
             from backend.api.platform.mail.storage import StoredObject
             from backend.engine.mail_triage.extract import reply_text
 
+            # 원문을 읽지 못하거나 파싱할 수 없으면 본문 없이 알린다. 저장소는 일시·영구 실패를
+            # 구분하지 않아(모두 MAIL_STORAGE_UNAVAILABLE), 재시도하면 지워진 원문이 뒤 회신의
+            # 통지를 막을 수 있다. 회신 기록과 재개가 본문보다 먼저다(화면은 메일 계정을 안내한다).
             try:
                 raw = await store.get(
                     StoredObject(link["raw_storage_key"], link["raw_sha256"], link["raw_size"])
                 )
                 subject, text = reply_text(raw)
-            except (ApplicationError, HTTPException, httpx.HTTPError):
-                counts["failed"] += 1
-                continue
-            except ValueError:
-                # 파싱할 수 없는 원문. 본문 없이 알린다(문의 화면은 메일 계정에서 보라고 안내한다).
+            except (ApplicationError, HTTPException, httpx.HTTPError, ValueError):
                 subject, text = None, None
+                counts["without_text"] += 1
             if subject is not None:
                 body["subject"] = subject
             if text is not None:

@@ -210,12 +210,15 @@ def reply_text(raw: bytes) -> tuple[str | None, str | None]:
         raw: 원문 MIME 바이트.
 
     Returns:
-        tuple: (제목 또는 None, 본문 또는 None). 인용을 자른 뒤 본문이 비면 None. 파싱할 수 없으면
+        tuple: (제목 또는 None, 본문 또는 None). 인용을 자르면 비는 본문은 자르지 않는다. 본문이 없으면
+        None. 파싱할 수 없으면
         ValueError("MAIL_INVALID_INPUT").
     """
     subject, body, _ = mail_text(raw)
     # CRLF가 남으면 인용 시작 줄('… wrote:')을 줄 끝으로 찾지 못한다.
-    text = _clean(body.replace("\r\n", "\n").replace("\r", "\n"))
+    plain = body.replace("\r\n", "\n").replace("\r", "\n")
+    # 인용 시작 줄로 보이는 'From:'·'보낸 사람:'이 본문 맨 앞이면 다 잘린다. 그때는 자르지 않는다.
+    text = _clean(plain) or plain.strip()
     if len(text) > REPLY_BODY_LIMIT:
         mark = "\n[이후 생략: 원문은 메일 계정에서 확인]"
         text = text[: REPLY_BODY_LIMIT - len(mark)].rstrip() + mark

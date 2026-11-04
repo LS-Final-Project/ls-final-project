@@ -357,13 +357,26 @@ def test_reply_text_is_sent_with_the_quoted_history_cut_off(settings, notify):
     assert "Please send the serial" not in sent["body"]
 
 
-def test_a_reply_whose_original_cannot_be_read_waits_for_the_next_run(settings, notify):
-    """원문을 읽지 못하면 본문 없이 알리지 않고 다음 실행으로 미룬다(알림 표시 없음)."""
+def test_a_reply_whose_original_cannot_be_read_is_reported_without_text(settings, notify):
+    """원문을 읽지 못해도 본문 없이 바로 알린다. 지워진 원문이 뒤 회신의 통지를 막지 않게 한다."""
     cs = FakeCs()
     message = link_reply(notify, uuid4())
     assert asyncio.run(notify_cs_replies(settings, cs.caller(), store=RawByHash())) == {
-        "notified": 0,
+        "notified": 1,
         "missing": 0,
-        "failed": 1,
+        "failed": 0,
+        "without_text": 1,
     }
-    assert cs.calls == [] and notified(notify, message) is None
+    [sent] = [json.loads(c.content) for c in cs.calls]
+    assert "body" not in sent and "subject" not in sent
+    assert notified(notify, message) is not None
+
+
+def test_reply_text_keeps_a_body_that_starts_like_a_quote_header():
+    """'From:'으로 시작하는 본문을 인용으로 보고 통째로 지우지 않는다."""
+    from backend.engine.mail_triage.extract import reply_text
+
+    raw = (
+        b"Subject: Re: log\r\nContent-Type: text/plain\r\n\r\nFrom: PLC log 10:02 overload trip\r\n"
+    )
+    assert reply_text(raw) == ("Re: log", "From: PLC log 10:02 overload trip")
