@@ -111,7 +111,12 @@ async def recompare(
             outcome = image_comparison_review(
                 item,
                 comparison.compare_in_family(
-                    to_comparison(item),
+                    to_comparison(
+                        item,
+                        voltages=await repository.equipment_voltages(
+                            conn, project["id"], requirement["document_version_id"]
+                        ),
+                    ),
                     requirement["equipment_family"],
                     comparison.load_own_products(),
                 ),

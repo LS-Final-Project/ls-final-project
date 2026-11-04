@@ -48,6 +48,11 @@ NO_NUMBER = "요구 값에 숫자·단위 없음"
 NO_UNIT = "요구 값에 단위 없음"
 SHORTER_SHORTFALL = "짧은 시간 값의 추정이 미달이나 실제 정격이 더 높을 수 있어 확인 필요"
 INTEGRATOR_LABELS = {"assembly": "조립", "test": "시험", "integration": "연동", "warranty": "보증"}
+# 천 단위 쉼표 숫자(1,250 · 2,350.5). 세 자리 묶음이 맞을 때만 쉼표를 뗀다. 쉼표 소수(1,5)는 읽지 않는다(KAN-217 F-1).
+THOUSANDS = re.compile(r"[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?")
+# SI 접두(k·M)만 다른 전기 단위. 단위 대소문자가 크기를 가르므로(mV·MV) 이 표기만 환산한다(KAN-217).
+SI_UNIT = re.compile(r"(k|M)?(VA|var|V|A|W|Hz)")
+SI_SCALE = {"": Decimal(1), "k": Decimal(1000), "M": Decimal(1000000)}
 
 
 class Requirement(BaseModel):
@@ -257,8 +262,11 @@ def _number(text: str) -> Decimal | None:
     Returns:
         Decimal | None: 숫자가 아니거나 NaN·Infinity면 None.
     """
+    text = text.strip()
+    if THOUSANDS.fullmatch(text):
+        text = text.replace(",", "")
     try:
-        number = Decimal(text.strip())
+        number = Decimal(text)
     except InvalidOperation:
         return None
     return number if number.is_finite() else None
@@ -397,6 +405,25 @@ def _unit_key(unit: str | None) -> str:
     return TIME_UNITS.get(key.casefold(), key)
 
 
+def unit_factor(want: str | None, got: str | None) -> Decimal | None:
+    """got 단위 값에 곱하면 want 단위 값이 되는 배수. kV↔V·kA↔A·kVA↔MVA처럼 SI 접두만 다를 때 환산한다.
+
+    Args:
+        want: 요구 단위.
+        got: 근거 단위.
+
+    Returns:
+        Decimal | None: 비교용 단위가 같으면 1, 접두만 다르면 배수, 그 밖에는 None(비교하지 않음).
+    """
+    wanted, given = _unit_key(want), _unit_key(got)
+    if wanted == given:
+        return Decimal(1)
+    w, g = SI_UNIT.fullmatch(wanted), SI_UNIT.fullmatch(given)
+    if w is None or g is None or w.group(2) != g.group(2):
+        return None
+    return SI_SCALE[g.group(1) or ""] / SI_SCALE[w.group(1) or ""]
+
+
 def _canonical_verdict(attribute: str, wanted: str, value: str) -> tuple[Verdict, str]:
     """비교용 표기로 견준다. 탭은 위·아래 단 수와 간격이 모두 같아야 하고, 보호 기능은 요구가 자사의 부분집합이면 된다.
 
@@ -460,11 +487,13 @@ def _value_verdict(requirement: Requirement, fact: SpecFact) -> tuple[Verdict, s
         return _canonical_verdict(requirement.attribute, requirement.canonical_value, fact.value)
     if requirement.operator != "TEXT":
         # 단위는 대소문자가 크기를 가른다(mV·MV). 공백만 정리한다.
-        if _unit_key(requirement.unit) != _unit_key(fact.unit):
+        factor = unit_factor(requirement.unit, fact.unit)
+        if factor is None:
             if not requirement.unit:
                 return "unknown", missing_word(requirement)
             return "unknown", "단위가 달라 비교하지 않음, 확인 필요"
         got = _number(fact.value)
+        got = got * factor if got is not None else None
         if requirement.operator == "RANGE":
             low, _, high = requirement.value.partition("~")
             bounds = (_number(low), _number(high)) if high else (None, None)

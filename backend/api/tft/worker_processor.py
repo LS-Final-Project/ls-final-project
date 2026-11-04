@@ -451,7 +451,9 @@ def tolerance_range(item: ExtractedRequirement) -> tuple[Operator, str | None]:
 
 
 def to_comparison(
-    item: ExtractedRequirement, systems: dict[SectionKey, StandardSystem] | None = None
+    item: ExtractedRequirement,
+    systems: dict[SectionKey, StandardSystem] | None = None,
+    voltages: Mapping[str, Decimal] | None = None,
 ) -> comparison.Requirement:
     """추출 요구 → 자사 비교 입력. 매핑 규칙은 이 함수 한 곳에만 둔다.
 
@@ -464,6 +466,8 @@ def to_comparison(
         item: 추출 요구.
         systems: 같은 문서의 절별 규격 체계(section_systems). 요구 체계가 비어 있는 하한 정격(MINIMUM_RATINGS)만
             이어받는다(KAN-208).
+        voltages: 같은 문서의 설비별 최고 전압(comparison.equipment_voltages). 전압 등급이 다른 자사 제품을 후보에서
+            뺀다(KAN-217).
 
     Returns:
         comparison.Requirement: 비교 입력.
@@ -496,6 +500,14 @@ def to_comparison(
         canonical_value=item.canonical_value,
         task=item.task,
         kind=item.kind,
+        equipment_voltage_kv=(voltages or {}).get(comparison.equipment_key(item.equipment)),
+    )
+
+
+def item_voltages(items: Iterable[ExtractedRequirement]) -> dict[str, Decimal]:
+    """한 문서 요구들의 설비별 최고 전압(to_comparison의 voltages)."""
+    return comparison.equipment_voltages(
+        (i.equipment, i.attribute_key, i.value, i.unit) for i in items
     )
 
 
@@ -1151,11 +1163,17 @@ async def process(
             id(document): section_systems(r for d, _, r in extracted if d is document)
             for document, _, _ in extracted
         }
+        voltages_by_document = {
+            id(document): item_voltages(r for d, _, r in extracted if d is document)
+            for document, _, _ in extracted
+        }
         outcomes = [
             image_comparison_review(
                 r,
                 comparison.compare_in_family(
-                    to_comparison(r, systems_by_document[id(document)]),
+                    to_comparison(
+                        r, systems_by_document[id(document)], voltages_by_document[id(document)]
+                    ),
                     r.equipment_family,
                     products,
                 ),
