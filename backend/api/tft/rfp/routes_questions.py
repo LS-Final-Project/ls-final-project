@@ -4,22 +4,66 @@
 멱등 처리하고, 상태에 따른 검사(판본 409 등)는 재전송이 첫 결과를 받도록 기록 안쪽(work)에 둔다.
 """
 
-from collections.abc import Mapping
+import asyncio
+from collections.abc import Callable, Mapping
 from typing import Any
 from uuid import UUID
 
-from fastapi import HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
 from psycopg import AsyncConnection
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from backend.api.tft.projects.access import can_create_question, can_reply, can_view_rfp
 from backend.api.tft.rfp import commands, repository
 from backend.api.tft.rfp import schemas as s
 from backend.api.tft.rfp.rnd import check_reply_fields
+from backend.engine.rfp.reply_values import read_reply_value
 from backend.shared.access import Principal
+from backend.shared.ai import Generation
 from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
 
 Row = dict[str, Any]
+
+
+class TftReplySettings(BaseSettings):
+    """회신 값 읽기의 AI 보조(KAN-224). 꺼져 있으면 규칙만 쓰고 모델 클라이언트를 만들지 않는다."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="TFT_REPLY_AI_", env_file=".env", extra="ignore", hide_input_in_errors=True
+    )
+
+    enabled: bool = False
+    model: str = Field(default="gemini-3.6-flash", pattern=r"^[a-zA-Z0-9._-]+$")
+    max_output_tokens: int = Field(default=2048, ge=256, le=65536)
+
+
+def configure_reply_reader(
+    app: FastAPI, value: TftReplySettings, provider: Callable[[str], Generation] | None = None
+) -> None:
+    """회신 값 읽기 AI 공급자를 앱에 둔다. 꺼져 있으면 None(규칙만).
+
+    Args:
+        app: TFT 앱.
+        value: 설정.
+        provider: 검사용 가짜 공급자. 없고 켜져 있으면 Gemini 공급자를 만든다.
+    """
+    app.state.reply_provider = None
+    if not value.enabled:
+        return
+    if provider is None:
+        from backend.engine.cs.providers import GenerationKnobs, gemini_text_provider
+        from backend.shared.ai import AISettings, create_client
+
+        ai = AISettings()
+        provider = gemini_text_provider(
+            create_client(ai),
+            ai,
+            model=value.model,
+            generation=GenerationKnobs(max_output_tokens=value.max_output_tokens),
+        )
+    app.state.reply_provider = provider
 
 
 async def visible_project(
@@ -83,6 +127,7 @@ def question_out(row: Mapping[str, Any]) -> s.Question:
         target=row["target"],
         target_dept=row["target_dept"],
         rnd_feasibility=row["rnd_feasibility"],
+        follows_question_id=row.get("follows_question_id"),
     )
 
 
@@ -167,6 +212,15 @@ async def check_question(
         is None
     ):
         raise ApplicationError(404, "TFT_REQUIREMENT_NOT_FOUND", "The requirement was not found.")
+    if payload.follows_question_id is not None:
+        original = await repository.get_question(conn, payload.follows_question_id)
+        if original is None or original["project_id"] != project["id"]:
+            raise ApplicationError(
+                422,
+                "VALIDATION_ERROR",
+                "The original question is not in this project.",
+                details=[{"field": "follows_question_id", "reason": "not in the project"}],
+            )
     clause_id = payload.origin.clause_id
     if clause_id is not None and not await repository.clause_in_project(
         conn, project["id"], clause_id
@@ -206,6 +260,7 @@ async def store_question(
         target=payload.target,
         target_dept=payload.target_dept,
         actor=actor,
+        follows_question_id=payload.follows_question_id,
     )
     return question_out(row).model_dump(mode="json")
 
@@ -393,6 +448,23 @@ async def reply_question(
         )
         if not can_reply(principal, project, question):
             raise HTTPException(403)
+        candidate = None
+        if question["target"] == "CUSTOMER" and question["requirement_id"] is not None:
+            requirement = await repository.latest_requirement_version(
+                conn, project["id"], question["requirement_id"]
+            )
+            if requirement is not None:
+                current = await repository.judgement_of(conn, requirement)
+                # ponytail: 같은 키 재전송도 여기서 다시 읽는다. AI가 켜져 있으면 재전송마다 호출된다.
+                candidate = await asyncio.to_thread(
+                    read_reply_value,
+                    payload.reply_text,
+                    unit=requirement["unit"],
+                    attribute=requirement.get("attribute") or "",
+                    question_text=question["question_text"],
+                    condition_names=[c["name"] for c in current["conditions"]],
+                    provider=getattr(request.app.state, "reply_provider", None),
+                )
 
         async def work() -> dict[str, Any]:
             locked = await repository.get_question(conn, question_id, lock=True)
@@ -418,7 +490,10 @@ async def reply_question(
                 actor=principal.user_id,
             )
             # A reply records evidence. Only an explicit reviewed proposal can resolve items.
-            result = s.QuestionReplyResult(**question_out(replied).model_dump())
+            result = s.QuestionReplyResult(
+                **question_out(replied).model_dump(),
+                value_candidate=candidate.model_dump() if candidate else None,
+            )
             return result.model_dump(mode="json")
 
         result = await commands.run_command(

@@ -751,6 +751,8 @@ class QuestionCreate(Model):
     # 명세 v1.3 §5.3: INTERNAL은 프로젝트 검토 부서 안의 target_dept가 필요하다(서버가 범위를 검사한다).
     target: QuestionTarget = "CUSTOMER"
     target_dept: str | None = Field(default=None, min_length=1, max_length=32)
+    # 후속 질의(TQ-1-2): 같은 프로젝트의 원래 질의(KAN-224).
+    follows_question_id: UUID | None = None
 
     @model_validator(mode="after")
     def check_target(self) -> Self:
@@ -806,6 +808,7 @@ class Question(Provenance):
     target: QuestionTarget = "CUSTOMER"
     target_dept: str | None = None
     rnd_feasibility: RndFeasibility | None = None
+    follows_question_id: UUID | None = None
 
 
 class QuestionList(Model):
@@ -876,10 +879,39 @@ class ProposalList(Model):
     items: list[Proposal]
 
 
+class ReplyValueCandidate(Model):
+    """회신에서 읽은 새 요구값 후보(KAN-224). 후보일 뿐 요구값을 바꾸지 않는다.
+
+    method: rule(규칙), ai(AI, 근거 검사 통과), none(못 읽음, reason에 이유).
+    """
+
+    method: Literal["rule", "ai", "none"]
+    value: str | None = None
+    unit: str | None = None
+    conditions: list[Condition] = Field(default_factory=list)
+    quote: str | None = None
+    reason: (
+        Literal[
+            "NO_VALUE",
+            "MULTIPLE_VALUES",
+            "CORRECTION",
+            "CONDITIONAL",
+            "MULTIPLE_QUESTIONS",
+            "AI_UNGROUNDED",
+            "AI_FAILED",
+        ]
+        | None
+    ) = None
+
+
 class QuestionReplyResult(Question):
-    """20. 회신 결과: 회신된 질문. CUSTOMER 회신이 판단을 바꿀 제안을 만들었을 때만 created_proposal이 있다."""
+    """20. 회신 결과: 회신된 질문. CUSTOMER 회신이 판단을 바꿀 제안을 만들었을 때만 created_proposal이 있다.
+
+    value_candidate는 요구에 이어진 CUSTOMER 질의일 때만 있다(KAN-224).
+    """
 
     created_proposal: Proposal | None = None
+    value_candidate: ReplyValueCandidate | None = None
 
 
 # --- 초안·검토본 (§4.9) -----------------------------------------------------------------
