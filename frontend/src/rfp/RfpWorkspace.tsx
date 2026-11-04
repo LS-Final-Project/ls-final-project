@@ -120,7 +120,7 @@ function NewProject() {
   const navigate = useNavigate();
   const client = useQueryClient();
   const recent = useQuery({ queryKey: ['projects', getApiMode(), 'resume'], queryFn: () => listProjects({}, undefined, 1) });
-  const resume = (recent.data?.data.items ?? []).filter(p => p.unresolved_mandatory_count > 0).slice(0, 3);
+  const resume = (recent.data?.data.items ?? []).filter(p => (p.decisions_remaining ?? p.unresolved_mandatory_count) > 0).slice(0, 3);
   const [file, setFile] = useState<File | null>(null);
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
@@ -140,7 +140,7 @@ function NewProject() {
     <KvTitle path="제안 지원 › RFP 검토" title="새 RFP 검토" />
     <div className="ws-grid">
       <section className="ws-sec ws-left">
-        {!file ? <DropZone onFile={next => { setFile(next); if (next && !name) setName(next.name.replace(/\.[^.]+$/, '')); }} /> : <div className="ws-ready">
+        {!file ? <DropZone onFile={next => { setFile(next); if (next && !name) setName(next.name.replace(/\.[^.]+$/, '').replace(/_+/g, ' ').trim()); }} /> : <div className="ws-ready">
           <div className="ws-file"><span className="ws-strong">{file.name}</span><span className="muted">{(file.size / 1024).toFixed(1)} KB</span><span className="sp" /><button className="ws-link" onClick={() => setFile(null)}>빼기</button></div>
           {problem && <p role="alert">{problem}</p>}
           <label className="ws-field">프로젝트 이름<input value={name} onChange={event => setName(event.target.value)} /></label>
@@ -152,7 +152,7 @@ function NewProject() {
       </section>
       <section className="ws-sec ws-right"><div className="ws-center muted">올린 원문이 여기에 보입니다</div>
         {resume.length > 0 && <div className="ws-resume"><p className="muted">이어서 할 프로젝트</p>
-          {resume.map(p => <p key={p.id}><Link to={`/tft/projects/${p.id}`}>{p.external_id} {p.name}</Link><span className="muted">미해결 필수 {p.unresolved_mandatory_count}</span></p>)}</div>}
+          {resume.map(p => <p key={p.id}><Link to={`/tft/projects/${p.id}`}>{p.external_id} {p.name}</Link><span className="muted">결정할 것 {p.decisions_remaining ?? p.unresolved_mandatory_count}</span></p>)}</div>}
       </section>
     </div>
   </main>;
@@ -215,7 +215,9 @@ function useElapsed(since?: string) {
 function ActivityLines({ activity }: { activity: RfpProgress[] }) {
   // 한 줄이 있는 단계는 단계 문장을 겹쳐 쓰지 않는다.
   const focused = new Set(activity.filter(a => a.focus).map(a => a.step));
-  const lines = bySequence(activity).filter(a => a.focus || (a.step && !focused.has(a.step)));
+  // 같은 한 줄이 이어 오면(분할 호출마다 "읽는 중") 한 번만 쓴다.
+  const lines = bySequence(activity).filter(a => a.focus || (a.step && !focused.has(a.step)))
+    .filter((a, i, all) => i === 0 || lineOf(a) !== lineOf(all[i - 1]));
   if (!lines.length) return <p className="muted">아직 받은 진행 기록이 없습니다.</p>;
   return <div className="ws-lines">{lines.map(a => <p key={a.sequence}><span>{STEP_LABEL[a.step ?? ''] ?? ''}</span>{lineOf(a)}</p>)}</div>;
 }
@@ -254,7 +256,7 @@ function AnalysisStrip({ projectId, documents, live, failed }: { projectId: stri
 
 function Skeleton({ count }: { count?: number }) {
   return <div className="ws-skel" aria-busy="true">
-    <p className="muted">{count ? `요구 ${count}건을 찾았습니다. 비교 중입니다.` : '요구를 찾는 중입니다.'}</p>
+    <p className="muted">{count ? `요구 ${count}건을 찾았습니다.` : '요구를 찾는 중입니다.'}</p>
     {[70, 110, 90, 130, 80, 100].map((w, i) => <span key={i} className="sk" style={{ width: `${w * 2}px` }} />)}
   </div>;
 }
