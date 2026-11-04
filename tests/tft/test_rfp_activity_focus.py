@@ -54,3 +54,12 @@ def test_section_label_uses_korean_head_text_when_title_is_empty():
         ],
     )
     assert section_label(item) == "제7조 건식 변압기 (TR-01)"
+
+
+def test_value_text_does_not_repeat_a_unit_already_in_the_value():
+    from backend.api.tft.rfp.routes_read import value_text
+
+    assert value_text("±2×2.5 %", "%") == "±2×2.5 %"
+    assert value_text("630", "kVA") == "630 kVA"
+    assert value_text(None, "kV") == "kV"
+    assert value_text(None, None) is None

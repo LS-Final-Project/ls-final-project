@@ -85,7 +85,7 @@ def requirement_value(req: s.RequirementDetail) -> str:
     spec = req.spec
     if not spec.value:
         return ""
-    unit = " " + spec.unit if spec.unit else ""
+    unit = " " + spec.unit if spec.unit and not spec.value.rstrip().endswith(spec.unit) else ""
     tolerance = " " + spec.tolerance if spec.tolerance else ""
     return f"{spec.value}{unit}{tolerance}{OPERATOR.get(spec.operator, '')}"
 
