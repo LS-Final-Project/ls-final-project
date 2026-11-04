@@ -236,7 +236,8 @@ async def add(
             base_version=1,
             result_version=1,
             action="add_requirement",
-            summary=f"직접 추가: {payload.equipment or payload.task or ''} {payload.attribute}".strip(),
+            summary="직접 추가: "
+            + " ".join(p for p in (payload.equipment or payload.task, payload.attribute) if p),
             detail={"clause_no": source["clause_no"], "duplicates": duplicates},
             undoes=None,
             question_id=None,
