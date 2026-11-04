@@ -187,17 +187,23 @@ def test_a_failed_attempt_is_stored_and_answered_502(
 
 
 def test_scope_role_and_activation(cs_database, client, model, admin, ticket):
-    """범위 밖은 404(문의 없음과 같음), 범위 안 부서 사용자는 조회만, 꺼져 있으면 두 경로 모두 404."""
+    """범위 밖은 404(문의 없음과 같음). 이관받은 부서 담당자는 요약을 읽고 만든다(2026-11-04).
+    부서 관리자처럼 C/S·부서 담당이 아닌 역할은 403. 꺼져 있으면 두 경로 모두 404."""
     assert client.get(path(ticket), headers=principal_header(TRF_STAFF)).status_code == 404
+    assert client.post(path(ticket), headers=principal_header(TRF_STAFF)).status_code == 404
     admin.execute(
         "INSERT INTO cs.ticket_transfers (id, ticket_id, dept_code, reason, round, status, "
         "transferred_by) VALUES (%s, %s, 'TS_TRF', 'check', 1, 'OPEN', %s)",
         (uuid4(), ticket, uuid4()),
     )
     assert client.get(path(ticket), headers=principal_header(TRF_STAFF)).status_code == 200
-    assert client.post(path(ticket), headers=principal_header(TRF_STAFF)).status_code == 403
+    trf_manager = Principal(user_id=uuid4(), roles={"manager"}, managed_departments={"TS_TRF"})
+    assert client.post(path(ticket), headers=principal_header(trf_manager)).status_code == 403
     assert client.post(path(uuid4())).status_code == 404
     assert model.prompts == []
+    made = client.post(path(ticket), headers=principal_header(TRF_STAFF))
+    assert made.status_code == 201, made.text
+    assert len(model.prompts) == 1
     off = create_app(settings_for(cs_database))
     configure_summary(off, CsSummarySettings(enabled=False), provider=model)
     with TestClient(off, headers=principal_header(AGENT)) as disabled:

@@ -6,12 +6,13 @@ import { getTicket } from '../api/cs';
 import { getTicketWorkflow, INVALID_TRANSITION_TEXT, isInvalidTransition, isVersionConflict, returnTransfer, submitDeptResult, type WorkflowRecord } from '../api/cs-workflow';
 import { me } from '../api/platform';
 import { ErrorState, Loading } from '../components/states';
+import TicketSourcePane from '../components/TicketSourcePane';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { useHotkey } from '../ls-shell/kv';
 import LogTable, { type LogColumn } from './LogTable';
 import './ticket-detail-v3.css';
 import './dept-result-v3.css';
-import { CHANNEL_LABEL, DEPT_LABEL, formatStamp } from '../ls-shell/cs-labels';
+import { DEPT_LABEL, formatStamp } from '../ls-shell/cs-labels';
 
 type Transfer = WorkflowRecord['transfers'][number];
 type Result = WorkflowRecord['dept_results'][number];
@@ -92,9 +93,8 @@ function ResultView() {
     { key: 'rework', header: '다시 요청 사유', cell: row => resultOf(row)?.review_note ?? '' },
   ];
   const code = t.external_id ?? t.id.slice(0, 8);
-  const nowText = answerable ? <>문의 부서 검토 요청 {current!.round}차에 <b>답변 보내기</b></>
-    : current ? <>이 요청은 지금 답변할 수 없습니다. {isDeptStaff ? '이미 답변했거나 요청이 끝났습니다' : '부서 담당자 계정만 답변할 수 있습니다'}</>
-      : <>이 부서로 이관된 요청이 없습니다</>;
+  // 지금 할 일 줄은 두지 않는다(사용자 결정). 답할 수 없는 이유는 답변 입력 상자에 적는다.
+  const lockedText = answerable ? null : current ? (isDeptStaff ? '이미 답변했거나 요청이 끝났습니다.' : '부서 담당자 계정만 답변할 수 있습니다.') : '이 부서로 이관된 요청이 없습니다.';
 
   return <main className="td3 dr3">
     <div className="title">
@@ -121,31 +121,20 @@ function ResultView() {
         <div className="k nb">펌웨어</div><div className="v nb last">{t.fw_version_reported ?? '미확인'}</div>
       </div>
 
-      <div className={answerable ? 'dr-now' : 'dr-now off'}><small>지금 할 일</small><span>{nowText}</span></div>
       {current && <div className="dr-reason"><small>C/S 요청 사유</small><p>{current.reason}</p></div>}
 
       <div className="dr-cols">
         <div className="pane">
-          <div className="ph">고객 원문<div className="r"><span className="meta">수신 {formatStamp(t.received_at)}</span></div></div>
-          <div className="pb">
-            <div className="mail-card">
-              <div className="mail-head">
-                <span className="avatar" aria-hidden="true">{t.customer_external_id.slice(0, 1).toUpperCase()}</span>
-                <div className="who"><b>{t.customer_external_id}</b><small>{CHANNEL_LABEL[t.channel as keyof typeof CHANNEL_LABEL] ?? t.channel}</small></div>
-                <span className="when">{formatStamp(t.received_at)}</span>
-              </div>
-              {t.subject && <div className="mail-subj">{t.subject}</div>}
-              <div className="mail" lang={t.body_language}>{t.body}</div>
-            </div>
-            {previous.length > 0 && <>
-              <h3>이전 차수</h3>
-              <LogTable label="이전 차수" columns={columns} rows={previous} rowKey={row => row.id} fallback="" />
-            </>}
-          </div>
+          <TicketSourcePane ticket={t} canCreate={isDeptStaff && !!current} onNote={(kind, text) => setNotice({ kind, text })} />
+          {previous.length > 0 && <div className="pb dr-prev">
+            <h3>이전 차수</h3>
+            <LogTable label="이전 차수" columns={columns} rows={previous} rowKey={row => row.id} fallback="" />
+          </div>}
         </div>
         <div className="pane">
           <div className="ph">답변 입력</div>
           <div className="pb">
+            {lockedText && <p className="dr-locked" role="note">{lockedText}</p>}
             <form ref={form} className="dr-form" aria-label="검토 답변 입력" onSubmit={event => { event.preventDefault(); send(new FormData(event.currentTarget)); }}>
               <label><span className="req">답변</span><textarea name="result" aria-label="답변" rows={7} required maxLength={10000} disabled={!answerable || busy} placeholder="원인, 판단, 필요한 조치를 적습니다. C/S 담당자가 확인합니다." /></label>
               <label><span>고객 회신 문안 <small>선택</small></span><textarea name="reply" aria-label="고객 회신 문안" rows={4} maxLength={10000} disabled={!answerable || busy} placeholder="고객에게 그대로 전할 문장이 있으면 적습니다." /></label>
