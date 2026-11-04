@@ -101,7 +101,7 @@ function CustomersView() {
                   <td className="subj" title={item.subject ?? ''}>{item.subject || '(제목 없음)'}</td>
                   <td>{CHANNEL_LABEL[item.channel as keyof typeof CHANNEL_LABEL] ?? item.channel}</td>
                   <td>{item.product_code}</td>
-                  <td><span className={item.workflow_state === 'CLOSED' ? 'chip x' : 'chip'}>{stateName(item.workflow_state)}</span></td>
+                  <td><span className={item.workflow_state === 'CLOSED' ? 'chip st-closed' : 'chip st-open'}>{stateName(item.workflow_state)}</span></td>
                 </tr>)}</tbody>
               </table>
             </div>

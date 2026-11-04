@@ -46,3 +46,6 @@
 .ls-root .kv .td3.cu3 .state-card.closed{border-color:#bfe0c9;background:#eef6f0}
 .ls-root .kv .td3.cu3 .state-card.closed b{color:#2f7d4f}
 @media (max-width:1200px){.ls-root .kv .td3.cu3 .state-cards{grid-template-columns:repeat(3,minmax(0,1fr))}}
+/* 기간 내 문의 표의 상태 칩: 위 카드와 같은 색(진행 주황, 종결 초록) */
+.ls-root .kv .td3.cu3 .chip.st-open{background:#fdf3dc;color:#8a5a00}
+.ls-root .kv .td3.cu3 .chip.st-closed{background:#eaf5ee;color:#2f7d4f}
