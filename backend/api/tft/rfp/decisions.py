@@ -5,7 +5,7 @@ tft.requirement_decisions에 한 행을 남긴다. 같은 사용자·Idempotency
 책임자는 출력 전에 이 기록을 모아서 본다(KAN-220).
 """
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -551,6 +551,229 @@ async def undo(
     )
 
 
+def require_responsible(project: Row, principal: Principal) -> None:
+    """책임자 확인·되돌려 보내기는 프로젝트 책임자만 한다."""
+    if project["responsible_user_id"] != principal.user_id:
+        raise HTTPException(403)
+
+
+async def current_decision(conn: AsyncConnection[Row], requirement: Row, decision_id: UUID) -> Row:
+    """요구의 지금 결정(되돌리지 않았고 지금 판본에서 한 결정)이 decision_id인지 확인한다."""
+    found = (await states(conn, requirement["project_id"], [requirement["requirement_id"]])).get(
+        requirement["requirement_id"]
+    )
+    if found is None or found[1].decision_id != decision_id:
+        raise ApplicationError(404, "TFT_DECISION_NOT_FOUND", "The decision was not found.")
+    cursor = await conn.execute(
+        "SELECT * FROM tft.requirement_decisions WHERE id = %s", (decision_id,)
+    )
+    row = await cursor.fetchone()
+    assert row is not None
+    return row
+
+
+async def review_confirm(
+    conn: AsyncConnection[Row],
+    project: Row,
+    requirement: Row,
+    principal: Principal,
+    payload: s.DecisionRequest,
+) -> Outcome:
+    require_responsible(project, principal)
+    assert payload.decision_id is not None
+    target = await current_decision(conn, requirement, payload.decision_id)
+    return "책임자 확인", {"decision_id": str(target["id"])}, None, None, []
+
+
+async def review_return(
+    conn: AsyncConnection[Row],
+    project: Row,
+    requirement: Row,
+    principal: Principal,
+    payload: s.DecisionRequest,
+) -> Outcome:
+    require_responsible(project, principal)
+    assert payload.decision_id is not None
+    await current_decision(conn, requirement, payload.decision_id)
+    summary, detail, undoes, question, after = await undo(
+        conn, project, requirement, principal, payload
+    )
+    return summary.replace("되돌림", "책임자가 되돌림", 1), detail, undoes, question, after
+
+
+# 비교 사유가 남긴 확인 항목 중 조건 차이가 아닌 것(값을 못 읽음, 단위, 지속시간 환산).
+NOT_GAPS = ("값 확인:", "단위 확인:", "요구 지속시간의 시험값 확인", "정격 피크 확인")
+
+
+def bid_verdict(row: Row, *, differs: bool, customer_question: bool, override: str | None) -> str:
+    """요구 판본 → 입찰 판정. 규칙은 contracts/tft/rfp-data.md "입찰 판정"과 같다.
+
+    Args:
+        row: 최신 요구 판본(status·kind·task·attribute_key·operator·value·unresolved·next_owner_field).
+        differs: 최신 비교의 자사 후보가 모두 다른지(DIFFERS, 자료 없는 후보 제외).
+        customer_question: 보내지 않기로 한 것을 뺀 고객 질문이 있는지.
+        override: 지금 판본을 만든 "판정 바꾸기" 결정의 판정.
+
+    Returns:
+        str: MET·CONFIRM·DEVIATION·QUERY·SUPPLEMENT·ASSIGN.
+    """
+    if override:
+        return override
+    status = row["status"]
+    if status == "EVIDENCE_FOUND":
+        return "MET"
+    if status == "SPEC_GAP":
+        return "DEVIATION"
+    if status == "CONDITIONAL":
+        if row["next_owner_field"] == "CUSTOMER":
+            return "QUERY"
+        if differs:
+            return "DEVIATION"
+        if row["attribute_key"] == "form":
+            # 형식 문장은 축이 맞아도 비교기가 확정하지 않는다. 사람이 확정한다.
+            return "CONFIRM"
+        if row["operator"] == "TEXT":
+            return "DEVIATION"
+        if any(not str(item).startswith(NOT_GAPS) for item in row["unresolved"]):
+            return "DEVIATION"
+        return "CONFIRM"
+    if row["kind"] in ("TASK", "DOCUMENT") or row["task"]:
+        return "ASSIGN"
+    if row["value"] is None or customer_question or row["next_owner_field"] == "CUSTOMER":
+        return "QUERY"
+    return "SUPPLEMENT"
+
+
+async def states(
+    conn: AsyncConnection[Row], project_id: UUID, requirement_ids: Sequence[UUID] | None = None
+) -> dict[UUID, tuple[str, s.DecisionState]]:
+    """요구별 (입찰 판정, 결정 상태). 저장된 기록에서만 계산한다.
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 프로젝트 ID.
+        requirement_ids: 이 요구만(없으면 프로젝트 전체).
+
+    Returns:
+        dict: 요구 ID → (판정, 결정 상태).
+    """
+    only = " AND req.id = ANY(%(ids)s)" if requirement_ids is not None else ""
+    params = {"p": project_id, "ids": list(requirement_ids or [])}
+    cursor = await conn.execute(
+        "SELECT v.requirement_id, v.version, v.status, v.kind, v.task, v.attribute_key, v.operator, "
+        "v.value, v.unresolved, v.next_owner_field FROM tft.requirements req "
+        "JOIN tft.requirement_versions v ON v.requirement_id = req.id AND v.version = req.latest_version "
+        f"WHERE req.project_id = %(p)s{only}",
+        params,
+    )
+    rows = await cursor.fetchall()
+    # 같은 계열의 다른 제품(유입식 변압기, MCCB)이 다르다고 편차로 보지 않는다. 비교한 후보가 모두 다를 때만 편차다.
+    # ponytail: 재비교 결과(requirement_recomparisons)는 보지 않는다. 처리 때 비교만 본다.
+    cursor = await conn.execute(
+        "SELECT pc.requirement_id FROM tft.product_comparisons pc "
+        "JOIN tft.requirements req ON req.id = pc.requirement_id "
+        f"WHERE req.project_id = %(p)s{only} AND pc.requirement_version = "
+        "(SELECT max(x.requirement_version) FROM tft.product_comparisons x "
+        "WHERE x.requirement_id = pc.requirement_id) GROUP BY pc.requirement_id "
+        "HAVING bool_or(pc.result = 'DIFFERS') "
+        "AND NOT bool_or(pc.result IN ('MEETS', 'NOT_COMPARABLE'))",
+        params,
+    )
+    differs = {r["requirement_id"] for r in await cursor.fetchall()}
+    cursor = await conn.execute(
+        "SELECT DISTINCT q.requirement_id FROM tft.customer_questions q "
+        "WHERE q.project_id = %(p)s AND q.target = 'CUSTOMER' AND q.requirement_id IS NOT NULL "
+        "AND NOT EXISTS (SELECT 1 FROM tft.question_withdrawals w WHERE w.question_id = q.id)",
+        params,
+    )
+    asked = {r["requirement_id"] for r in await cursor.fetchall()}
+    cursor = await conn.execute(
+        "SELECT id, requirement_id, action, summary, result_version, detail, undoes, created_at "
+        "FROM tft.requirement_decisions WHERE project_id = %(p)s ORDER BY created_at, id",
+        params,
+    )
+    decisions = await cursor.fetchall()
+    undone = {d["undoes"] for d in decisions if d["undoes"] is not None}
+    confirmed = {
+        d["detail"].get("decision_id") for d in decisions if d["action"] == "review_confirm"
+    }
+    out: dict[UUID, tuple[str, s.DecisionState]] = {}
+    for row in rows:
+        mine = [
+            d
+            for d in decisions
+            if d["requirement_id"] == row["requirement_id"]
+            and d["id"] not in undone
+            and d["result_version"] == row["version"]
+        ]
+        override = next(
+            (d["detail"]["verdict"] for d in reversed(mine) if d["action"] == "change_verdict"),
+            None,
+        )
+        verdict = bid_verdict(
+            row,
+            differs=row["requirement_id"] in differs,
+            customer_question=row["requirement_id"] in asked,
+            override=override,
+        )
+        current = next((d for d in reversed(mine) if d["action"] in DECIDING), None)
+        out[row["requirement_id"]] = (
+            verdict,
+            s.DecisionState(
+                needed=verdict != "MET",
+                decided=current is not None,
+                decision_id=current["id"] if current else None,
+                action=current["action"] if current else None,
+                summary=current["summary"] if current else None,
+                decided_at=current["created_at"] if current else None,
+                reviewed=current is not None and str(current["id"]) in confirmed,
+            ),
+        )
+    return out
+
+
+async def gate(conn: AsyncConnection[Row], project_id: UUID) -> s.DecisionGate:
+    """검토본 저장 조건 셋과 책임자 확인 대기.
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 프로젝트 ID.
+
+    Returns:
+        s.DecisionGate: 판정 안 된 요구, 편차표 누락, 회신 대기 질의, 책임자 확인 대기.
+    """
+    found = await states(conn, project_id)
+    cursor = await conn.execute(
+        "SELECT DISTINCT ON (d.requirement_id) d.requirement_id, d.state, d.requirement_version, "
+        "req.latest_version FROM tft.deviations d JOIN tft.requirements req ON req.id = d.requirement_id "
+        "WHERE d.project_id = %s ORDER BY d.requirement_id, d.created_at DESC",
+        (project_id,),
+    )
+    stale = {
+        r["requirement_id"]
+        for r in await cursor.fetchall()
+        if r["state"] == "RECORDED" and r["requirement_version"] != r["latest_version"]
+    }
+    missing = {
+        rid
+        for rid, (verdict, state) in found.items()
+        if verdict == "DEVIATION" and state.action not in ("record_deviation", "request_check")
+    }
+    cursor = await conn.execute(
+        "SELECT count(*) AS n FROM tft.customer_questions q WHERE q.project_id = %s "
+        "AND q.target = 'CUSTOMER' AND q.status = 'OPEN' "
+        "AND NOT EXISTS (SELECT 1 FROM tft.question_withdrawals w WHERE w.question_id = q.id)",
+        (project_id,),
+    )
+    row = await cursor.fetchone()
+    return s.DecisionGate(
+        undecided=sum(state.needed and not state.decided for _, state in found.values()),
+        deviation_missing=len(missing | stale),
+        open_queries=row["n"] if row else 0,
+        review_pending=sum(state.decided and not state.reviewed for _, state in found.values()),
+    )
+
+
 ACTIONS: dict[str, Callable[..., Awaitable[Outcome]]] = {
     "confirm_met": confirm_met,
     "record_deviation": record_deviation,
@@ -561,4 +784,6 @@ ACTIONS: dict[str, Callable[..., Awaitable[Outcome]]] = {
     "assign": assign,
     "change_verdict": change_verdict,
     "undo": undo,
+    "review_confirm": review_confirm,
+    "review_return": review_return,
 }

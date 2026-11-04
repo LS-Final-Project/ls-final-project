@@ -261,3 +261,32 @@ candidate_codes?, holder?, owner?, verdict?, decision_id?}`이고 Idempotency-Ke
 과업 요구의 공동 수행은 받지 않는다. 과업 원인의 보완 경로는 자사 수행(OWN_DEVELOPMENT)과 과업 위탁(TASK_SUBCONTRACT)뿐이고
 공동 제안(JOINT_PROPOSAL)은 핵심 기기 부재 원인에만 있다(`backend/api/tft/rfp/supplement.py` FIRST_PATHS).
 자사 수행은 보완 선택을 저장하지 않는다(OWN_DEVELOPMENT 선택은 R&D 개발 질문을 자동으로 만들기 때문).
+
+### 입찰 판정·결정 상태·저장 조건 (KAN-220)
+
+요구 목록·상세는 `bid_verdict`(MET 충족, CONFIRM 충족 확인, DEVIATION 편차, QUERY 질의, SUPPLEMENT 보완, ASSIGN 배정)와
+`decision`(needed, decided, decision_id, action, summary, decided_at, reviewed)을 낸다. 계산은 `backend/api/tft/rfp/decisions.py`
+`bid_verdict`·`states` 한 곳이다.
+
+| 최신 판본 | 판정 |
+|---|---|
+| 지금 판본을 만든 판정 바꾸기 결정이 있음 | 그 판정 |
+| EVIDENCE_FOUND | 충족 |
+| SPEC_GAP | 편차 |
+| CONDITIONAL, 담당 CUSTOMER | 질의 |
+| CONDITIONAL, 최신 비교의 자사 후보가 모두 DIFFERS(자료 없음 제외) | 편차 |
+| CONDITIONAL, 형식(form) 요구 | 충족 확인 |
+| CONDITIONAL, 문자열 요구(operator TEXT) | 편차 |
+| CONDITIONAL, 미해결에 조건 차이가 있음(값 확인·단위 확인·지속시간 환산 항목 외) | 편차 |
+| 그 밖의 CONDITIONAL(숫자를 못 읽음 등) | 충족 확인 |
+| INSUFFICIENT_EVIDENCE, kind TASK·DOCUMENT 또는 과업 | 배정 |
+| INSUFFICIENT_EVIDENCE, 값 없음·보낼 고객 질문 있음·담당 CUSTOMER | 질의 |
+| 그 밖의 INSUFFICIENT_EVIDENCE | 보완 |
+
+결정함은 되돌리지 않은 결정(판정 바꾸기 제외)이 지금 최신 판본에서 한 것일 때다. 판본이 바뀌면(재비교 승인, 재처리, 판정 바꾸기)
+다시 결정 대상이 된다. 충족은 결정이 필요 없다.
+
+프로젝트 상세의 `decision_gate`: `undecided`(결정이 필요한데 결정하지 않은 요구), `deviation_missing`(편차인데 편차 기재나
+확인 요청으로 결정하지 않은 요구와, 최신 편차 행이 RECORDED인데 그 판본이 최신이 아닌 요구), `open_queries`(보낼 고객 질문 중
+OPEN), `review_pending`(결정했는데 책임자 확인이 없는 요구). 책임자 확인·되돌려 보내기는 결정 경로의 `review_confirm`·
+`review_return`(대상 `decision_id`, 프로젝트 책임자만)이다. 되돌려 보내기는 되돌리기와 같은 반대 기록을 쓴다.

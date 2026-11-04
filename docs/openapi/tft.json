@@ -1307,6 +1307,34 @@
         "title": "CrossReference",
         "type": "object"
       },
+      "DecisionGate": {
+        "additionalProperties": false,
+        "description": "\uac80\ud1a0\ubcf8 \uc800\uc7a5 \uc870\uac74\uacfc \ucc45\uc784\uc790 \ud655\uc778 \ub300\uae30(KAN-220). 0\uc774\uba74 \ud1b5\uacfc\ub2e4.",
+        "properties": {
+          "deviation_missing": {
+            "default": 0,
+            "title": "Deviation Missing",
+            "type": "integer"
+          },
+          "open_queries": {
+            "default": 0,
+            "title": "Open Queries",
+            "type": "integer"
+          },
+          "review_pending": {
+            "default": 0,
+            "title": "Review Pending",
+            "type": "integer"
+          },
+          "undecided": {
+            "default": 0,
+            "title": "Undecided",
+            "type": "integer"
+          }
+        },
+        "title": "DecisionGate",
+        "type": "object"
+      },
       "DecisionRequest": {
         "additionalProperties": false,
         "description": "\uacb0\uc815 \ud558\ub098. \ub204\ub974\uba74 \ubc14\ub85c \ud655\uc815\ud55c\ub2e4(\uc81c\uc548 \uc791\uc131\uacfc \uc2b9\uc778\uc744 \uac19\uc740 \ud2b8\ub79c\uc7ad\uc158\uc5d0\uc11c).",
@@ -1321,7 +1349,9 @@
               "ask_rnd",
               "assign",
               "change_verdict",
-              "undo"
+              "undo",
+              "review_confirm",
+              "review_return"
             ],
             "title": "Action",
             "type": "string"
@@ -1448,7 +1478,9 @@
               "ask_rnd",
               "assign",
               "change_verdict",
-              "undo"
+              "undo",
+              "review_confirm",
+              "review_return"
             ],
             "title": "Action",
             "type": "string"
@@ -1492,6 +1524,90 @@
           "requirement_version"
         ],
         "title": "DecisionResult",
+        "type": "object"
+      },
+      "DecisionState": {
+        "additionalProperties": false,
+        "description": "\uc694\uad6c\uc758 \uacb0\uc815 \uc0c1\ud0dc(KAN-220). \uc800\uc7a5\ub41c \uacb0\uc815 \uae30\ub85d\uc5d0\uc11c \uacc4\uc0b0\ud55c\ub2e4.",
+        "properties": {
+          "action": {
+            "anyOf": [
+              {
+                "enum": [
+                  "confirm_met",
+                  "record_deviation",
+                  "request_check",
+                  "add_query",
+                  "select_partner",
+                  "ask_rnd",
+                  "assign",
+                  "change_verdict",
+                  "undo",
+                  "review_confirm",
+                  "review_return"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action"
+          },
+          "decided": {
+            "title": "Decided",
+            "type": "boolean"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "decision_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Id"
+          },
+          "needed": {
+            "title": "Needed",
+            "type": "boolean"
+          },
+          "reviewed": {
+            "default": false,
+            "title": "Reviewed",
+            "type": "boolean"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          }
+        },
+        "required": [
+          "needed",
+          "decided"
+        ],
+        "title": "DecisionState",
         "type": "object"
       },
       "DeletedValue": {
@@ -3734,6 +3850,10 @@
             "title": "Data Origin",
             "type": "string"
           },
+          "decision_gate": {
+            "$ref": "#/components/schemas/DecisionGate",
+            "description": "Save conditions and owner-review backlog of the decision panel (KAN-220)."
+          },
           "derivation_kind": {
             "enum": [
               "PROVIDED",
@@ -5659,6 +5779,25 @@
       "RequirementDetail": {
         "additionalProperties": false,
         "properties": {
+          "bid_verdict": {
+            "anyOf": [
+              {
+                "enum": [
+                  "MET",
+                  "CONFIRM",
+                  "DEVIATION",
+                  "QUERY",
+                  "SUPPLEMENT",
+                  "ASSIGN"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bid Verdict"
+          },
           "code": {
             "title": "Code",
             "type": "string"
@@ -5671,6 +5810,16 @@
             ],
             "title": "Data Origin",
             "type": "string"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecisionState"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "derivation_kind": {
             "enum": [
@@ -6094,9 +6243,38 @@
             ],
             "title": "Attribute Key"
           },
+          "bid_verdict": {
+            "anyOf": [
+              {
+                "enum": [
+                  "MET",
+                  "CONFIRM",
+                  "DEVIATION",
+                  "QUERY",
+                  "SUPPLEMENT",
+                  "ASSIGN"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bid Verdict"
+          },
           "code": {
             "title": "Code",
             "type": "string"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecisionState"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "equipment": {
             "anyOf": [
@@ -6578,6 +6756,9 @@
             ],
             "title": "Data Origin",
             "type": "string"
+          },
+          "decision_gate": {
+            "$ref": "#/components/schemas/DecisionGate"
           },
           "derivation_kind": {
             "enum": [

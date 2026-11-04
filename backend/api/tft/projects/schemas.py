@@ -12,6 +12,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from backend.api.tft.rfp.schemas import (
+    DecisionGate,
     IntegrationResponsibility,
     IntegrationSummary,
     JobRef,
@@ -128,4 +129,8 @@ class ProjectDetail(BaseModel):
             "Assembly integration responsibility (RFP API spec v1.3 §7), computed on read. "
             "Null when migration T12 is not applied yet, which is not the same as not required."
         ),
+    )
+    decision_gate: DecisionGate = Field(
+        default_factory=DecisionGate,
+        description="Save conditions and owner-review backlog of the decision panel (KAN-220).",
     )

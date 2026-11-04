@@ -231,7 +231,13 @@
         "strategic_customer": null,
         "strategic_customer_note": null,
         "strategic_customer_set_by": null,
-        "integration_responsibility": null
+        "integration_responsibility": null,
+        "decision_gate": {
+          "undecided": 0,
+          "deviation_missing": 0,
+          "open_queries": 0,
+          "review_pending": 0
+        }
       },
       "meta": {
         "request_id": "11111111-1111-4111-8111-111111111111"

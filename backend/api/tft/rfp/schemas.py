@@ -288,6 +288,7 @@ class RfpProjectDetail(RfpProjectSummary):
     integration_responsibility: IntegrationResponsibility = Field(
         default_factory=IntegrationResponsibility
     )
+    decision_gate: "DecisionGate" = Field(default_factory=lambda: DecisionGate())
 
 
 # --- 문서·조항 (§4.2) -------------------------------------------------------------------
@@ -510,6 +511,8 @@ class RequirementSummary(Model):
     provenance_kind: ProvenanceKind
     rnd_check: RndCheck = "NOT_REQUIRED"
     is_designated_item: bool = False
+    bid_verdict: "BidVerdict | None" = None
+    decision: "DecisionState | None" = None
 
 
 class RequirementList(Model):
@@ -533,6 +536,8 @@ class RequirementDetail(Provenance):
     links: RequirementLinks
     needs_rereview: bool
     needs_review: bool = False
+    bid_verdict: "BidVerdict | None" = None
+    decision: "DecisionState | None" = None
 
 
 # --- 자사 비교 (§4.5) -------------------------------------------------------------------
@@ -1066,6 +1071,8 @@ DecisionAction = Literal[
     "assign",
     "change_verdict",
     "undo",
+    "review_confirm",
+    "review_return",
 ]
 # 과업 수행 주체. 공동 수행(JOINT_PROPOSAL)은 과업 요구의 보완 경로가 아니라 받지 않는다(supplement.FIRST_PATHS).
 ExecutionHolder = Literal["OWN", "PARTNER"]
@@ -1077,6 +1084,8 @@ REQUIRED_BY_ACTION: dict[str, tuple[str, ...]] = {
     "assign": ("holder", "owner"),
     "change_verdict": ("verdict",),
     "undo": ("decision_id",),
+    "review_confirm": ("decision_id",),
+    "review_return": ("decision_id",),
 }
 
 
@@ -1109,3 +1118,31 @@ class DecisionResult(Model):
     requirement_id: UUID
     requirement_version: int
     question_id: UUID | None = None
+
+
+class DecisionState(Model):
+    """요구의 결정 상태(KAN-220). 저장된 결정 기록에서 계산한다."""
+
+    # 충족은 결정이 필요 없다. 그 밖의 판정은 지금 판본에 결정 기록이 있어야 결정함이다.
+    needed: bool
+    decided: bool
+    decision_id: UUID | None = None
+    action: DecisionAction | None = None
+    summary: str | None = None
+    decided_at: datetime | None = None
+    # 책임자가 출력 전에 확인했는지.
+    reviewed: bool = False
+
+
+class DecisionGate(Model):
+    """검토본 저장 조건과 책임자 확인 대기(KAN-220). 0이면 통과다."""
+
+    undecided: int = 0
+    deviation_missing: int = 0
+    open_queries: int = 0
+    review_pending: int = 0
+
+
+RequirementSummary.model_rebuild()
+RequirementDetail.model_rebuild()
+RfpProjectDetail.model_rebuild()

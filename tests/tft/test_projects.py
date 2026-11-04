@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from backend.api.tft.main import create_app
 from backend.api.tft.projects import repository, routes
 from backend.api.tft.rfp import routes_write
+from backend.api.tft.rfp import schemas as rfp_schemas
 from backend.shared.access import Principal, principal_header
 from backend.shared.settings import Settings
 
@@ -146,6 +147,11 @@ def fakes(monkeypatch):
 
     monkeypatch.setattr(routes_write.repository, "project_detail_parts", project_detail_parts)
     monkeypatch.setattr(routes_write, "integration_state", integration_state)
+
+    async def decision_gate(conn, project_id):
+        return rfp_schemas.DecisionGate()
+
+    monkeypatch.setattr(routes_write, "decision_gate", decision_gate)
     monkeypatch.setattr(repository, "review_departments", review_departments)
     monkeypatch.setattr(routes, "connection", fake_connection)
     monkeypatch.setattr(repository, "list_projects", list_projects)

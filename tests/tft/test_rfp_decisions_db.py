@@ -8,7 +8,9 @@ from uuid import uuid4
 import psycopg
 import pytest
 
-from tests.tft.test_rfp_http_base_db import admin, app_dsn, chain  # noqa: F401
+from backend.api.tft.rfp.decisions import bid_verdict
+from backend.shared.access import Principal
+from tests.tft.test_rfp_http_base_db import RESPONSIBLE, admin, app_dsn, chain  # noqa: F401
 from tests.tft.test_rfp_routes_db import OUTSIDER, OWNER, call, client, gap  # noqa: F401
 from tests.tft.test_rfp_schema_db import RERUNNABLE, apply
 
@@ -245,3 +247,108 @@ def test_verdict_change_writes_a_judgement_and_assign_needs_a_task(client, chain
     made = ok(decide(client, chain, "change_verdict", verdict="DEVIATION"))
     assert made["summary"] == "판정 변경: 편차"
     assert latest(admin, chain)[:2] == (2, "SPEC_GAP")
+
+
+CHIEF = Principal(user_id=RESPONSIBLE, roles=frozenset({"sales"}))
+
+
+def verdict_of(**row):
+    base = {
+        "status": "INSUFFICIENT_EVIDENCE",
+        "kind": "SPEC",
+        "task": None,
+        "attribute_key": "bil",
+        "operator": "GTE",
+        "value": "75",
+        "unresolved": [],
+        "next_owner_field": "TECH",
+    }
+    return bid_verdict({**base, **row}, differs=False, customer_question=False, override=None)
+
+
+def test_bid_verdict_rules_follow_the_rfp91_cases():
+    assert verdict_of(status="EVIDENCE_FOUND") == "MET"
+    assert verdict_of(status="SPEC_GAP") == "DEVIATION"
+    # 형식 문장(R-01)과 숫자를 못 읽은 값(R-21)은 충족 확인, 문자 값 차이(R-24)와 조건 차이(R-16)는 편차.
+    assert verdict_of(status="CONDITIONAL", attribute_key="form", operator="TEXT") == "CONFIRM"
+    assert (
+        verdict_of(status="CONDITIONAL", unresolved=["값 확인: 요구 1,250 A, 자사 100"])
+        == "CONFIRM"
+    )
+    assert (
+        verdict_of(status="CONDITIONAL", attribute_key="communication_interface", operator="TEXT")
+        == "DEVIATION"
+    )
+    assert (
+        verdict_of(
+            status="CONDITIONAL", unresolved=["reference temperature 요구 75 °C, 후보 120 °C"]
+        )
+        == "DEVIATION"
+    )
+    # 값이 빈 요구(R-06)는 질의, 과업·제출물(R-25~31)은 배정, 자사 근거가 없는 것(R-17)은 보완.
+    assert verdict_of(value=None, next_owner_field="CUSTOMER") == "QUERY"
+    assert verdict_of(kind="TASK") == "ASSIGN"
+    assert verdict_of(kind="DOCUMENT") == "ASSIGN"
+    assert verdict_of() == "SUPPLEMENT"
+    assert bid_verdict({}, differs=False, customer_question=False, override="QUERY") == "QUERY"
+
+
+def project_gate(client, chain):
+    got = call(client, "GET", f"/projects/{chain['project']}", OWNER)
+    assert got.status_code == 200, got.text
+    return got.json()["data"]["decision_gate"]
+
+
+def requirement_state(client, chain):
+    got = call(client, "GET", f"/requirements/{chain['requirement']}", OWNER)
+    assert got.status_code == 200, got.text
+    data = got.json()["data"]
+    return data["bid_verdict"], data["decision"]
+
+
+def test_gate_counts_decisions_reviews_and_returns(client, chain, admin):
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.requirement_versions SET status='SPEC_GAP' WHERE requirement_id=%s",
+            (chain["requirement"],),
+        )
+    verdict, state = requirement_state(client, chain)
+    assert (verdict, state["needed"], state["decided"]) == ("DEVIATION", True, False)
+    assert project_gate(client, chain) == {
+        "undecided": 1,
+        "deviation_missing": 1,
+        "open_queries": 0,
+        "review_pending": 0,
+    }
+    made = ok(decide(client, chain, "record_deviation", text="기준온도 120 °C 값만 보유"))
+    verdict, state = requirement_state(client, chain)
+    assert (state["decided"], state["summary"], state["reviewed"]) == (True, "편차표에 기재", False)
+    assert project_gate(client, chain) == {
+        "undecided": 0,
+        "deviation_missing": 0,
+        "open_queries": 0,
+        "review_pending": 1,
+    }
+    # 책임자만 확인·되돌려 보낸다.
+    refused = decide(client, chain, "review_confirm", decision_id=made["decision_id"])
+    assert refused.status_code == 403
+    ok(decide(client, chain, "review_confirm", who=CHIEF, decision_id=made["decision_id"]))
+    assert requirement_state(client, chain)[1]["reviewed"] is True
+    assert project_gate(client, chain)["review_pending"] == 0
+    back = ok(decide(client, chain, "review_return", who=CHIEF, decision_id=made["decision_id"]))
+    assert back["summary"] == "책임자가 되돌림: 편차표에 기재"
+    assert project_gate(client, chain) == {
+        "undecided": 1,
+        "deviation_missing": 1,
+        "open_queries": 0,
+        "review_pending": 0,
+    }
+
+
+def test_verdict_change_overrides_the_computed_verdict(client, chain):
+    ok(decide(client, chain, "change_verdict", verdict="QUERY"))
+    verdict, state = requirement_state(client, chain)
+    assert (verdict, state["decided"]) == ("QUERY", False)
+    query = ok(decide(client, chain, "add_query", version=2, text="값을 알려 주십시오"))
+    assert query["summary"] == "질의서에 넣음"
+    assert project_gate(client, chain)["open_queries"] == 1
