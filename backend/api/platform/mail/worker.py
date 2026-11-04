@@ -127,6 +127,8 @@ class SyncData(BaseModel):
     # 연결된 회신을 C/S에 알린 수(KAN-110). 알리지 못한 연결은 다음 실행에서 다시 알린다.
     replies_notified: int = 0
     replies_notify_failed: int = 0
+    # KAN-230: 원문을 읽지 못해 회신 본문 없이 알린 수. 0이 아니면 원문 저장소를 확인한다.
+    replies_notified_without_text: int = 0
 
 
 def dispatch_unavailable() -> ApplicationError:
@@ -369,6 +371,7 @@ async def sync(request: Request) -> JSONResponse:
             replies_failed=judged["failed"],
             replies_notified=notified["notified"],
             replies_notify_failed=notified["failed"],
+            replies_notified_without_text=notified.get("without_text", 0),
         )
         status = 503 if result.error_code in TRANSIENT else 200
     body = SuccessResponse[SyncData](

@@ -294,14 +294,25 @@ async def list_replies(conn: AsyncConnection[Row], ticket_id: UUID) -> list[Row]
 async def insert_reply(conn: AsyncConnection[Row], values: Row) -> bool:
     """Records a linked reply once. Returns False when the mail was recorded before.
 
-    Subject and body (C30) are written only when given, so a platform that does not send them
-    keeps working on a DB without C30.
+    Subject and body (C30) are written only when given. On a DB without C30 the reply is
+    recorded without them, so the platform's notice and the reopen still go through.
     """
-    values = {k: v for k, v in values.items() if k not in ("subject", "body") or v is not None}
-    columns = ", ".join(values)
-    cursor = await conn.execute(
-        f"INSERT INTO cs.ticket_customer_replies ({columns}) "
-        f"VALUES ({', '.join(['%s'] * len(values))}) ON CONFLICT (message_id) DO NOTHING",
-        tuple(values.values()),
-    )
-    return cursor.rowcount == 1
+    text = {k: values[k] for k in ("subject", "body") if values.get(k) is not None}
+    base = {k: v for k, v in values.items() if k not in ("subject", "body")}
+
+    async def insert(row: Row) -> bool:
+        cursor = await conn.execute(
+            f"INSERT INTO cs.ticket_customer_replies ({', '.join(row)}) "
+            f"VALUES ({', '.join(['%s'] * len(row))}) ON CONFLICT (message_id) DO NOTHING",
+            tuple(row.values()),
+        )
+        return cursor.rowcount == 1
+
+    if not text:
+        return await insert(base)
+    try:
+        async with conn.transaction():
+            return await insert({**base, **text})
+    except psycopg.errors.UndefinedColumn:
+        # Before C30 the text is dropped; the reply is still recorded and the ticket reopened.
+        return await insert(base)

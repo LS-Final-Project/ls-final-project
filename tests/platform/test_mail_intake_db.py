@@ -380,3 +380,20 @@ def test_reply_text_keeps_a_body_that_starts_like_a_quote_header():
         b"Subject: Re: log\r\nContent-Type: text/plain\r\n\r\nFrom: PLC log 10:02 overload trip\r\n"
     )
     assert reply_text(raw) == ("Re: log", "From: PLC log 10:02 overload trip")
+
+
+def test_reply_text_cuts_an_outlook_header_block_and_drops_quote_only_replies():
+    """Outlook식 'From:' 다음에 머리글 줄이 이어지면 인용으로 자른다. 인용만 있는 답장은 본문 없음이다."""
+    from backend.engine.mail_triage.extract import reply_text
+
+    outlook = (
+        b"Subject: Re: x\r\nContent-Type: text/plain\r\n\r\nPhotos attached.\r\n\r\n"
+        b"From: LS C/S <cs@example.invalid>\r\nSent: Monday, November 3, 2026 10:00\r\n"
+        b"To: buyer@customer.invalid\r\nPlease send photos.\r\n"
+    )
+    assert reply_text(outlook) == ("Re: x", "Photos attached.")
+    quote_only = (
+        b"Subject: Re: x\r\nContent-Type: text/plain\r\n\r\n"
+        b"On Mon, Nov 3, 2026 at 10:00 AM LS C/S <cs@example.invalid> wrote:\r\n> Please send photos.\r\n"
+    )
+    assert reply_text(quote_only) == ("Re: x", None)
