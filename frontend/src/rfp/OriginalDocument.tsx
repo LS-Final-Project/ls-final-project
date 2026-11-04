@@ -6,6 +6,7 @@ import { highlightQuote, revealQuote } from './document-highlight';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import './pdf-text-layer.css';
+import { OCR_CLAUSE } from './labels';
 
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 const FRAME = '<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data:; font-src \'none\'; form-action \'none\'; base-uri \'none\'"><style>body{margin:0;background:#e9edf2} .docx-wrapper{padding:14px!important} section.docx{box-sizing:border-box;max-width:100%;padding:30px!important;min-height:0!important} mark[data-rfp-quote]{background:#fff0a6;color:inherit;text-decoration:underline;text-decoration-color:#d18d00;text-decoration-thickness:2px;text-underline-offset:3px;cursor:pointer} table{max-width:100%} img{max-width:100%}</style></head><body></body></html>';
@@ -24,7 +25,7 @@ export async function readOriginal(document: DocumentVersion, signal: AbortSigna
 }
 
 export function originalQuote(origin?: RequirementDetail['origin']) {
-  const ocr = origin?.clause_no?.match(/^OCR-(DOCX-|PDF-P)(\d+)(?:\.|$)/);
+  const ocr = origin?.clause_no?.match(OCR_CLAUSE);
   if (!ocr) return { quote: origin?.quote ?? '', notice: undefined };
   const location = ocr[1] === 'DOCX-' ? `본문 이미지 순번 ${Number(ocr[2])}` : `PDF 원문 ${origin?.page ?? Number(ocr[2])}쪽`;
   return { quote: '', notice: `이미지 전사 · ${location}. 원본 이미지와 수치를 대조하세요. 이미지의 글자를 원문 텍스트와 일치했다고 표시하지 않습니다.` };

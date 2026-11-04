@@ -287,6 +287,11 @@ export const markQuestionsSent = (projectId: string, questionIds: string[], key:
   `/api/v1/tft/projects/${encodeURIComponent(projectId)}/questions/sent`, json(key, { question_ids: questionIds, mail_ref: mailRef ?? null }),
 );
 export type Equipment = Schemas['Equipment'];
+// 지난 처리·맥락 작업 목록과 다시 분석 방식(KAN-232). 재생은 플랫폼 작업 이벤트(after=0)로 한다.
+export type AnalysisOverview = Schemas['AnalysisOverview'];
+export const getAnalysis = (projectId: string) => request<Envelope<AnalysisOverview>>(
+  `/api/v1/tft/projects/${encodeURIComponent(projectId)}/analysis`, { mockFallback: mock({ jobs: [], process_mode: null }) },
+);
 export const listEquipment = (projectId: string) => request<Envelope<Schemas['EquipmentList']>>(
   `/api/v1/tft/projects/${encodeURIComponent(projectId)}/equipment`, { mockFallback: mock({ source: 'requirements', items: [] }) },
 );

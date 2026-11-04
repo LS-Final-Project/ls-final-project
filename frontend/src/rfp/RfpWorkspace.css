@@ -222,3 +222,6 @@ button.ws-gateitem{color:#24518a;cursor:pointer}
 .ls-root .kv .rfp-ui .ws-filters .ws-field.inline select{max-width:130px}
 .ls-root .kv .rfp-ui .ws-filters>*{flex-shrink:0}
 .ls-root .kv .rfp-ui .ws-filters>.sp{flex:1 1 0;min-width:4px}
+/* 다시 분석(KAN-232) */
+.ls-root .kv .rfp-ui .ws-rerun{display:inline-flex;align-items:center;gap:10px;flex:none;white-space:nowrap;font-size:12px}
+.ls-root .kv .rfp-ui .ws-log .ws-field.inline{margin-bottom:6px}
