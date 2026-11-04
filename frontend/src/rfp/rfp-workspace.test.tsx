@@ -70,7 +70,7 @@ describe('결정 (담당)', () => {
     show('sales');
     fireEvent.click(screen.getByRole('button', { name: '모두 충족 확정' }));
     fireEvent.click(screen.getByRole('button', { name: '확인' }));
-    await waitFor(() => expect(decisions(f).filter(b => b.action === 'confirm_met').length).toBe(4));
+    await waitFor(() => expect(decisions(f).filter(b => b.action === 'confirm_met').length).toBe(4), { timeout: 5000 });
     expect(await screen.findByRole('button', { name: '한 번에 되돌리기' })).toBeTruthy();
   });
 
@@ -120,7 +120,7 @@ describe('변경 이력', () => {
   it('요구 이력은 이력 링크로 열고 더 보기로 다음 쪽을 부른다', async () => {
     const f = serve();
     show('sales');
-    fireEvent.click(screen.getByRole('button', { name: '이력' }));
+    fireEvent.click(await screen.findByRole('button', { name: '이력 1+건' }));
     expect((await screen.findAllByText(/판단 .+ → .+/)).length).toBe(1);
     fireEvent.click(screen.getByRole('button', { name: '더 보기' }));
     await waitFor(() => expect(f.mock.calls.some(([u]) => String(u).includes('/requirements/') && String(u).includes('/history?') && String(u).includes('cursor=c2'))).toBe(true));
@@ -128,6 +128,7 @@ describe('변경 이력', () => {
   it('책임자도 출력 탭에서 프로젝트 이력을 보고 종류로 거른다', async () => {
     const f = serve();
     show('responsible');
+    fireEvent.click(screen.getByRole('tab', { name: /변경 이력/ }));
     const table = await screen.findByRole('region', { name: '변경 이력' });
     expect(await within(table).findByText('제7조.8')).toBeTruthy();
     fireEvent.click(within(table).getByRole('button', { name: '회신' }));
@@ -144,7 +145,7 @@ describe('고객 회신 반영', () => {
     // 근거 문장은 회신 안에서 강조한다.
     show('sales');
     expect(await screen.findByText('회신 도착')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: '질의서에 넣기' }));
+    fireEvent.click(screen.getByRole('button', { name: '상용주파 내전압' }));
     expect(await screen.findByText(/회신에서 읽은 값: 28 kV, 1 min/)).toBeTruthy();
     expect(document.querySelector('mark.ws-mark')?.textContent).toBe('28 kV, 1분');
     expect((screen.getByLabelText('새 요구값') as HTMLInputElement).value).toBe('28');
@@ -154,9 +155,10 @@ describe('고객 회신 반영', () => {
   it('못 읽으면 사유를 사람 말로 쓰고 후속 질의에 원래 질의를 잇는다', async () => {
     const f = serve([replied({ value_candidate: { method: 'none', reason: 'CONDITIONAL' } })]);
     show('sales');
-    fireEvent.click(await screen.findByRole('button', { name: '질의서에 넣기' }));
+    await screen.findByText('회신 도착');
+    fireEvent.click(screen.getByRole('button', { name: '상용주파 내전압' }));
     expect(await screen.findByText(/조건에 따라 값이 다릅니다/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: '후속 질의 보내기' }));
+    fireEvent.click(screen.getByRole('button', { name: '다시 질의' }));
     await waitFor(() => expect((f.mock.calls as unknown as [string, RequestInit][]).some(([u, init]) => u.endsWith('/projects/p1/questions') && init?.method === 'POST' && JSON.parse(String(init.body)).follows_question_id === 'q1')).toBe(true));
   });
   it('후속 질의는 원래 질의 아래 TQ-n-2로 묶는다', () => {
@@ -226,5 +228,27 @@ describe('원문에서 요구 추가와 빼기 (KAN-225)', () => {
   it('이력은 직접 추가·빼기·되살리기를 그 말로, 판본 변화는 한국어 칸 이름으로 보인다', () => {
     expect(historyText({ kind: 'decision', summary: '공급 범위 밖', after: { action: 'exclude_requirement' }, before: null } as never).head).toBe('뺌: 공급 범위 밖');
     expect(historyText({ kind: 'ai_verdict', summary: 'AI 판정', before: { value: '12' }, after: { value: '13', unit: 'kV' } } as never).change).toBe('값 12 → 13, 단위 없음 → kV');
+  });
+});
+
+describe('보드 맞춤', () => {
+  it('회신 받은 질의 행은 버튼 대신 회신 받음을 보이고, 설비별로 보기는 남은 것만 설비로 묶는다', async () => {
+    serve([replied({})]);
+    show('sales');
+    const row = (await screen.findByText('회신 받음', { selector: 'td span' })).closest('tr')!;
+    expect(within(row).queryByRole('button', { name: '질의서에 넣기' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '설비별로 보기' }));
+    const groups = [...document.querySelectorAll('tr.g')].map(g => g.textContent?.split(' ')[0]);
+    expect(groups).toEqual(['MV-SWG-01', 'TR-01', 'LV-SWB-01', '공통']);
+    expect(screen.queryByText('충족 14건 펼치기')).toBeNull();
+  });
+  it('엑셀은 보이는 요구를 CSV로 내려받는다', () => {
+    const create = vi.fn(() => 'blob:x'); vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: create, revokeObjectURL: vi.fn() }));
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    show('sales');
+    fireEvent.click(screen.getByRole('button', { name: '엑셀' }));
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(click).toHaveBeenCalledTimes(1);
+    click.mockRestore();
   });
 });

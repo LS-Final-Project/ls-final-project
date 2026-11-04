@@ -138,3 +138,9 @@ button.ws-gateitem{color:#24518a;cursor:pointer}
 .ws-field.inline{white-space:nowrap}
 .ws-field.inline input{width:auto;min-width:0}
 .ws-mark{background:#fff0a6;color:inherit;padding:0 1px}
+.ws-tabs button{white-space:nowrap}
+.ls-root .ws-opts label{display:inline-flex;align-items:center;gap:4px;margin-right:14px;width:auto}
+.ws-strip .ws-link{font-size:12px}
+.ls-root .ws-tabs button .muted{display:inline;margin-left:6px}
+.ls-root .ws-opts{display:flex;gap:14px;flex-wrap:wrap}
+.ls-root .ws-opts label{white-space:nowrap;flex:none}

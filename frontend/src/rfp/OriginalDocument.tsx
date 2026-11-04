@@ -49,7 +49,7 @@ export function OriginalDocument({ document, origin, onQuoteClick, selectionRevi
 }
 
 function MatchNotice({ count, quote, notice }: { count?: number; quote: string; notice?: string }) {
-  return <p className="rfp-match-notice" role="status">{notice ?? (!quote ? '오른쪽에서 분석한 요구를 선택하세요.' : count === undefined ? '인용 위치 확인 중' : count === 1 ? '선택한 요구의 인용문을 원문에 강조했습니다.' : count === 2 ? '같은 인용문이 여러 곳에 있습니다. 조항을 대조해 위치를 확인하세요.' : '인용 위치 확인 필요 — 오른쪽 인용문과 원문을 대조하세요.')}</p>;
+  return <p className="rfp-match-notice" role="status">{notice ?? (!quote ? '분석한 요구를 고르면 그 인용문을 원문에 강조합니다.' : count === undefined ? '인용 위치 확인 중' : count === 1 ? '선택한 요구의 인용문을 원문에 강조했습니다.' : count === 2 ? '같은 인용문이 여러 곳에 있습니다. 조항을 대조해 위치를 확인하세요.' : '인용 위치 확인 필요 — 인용문과 원문을 대조하세요.')}</p>;
 }
 
 function DocxOriginal({ bytes, quote, notice, onQuoteClick, selectionRevision, onSelectText }: { bytes: ArrayBuffer; quote: string; notice?: string; selectionRevision: number; onQuoteClick: () => void; onSelectText?: (text: string) => void }) {
