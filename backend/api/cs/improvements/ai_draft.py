@@ -12,6 +12,7 @@
 import asyncio
 import hashlib
 import json
+import re
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
@@ -411,7 +412,8 @@ async def make(
         try:
             output = validate_output(generation.text, context=context)
         except ValueError as error:
-            code = str(error) if str(error).startswith("CS_") else "CS_INVALID_OUTPUT"
+            # 저장 칸 형식(^CS_[A-Z_]+$)과 전체가 같을 때만 그 코드를 남긴다. 덧붙은 설명이 있으면 일반 오류로 본다.
+            code = str(error) if re.fullmatch(r"CS_[A-Z_]+", str(error)) else "CS_INVALID_OUTPUT"
             values.update(outcome="INVALID_OUTPUT", error_code=code)
         else:
             values.update(

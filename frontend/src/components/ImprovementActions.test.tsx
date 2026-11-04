@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { useState } from 'react';
-import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import ImprovementActions from './ImprovementActions';
 import { clearSessionCsrfToken, setApiMode } from '../api/client';
 import type { ImprovementDetail } from '../api/cs-improvements';
@@ -41,7 +41,7 @@ const saveButton=()=>screen.getByRole('button',{name:'기록 저장'}) as HTMLBu
 test('작성 중 요청은 C/S 담당자에게 검토만 열고 나머지는 이유를 적는다',async()=>{
   const {saved,writes,editing}=setup(detail(),{roles:['cs_agent']});
   fireEvent.click(await screen.findByRole('button',{name:'검토 완료 기록'}));
-  expect(within(row('부서 전달 기록')).getByText(/검토를 먼저 기록해야/)).toBeTruthy();
+  expect(within(row('부서 전달')).getByText(/검토를 먼저 기록해야/)).toBeTruthy();
   expect(within(row('후속 확인 결과와 완료 기록')).queryByRole('button')).toBeNull();
   expect(editing).toHaveBeenLastCalledWith(true);
   save();await waitFor(()=>expect(saved).toHaveBeenCalledTimes(1));
@@ -61,11 +61,11 @@ test('검토 중 바꾼 제안 부서만 보내고 고장 요청은 부서를 �
 test('받는 부서가 없는 문서 요청은 부서를 고른 뒤에만 전달을 기록한다',async()=>{
   const data=detail(d=>{sent(d);d.request.request_type='DOCUMENT';d.request.proposed_depts=[];d.request.receiver_unconfirmed=true;});
   const {writes,saved}=setup(data,{roles:['cs_agent']});
-  fireEvent.click(await screen.findByRole('button',{name:'부서 전달 기록'}));
-  expect(screen.getByText(/받는 부서를 고르세요/)).toBeTruthy();expect(saveButton().disabled).toBe(true);
-  fireEvent.click(screen.getByLabelText(/저압기기 기술지원/));fireEvent.change(screen.getByLabelText('회신 기한(일)'),{target:{value:'91'}});expect(saveButton().disabled).toBe(true);
-  fireEvent.change(screen.getByLabelText('회신 기한(일)'),{target:{value:'5'}});save();await waitFor(()=>expect(saved).toHaveBeenCalled());
-  expect(writes()[0][0]).toMatch(/\/send$/);expect(JSON.parse(writes()[0][1].body as string)).toEqual({version:3,dept_codes:['TS_LV'],reply_due_days:5});
+  fireEvent.click(await screen.findByRole('button',{name:'부서 전달'}));
+  expect(screen.getByText(/받는 부서를 고르세요/)).toBeTruthy();expect((screen.getByRole('button',{name:'전달'}) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByLabelText(/저압기기 기술지원/));expect(screen.queryByLabelText('회신 기한(일)')).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:'전달'}));await waitFor(()=>expect(saved).toHaveBeenCalled());
+  expect(writes()[0][0]).toMatch(/\/send$/);expect(JSON.parse(writes()[0][1].body as string)).toEqual({version:3,dept_codes:['TS_LV'],reply_due_days:7});
 });
 
 test('받는 부서 담당자는 자기 부서의 수신 확인만 할 수 있다',async()=>{
@@ -127,13 +127,11 @@ test('채택한 부서는 적용 범위와 함께 조치를 기록한다',async(
   expect(JSON.parse(writes()[0][1].body as string)).toEqual({version:3,action:'합성 조치',action_scope:'합성 대상',action_date:'2026-10-30',action_evidence:'합성 근거',scope_kind:'FIRMWARE_VERSION',scope_value:'1.72'});
 });
 
-test('다시 요청은 보완·반려 부서에 열고 기한 전 재촉은 이유를 적는다',async()=>{
+test('다시 요청은 보완·반려 부서에만 열고 회신 재촉은 없다',async()=>{
   const data=detail(d=>sent(d,dept('QA_CLAIM','INFO_REQUESTED'),dept('TS_LV','SENT'),dept('TS_MV','ACKNOWLEDGED',{reply_due_at:'2000-01-01T00:00:00Z'}),dept('CERT','REJECTED')));
   const {writes,saved}=setup(data,{roles:['cs_agent']});
-  await screen.findByText(/이 지난 뒤에만 재촉/);
+  await screen.findAllByText(/자료 보완 후 다시 요청/);expect(screen.queryByText(/회신 재촉/)).toBeNull();
   const rows=screen.getAllByRole('row');const target=(name:RegExp)=>rows.find(r=>name.test(r.textContent??''))!;
-  expect(within(target(/저압기기 기술지원/)).queryByRole('button')).toBeNull();
-  expect(within(target(/회신 재촉중압기기/)).getByRole('button')).toBeTruthy();
   expect(within(target(/반려 확인인증/)).getByRole('button')).toBeTruthy();
   fireEvent.click(within(target(/자료 보완 후 다시 요청/)).getByRole('button'));
   fireEvent.change(screen.getByLabelText('다시 요청하는 이유'),{target:{value:'합성 보완 자료 첨부'}});save();await waitFor(()=>expect(saved).toHaveBeenCalled());
@@ -161,17 +159,6 @@ test('후속 확인 중에는 부서 처리를 닫고 이유를 적는다',async
   expect((await screen.findAllByText(/후속 확인 단계에서는 부서 처리를 바꾸지 않습니다/)).length).toBe(3);
 });
 
-test('근거 추가는 고장 요청에 해결 사례를 요구하고 제외는 사유를 보낸다',async()=>{
-  const {writes,saved}=setup(detail(),{roles:['cs_agent']});
-  fireEvent.click(await screen.findByRole('button',{name:'근거 문의 추가'}));
-  fireEvent.change(screen.getByLabelText('문의 ID'),{target:{value:'22222222-2222-4222-8222-222222222299'}});expect(saveButton().disabled).toBe(true);
-  fireEvent.change(screen.getByLabelText('해결 사례 ID'),{target:{value:'44444444-4444-4444-8444-444444444499'}});save();await waitFor(()=>expect(saved).toHaveBeenCalledTimes(1));
-  expect(writes()[0][0]).toMatch(/\/evidence$/);expect(JSON.parse(writes()[0][1].body as string)).toEqual({version:1,ticket_id:'22222222-2222-4222-8222-222222222299',case_id:'44444444-4444-4444-8444-444444444499'});
-  fireEvent.click(within(row('근거 제외')).getByRole('button'));
-  fireEvent.change(screen.getByLabelText('제외 사유'),{target:{value:'합성 제외'}});save();await waitFor(()=>expect(saved).toHaveBeenCalledTimes(2));
-  expect(writes()[1][0]).toBe(`/api/v1/cs/improvement-requests/${ID}/evidence/eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1/remove`);expect(JSON.parse(writes()[1][1].body as string)).toEqual({version:1,reason:'합성 제외'});
-});
-
 test('C/S 부서 관리자는 후보 목록에서 담당자를 재배정한다',async()=>{
   const {writes,saved}=setup(detail(),{roles:['manager'],managed_departments:['GCS_L1']});
   fireEvent.click(await screen.findByRole('button',{name:'C/S 담당자 재배정'}));
@@ -186,7 +173,7 @@ test.each([[409,'CS_REQUEST_VERSION_CONFLICT'],[409,'CS_REQUEST_INVALID_TRANSITI
   expect((await screen.findByRole('alert')).textContent).toBe('합성 처리 실패');expect(saved).not.toHaveBeenCalled();
   expect(saveButton().disabled).toBe(true);save();expect(writes()).toHaveLength(1);
   fireEvent.click(screen.getByRole('button',{name:'입력 취소'}));
-  expect((screen.getByRole('button',{name:'근거 문의 추가'}) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole('button',{name:'검토 완료 기록'}) as HTMLButtonElement).disabled).toBe(true);
   expect(screen.getByText(/다시 보내지 말고 최신 상태를 다시 읽으세요/)).toBeTruthy();
   fireEvent.click(screen.getByRole('button',{name:'입력 버리고 최신 상태 다시 읽기'}));expect(reload).toHaveBeenCalledTimes(1);expect(writes()).toHaveLength(1);
 });
@@ -200,10 +187,9 @@ test('네트워크 결과 불명도 재전송을 막는다',async()=>{
 test('422는 입력을 고쳐 다시 보낼 수 있다',async()=>{
   let attempt=0;
   const {writes,saved}=setup(detail(),{roles:['cs_agent']},()=>++attempt===1?jsonResponse(422,errorBody('CS_EVIDENCE_INVALID','합성 근거 오류')):jsonResponse(200,detail()));
-  fireEvent.click(await screen.findByRole('button',{name:'근거 문의 추가'}));
-  fireEvent.change(screen.getByLabelText('문의 ID'),{target:{value:'22222222-2222-4222-8222-222222222299'}});fireEvent.change(screen.getByLabelText('해결 사례 ID'),{target:{value:'44444444-4444-4444-8444-444444444499'}});
+  fireEvent.click(await screen.findByRole('button',{name:'검토 완료 기록'}));
   save();await screen.findByRole('alert');expect(saveButton().disabled).toBe(false);
-  fireEvent.change(screen.getByLabelText('해결 사례 ID'),{target:{value:'44444444-4444-4444-8444-444444444498'}});save();await waitFor(()=>expect(saved).toHaveBeenCalledTimes(1));expect(writes()).toHaveLength(2);
+  save();await waitFor(()=>expect(saved).toHaveBeenCalledTimes(1));expect(writes()).toHaveLength(2);
 });
 
 test('저장 중 반복 클릭은 한 번만 보내고 이탈하면 요청을 취소한다',async()=>{
@@ -231,9 +217,9 @@ test('재요청·재발 신호는 판정 이름을 쉬운 말로 보이고 새 �
   expect((fetch.mock.calls as unknown as [string][]).some(([url])=>url===`/api/v1/cs/improvement-requests/${ID}/followup-signals`)).toBe(true);
 });
 
-test('문서 요청은 재요청·재발 신호를 조회하지 않는다',async()=>{
+test('문서 요청과 전달 전 요청은 재요청·재발 신호를 보이지 않는다',async()=>{
   const {fetch}=setup(detail(d=>{d.request.request_type='DOCUMENT';}),{roles:['cs_agent']});
-  await screen.findByText('문서 요청은 재요청·재발 판정 대상이 아닙니다.');expect(screen.queryByRole('button',{name:'신호 조회'})).toBeNull();
+  await screen.findByRole('button',{name:'검토 완료 기록'});expect(screen.queryByRole('button',{name:'신호 조회'})).toBeNull();
   expect((fetch.mock.calls as unknown as [string][]).some(([url])=>url.includes('followup-signals'))).toBe(false);
 });
 
@@ -251,4 +237,26 @@ test('담당자 재배정은 후보 목록에 있는 사람만 고를 수 있고
   fireEvent.click(await screen.findByRole('button',{name:'C/S 담당자 재배정'}));
   await screen.findByText('재배정할 수 있는 C/S 담당자가 없습니다.');expect(screen.getByText('현재 담당: 현재 합성 담당자')).toBeTruthy();
   expect(screen.queryByRole('textbox')).toBeNull();expect(saveButton().disabled).toBe(true);save();expect(writes()).toHaveLength(0);
+});
+
+test('제안 부서가 있는 요청의 전달은 받는 부서를 칩으로 보이고, 바꿀 때만 체크 칸을 연다',async()=>{
+  const data=detail(d=>{sent(d);d.request.proposed_depts=['TS_LV'];});
+  const {writes,saved}=setup(data,{roles:['cs_agent']});
+  fireEvent.click(await screen.findByRole('button',{name:'부서 전달'}));
+  expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+  expect(screen.getByText(/저압기기 기술지원/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button',{name:'받는 부서 바꾸기'}));
+  expect((screen.getByLabelText(/저압기기 기술지원/) as HTMLInputElement).checked).toBe(true);
+  fireEvent.click(screen.getByRole('button',{name:'전달'}));await waitFor(()=>expect(saved).toHaveBeenCalled());
+  expect(JSON.parse(writes()[0][1].body as string)).toEqual({version:3,dept_codes:['TS_LV'],reply_due_days:7});
+});
+
+test('지금 할 수 있는 첫 동작을 상위 화면에 알리고, 그 실행은 같은 입력을 연다',async()=>{
+  const onPrimary=vi.fn();
+  vi.stubGlobal('fetch',vi.fn(async(url:RequestInfo|URL)=>String(url).endsWith('/me')?meResponse({roles:['cs_agent']}):jsonResponse(200,{data:{}})));setApiMode('live');
+  renderAt('/','/',<ImprovementActions data={detail(d=>{d.request.status='DRAFT';}).data} onSaved={()=>{}} onReload={()=>{}} onPrimary={onPrimary}/>);
+  await waitFor(()=>expect(onPrimary.mock.calls.some(([a])=>a?.label==='검토 완료 기록')).toBe(true));
+  const action=onPrimary.mock.calls.map(([a])=>a).filter(Boolean).at(-1);
+  act(()=>action.run());
+  expect(await screen.findByRole('form',{name:'검토 완료 기록 입력'})).toBeTruthy();
 });

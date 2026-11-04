@@ -1,0 +1,204 @@
+/* 개선요청(CS0301): 문의 처리(ticket-detail-v3.css)와 같은 제목 줄·정보 칸·단계 바·상자를 쓰고, 이 화면에만 필요한 것만 더한다. */
+.ls-root .kv .td3.ir3 .info{grid-template-columns:92px 1fr 92px 1fr 92px 1fr 92px 1fr}
+.ls-root .kv .td3.ir3 .info .k,.ls-root .kv .td3.ir3 .info .v,.ls-root .kv .td3.ir3 .chip,.ls-root .kv .td3.ir3 .log th,.ls-root .kv .td3.ir3 .st{white-space:nowrap}
+.ls-root .kv .td3.ir3 .cols{min-height:0;flex:none}
+.ls-root .kv .td3.ir3 .cols>.pane>.pb,.ls-root .kv .td3.ir3 .stack>.pane>.pb{overflow:auto;max-height:420px}
+.ls-root .kv .td3.ir3 .ph h2{margin:0;font-size:inherit;font-weight:700;color:inherit}
+.ls-root .kv .td3.ir3 h2.problem{margin:0;font-size:14px;font-weight:700;line-height:1.45;color:#1d2433}
+.ls-root .kv .td3.ir3 .pb h3{margin:6px 0 0;font-size:12.5px;font-weight:700;color:#3a4558}
+.ls-root .kv .td3.ir3 .pb p{margin:0;line-height:1.55}
+.ls-root .kv .td3.ir3 .none{color:#9aa2b1}
+.ls-root .kv .td3.ir3 dl.kvl{display:grid;grid-template-columns:110px 1fr;margin:0;border-top:1px solid #eceef2}
+.ls-root .kv .td3.ir3 dl.kvl dt{color:#6b7385;padding:7px 0;border-bottom:1px solid #eceef2}
+.ls-root .kv .td3.ir3 dl.kvl dd{margin:0;padding:7px 0;border-bottom:1px solid #eceef2;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.ls-root .kv .td3.ir3 .ev{border:1px solid #e1e4ea;padding:7px 10px;display:flex;flex-direction:column;gap:2px}
+.ls-root .kv .td3.ir3 .ev p{font-size:12px;color:#5b6475}
+.ls-root .kv .td3.ir3 .ev.out{background:#fafbfc;border-style:dashed}
+.ls-root .kv .td3.ir3 .ev.out .link{color:#7a8394;text-decoration:line-through}
+.ls-root .kv .td3.ir3 .todo{padding:6px 10px;background:#f4f7fc;border:1px solid #cfdcf2}
+.ls-root .kv .td3.ir3 .chip+.chip{margin-left:0}
+.ls-root .kv .td3.ir3 .log td .chip.x{margin-left:6px}
+.ls-root .kv .td3.ir3 .now b{font-size:13px}
+
+/* 입력 도구(작성·수정·검토·전달·판본 이력): 문의 처리 화면의 상자 머리(ph)·kb3 버튼·sendbox 입력 상자·log 표를 쓴다 */
+.ls-root .kv .td3.ir3 .irx>section.ia{display:flex;flex-direction:column;gap:8px;padding-bottom:12px}
+.ls-root .kv .td3.ir3 .irx section.ia>*:not(.ph){margin-left:12px;margin-right:12px}
+.ls-root .kv .td3.ir3 .irx section.ia>.kb3{align-self:flex-start}
+.ls-root .kv .td3.ir3 .irx p{margin:0;font-size:12.5px;line-height:1.55;color:#3a4558}
+.ls-root .kv .td3.ir3 .irx p.meta{color:#6b7385;font-size:12px}
+.ls-root .kv .td3.ir3 .irx h3,.ls-root .kv .td3.ir3 .irx h4{margin:2px 0 0;font-size:12.5px;font-weight:700;color:#1d2433}
+.ls-root .kv .td3.ir3 .irx .sendbox{gap:8px}
+.ls-root .kv .td3.ir3 .irx .sendbox fieldset{border:1px solid #e1e4ea;margin:0;padding:8px 12px 10px;display:flex;flex-direction:column;gap:8px;min-width:0;background:#fff}
+.ls-root .kv .td3.ir3 .irx .sendbox fieldset fieldset{flex-direction:row;flex-wrap:wrap;gap:4px 14px}
+.ls-root .kv .td3.ir3 .irx .sendbox fieldset:disabled{opacity:.7}
+.ls-root .kv .td3.ir3 .irx legend{font-weight:700;font-size:12.5px;padding:0 6px;color:#1d2433}
+.ls-root .kv .td3.ir3 .irx .sendbox label{display:grid;grid-template-columns:96px 1fr;gap:8px;align-items:start;font-size:12.5px;color:#6b7385;line-height:28px}
+.ls-root .kv .td3.ir3 .irx .sendbox fieldset fieldset label{display:inline-flex;align-items:center;gap:5px;color:#1d2433;line-height:normal}
+.ls-root .kv .td3.ir3 .irx .sendbox input:not([type=checkbox]):not([type=radio]),.ls-root .kv .td3.ir3 .irx .sendbox select{display:block;width:100%;height:28px;min-height:0;margin:0;padding:0 8px;border:1px solid #c9cfda;border-radius:0;background:#fff;font:inherit;font-size:12.5px;color:#1d2433;line-height:normal}
+.ls-root .kv .td3.ir3 .irx .sendbox textarea{display:block;width:100%;min-height:56px;margin:0;padding:6px 8px;border:1px solid #c9cfda;border-radius:0;background:#fff;font:inherit;font-size:12.5px;line-height:1.55;color:#1d2433;resize:vertical}
+.ls-root .kv .td3.ir3 .irx .sendbox input:focus,.ls-root .kv .td3.ir3 .irx .sendbox select:focus,.ls-root .kv .td3.ir3 .irx .sendbox textarea:focus{outline:none;border-color:#1a3a7a}
+.ls-root .kv .td3.ir3 .irx .sendbox input[type=checkbox]{accent-color:#1a3a7a}
+.ls-root .kv .td3.ir3 .irx .row2{justify-content:flex-end;align-items:center}
+.ls-root .kv .td3.ir3 .irx table.log td{vertical-align:middle}
+.ls-root .kv .td3.ir3 .irx table.log td span{color:#9aa2b1;font-size:12px}
+.ls-root .kv .td3.ir3 .irx section.sig{border-top:1px solid #e6e9ee;padding-top:10px;display:flex;flex-direction:column;gap:8px}
+.ls-root .kv .td3.ir3 .irx section.sig>.kb3{align-self:flex-start}
+.ls-root .kv .td3.ir3 .irx dl.kvl{grid-template-columns:150px 1fr}
+.ls-root .kv .td3.ir3 .irx dl.kvl>div{display:contents}
+.ls-root .kv .td3.ir3 .irx article{border:1px solid #e1e4ea;padding:8px 10px;display:flex;flex-direction:column;gap:6px}
+.ls-root .kv .td3.ir3 .irx ul{margin:0;padding-left:18px;font-size:12.5px;line-height:1.55}
+.ls-root .kv .td3.ir3 .irx [role=alert]{color:#a3221a;background:#fdf1f0;border:1px solid #f1b8b4;padding:6px 10px}
+.ls-root .kv .td3.ir3 .irx [role=status]{color:#1f5c37;background:#eef6f0;border:1px solid #bfe0c9;padding:6px 10px}
+@media (max-width:1200px){.ls-root .kv .td3.ir3 .info{grid-template-columns:92px 1fr 92px 1fr}}
+/* 검토·전달·부서 처리: 지금 할 수 있는 일(왼쪽)과 조건이 맞아야 하는 일(오른쪽)을 나눠 문의 처리의 다음 행동처럼 읽히게 */
+.ls-root .kv .td3.ir3 .irx section.ia>.ph .r{gap:8px}
+.ls-root .kv .td3.ir3 .irx .ia-grid{display:grid;grid-template-columns:1fr 1.25fr;gap:12px;align-items:start}
+.ls-root .kv .td3.ir3 .irx .ia-grid>div{display:flex;flex-direction:column;gap:6px;min-width:0}
+.ls-root .kv .td3.ir3 .irx .ia-grid h3{display:flex;align-items:baseline;gap:6px;margin:0}
+.ls-root .kv .td3.ir3 .irx .ia-grid h3 small{display:inline;font-size:11.5px;font-weight:500;color:#7a8394}
+.ls-root .kv .td3.ir3 .irx .ia-ready{border:1.5px solid #1a3a7a}
+.ls-root .kv .td3.ir3 .irx .ia-ready td:first-child{font-weight:600}
+.ls-root .kv .td3.ir3 .irx .ia-wait{border:1px solid #e1e4ea}
+.ls-root .kv .td3.ir3 .irx .ia-wait td{color:#7a8394}
+.ls-root .kv .td3.ir3 .irx .ia-wait td:first-child{color:#3a4558;white-space:nowrap}
+.ls-root .kv .td3.ir3 .irx .ia-wait .why-line{display:block;margin:0;font-size:11.5px;line-height:1.45;color:#8a5a00}
+.ls-root .kv .td3.ir3 .irx .ia-head{display:flex;align-items:center;gap:8px}
+.ls-root .kv .td3.ir3 .irx .ia-head b{font-size:13.5px;color:#1a3a7a}
+.ls-root .kv .td3.ir3 .irx .ia-head .meta{margin-left:auto}
+.ls-root .kv .td3.ir3 .irx .ia-head+p.meta{display:none}
+.ls-root .kv .td3.ir3 .irx .sendbox .fr{display:grid;grid-template-columns:96px 1fr;gap:8px;align-items:center;font-size:12.5px}
+.ls-root .kv .td3.ir3 .irx .sendbox .fr .chips{align-items:center}
+.ls-root .kv .td3.ir3 .irx .sendbox .mini{margin-left:6px;height:22px}
+.ls-root .kv .td3.ir3 .irx p.stale{margin:0 12px}
+.ls-root .kv .td3.ir3 .steps .now .kb3.big{margin-left:6px}
+@media (max-width:1200px){.ls-root .kv .td3.ir3 .irx .ia-grid{grid-template-columns:1fr}}
+.ls-root .kv .td3.ir3 .irx table.log{table-layout:fixed;width:100%}
+.ls-root .kv .td3.ir3 .irx table.log td{overflow:hidden;text-overflow:ellipsis}
+.ls-root .kv .td3.ir3 .irx .ia-ready td,.ls-root .kv .td3.ir3 .irx .ia-ready th{white-space:nowrap}
+.ls-root .kv .td3.ir3 .irx .ia-ready td:last-child .kb3{max-width:100%}
+.ls-root .kv .td3.ir3 .irx .ia-wait td:last-child{white-space:normal}
+.ls-root .kv .td3.ir3 .irx .ia-ev{display:flex;flex-direction:column;gap:6px;margin:0 12px}
+.ls-root .kv .td3.ir3 .irx .ia-ev h3{display:flex;align-items:baseline;gap:6px;margin:0}
+.ls-root .kv .td3.ir3 .irx .ia-ev h3 small{display:inline;font-size:11.5px;font-weight:500;color:#7a8394}
+.ls-root .kv .td3.ir3 .irx .ia-ev td{color:#3a4558}
+/* 요청 내용: 제목 아래 제품·고장·작성 칩, 칸 이름 + 색 상자 (문의 처리의 칸 이름·상자 모양) */
+.ls-root .kv .td3.ir3 .tags{display:flex;flex-wrap:wrap;gap:6px}
+.ls-root .kv .td3.ir3 .tag-box{display:inline-flex;align-items:center;gap:7px;border:1px solid #c9cfda;background:#fff;padding:3px 9px;font-size:12.5px;white-space:nowrap}
+.ls-root .kv .td3.ir3 .tag-box small{display:inline;font-size:11px;color:#7a8394}
+.ls-root .kv .td3.ir3 .tag-box b{font-weight:700;color:#1d2433;font-variant-numeric:tabular-nums}
+.ls-root .kv .td3.ir3 .tag-box.sys{border-color:#dcd5f7;background:#f6f4fe}
+.ls-root .kv .td3.ir3 .tag-box.sys b{color:#5b3fd0}
+.ls-root .kv .td3.ir3 .facts{display:flex;flex-direction:column;gap:8px;border-top:1px solid #e6e9ee;padding-top:10px}
+.ls-root .kv .td3.ir3 .fact-row{display:grid;grid-template-columns:88px 1fr;gap:8px;align-items:start}
+.ls-root .kv .td3.ir3 .fact-row>.k{color:#6b7385;font-size:12.5px;padding-top:6px;white-space:nowrap}
+.ls-root .kv .td3.ir3 .fact-box{border:1px solid #d3d8e0;background:#fff;padding:6px 10px;font-size:12.5px;line-height:1.55;color:#2d3546;white-space:pre-wrap;word-break:break-word}
+.ls-root .kv .td3.ir3 .fact-box.fact{border-color:#bfe0c9;background:#eef6f0;color:#1f5c37;font-weight:600}
+.ls-root .kv .td3.ir3 .fact-box.conflict{border-color:#f1b8b4;background:#fdf1f0;color:#a3221a}
+.ls-root .kv .td3.ir3 .fact-box.missing{border-color:#f3e2b8;background:#fdf8ec;color:#8a5a00}
+.ls-root .kv .td3.ir3 .fact-box.task{border-color:#cfdcf2;background:#f4f7fc;color:#1f3d73}
+.ls-root .kv .td3.ir3 .fact-box.claim{border-color:#e1e4ea;background:#f6f7f9;color:#5b6475;font-size:12px}
+.ls-root .kv .td3.ir3 .fact-box.empty{border-style:dashed;background:#fafbfc;color:#9aa2b1;font-weight:400}
+.ls-root .kv .td3.ir3 .fact-row .chips{padding-top:2px}
+.ls-root .kv .td3.ir3 .dept-chip{display:inline-flex;align-items:center;height:24px;padding:0 9px;border:1px solid #cfdcf2;background:#f4f7fc;color:#1f3d73;font-size:12px;font-weight:600;white-space:nowrap}
+/* 근거 비교: 다수 값과 다른 칸을 노랗게 */
+.ls-root .kv .td3.ir3 .ph>.meta{font-weight:400;font-size:11.5px}
+.ls-root .kv .td3.ir3 .cmp{display:inline-block;padding:1px 6px;font-weight:600;background:#f5f6f8;color:#3a4558;box-shadow:inset 0 0 0 1px #e1e4ea}
+.ls-root .kv .td3.ir3 .cmp.diff{background:#fdf3dc;color:#8a5a00;box-shadow:inset 0 0 0 1px #f3e2b8}
+.ls-root .kv .td3.ir3 .log td .none{color:#9aa2b1}
+.ls-root .kv .td3.ir3 .cmp.ref{background:#eef0f4;color:#5b6475;box-shadow:inset 0 0 0 1px #d3d8e0;font-weight:500}
+/* 상세 위쪽 정보 칸: 두 줄 높이를 같게, 상태 값은 다른 값과 같은 진한 글씨 */
+.ls-root .kv .td3.ir3 .info>div{height:36px;min-height:36px;box-sizing:border-box}
+.ls-root .kv .td3.ir3 .info .chip{line-height:18px}
+.ls-root .kv .td3.ir3 .info strong.ir-state{color:#1d2433;font-weight:600}
+/* 근거 비교 접기 */
+.ls-root .kv .td3.ir3 .ph .fold{display:inline-flex;align-items:center;gap:6px;padding:0;border:0;background:none;font:inherit;color:inherit;cursor:pointer}
+.ls-root .kv .td3.ir3 .ph .fold .caret{font-size:11px;color:#6b7385;width:10px}
+/* 값마다 다른 색(원인 유형·해결 부서). 많은 값부터 tone-0 */
+.ls-root .kv .td3.ir3 .cmp.tone{font-weight:600;box-shadow:inset 0 0 0 1px currentColor}
+.ls-root .kv .td3.ir3 .cmp.tone-0{background:#eef3fb;color:#1f3d73}
+.ls-root .kv .td3.ir3 .cmp.tone-1{background:#fdf3dc;color:#8a5a00}
+.ls-root .kv .td3.ir3 .cmp.tone-2{background:#eaf5ee;color:#2f7d4f}
+.ls-root .kv .td3.ir3 .cmp.tone-3{background:#f4f2fd;color:#5b3fd0}
+.ls-root .kv .td3.ir3 .cmp.tone-4{background:#fdf1f0;color:#a3221a}
+.ls-root .kv .td3.ir3 .cmp.tone-5{background:#eef0f4;color:#3a4558}
+/* 근거 비교 값: 테두리 없이 배경색만 */
+.ls-root .kv .td3.ir3 .cmp,.ls-root .kv .td3.ir3 .cmp.diff,.ls-root .kv .td3.ir3 .cmp.ref,.ls-root .kv .td3.ir3 .cmp.tone{box-shadow:none}
+.ls-root .kv .td3.ir3 .cmp-pane .log td .kb3.sm{height:24px;padding:0 10px}
+.ls-root .kv .td3.ir3 .cmp-remove{display:flex;flex-direction:column;gap:8px;border-top:1px solid #e6e9ee}
+.ls-root .kv .td3.ir3 .cmp-remove .fr{display:grid;grid-template-columns:96px 1fr;gap:8px;align-items:start}
+.ls-root .kv .td3.ir3 .cmp-remove textarea{width:100%;padding:6px 8px;border:1px solid #c9cfda;font:inherit;font-size:12.5px}
+.ls-root .kv .td3.ir3 .fold.sub{font-size:12.5px;color:#3a4558;font-weight:600}
+/* 정보 칸 상태: 공용 .state 여백을 받지 않게 클래스만 바꿨다 */
+.ls-root .kv .td3.ir3 .info strong.ir-state{padding:0;margin:0;text-align:left}
+/* 요청 내용(현재 내용 / ✦ AI 초안) 2단: 요청 내용 | 부서 */
+.ls-root .kv .td3.ir3 .cols{grid-template-columns:1.35fr 1fr}
+.ls-root .kv .td3.ir3 .ir-content .ph .r{gap:8px}
+.ls-root .kv .td3.ir3 .ir-content .pb{display:flex;flex-direction:column;gap:10px}
+.ls-root .kv .td3.ir3 .ai-head{display:flex;align-items:center;gap:8px}
+.ls-root .kv .td3.ir3 ul.ai-list{margin:0;padding:6px 10px 6px 26px;display:flex;flex-direction:column;gap:4px;white-space:normal}
+.ls-root .kv .td3.ir3 ul.ai-list.q{list-style:none;padding-left:10px}
+.ls-root .kv .td3.ir3 ul.ai-list.q li{display:flex;gap:8px;align-items:baseline}
+.ls-root .kv .td3.ir3 ul.ai-list .refs{display:inline-flex;flex-wrap:wrap;gap:4px;margin-left:6px}
+.ls-root .kv .td3.ir3 ul.ai-list .ref{font-size:11px;font-weight:500;padding:0 5px;background:#fff;color:#1a3a7a;text-decoration:none}
+.ls-root .kv .td3.ir3 ul.ai-list .ref:hover{text-decoration:underline}
+.ls-root .kv .td3.ir3 .ai-note{padding:6px 10px;font-size:12.5px;background:#eef6f0;color:#1f5c37}
+.ls-root .kv .td3.ir3 .ai-note.err{background:#fdf1f0;color:#a3221a}
+.ls-root .kv .td3.ir3 .ai-apply{justify-content:space-between;align-items:center;gap:8px}
+@media (max-width:1200px){.ls-root .kv .td3.ir3 .cols{grid-template-columns:1fr}}
+/* 목록: 10건씩 더 보고, 표 안에서 스크롤(머리 고정) */
+/* 목록 쪽 나누기 */
+.ls-root .kv .td3.ir3 .pager{display:flex;justify-content:center;align-items:center;gap:4px;padding:10px}
+.ls-root .kv .td3.ir3 .pager .pg{display:inline-flex;align-items:center;gap:4px}
+.ls-root .kv .td3.ir3 .pager .kb3.sm{min-width:30px;justify-content:center}
+.ls-root .kv .td3.ir3 .pager .gap{color:#9aa2b1;padding:0 2px}
+/* 단계 바: 진행 중인 단계는 채운 점 + 고리 두 겹이 시차를 두고 퍼지는 물결(1.8초 주기), 점도 함께 살짝 밝아진다.
+   완료·대기 단계는 움직이지 않는다. 완료된 요청에는 진행 중 단계가 없어 물결도 없다. */
+.ls-root .kv .td3.ir3 .st.cur .dot{--ir-pulse:26,58,122;position:relative;isolation:isolate;background:rgb(var(--ir-pulse));border-color:rgb(var(--ir-pulse));color:#fff;animation:ir-glow 1.8s ease-in-out infinite}
+.ls-root .kv .td3.ir3 .st.cur .dot::before,.ls-root .kv .td3.ir3 .st.cur .dot::after{content:"";position:absolute;inset:-1.5px;border-radius:50%;background:rgba(var(--ir-pulse),.5);z-index:-1;animation:ir-ripple 1.8s cubic-bezier(0,0,.2,1) infinite}
+.ls-root .kv .td3.ir3 .st.cur .dot::after{animation-delay:.6s}
+@keyframes ir-ripple{0%{transform:scale(1);opacity:.9}100%{transform:scale(2.6);opacity:0}}
+@keyframes ir-glow{0%,100%{filter:brightness(1)}50%{filter:brightness(1.45)}}
+@media (prefers-reduced-motion:reduce){.ls-root .kv .td3.ir3 .st.cur .dot,.ls-root .kv .td3.ir3 .st.cur .dot::before,.ls-root .kv .td3.ir3 .st.cur .dot::after{animation:none}.ls-root .kv .td3.ir3 .st.cur .dot::before,.ls-root .kv .td3.ir3 .st.cur .dot::after{opacity:0}}
+@media (forced-colors:active){.ls-root .kv .td3.ir3 .st.cur .dot{background:CanvasText;color:Canvas}}
+/* 부서별 질문 상자: 다른 내용 상자와 같은 모양, 보라(AI) 계열 */
+.ls-root .kv .td3.ir3 .fact-box.ask{border-color:#dcd5f7;background:#f6f4fe;color:#3b2a8f}
+/* 요청 내용 상자는 스크롤 없이 끝까지 펼친다 */
+.ls-root .kv .td3.ir3 .cols>.pane.ir-content>.pb{max-height:none;overflow:visible}
+/* 요청 내용 목록 상자: 앞 점 없이 */
+.ls-root .kv .td3.ir3 ul.ai-list{list-style:none;padding-left:10px}
+/* 처리 입력: 단계 바 아래(요청 단위)와 수신 부서 표 아래(부서 단위). 열린 것이 없으면 자리를 차지하지 않는다 */
+.ls-root .kv .td3.ir3 .ia-host{display:flex;flex-direction:column;gap:8px}
+.ls-root .kv .td3.ir3 .ia-host:empty,.ls-root .kv .td3.ir3 .ia-slot:empty{display:none}
+.ls-root .kv .td3.ir3 .ia-host>.sendbox,.ls-root .kv .td3.ir3 .ia-slot>.sendbox{background:#fff;border:1.5px solid #1a3a7a;padding:10px 12px;display:flex;flex-direction:column}
+.ls-root .kv .td3.ir3 .ia-host>p.stale{margin:0}
+.ls-root .kv .td3.ir3 .log td.acts{white-space:nowrap}
+.ls-root .kv .td3.ir3 .log td.acts .kb3+.kb3{margin-left:4px}
+.ls-root .kv .td3.ir3 .irx section.sig{margin-top:6px}
+/* 요청 내용 자리에서 고치기 */
+.ls-root .kv .td3.ir3 .ir-edit{display:flex;flex-direction:column;gap:8px;border-top:1px solid #e6e9ee;padding-top:10px}
+.ls-root .kv .td3.ir3 .ir-edit label{display:grid;grid-template-columns:88px 1fr;gap:8px;align-items:start;font-size:12.5px;color:#6b7385}
+.ls-root .kv .td3.ir3 .ir-edit textarea{width:100%;min-height:52px;padding:6px 8px;border:1px solid #c9cfda;font:inherit;font-size:12.5px;line-height:1.55;color:#1d2433;resize:vertical}
+.ls-root .kv .td3.ir3 .ir-edit textarea:focus{outline:none;border-color:#1a3a7a}
+.ls-root .kv .td3.ir3 .ir-edit .row2{justify-content:flex-end;gap:6px}
+.ls-root .kv .td3.ir3 .ir-edit [role=alert]{color:#a3221a;background:#fdf1f0;padding:6px 10px;margin:0}
+.ls-root .kv .td3.ir3 .ai-apply .btns2{display:inline-flex;gap:6px;margin-left:auto}
+/* 수정 폼: 테두리 없이, 칸은 내용만큼 늘어난다 */
+.ls-root .kv .td3.ir3 .sendbox.ir-edit{border:0;background:none;padding:10px 0 0}
+.ls-root .kv .td3.ir3 .ir-edit textarea{overflow:hidden;resize:none;min-height:0}
+/* 수정 폼의 제안 부서: 고른 부서 칩(× 빼기) + 드롭다운으로 추가 */
+.ls-root .kv .td3.ir3 .ir-edit .dept-pick{display:grid;grid-template-columns:88px 1fr;gap:8px;align-items:center}
+.ls-root .kv .td3.ir3 .ir-edit .dept-pick>.k{font-size:12.5px;color:#6b7385}
+.ls-root .kv .td3.ir3 .ir-edit .dept-pick .chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.ls-root .kv .td3.ir3 .ir-edit .dept-pick .dept-chip{gap:4px;padding-right:4px}
+.ls-root .kv .td3.ir3 .ir-edit .dept-pick .dept-chip .x{border:0;background:none;padding:0 4px;color:#1f3d73;font-size:13px;line-height:1;cursor:pointer}
+.ls-root .kv .td3.ir3 .ir-edit .dept-pick select{height:26px;padding:0 6px;border:1px solid #c9cfda;background:#fff;font:inherit;font-size:12.5px;color:#1d2433}
+/* 목록 문제 칸은 굵게 */
+.ls-root .kv .td3.ir3 .log td.t .link{font-weight:700}
+/* 개선 요청 작성의 근거 칸: 누르면 근거 비교를 연다 */
+.ls-root .kv .td3.ir3 button.tag-box.link-box{font:inherit;cursor:pointer;border-color:#cfdcf2;background:#f4f7fc}
+.ls-root .kv .td3.ir3 button.tag-box.link-box b{color:#1f4fbf}
+.ls-root .kv .td3.ir3 button.tag-box.link-box:hover{border-color:#1f4fbf}
+/* 근거 비교: 문의 직접 추가 줄 */
+.ls-root .kv .td3.ir3 .cmp-add{flex-direction:row;align-items:center;gap:8px;border-top:1px solid #e6e9ee}
+.ls-root .kv .td3.ir3 .cmp-add .k{font-size:12.5px;color:#6b7385;white-space:nowrap}
+.ls-root .kv .td3.ir3 .cmp-add input{height:26px;width:300px;padding:0 8px;border:1px solid #c9cfda;font:inherit;font-size:12.5px}
