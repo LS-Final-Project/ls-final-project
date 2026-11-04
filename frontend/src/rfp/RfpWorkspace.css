@@ -130,3 +130,7 @@ button.ws-gateitem{color:#24518a;cursor:pointer}
 .ws-resume{margin:0 24px 24px;border-top:1px solid #e1e6ec;padding-top:10px;font-size:12px}
 .ws-resume p{display:flex;justify-content:space-between;gap:12px;margin:4px 0}
 .ws-dtabs button{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+.ws-badge.gray{border-color:#9aa4b1;color:#4b5563}
+.ws-quoteval{white-space:normal;line-height:1.5}
+.ws-exclude{padding:6px 12px}
+.ws-alert{color:#b42318}

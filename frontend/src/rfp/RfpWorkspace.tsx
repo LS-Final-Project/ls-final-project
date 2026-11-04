@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState, type ReactNode, type UIEvent } from 'reac
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ApiError, getApiMode } from '../api/client';
 import {
-  approveProposal, createProject, listProjectHistory, listRequirementHistory, type HistoryItem, type HistoryKind, type HistoryPage, createProposal, createQuestion, decideRequirement, getComparison, getRequirement, listDocuments, listQuestions, listRequirements, recompareRequirement, startProcess, uploadDocument,
+  addRequirement, approveProposal, createProject, listClauses, listProjectHistory, type Clause, type ManualRequirementRequest, listRequirementHistory, type HistoryItem, type HistoryKind, type HistoryPage, createProposal, createQuestion, decideRequirement, getComparison, getRequirement, listDocuments, listQuestions, listRequirements, recompareRequirement, startProcess, uploadDocument,
   type BidVerdict, type DecisionRequest, type DocumentVersion, type Proposal, type ProposalCreate, type Question, type QuestionCreate, type RequirementDetail, type RequirementSummary,
 } from '../api/rfp';
 import { activeRfpJob } from '../api/rfp-job-events';
@@ -16,6 +16,7 @@ import { KvTitle } from '../ls-shell/kv';
 import { MOCK_WORKSPACE_REQUIREMENTS } from '../mocks/rfp-workspace';
 import { fileProblem, latestVersions } from './IntakeForms';
 import { OriginalDocument } from './OriginalDocument';
+import { label, NECESSITY_LABEL, OPERATOR_LABEL, PATH_LABEL, STATUS_LABEL } from './labels';
 import { useNames } from './names';
 import { RfpPersona } from './RfpPersona';
 import { RfpReasoning, rfpStageDescription } from './RfpReasoning';
@@ -298,6 +299,9 @@ export function Decide({ project, documents, rows, role, actorId }: { project: P
     next(row.requirement_id);
   };
   const assignChecked = verdictRows.filter(r => checked.has(r.requirement_id));
+  const [showExcluded, setShowExcluded] = useState(false);
+  const excludedQuery = useQuery({ queryKey: ['workspace-requirements', getApiMode(), project.id, 'excluded'], queryFn: () => listRequirements(project.id, { excluded: true }, 1000, undefined, { useMockFallback: false }), enabled: getApiMode() === 'live' });
+  const excluded = (excludedQuery.data?.data.items ?? []) as Row[];
   const tqs = useQuery({ queryKey: ['questions', getApiMode(), project.id], queryFn: () => listQuestions(project.id, undefined, { useMockFallback: false }), enabled: getApiMode() === 'live' });
   const customerTq = (tqs.data?.data.items ?? []).filter(q => q.target === 'CUSTOMER');
   // 회신 알림은 새 알림 종류 없이 질의 행의 "회신 도착" 배지로만 보인다.
@@ -314,11 +318,12 @@ export function Decide({ project, documents, rows, role, actorId }: { project: P
       <button role="tab" aria-selected={tab === 'output'} className={tab === 'output' ? 'on' : ''} onClick={() => setTab('output')}>출력 {[gate.undecided, gate.deviation_missing, gate.open_queries, gate.review_pending].some(Boolean) && <span className="muted">남은 조건 {[gate.undecided, gate.deviation_missing, gate.open_queries, gate.review_pending].filter(Boolean).length}</span>}</button>
     </div>
     {tab === 'output'
-      ? <Output project={project} rows={verdictRows} responsible={responsible} actorId={actorId} onJump={f => { setFilter(f); setTab('review'); }} onPick={id => { setFilter('all'); setSel(id); setTab('review'); }} />
+      ? <Output project={project} rows={verdictRows} excluded={excluded} responsible={responsible} actorId={actorId} onJump={f => { setFilter(f); setTab('review'); }} onPick={id => { setFilter('all'); setSel(id); setTab('review'); }} />
       : <>
         <div className="ws-filters" role="toolbar" aria-label="판정 필터">
           <Chip on={filter === 'todo'} onClick={() => setFilter('todo')}>결정할 것 {todo}</Chip>
           <Chip on={filter === 'all'} onClick={() => setFilter('all')}>전체 {verdictRows.length}</Chip>
+          <Chip on={showExcluded} onClick={() => setShowExcluded(!showExcluded)}>뺀 요구 {excluded.length}</Chip>
           <span className="ws-vsep" />
           {[...DECIDE_ORDER, 'MET' as const].map(v => <Chip key={v} on={filter === v} onClick={() => setFilter(v)}>{VERDICT[v]} {count(v)}</Chip>)}
           <span className="sp" />
@@ -327,6 +332,7 @@ export function Decide({ project, documents, rows, role, actorId }: { project: P
         </div>
         {lastBulk && <p className="ws-bulkline">{lastBulk.ids.length}건을 한 번에 결정했습니다. <button className="ws-link" disabled={undoBulk.isPending} onClick={() => undoBulk.mutate(lastBulk.ids)}>한 번에 되돌리기</button></p>}
         {(bulk.isError || undoBulk.isError) && <p role="alert" className="ws-alert">{failureText(bulk.error ?? undoBulk.error)} 앞에서 처리한 결정은 남아 있습니다.</p>}
+        {showExcluded && <ExcludedTable rows={excluded} responsible={responsible} />}
         <div className="ws-grid">
           <section className="ws-sec ws-left">
             {!responsible && assignChecked.length > 0 && <div className="ws-bulkbar">
@@ -370,7 +376,7 @@ function RowLine({ r, sel, onPick, responsible, checkable, checked, onCheck, rep
   return <tr className={`row${r.requirement_id === sel ? ' sel' : ''}${decided ? ' decided' : ''}`} onClick={() => onPick(r.requirement_id)}>
     <td>{checkable && <input type="checkbox" aria-label={`${r.attribute ?? r.code} 선택`} checked={checked} onClick={event => event.stopPropagation()} onChange={event => onCheck(event.target.checked)} />}</td>
     <td className="tag">{r.equipment}</td>
-    <td title={r.code}><button className="ws-rowbtn" onClick={() => onPick(r.requirement_id)}>{r.attribute ?? r.code}</button>{replied && !decided && <span className="ws-badge">회신 도착</span>}</td>
+    <td title={r.code}><button className="ws-rowbtn" onClick={() => onPick(r.requirement_id)}>{r.attribute ?? r.code}</button>{replied && !decided && <span className="ws-badge">회신 도착</span>}{r.decision?.manually_added && <span className="ws-badge gray">직접 추가</span>}</td>
     <td className={r.value_text ? '' : 'empty'}>{r.value_text ?? '빈 칸'}</td>
     <td className="r">{decided ? <span className="tag">{r.decision?.summary ?? '결정함'}</span>
       : !responsible && ROW_ACTION[r.bid_verdict] ? <button className="kb ws-act" onClick={event => { event.stopPropagation(); onPick(r.requirement_id); }}>{ROW_ACTION[r.bid_verdict]}</button> : null}</td>
@@ -412,8 +418,13 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
   const decided = row.decision?.decided;
   const idx = order.findIndex(r => r.requirement_id === row.requirement_id);
   const candidates = partners.data?.data.items ?? [];
+  const clauses = useClauses(doc?.document_version_id);
+  const [picked, setPicked] = useState('');
+  const [adding, setAdding] = useState<{ quote: string; clause: Pick<Clause, 'clause_id' | 'clause_no'> }>();
+  const pickedClause = responsible ? undefined : clauseOf(clauses.data ?? [], picked);
   return <div className="ws-panel">
-    <div className="ws-pick">
+    {adding ? <AddRequirement projectId={projectId} quote={adding.quote} clause={adding.clause} equipment={row.equipment} onCancel={() => setAdding(undefined)} onDone={id => { setAdding(undefined); setPicked(''); onMove(id); }} />
+    : <div className="ws-pick">
       <div className="hd"><span className="name">{row.attribute ?? row.code}</span><span className="muted">{row.code} {row.equipment}</span><span className="sp" /><span>{decided ? '결정함' : VERDICT[row.bid_verdict]}</span>{!decided && <span className="dot" title="AI가 정한 판정입니다" aria-label="AI 판정" />}</div>
       <div className="ws-cmp"><span className="k">요구</span><span className={row.value_text ? 'v' : 'v empty'}>{row.value_text ?? '빈 칸'}</span><span className="k">자사</span><span className="v">{ownText}{own && <small className="muted"> {own.product_code}</small>}</span></div>
       {reason && <p className="ws-why">{reason}</p>}
@@ -465,34 +476,41 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
               : <button className="ws-link muted" onClick={() => setChanging(true)}>판정 바꾸기</button>}</div>
             {decide.isError && <p role="alert">{failureText(decide.error)}</p>}
           </div>}
-    </div>
+      {!responsible && <ExcludeLine row={row} version={d?.version ?? row.version} />}
+    </div>}
     <div className="ws-srcbar">
       <span className="ws-seg2" role="group" aria-label="원문 보기 방식">
         <button className={mode2 === 'doc' ? 'on' : ''} onClick={() => setMode2('doc')}>원문</button>
         <button className={mode2 === 'quote' ? 'on' : ''} onClick={() => setMode2('quote')}>조항만</button>
       </span>
       <span className="sp" />
+      {pickedClause && !adding && <button className="kb primary" onClick={() => setAdding({ quote: picked, clause: pickedClause })}>요구로 추가</button>}
       <button className="kb" disabled={idx <= 0} onClick={() => onMove(order[idx - 1].requirement_id)}>이전</button>
       <button className="kb" disabled={idx < 0 || idx >= order.length - 1} onClick={() => onMove(order[idx + 1].requirement_id)}>다음</button>
     </div>
     <div className="ws-source">
       {mode2 === 'quote' || !doc ? <p className="ws-quote"><span className="muted">{d?.origin?.clause_no ?? row.code}</span> {d?.origin?.quote ?? '조항 원문은 서버에서 읽습니다.'}</p>
-        : <OriginalDocument document={doc} origin={d?.origin} onQuoteClick={() => undefined} />}
+        : <OriginalDocument document={doc} origin={d?.origin} onQuoteClick={() => undefined} onSelectText={setPicked} />}
     </div>
     <RequirementHistory id={row.requirement_id} />
   </div>;
 }
 
-function Output({ project, rows, responsible, actorId, onJump, onPick }: { project: ProjectDetail; rows: Row[]; responsible: boolean; actorId?: string; onJump: (filter: 'todo' | BidVerdict) => void; onPick: (id: string) => void }) {
+function Output({ project, rows, excluded = [], responsible, actorId, onJump, onPick }: { project: ProjectDetail; rows: Row[]; excluded?: Row[]; responsible: boolean; actorId?: string; onJump: (filter: 'todo' | BidVerdict) => void; onPick: (id: string) => void }) {
   const client = useQueryClient();
   const mode = getApiMode();
   const [doc, setDoc] = useState<'dev' | 'tq' | 'eq' | 'sum'>('dev');
   const questions = useQuery({ queryKey: ['questions', mode, project.id], queryFn: () => listQuestions(project.id, undefined, { useMockFallback: false }), enabled: mode === 'live' });
   const gate = project.decision_gate ?? { undecided: rows.filter(r => needed(r) && !r.decision?.decided).length, deviation_missing: 0, open_queries: 0, review_pending: 0 };
-  const pending = rows.filter(r => r.decision?.decided && !r.decision.reviewed);
+  const pending = pendingReviews([...rows, ...excluded]);
   const review = useMutation({
-    mutationFn: async ({ ids, action }: { ids: Row[]; action: 'review_confirm' | 'review_return' }) => {
-      for (const r of ids) await decideRequirement(r.requirement_id, { version: r.version, action, decision_id: r.decision?.decision_id ?? null } as DecisionRequest, key());
+    // 한 요구에 확인할 것이 둘이면 앞 호출로 판본이 오른다. 응답의 판본으로 다음 호출을 보낸다.
+    mutationFn: async ({ ids, action }: { ids: PendingReview[]; action: 'review_confirm' | 'review_return' }) => {
+      const versions = new Map<string, number>();
+      for (const p of ids) {
+        const result = await decideRequirement(p.row.requirement_id, { version: versions.get(p.row.requirement_id) ?? p.row.version, action, decision_id: p.decisionId } as DecisionRequest, key());
+        if (result.data.requirement_version) versions.set(p.row.requirement_id, result.data.requirement_version);
+      }
     },
     onSettled: () => { client.invalidateQueries({ queryKey: ['workspace-requirements'] }); client.invalidateQueries({ queryKey: ['projects'] }); },
   });
@@ -511,8 +529,8 @@ function Output({ project, rows, responsible, actorId, onJump, onPick }: { proje
   const tq = questions.data?.data.items.filter(q => q.target === 'CUSTOMER') ?? [];
   const reviewBlock = <section className="ws-sec ws-review" aria-label="책임자 확인">
     <h2>책임자 확인 <span className="muted">{pending.length}건</span>{responsible && pending.length > 0 && <button className="kb primary" disabled={review.isPending} onClick={() => review.mutate({ ids: pending, action: 'review_confirm' })}>모두 확인</button>}</h2>
-    <table className="ws-table"><tbody>{pending.map(r => <tr key={r.requirement_id}><td className="tag">{r.equipment}</td><td>{r.attribute ?? r.code}</td><td>{r.decision?.summary}</td>
-      <td className="r">{responsible && <button className="ws-link" disabled={review.isPending} onClick={() => review.mutate({ ids: [r], action: 'review_return' })}>되돌려 보내기</button>}</td></tr>)}
+    <table className="ws-table"><tbody>{pending.map(p => <tr key={p.decisionId}><td className="tag">{p.row.equipment}</td><td>{p.row.attribute ?? p.row.code}</td><td>{p.label}</td>
+      <td className="r">{responsible && <button className="ws-link" disabled={review.isPending} onClick={() => review.mutate({ ids: [p], action: 'review_return' })}>되돌려 보내기</button>}</td></tr>)}
       {pending.length === 0 && <tr><td className="muted">확인할 결정이 없습니다.</td></tr>}</tbody></table>
   </section>;
   return <div className="ws-out">
@@ -633,7 +651,6 @@ const KIND_GROUP: Record<string, HistoryKind[]> = {
   회신: ['reply_recorded', 'reply_applied'], 재비교: ['recompared'], AI: ['ai_verdict'],
 };
 const when = (at: string) => new Date(at).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
-const change = (h: HistoryItem) => h.before || h.after ? `${h.before ?? '없음'} → ${h.after ?? '없음'}` : '';
 
 function useHistory(key: unknown[], load: (cursor?: string | null) => Promise<{ data: HistoryPage }>, enabled = true) {
   const pages = useInfiniteQuery({
@@ -652,7 +669,7 @@ function RequirementHistory({ id }: { id: string }) {
   return <div className="ws-hist" aria-label="이 요구 이력">
     {pages.isError ? <p role="alert">{failureText(pages.error)}</p> : pages.isPending ? <p className="muted">이력 읽는 중</p>
       : items.length === 0 ? <p className="muted">기록이 없습니다.</p>
-      : <ol>{items.map(h => <li key={h.id}><span className="muted">{when(h.at)} {name(h.actor_user_id) || (h.kind === 'ai_verdict' ? 'AI' : '시스템')}</span> {h.summary} <span className="muted">{change(h)}</span></li>)}</ol>}
+      : <ol>{items.map(h => <li key={h.id}><span className="muted">{when(h.at)} {name(h.actor_user_id) || (h.kind === 'ai_verdict' ? 'AI' : '시스템')}</span> {historyText(h).head} <span className="muted">{historyText(h).change}</span></li>)}</ol>}
     {pages.hasNextPage && <button className="ws-link" disabled={pages.isFetchingNextPage} onClick={() => pages.fetchNextPage()}>더 보기</button>}
   </div>;
 }
@@ -674,9 +691,126 @@ function ProjectHistory({ projectId, codeOf, onPick }: { projectId: string; code
       <thead><tr><th>시각</th><th>사람</th><th>요구 번호</th><th>내용</th></tr></thead>
       <tbody>{items.map(h => <tr key={h.id} className="row" onClick={() => h.requirement_id && onPick(h.requirement_id)}>
         <td className="muted">{when(h.at)}</td><td>{name(h.actor_user_id) || (h.kind === 'ai_verdict' ? 'AI' : '시스템')}</td>
-        <td>{codeOf(h.requirement_id)}</td><td>{h.summary} <span className="muted">{change(h)}</span></td></tr>)}
+        <td>{codeOf(h.requirement_id)}</td><td>{historyText(h).head} <span className="muted">{historyText(h).change}</span></td></tr>)}
         {!pages.isPending && items.length === 0 && <tr><td colSpan={4} className="muted">기록이 없습니다.</td></tr>}</tbody>
     </table>}
     {pages.hasNextPage && <button className="ws-link" disabled={pages.isFetchingNextPage} onClick={() => pages.fetchNextPage()}>더 보기</button>}
   </section>;
+}
+
+// 직접 추가·빼기·되살리기(KAN-225). 결정 기록의 action으로 오고 화면에서는 아래 말로 보인다.
+const CHANGE_LABEL: Record<string, string> = { add_requirement: '직접 추가', exclude_requirement: '뺌', restore_requirement: '되살림' };
+const KIND_LABEL = { SPEC: '사양', TASK: '과업', DOCUMENT: '제출물' } as const;
+// 서버 근거 검사와 같은 정규화: 공백 하나, 곧은 따옴표, 대소문자 무시.
+export const normQuote = (s: string) => s.replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/\s+/g, ' ').trim().toLowerCase();
+
+function useClauses(documentVersionId: string | undefined) {
+  return useQuery({
+    queryKey: ['clauses', getApiMode(), documentVersionId], enabled: getApiMode() === 'live' && !!documentVersionId, staleTime: 300_000,
+    queryFn: async () => {
+      const all: Clause[] = [];
+      let cursor: string | undefined;
+      do { const page = await listClauses(documentVersionId as string, cursor); all.push(...page.data.items); cursor = page.data.next_cursor ?? undefined; } while (cursor);
+      return all;
+    },
+  });
+}
+
+// 고른 글이 들어 있는 조항. 없으면(표 글, 여러 조항에 걸친 글) 요구로 추가할 수 없다.
+export const clauseOf = <C extends Pick<Clause, 'clause_id' | 'clause_no' | 'text'>>(clauses: C[], quote: string) =>
+  quote ? clauses.find(c => normQuote(c.text ?? '').includes(normQuote(quote))) : undefined;
+
+function AddRequirement({ projectId, quote, clause, equipment, onDone, onCancel }: { projectId: string; quote: string; clause: Pick<Clause, 'clause_id' | 'clause_no'>; equipment?: string | null; onDone: (id: string) => void; onCancel: () => void }) {
+  const client = useQueryClient();
+  const [kind, setKind] = useState<keyof typeof KIND_LABEL>('SPEC');
+  const [eq, setEq] = useState(equipment ?? '');
+  const [attr, setAttr] = useState('');
+  const [value, setValue] = useState('');
+  const [unit, setUnit] = useState('');
+  const [cond, setCond] = useState('');
+  const [dupe, setDupe] = useState(false);
+  const valueOk = !value.trim() || normQuote(quote).includes(normQuote(value));
+  const add = useMutation({
+    mutationFn: () => {
+      const [cv, cu] = cond.trim().split(/\s+/);
+      return addRequirement(projectId, {
+        clause_id: clause.clause_id, quote, kind, equipment: eq.trim() || null, task: kind === 'SPEC' ? null : attr.trim(), attribute: attr.trim(),
+        value: value.trim() || null, unit: unit.trim() || null, conditions: cv ? [{ name: 'duration', value: cv, unit: cu ?? null }] : [], allow_duplicate: dupe,
+      } as ManualRequirementRequest, key());
+    },
+    onSuccess: result => { client.invalidateQueries({ queryKey: ['workspace-requirements'] }); client.invalidateQueries({ queryKey: ['projects'] }); onDone(result.data.requirement_id); },
+    onError: error => { if (error instanceof ApiError && error.status === 409) setDupe(true); },
+  });
+  const failed = add.error instanceof ApiError && add.error.status !== 409 ? add.error : add.isError && !(add.error instanceof ApiError) ? add.error : undefined;
+  return <div className="ws-pick ws-form" aria-label="새 요구(직접 추가)">
+    <div className="hd"><span className="name">새 요구(직접 추가)</span><span className="sp" /><button className="ws-link" onClick={onCancel}>취소</button></div>
+    <div className="ws-cmp"><span className="k">조항</span><span className="v">{clause.clause_no}</span><span className="k">인용</span><span className="v ws-quoteval">{quote}</span></div>
+    <div className="ws-go">
+      <label className="ws-field inline">설비<input value={eq} size={10} onChange={event => setEq(event.target.value)} /></label>
+      <label className="ws-field inline">종류<select value={kind} onChange={event => setKind(event.target.value as keyof typeof KIND_LABEL)}>{Object.entries(KIND_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+    </div>
+    <label className="ws-field">속성<input value={attr} onChange={event => setAttr(event.target.value)} /></label>
+    <div className="ws-go">
+      <label className="ws-field inline">값<input value={value} size={10} onChange={event => { setValue(event.target.value); setDupe(false); }} /></label>
+      <label className="ws-field inline">단위<input value={unit} size={5} onChange={event => setUnit(event.target.value)} /></label>
+      <label className="ws-field inline">조건<input value={cond} size={8} placeholder="1 min" onChange={event => setCond(event.target.value)} /></label>
+    </div>
+    {!valueOk && <p role="alert" className="ws-alert">값이 고른 글에 없습니다. 고른 글에 있는 값만 넣을 수 있습니다.</p>}
+    {dupe && <p role="status" className="ws-note">같은 설비·속성·값의 요구가 이미 있습니다. 그래도 추가하려면 다시 누르세요.</p>}
+    <div className="ws-go"><button className="kb primary" disabled={!attr.trim() || !valueOk || add.isPending} onClick={() => add.mutate()}>{dupe ? '그래도 추가' : '요구로 추가'}</button></div>
+    {failed && <p role="alert">{failureText(failed)}</p>}
+  </div>;
+}
+
+function ExcludeLine({ row, version }: { row: Row; version: number }) {
+  const client = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [why, setWhy] = useState('');
+  const exclude = useMutation({
+    mutationFn: () => decideRequirement(row.requirement_id, { version, action: 'exclude_requirement', text: why.trim() } as DecisionRequest, key()),
+    onSuccess: () => { client.invalidateQueries({ queryKey: ['workspace-requirements'] }); client.invalidateQueries({ queryKey: ['projects'] }); },
+  });
+  if (!open) return <button className="ws-link muted ws-histlink" onClick={() => setOpen(true)}>요구에서 빼기</button>;
+  return <div className="ws-form ws-exclude">
+    <div className="ws-go"><label className="ws-field inline">뺀 사유<input value={why} size={28} onChange={event => setWhy(event.target.value)} /></label>
+      <button className="kb" disabled={!why.trim() || exclude.isPending} onClick={() => exclude.mutate()}>요구에서 빼기</button><button className="ws-link" onClick={() => setOpen(false)}>취소</button></div>
+    {exclude.isError && <p role="alert">{failureText(exclude.error)}</p>}
+  </div>;
+}
+
+function ExcludedTable({ rows, responsible }: { rows: Row[]; responsible: boolean }) {
+  const client = useQueryClient();
+  const restore = useMutation({
+    mutationFn: (r: Row) => decideRequirement(r.requirement_id, { version: r.version, action: 'restore_requirement' } as DecisionRequest, key()),
+    onSettled: () => { client.invalidateQueries({ queryKey: ['workspace-requirements'] }); client.invalidateQueries({ queryKey: ['projects'] }); },
+  });
+  return <section className="ws-sec ws-review" aria-label="뺀 요구">
+    <h2>뺀 요구 <span className="muted">{rows.length}건</span></h2>
+    <table className="ws-table"><thead><tr><th>설비</th><th>요구</th><th>요구값</th><th>뺀 사유</th><th className="r" /></tr></thead>
+      <tbody>{rows.map(r => <tr key={r.requirement_id}><td className="tag">{r.equipment}</td><td>{r.attribute ?? r.code}</td><td>{r.value_text ?? '빈 칸'}</td><td>{r.decision?.excluded_reason}</td>
+        <td className="r">{!responsible && <button className="kb" disabled={restore.isPending} onClick={() => restore.mutate(r)}>되살리기</button>}</td></tr>)}
+        {rows.length === 0 && <tr><td colSpan={5} className="muted">뺀 요구가 없습니다.</td></tr>}</tbody></table>
+    {restore.isError && <p role="alert">{failureText(restore.error)}</p>}
+  </section>;
+}
+
+// 책임자 확인 대상: 확인 안 된 결정(뺀 요구 제외)과 확인 안 된 직접 추가·빼기·되살리기. 확인·되돌려 보내기는 그 decision_id로 한다.
+export type PendingReview = { row: Row; decisionId: string; label: string };
+export const pendingReviews = (rows: Row[]): PendingReview[] => rows.flatMap(r => {
+  const d = r.decision;
+  if (!d) return [];
+  return [
+    ...(d.decided && !d.reviewed && !d.excluded && d.decision_id ? [{ row: r, decisionId: d.decision_id, label: d.summary ?? '결정' }] : []),
+    ...(d.change_id && !d.change_reviewed ? [{ row: r, decisionId: d.change_id, label: CHANGE_LABEL[d.change_action ?? ''] ?? '변경' }] : []),
+  ];
+});
+
+const FIELD_LABEL: Record<string, string> = { status: '판단', value: '값', unit: '단위', operator: '비교', necessity: '필수 여부', path: '경로' };
+const fieldValue = (k: string, v: unknown) => v == null ? '없음' : k === 'status' ? label(STATUS_LABEL, String(v)) : k === 'necessity' ? label(NECESSITY_LABEL, String(v)) : k === 'path' ? label(PATH_LABEL, String(v)) : k === 'operator' ? label(OPERATOR_LABEL, String(v)) || '같음' : String(v);
+// 이력 한 줄의 내용: 직접 추가·빼기·되살리기는 그 말로, 판본 변화는 바뀐 칸마다 전 → 후.
+export function historyText(h: HistoryItem) {
+  const action = String(h.after?.action ?? '');
+  const head = h.kind === 'decision' && CHANGE_LABEL[action] ? `${CHANGE_LABEL[action]}: ${h.summary}` : h.summary;
+  const keys = [...new Set([...Object.keys(h.before ?? {}), ...Object.keys(h.after ?? {})])].filter(k => FIELD_LABEL[k]);
+  return { head, change: keys.map(k => `${FIELD_LABEL[k]} ${h.before ? fieldValue(k, h.before[k]) + ' → ' : ''}${fieldValue(k, h.after?.[k])}`).join(', ') };
 }

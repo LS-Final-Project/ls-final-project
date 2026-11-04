@@ -42,5 +42,5 @@ export const MOCK_WORKSPACE_REQUIREMENTS: RequirementSummary[] = ROWS.map(([code
   status: verdict === 'MET' ? 'EVIDENCE_FOUND' : verdict === 'CONFIRM' || verdict === 'DEVIATION' ? 'CONDITIONAL' : 'INSUFFICIENT_EVIDENCE',
   necessity: 'MANDATORY', provenance_kind: 'ai_draft', needs_rereview: false, needs_review: false, open_questions: 0,
   path: null, rnd_check: 'NOT_REQUIRED', is_designated_item: false, bid_verdict: verdict,
-  decision: { needed: verdict !== 'MET', decided: false, reviewed: false },
+  decision: { needed: verdict !== 'MET', decided: false, reviewed: false, excluded: false, manually_added: false, change_reviewed: false },
 }));
