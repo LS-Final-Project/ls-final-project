@@ -879,6 +879,56 @@ async def decide_requirement(
     )
 
 
+@router.post(
+    P + "/decisions/bulk",
+    response_model=SuccessResponse[s.BulkDecisionResult],
+    operation_id="tft_bulk_decide_rfp_requirements",
+)
+async def bulk_decide(
+    project_id: UUID,
+    payload: s.BulkDecisionRequest,
+    idempotency_key: Key,
+    request: Request,
+    principal: User,
+) -> SuccessResponse[s.BulkDecisionResult]:
+    """같은 프로젝트의 결정 여러 건을 한 트랜잭션으로 확정한다(KAN-228). 한 건이라도 실패하면 모두 저장하지 않는다."""
+    from backend.api.tft.rfp.bulk import bulk_decide as run
+
+    return respond(request, await run(request, principal, project_id, payload, idempotency_key))
+
+
+@router.post(
+    P + "/decisions/bulk/{batch_id}/undo",
+    response_model=SuccessResponse[s.BulkDecisionResult],
+    operation_id="tft_bulk_undo_rfp_decisions",
+)
+async def bulk_undo(
+    project_id: UUID,
+    batch_id: UUID,
+    idempotency_key: Key,
+    request: Request,
+    principal: User,
+) -> SuccessResponse[s.BulkDecisionResult]:
+    """일괄 결정 한 묶음을 되돌린다(KAN-228)."""
+    from backend.api.tft.rfp.bulk import bulk_undo as run
+
+    return respond(request, await run(request, principal, project_id, batch_id, idempotency_key))
+
+
+@router.post(
+    P + "/questions/sent",
+    response_model=SuccessResponse[s.QuestionSendList],
+    operation_id="tft_mark_rfp_questions_sent",
+)
+async def mark_questions_sent(
+    project_id: UUID, payload: s.QuestionsSent, request: Request, principal: User
+) -> SuccessResponse[s.QuestionSendList]:
+    """질의서를 메일로 보낸 시각을 질문마다 남긴다(KAN-228). 다시 보내도 처음 기록을 그대로 둔다."""
+    from backend.api.tft.rfp.bulk import mark_sent
+
+    return respond(request, await mark_sent(request, principal, project_id, payload))
+
+
 # KAN-226 변경 이력(읽기 전용). 이벤트 종류와 출처는 history.py와 contracts/tft/rfp-data.md.
 # 두 중계가 같은 query 키 반복을 막아 kind는 쉼표로 잇는다(kind=decision,recompared).
 HistoryKinds = Annotated[str | None, Query(pattern=history.KIND_PATTERN, max_length=200)]

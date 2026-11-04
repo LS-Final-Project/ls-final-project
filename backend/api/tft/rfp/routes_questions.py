@@ -6,6 +6,7 @@
 
 import asyncio
 from collections.abc import Callable, Mapping
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -185,7 +186,18 @@ async def list_questions(
             target=target,
             target_dept=target_dept,
         )
-    return s.QuestionList(items=[question_out(row) for row in rows])
+        from backend.api.tft.rfp.bulk import sends, waiting_days
+
+        sent = await sends(conn, [row["id"] for row in rows])
+    now = datetime.now(UTC)
+    items = []
+    for row in rows:
+        question = question_out(row)
+        if (send := sent.get(question.question_id)) is not None:
+            question.sent_at = send.sent_at
+            question.waiting_days = waiting_days(question, send, now)
+        items.append(question)
+    return s.QuestionList(items=items)
 
 
 async def check_question(

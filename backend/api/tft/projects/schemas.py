@@ -5,7 +5,7 @@ staffing requests, recommendations, checks, compositions, responsible decisions)
 removed from the API in KAN-181; their tables stay in the database.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
@@ -60,6 +60,10 @@ class ProjectSummary(BaseModel):
     open_questions_count: int
     strategic_customer: bool | None = None
     integration_responsibility: IntegrationSummary
+    # KAN-228: 목록의 마감과 남은 일. 남은 수는 상세의 decision_gate와 같은 계산이다.
+    submission_due_at: date | None = None
+    decisions_remaining: int = 0
+    review_pending: int = 0
 
 
 class ProjectList(BaseModel):

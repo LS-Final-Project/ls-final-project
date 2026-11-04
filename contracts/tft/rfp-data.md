@@ -394,3 +394,32 @@ allow_duplicate?}`이고 Idempotency-Key가 필수다. 값은 사람이 넣고 A
 재처리 뒤에도 그대로이고, 재처리가 다시 만드는 초안도 뺀 요구를 넣지 않는다. 처리 작업(tft_worker)은 빼기 표시를 계산하는
 `requirement_decisions` 열(id·requirement_id·detail·created_at)만 읽는다. 새 문서 판본을 처리해 같은 내용의 요구가 다시
 추출되면 그 요구는 새 요구다(이전 판본 요구의 빼기는 따라가지 않는다).
+
+## 일괄 결정·질의서 발송 기록·목록의 남은 일 (KAN-228, 2026-11-05)
+
+**일괄 결정.** `POST /projects/{id}/decisions/bulk`(Idempotency-Key) 본문 `{items: [{requirement_id, version, action, ...}]}`
+(1~200건). 항목은 결정 경로 본문과 같고 행동은 결정 행동(`confirm_met`·`record_deviation`·`request_check`·`add_query`·
+`select_partner`·`ask_rnd`·`assign`)과 `change_verdict`만이다(되돌리기·책임자 확인·추가·빼기는 단건으로). 서버는 항목마다
+단건 결정(`decisions.decide_on`)을 한 트랜잭션에서 부르므로 권한·판본·뺀 요구 규칙이 단건과 같다. 한 건이라도 실패하면
+아무것도 저장하지 않고 그 오류를 그대로 돌려주며 `details[0]`에 `index`·`requirement_id`·`reason`(오류 코드)을 붙인다.
+첫 실패만 알린다. 같은 요구를 두 번 넣으면 두 번째가 판본 409다. 응답은 `{batch_id, items: [DecisionResult]}`이고
+`batch_id`는 사용자·키로 정해진다. 같은 키 재전송은 건마다 첫 결과를 재생한다(본문이 다르면 409 `IDEMPOTENCY_CONFLICT`).
+건별 결정 기록은 `detail.batch_id`를 갖고 이력(KAN-226)에는 단건 결정과 똑같이 나온다.
+
+**묶음 되돌리기.** `POST /projects/{id}/decisions/bulk/{batch_id}/undo`(Idempotency-Key). 묶음에서 아직 되돌리지 않은 결정을
+최근 것부터 단건 `undo`로 되돌린다(한 트랜잭션, 한 건이라도 안 되면 모두 그대로). 판단을 바꾼 결정 뒤에 다른 판본이
+생겼으면 단건과 같이 409다. 되돌릴 것이 없으면 이미 되돌린 기록(`detail.undoes_batch`)을 돌려주고, 그것도 없으면 404
+`TFT_BATCH_NOT_FOUND`다.
+
+**질의서 발송 기록.** `POST /projects/{id}/questions/sent` 본문 `{question_ids, mail_ref?}`. 메일 화면에서 질의서를 보낸 뒤
+화면이 부른다. 담당 sales만(403), 그 프로젝트의 철회하지 않은 고객 질의(OPEN·REPLIED)만(아니면 422). 질문마다 처음 보낸
+기록 한 행(`tft.question_sends`)만 남기고 다시 보내도 바꾸지 않는다(멱등 키 불필요). 질문 목록(경로 18)의 각 질문에
+`sent_at`과, 보냈고 OPEN이면 `waiting_days`(보낸 날부터 한국 날짜로 지난 날수)가 붙는다. 메일 발송 자체와 질의-메일 연결은
+플랫폼 메일이 하고 tft는 보낸 사실만 안다.
+
+**프로젝트 목록.** `GET /api/v1/tft/projects` 항목에 `submission_due_at`(제안서 제출 마감, 날짜, 접수·수정 본문으로 입력,
+null은 입력 전), `decisions_remaining`(= 상세 `decision_gate.undecided`), `review_pending`(= `decision_gate.review_pending`).
+남은 수는 쪽마다 프로젝트별로 상세와 같은 함수로 계산한다.
+
+웹·플랫폼 중계 허용표에는 아직 넣지 않았다. 화면을 붙일 때 세 경로를 `relay.py`·`frontend/server.mjs`·
+`docs/openapi/business-relay-routes.json`에 함께 더한다.
