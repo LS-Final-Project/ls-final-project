@@ -2,7 +2,7 @@
 
 요약(`backend/api/cs/summary/routes.py`)과 같은 흐름이다.
 - `GET  /api/v1/cs/tickets/{id}/translation`: 저장된 최근 번역과 최근 시도. 문의 조회 범위와 같다.
-- `POST /api/v1/cs/tickets/{id}/translation`: cs_agent가 번역을 만든다. 같은 원문·프롬프트 판본의 성공한 번역이
+- `POST /api/v1/cs/tickets/{id}/translation`: cs_agent와 이관받은 부서의 dept_staff가 번역을 만든다. 같은 원문·프롬프트 판본의 성공한 번역이
   이미 있으면 모델을 부르지 않고 그것을 돌려준다(200). 새로 만들면 201, 실패하면 시도를 저장하고 502다.
   원문이 이미 한국어면 모델을 부르지 않고 422 `CS_TRANSLATION_NOT_NEEDED`다.
 - `CS_TRANSLATION_ENABLED`가 꺼져 있으면 두 경로 모두 404다. 켜면 C/S 서비스가 모델을 직접 부른다(비용).
@@ -25,7 +25,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from backend.api.cs.summary.routes import load, usage_values
 from backend.api.cs.tickets import repository as tickets
-from backend.api.cs.tickets.access import require_ticket_write
+from backend.api.cs.tickets.access import require_ai_reading_aid
 from backend.api.cs.tickets.routes import PARTIAL, respond
 from backend.api.cs.translation import repository
 from backend.api.cs.translation.schemas import (
@@ -200,7 +200,7 @@ async def create_translation(
     async with connection(request.app.state.settings) as conn:
         # permissions.md 1.3: 범위(404) 다음 역할(403).
         ticket = await load(conn, principal, ticket_id)
-        require_ticket_write(principal)
+        require_ai_reading_aid(principal)
     payload, sha = prepared(ticket)
     if not needs_translation(payload):
         raise ApplicationError(

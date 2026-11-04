@@ -28,7 +28,7 @@
 | 메서드 | 허용 | 동작 |
 | --- | --- | --- |
 | `GET` | 문의 조회 범위 | 지금 원문·프롬프트 판본에 맞는 성공한 번역, 없으면 가장 최근의 성공한 번역(`translation`, 없으면 null)과 가장 최근 시도(`latest_attempt`, 실패 포함). 모델을 부르지 않는다. 번역 뒤 원문이나 프롬프트 판본이 바뀌었으면 `translation.stale = true` |
-| `POST` | cs_agent(범위 안) | 원문이 한국어면 422 `CS_TRANSLATION_NOT_NEEDED`(모델 호출 없음). 같은 원문·프롬프트 판본의 성공한 번역이 있으면 모델을 부르지 않고 그것을 200으로 준다. 없으면 모델을 불러 저장하고 201. 동시 요청 처리(프로세스 안 줄 세우기, 다른 인스턴스 저장 시 고유 색인)는 요약과 같다. 실패하면 시도를 저장하고 502 `CS_TRANSLATION_FAILED`(`details[0].code`에 위 코드 또는 `CS_PROVIDER_TIMEOUT`·`CS_RATE_LIMITED`·`CS_PROVIDER_ERROR`) |
+| `POST` | cs_agent, 이관받은 부서의 dept_staff(범위 안, 2026-11-04 검토 답변 화면) | 원문이 한국어면 422 `CS_TRANSLATION_NOT_NEEDED`(모델 호출 없음). 같은 원문·프롬프트 판본의 성공한 번역이 있으면 모델을 부르지 않고 그것을 200으로 준다. 없으면 모델을 불러 저장하고 201. 동시 요청 처리(프로세스 안 줄 세우기, 다른 인스턴스 저장 시 고유 색인)는 요약과 같다. 실패하면 시도를 저장하고 502 `CS_TRANSLATION_FAILED`(`details[0].code`에 위 코드 또는 `CS_PROVIDER_TIMEOUT`·`CS_RATE_LIMITED`·`CS_PROVIDER_ERROR`) |
 
 - 순서는 permissions.md 1.3: 범위 밖 문의 404 `CS_TICKET_NOT_FOUND`, 역할 403. 번역할 수 없는 문의(빈 본문·잘못된 언어 표기 등)에 POST하면 422 `CS_TRANSLATION_INPUT_INVALID`이고, GET은 저장본을 `stale = true`로 보여 준다.
 - `translation`: `id`·`subject_ko`·`body_ko`·`created_at`(AI 작성 시각)·`requested_model`·`model_version`·`prompt_version`·`input_version`·`stale`.
