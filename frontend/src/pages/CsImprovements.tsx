@@ -267,7 +267,6 @@ function ImprovementView(){
     {key:'product',header:'제품',width:150,sortValue:item=>item.product_code,cell:item=>item.product_code},
     {key:'status',header:'상태',width:110,className:'c',sortValue:item=>STEP_OF[item.status]??-1,cell:item=><span className={`chip st-${item.status.toLowerCase()}`}>{REQUEST_STATUS_LABEL[item.status]??item.status}</span>},
     {key:'created',header:'작성일',width:96,className:'c',sortValue:item=>Date.parse(item.created_at),cell:item=>dayOf(item.created_at)},
-    {key:'owner',header:'담당',width:230,sortValue:item=>item.cs_owner??'',cell:item=>`담당자 ID: ${item.cs_owner??'미배정'}`},
   ];
   const titleOf=useSymptoms([...(list.data?.data.items??[]).filter(systemTitle).map(item=>item.product_code),...(r&&systemTitle(r)?[r.product_code]:[])]);
   const at=!r?-1:r.status==='DRAFT'&&!reviewBlock?1:STEP_OF[r.status]??-1;
