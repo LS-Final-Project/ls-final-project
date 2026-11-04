@@ -59,7 +59,7 @@ COMPARISON_PLAIN: dict[s.ComparisonResult, str] = {
     "NO_DATA": "자사 비교 자료가 부족한 항목",
 }
 # 문장 하나에 나열할 항목 수. 넘으면 문장을 나누고 문장마다 자기 항목의 근거만 단다.
-MAX_ITEMS_PER_SENTENCE = 12
+MAX_ITEMS_PER_SENTENCE = 6
 REPRESENTATIVE_CHARS = 120
 COMPARISON_REPRESENTATIVE_CHARS = 1000
 COMPARISON_VALUE_CHARS = 900

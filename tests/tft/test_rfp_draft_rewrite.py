@@ -496,3 +496,7 @@ def test_sections_longer_than_one_batch_are_sent_in_batches_not_skipped():
     result = rewrite(source, provider)
     assert sizes == [8, 8, 4] and result.rewritten == 20 and result.fallback == 0
     assert not any(call.outcome == "skipped" for call in result.calls)
+    # 호출 기록 키는 (작업, 절, 시도)다. 묶음마다 절 이름이 달라야 기록이 겹쳐 사라지지 않는다.
+    keys = [(call.section, call.attempt) for call in result.calls]
+    assert keys == [("OUR_RESPONSE", 1), ("OUR_RESPONSE:2", 1), ("OUR_RESPONSE:3", 1)]
+    assert len(set(keys)) == len(keys)

@@ -168,7 +168,8 @@ def rewrite_provider(config: ProcessorSettings) -> Provider:
 
         if client is None:
             client = create_client(ai)
-        return generate(client, ai, text, response_schema=RewriteOutput)
+        # 글을 다듬는 일이라 깊은 추론이 필요 없다. 기본 thinking은 호출 비용의 대부분이었다(D21 실측).
+        return generate(client, ai, text, response_schema=RewriteOutput, thinking_level="LOW")
 
     return provide
 

@@ -64,8 +64,8 @@ def test_rewrite_provider_is_lazy_uses_array_schema_and_disables_transport_retri
     created, seen = [], {}
     monkeypatch.setattr(ai, "create_client", lambda settings: created.append(settings) or "client")
 
-    def generate(client, settings, text, *, response_schema):
-        seen.update(schema=response_schema, settings=settings)
+    def generate(client, settings, text, *, response_schema, thinking_level=None):
+        seen.update(schema=response_schema, settings=settings, thinking=thinking_level)
         return "generation"
 
     monkeypatch.setattr(ai, "generate", generate)
@@ -75,6 +75,7 @@ def test_rewrite_provider_is_lazy_uses_array_schema_and_disables_transport_retri
     assert created == []
     assert provider("fake prompt") == "generation"
     assert seen["schema"] is RewriteOutput
+    assert seen["thinking"] == "LOW"  # 문장 다듬기는 낮은 사고 수준으로 비용을 줄인다.
     assert (
         seen["settings"].gemini_max_output_tokens,
         seen["settings"].gemini_timeout_ms,

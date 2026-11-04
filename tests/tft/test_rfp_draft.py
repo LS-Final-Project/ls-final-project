@@ -817,7 +817,9 @@ def test_bulk_draft_keeps_each_equipment_and_path_apart_without_mixed_overflow(s
         for e in row.evidence:
             if e.type == "requirement" and not row.text.startswith("유닛 전체"):
                 assert equipment[e.id] in row.text
-    assert len(sentences(result, "CUSTOMER_GOAL_SCOPE")) == 30
+    scope = sentences(result, "CUSTOMER_GOAL_SCOPE")
+    assert {row.text.split(":")[0] for row in scope} == set(equipment.values())
+    assert len(scope) == 30 * -(-8 // engine.MAX_ITEMS_PER_SENTENCE)
     expected = (
         {("requirement", str(req.requirement_id)) for req in data["requirements"]}
         | {("clause", str(req.origin.clause_id)) for req in data["requirements"]}
@@ -850,7 +852,9 @@ def test_bulk_draft_keeps_each_equipment_and_path_apart_without_mixed_overflow(s
     assert build_draft(**reordered) == result
 
 
-@pytest.mark.parametrize("count", [12, 13])
+@pytest.mark.parametrize(
+    "count", [engine.MAX_ITEMS_PER_SENTENCE, engine.MAX_ITEMS_PER_SENTENCE + 1]
+)
 def test_one_equipment_lists_every_quote_in_clause_order_and_splits_with_own_evidence(
     snapshot, count
 ):
@@ -861,7 +865,7 @@ def test_one_equipment_lists_every_quote_in_clause_order_and_splits_with_own_evi
         req.spec.task = None
         req.judgement.status = "INSUFFICIENT_EVIDENCE"
     rows = sentences(build_draft(**data), "CUSTOMER_GOAL_SCOPE")
-    assert len(rows) == (1 if count == 12 else 2)
+    assert len(rows) == (1 if count == engine.MAX_ITEMS_PER_SENTENCE else 2)
     text = " ".join(row.text for row in rows)
     positions = [text.index(req.origin.quote) for req in data["requirements"]]
     assert positions == sorted(positions)
