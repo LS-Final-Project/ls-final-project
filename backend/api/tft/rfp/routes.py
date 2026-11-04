@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Header, Query, Request, Response
 
 from backend.api.tft.projects.access import require_project_list
 from backend.api.tft.rfp import (
+    analysis,
     context_routes,
     history,
     jobs,
@@ -927,6 +928,18 @@ async def mark_questions_sent(
     from backend.api.tft.rfp.bulk import mark_sent
 
     return respond(request, await mark_sent(request, principal, project_id, payload))
+
+
+@router.get(
+    P + "/analysis",
+    response_model=SuccessResponse[analysis.AnalysisOverview],
+    operation_id="tft_get_rfp_analysis_overview",
+)
+async def analysis_overview(
+    request: Request, user: User, project_id: UUID
+) -> SuccessResponse[analysis.AnalysisOverview]:
+    """분석 접수 목록(지난 기록은 플랫폼 작업 이벤트로 재생)과 다음 처리 실행 방식(KAN-232)."""
+    return respond(request, await analysis.overview(request, user, project_id))
 
 
 # KAN-226 변경 이력(읽기 전용). 이벤트 종류와 출처는 history.py와 contracts/tft/rfp-data.md.

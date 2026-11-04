@@ -1,6 +1,75 @@
 {
   "components": {
     "schemas": {
+      "AnalysisJob": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_user_id": {
+            "format": "uuid",
+            "title": "Actor User Id",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "rfp.process",
+              "rfp.context"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "kind",
+          "requested_at",
+          "actor_user_id"
+        ],
+        "title": "AnalysisJob",
+        "type": "object"
+      },
+      "AnalysisOverview": {
+        "additionalProperties": false,
+        "properties": {
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/AnalysisJob"
+            },
+            "title": "Jobs",
+            "type": "array"
+          },
+          "process_mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "regrade",
+                  "extract"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Process Mode"
+          }
+        },
+        "required": [
+          "jobs",
+          "process_mode"
+        ],
+        "title": "AnalysisOverview",
+        "type": "object"
+      },
       "AnnotationProcess": {
         "additionalProperties": false,
         "properties": {
@@ -8574,6 +8643,22 @@
         "title": "SourceReference",
         "type": "object"
       },
+      "SuccessResponse_AnalysisOverview_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AnalysisOverview"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[AnalysisOverview]",
+        "type": "object"
+      },
       "SuccessResponse_BulkDecisionResult_": {
         "properties": {
           "data": {
@@ -10881,6 +10966,100 @@
           }
         },
         "summary": "Update Project",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
+    "/api/v1/tft/projects/{project_id}/analysis": {
+      "get": {
+        "description": "\ubd84\uc11d \uc811\uc218 \ubaa9\ub85d(\uc9c0\ub09c \uae30\ub85d\uc740 \ud50c\ub7ab\ud3fc \uc791\uc5c5 \uc774\ubca4\ud2b8\ub85c \uc7ac\uc0dd)\uacfc \ub2e4\uc74c \ucc98\ub9ac \uc2e4\ud589 \ubc29\uc2dd(KAN-232).",
+        "operationId": "tft_get_rfp_analysis_overview",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_AnalysisOverview_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Analysis Overview",
         "tags": [
           "rfp"
         ]

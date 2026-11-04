@@ -630,6 +630,13 @@
       "query": []
     },
     {
+      "path": "/api/v1/tft/projects/{uuid}/analysis",
+      "methods": [
+        "GET"
+      ],
+      "query": []
+    },
+    {
       "path": "/api/v1/tft/projects/{uuid}/decisions/bulk",
       "methods": [
         "POST"
@@ -1503,6 +1510,17 @@
     {
       "method": "POST",
       "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/equipment",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/analysis",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/analysis",
       "forward": false,
       "status": 405
     },
