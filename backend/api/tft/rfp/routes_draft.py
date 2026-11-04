@@ -94,6 +94,65 @@ async def edit_draft(
     return display
 
 
+async def regenerate(
+    request: Request,
+    principal: Principal,
+    project_id: UUID,
+    payload: s.DraftRegenerate,
+    key: str,
+) -> s.Draft:
+    """처리 작업 없이 저장된 결과로 초안 판본을 새로 만든다. 권한은 검토본 저장과 같다."""
+    async with connection(request.app.state.settings) as conn:
+        await visible(conn, principal, project_id, write=True)
+        result = await drafts.regenerate(conn, project_id, principal.user_id, payload.version, key)
+        result.evidence_labels = await db.evidence_labels(conn, project_id)
+    return result
+
+
+async def review_versions(
+    request: Request, principal: Principal, project_id: UUID
+) -> s.ReviewVersionList:
+    """검토본 이력, 최신순. 저장은 언제나 REVIEW_DRAFT로 바꾸므로 그 값을 준다."""
+    async with connection(request.app.state.settings) as conn:
+        await visible(conn, principal, project_id)
+        cursor = await conn.execute(
+            "SELECT review_version,draft_version,note,judgement_status,saved_by,saved_at "
+            "FROM tft.review_versions WHERE project_id=%s ORDER BY review_version DESC",
+            (project_id,),
+        )
+        rows = await cursor.fetchall()
+    return s.ReviewVersionList(
+        items=[s.ReviewVersionItem(**row, output_status="REVIEW_DRAFT") for row in rows]
+    )
+
+
+async def exports(request: Request, principal: Principal, project_id: UUID) -> s.ExportList:
+    """내보내기 이력, 최신순. 파일 이름은 내려받기 응답의 이름과 같다."""
+    async with connection(request.app.state.settings) as conn:
+        await visible(conn, principal, project_id)
+        cursor = await conn.execute(
+            "SELECT id,review_version,format,created_by,created_at,completed_at "
+            "FROM tft.exports WHERE project_id=%s ORDER BY created_at DESC, id DESC",
+            (project_id,),
+        )
+        rows = await cursor.fetchall()
+    return s.ExportList(
+        items=[
+            s.ExportItem(
+                export_id=row["id"],
+                review_version=row["review_version"],
+                format=row["format"],
+                status="SUCCEEDED" if row["completed_at"] else "QUEUED",
+                requested_by=row["created_by"],
+                requested_at=row["created_at"],
+                finished_at=row["completed_at"],
+                file_name=f"rfp-{row['id']}.docx" if row["completed_at"] else None,
+            )
+            for row in rows
+        ]
+    )
+
+
 async def save_review(
     request: Request,
     principal: Principal,

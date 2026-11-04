@@ -9,15 +9,21 @@ import { SelectionEditor, reasonLabel } from './RfpSupplement';
 import { attributeName, requirementNo, STATUS_LABEL, BLOCKED_LABEL, PATH_LABEL, RND_CHECK_LABEL, label } from './labels';
 import './ResponseDecision.css';
 import { GuidedRequirementReview } from './GuidedRequirementReview';
+import { formatDateTime } from '../components/tft';
 import { DevelopmentReviewFlow } from './DevelopmentReviewFlow';
 
 const noop = () => {};
 const displayUnit = (unit: string | null | undefined) => unit && ['month', 'months', '개월'].includes(unit.toLowerCase()) ? '개월' : unit;
 const displayValue = (value: string | null | undefined, unit: string | null | undefined) => [value, displayUnit(unit)].filter(Boolean).join(' ');
 const resultLabel = { MEETS: '값 비교상 충족', DIFFERS: '조건 차이', NOT_COMPARABLE: '비교 불가', NO_DATA: '자료 없음' };
+const KIND_LABEL = { task: '과업', spec: '사양', commercial: '상업 조건', designated: '지정품' };
+const PERMISSION_TEXT = { ALLOWED: '발주처가 외부 위탁을 허용함', FORBIDDEN: '원문상 외부 위탁 불가 · 원문 확인 필요', UNSTATED: '발주처가 외부 위탁을 허용하는지 먼저 확인 필요' };
+const shortQuote = (quote: string) => { const text = quote.replace(/\s+/g, ' ').trim(); return text.length > 48 ? `${text.slice(0, 48)}…` : text; };
 const gradeLabel = { MANDATORY_CONFIRMED: '필수 기술조건 확인', REVIEW: '검토', REFERENCE_ONLY: '확인용', EXCLUDED: '제외' };
-export function ResponseDecision({ projectId, actorId, requirement, canSelect, onSaved, reviewDepartments, projectVersion, canEditProject, onProjectSaved }: {
+export function ResponseDecision({ projectId, actorId, requirement, canSelect, onSaved, reviewDepartments, projectVersion, canEditProject, onProjectSaved, onShowQuote }: {
   projectId: string; actorId: string; requirement: RequirementSummary; canSelect: boolean; onSaved: () => void; reviewDepartments?: string[]; projectVersion?: number; canEditProject?: boolean; onProjectSaved?: () => void;
+  // 원문 창에서 이 요구의 인용 위치를 다시 보여 준다(원문 창이 있는 화면에서만).
+  onShowQuote?: () => void;
 }) {
   const mode = getApiMode();
   const { requirement_id: id, version } = requirement;
@@ -37,6 +43,7 @@ export function ResponseDecision({ projectId, actorId, requirement, canSelect, o
   const selectionReady = !!currentDetail && !!currentOptions && candidates.isSuccess && candidateVersionsMatch && optionCodesKnown;
   const workspace = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState<string>();
+  const [chosen, setChosen] = useState<string>();
   const [visited, setVisited] = useState<Set<string>>(() => new Set());
   const openWorkspace = (panel: string) => { setVisited(previous => new Set(previous).add(panel)); setExpanded(panel); requestAnimationFrame(() => { const element = workspace.current; if (element && element.getBoundingClientRect().bottom > window.innerHeight) element.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' }); }); };
   const savedPath = currentDetail?.judgement.path;
@@ -58,7 +65,17 @@ export function ResponseDecision({ projectId, actorId, requirement, canSelect, o
   const showPartners = currentOptions?.options.some(o => ['EXTERNAL_PRODUCT', 'TASK_SUBCONTRACT', 'JOINT_PROPOSAL'].includes(o.path)) === true;
   const customerValueMissing = !!currentDetail && !task && currentDetail.spec.operator !== 'TEXT' && !currentDetail.spec.value?.trim();
   const guided = !!currentDetail && (customerValueMissing || commercial || designated || !showDevelopment && currentDetail.judgement.status !== 'EVIDENCE_FOUND');
-  const activePanel = expanded === 'closed' ? undefined : expanded ?? (guided ? 'questions' : undefined);
+  const kind = commercial ? 'commercial' : designated ? 'designated' : task ? 'task' : 'spec';
+  const partnerCount = candidates.isSuccess && candidateVersionsMatch ? candidateRows.filter(c => currentGrade(c).some(g => g.grade !== 'EXCLUDED')).length : undefined;
+  const recordedPath = selectionRecord || (hasSavedPath ? savedPath : undefined);
+  // 과업은 "누가 수행하나"를 고른다. 선택지는 서버가 허용한 경로에서만 만들고, 고르는 것만으로 저장하지 않는다(기존 작업 영역을 연다).
+  const taskChoices: { key: string; path: string; title: string; next: string; panel: string }[] = kind !== 'task' || !currentDetail || !currentOptions || issue ? [] : currentOptions.options.filter(o => o.allowed && o.path !== 'NONE').map(o =>
+    o.path === 'OWN_DEVELOPMENT' ? { key: o.path, path: o.path, title: '자사 수행', next: showDevelopment ? '기술 검토 담당에게 수행 가능 여부·일정 확인 요청' : '대응 방안 기록에서 수행 담당·일정 기록', panel: showDevelopment ? 'development' : 'selection' }
+    : o.path === 'TASK_SUBCONTRACT' ? { key: o.path, path: o.path, title: '협력사 위탁', next: [PERMISSION_TEXT[currentOptions.customer_permission], partnerCount === undefined ? '후보 확인 중' : partnerCount ? `등록된 후보 ${partnerCount}곳` : '등록된 후보 없음'].filter(Boolean).join(' · '), panel: showPartners && partnerCount ? 'partners' : 'selection' }
+    : { key: o.path, path: o.path, title: label(PATH_LABEL, o.path), next: '대응 방안 기록에서 조건 확인', panel: 'selection' });
+  if (taskChoices.length) taskChoices.push({ key: 'UNKNOWN', path: '', title: '아직 모름', next: '발주처에 수행 범위 질문 작성', panel: 'questions' });
+  const questionsAvailable = !!currentDetail && (guided || taskChoices.length > 0);
+  const activePanel = expanded === 'closed' ? undefined : expanded ?? (guided && !taskChoices.length ? 'questions' : undefined);
   const termsOption = currentOptions?.options.find(o => o.path === 'OWN_TERMS_REVIEW');
   const next = issue ? { text: '최신 근거 다시 조회', panel: 'refresh' }
     : reviewNeeded ? { text: '원문·판정 재확인', panel: 'criteria' }
@@ -74,30 +91,47 @@ export function ResponseDecision({ projectId, actorId, requirement, canSelect, o
     : showDevelopment ? { text: '기술·개발 검토 확인', panel: 'development' }
     : { text: '확인 질문과 기록 보기', panel: 'questions' };
   const workTitle = commercial ? '보증·상업 조건 검토' : designated ? '지정품 조달 검토' : task ? '수행 범위·담당 검토' : '대응 방안 검토';
-  const heading = commercial ? '보증·상업 조건 확인이 필요합니다' : designated ? '지정품 조달 조건을 확인하세요' : task ? '수행 범위와 담당을 확인하세요' : currentDetail?.judgement.status === 'EVIDENCE_FOUND' ? '저장된 충족 근거를 확인하세요' : '고객 요구와 자사 조건을 확인하세요';
-  const actionExplanation = commercial ? '영업·보증 조건 변경 가능 여부와 남은 조건을 확인하세요.'
-    : designated ? '지정 모델의 조달 조건과 고객 허용 범위를 확인하세요.'
-    : task ? '수행 담당, 업무 범위와 제출할 자료를 확인하세요.'
-    : showDevelopment ? '개발 확인 상태와 요청·회신 근거를 확인하세요.'
-    : '미확인 조건을 검토하고 근거에 맞는 대응 경로를 선택하세요.';
   const ownSummary = comparison.isError ? '조회 실패' : comparison.isSuccess && !currentComparison ? '판본 확인 필요' : !currentComparison ? '확인 중'
     : currentComparison.search_trace.search_failed ? '검색 실패 · 재확인 필요'
     : `저장 후보 ${currentComparison.candidates.length}개`;
   const partnerSummary = candidates.isError ? '조회 실패' : !candidates.isSuccess ? '확인 중'
     : !candidateVersionsMatch ? '판본 확인 필요'
     : `제외되지 않은 후보 ${candidateRows.filter(c => currentGrade(c).some(g => g.grade !== 'EXCLUDED')).length}곳`;
+  const fullNo = requirementNo(requirement.code);
+  const clauseNo = currentDetail?.origin.clause_no?.trim() || fullNo.replace(/-\d+$/, '');
+  const clauseText = /^(요구 번호|이미지 요구)/.test(clauseNo) ? clauseNo : `조항 ${clauseNo}`;
+  const status = currentDetail?.judgement.status;
+  const gapText = !currentDetail ? detail.isError || detail.isSuccess ? '판정 확인 필요' : '판정 확인 중'
+    : status === 'INSUFFICIENT_EVIDENCE' ? kind === 'task' ? '자사 수행 실적·인력 자료를 찾지 못함 (불가 판정 아님)' : '자사 자료에서 이 조건의 근거를 찾지 못함 (불가 판정 아님)'
+    : status === 'SPEC_GAP' ? commercial ? '자사 상업·보증 조건이 고객 요구와 다름' : '자사에 저장된 조건이 고객 요구와 다름'
+    : status === 'CONDITIONAL' ? '적용 조건을 맞춰 봐야 충족 여부를 알 수 있음'
+    : '저장된 근거 있음 · 설비 전체 충족을 뜻하지 않음';
+  const openItems = currentDetail ? [...currentDetail.spec.undetermined_items, ...currentDetail.judgement.unresolved] : [];
   const refresh = () => { void detail.refetch(); void comparison.refetch(); void options.refetch(); void candidates.refetch(); };
   const openNext = () => {
     if (next.panel === 'refresh') refresh();
     else openWorkspace(next.panel);
   };
+  const gapRows = <>
+        <dt>{currentDetail?.judgement.status === 'EVIDENCE_FOUND' ? '확인된 것' : '확인 안 된 것'}</dt>
+        <dd className="response-gap">{gapText}{openItems.length > 0 && <small>남은 확인: {openItems.join(' · ')}</small>}{reviewNeeded && <span role="status">원문 확인·재검토 필요</span>}</dd>
+  </>;
   return <div className="rfp-response-decision rfp-supplement">
     <section className="response-current" aria-label="선택 요구 현재 상태">
-      <div className="response-current-identify"><span>{requirement.equipment ?? requirement.task ?? '선택 요구'}</span><small>{requirementNo(requirement.code)}</small></div>
-      <h3>{issue ? '최신 근거 확인이 필요합니다' : heading}</h3><p>{attributeName(requirement.attribute_key, requirement.attribute)}</p>
-      <div className="response-current-status"><strong>{currentDetail ? commercial && currentDetail.judgement.status === 'SPEC_GAP' ? '상업·보증 조건 차이' : label(STATUS_LABEL, currentDetail.judgement.status) : detail.isError || detail.isSuccess ? '판정 확인 필요' : '판정 확인 중'}</strong>{reviewNeeded && <span role="status">원문 확인·재검토 필요</span>}</div>
-      <div className="response-comparison" aria-label="고객 요구와 자사 조건 비교">
-        <div className="response-customer"><b>고객 요구</b><p>{currentDetail ? displayValue(currentDetail.spec.value, currentDetail.spec.unit) || requirement.value_text || '값 확인 필요' : requirement.value_text || '값 확인 중'}</p>{currentDetail && <small>{({ EQ: '동일 조건', GTE: '이상', LTE: '이하', RANGE: '범위 조건', TEXT: '문자 조건' })[currentDetail.spec.operator]}</small>}{currentDetail?.spec.conditions.map((condition, index) => <p key={index}><small>적용 조건: {condition.name} · {displayValue(condition.value, condition.unit)}</small></p>)}</div>
+      <div className="response-current-identify"><span>{[requirement.equipment ?? requirement.task, clauseText].filter(Boolean).join(' · ') || '선택 요구'}</span><small className="response-kind">{KIND_LABEL[kind]}</small></div>
+      <dl className="response-facts">
+        <dt>고객 요구</dt>
+        <dd><strong className="response-ask">{kind === 'task' ? currentDetail?.spec.task ?? requirement.task : attributeName(requirement.attribute_key, requirement.attribute) || requirement.value_text || '요구 내용 확인 필요'}</strong>
+          {currentDetail?.origin.quote && <span className="response-quote"><q>{shortQuote(currentDetail.origin.quote)}</q>{onShowQuote && <button type="button" className="response-link" onClick={onShowQuote}>원문에서 보기</button>}</span>}</dd>
+        {taskChoices.length > 0 && <><dt id={`response-choice-label-${id}`}>결정할 것</dt>
+        <dd><p className="response-question">이 과업을 누가 수행합니까?</p><div className="response-choices" role="group" aria-labelledby={`response-choice-label-${id}`}>{taskChoices.map(c => {
+          const open = activePanel === c.panel && (chosen ?? c.key) === c.key && !!expanded;
+          return <button key={c.key} type="button" className="response-choice" aria-expanded={open} aria-controls={`response-${{ questions: 'questions', development: 'development', partners: 'partners', selection: 'selection' }[c.panel]}-workspace`} onClick={() => { setChosen(c.key); openWorkspace(c.panel); }}><b>{c.title}</b><span>{c.next}</span>{!!c.path && c.path === recordedPath && <em>기록된 선택</em>}</button>;
+        })}</div></dd></>}
+        {kind === 'task' && gapRows}
+      </dl>
+      {kind !== 'task' && <div className="response-comparison" aria-label="고객 요구와 자사 조건 비교">
+        <div className="response-customer"><b>고객 요구</b><p>{currentDetail ? customerValueMissing ? '원문에 수치 없음' : displayValue(currentDetail.spec.value, currentDetail.spec.unit) || requirement.value_text || '수치 없는 문장 요구' : requirement.value_text || '값 확인 중'}</p>{currentDetail && currentDetail.spec.operator !== 'TEXT' && !customerValueMissing && <small>{({ EQ: '동일 조건', GTE: '이상', LTE: '이하', RANGE: '범위 조건' })[currentDetail.spec.operator]}</small>}{currentDetail?.spec.conditions.map((condition, index) => <p key={index}><small>적용 조건: {condition.name} · {displayValue(condition.value, condition.unit)}</small></p>)}</div>
         <div><b>자사에 저장된 조건</b>{currentComparison && !currentComparison.search_trace.search_failed ? currentComparison.candidates.slice(0, 3).map(c => {
           const m = c.attribute_match;
           const wanted = currentDetail?.spec.value;
@@ -107,10 +141,11 @@ export function ResponseDecision({ projectId, actorId, requirement, canSelect, o
           const gap = m.comparable && m.result === 'DIFFERS' && !m.our_conditions.length && !currentDetail?.spec.conditions.length && attributeMatches && sameUnit && currentDetail?.judgement.status !== 'CONDITIONAL' && ['EQ', 'GTE'].includes(currentDetail?.spec.operator ?? '') && numeric(wanted) && numeric(m.our_value) && Number.isFinite(Number(wanted)) && Number.isFinite(Number(m.our_value)) ? Math.abs(Number(wanted) - Number(m.our_value)) : undefined;
           return <article key={`${c.product_code}:${c.variant}`}><strong>{c.product_code}{c.variant ? ` · ${c.variant}` : ''}</strong><p>{attributeMatches ? `${displayValue(m.our_value, m.our_unit) || '자료 없음'} · ${resultLabel[m.result]}` : '이 요구와 비교할 속성 확인 필요'}</p>{gap !== undefined && gap > 0 && <small>고객 요구와 {new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 6 }).format(gap)} {displayUnit(m.our_unit)} 차이</small>}{m.result === 'MEETS' && currentDetail?.judgement.status === 'CONDITIONAL' && <small>적용 조건 확인 필요</small>}{!m.comparable && <small>단순 수치 비교 불가 · 적용 조건 확인 필요</small>}{m.our_conditions.map((condition, index) => <p key={index}><small>자사 적용 조건: {condition.name} · {displayValue(condition.value, condition.unit)}</small></p>)}</article>;
         }) : <p>{currentComparison?.search_trace.search_failed ? '검색 실패 · 조건 확인 필요' : ownSummary}</p>}{currentComparison && !currentComparison.candidates.length && <p>현재 검색 범위에 저장된 자사 조건 없음</p>}</div>
-      </div>
-      <p className="response-comparison-note">{currentComparison && currentComparison.candidates.length > 3 ? `비교 후보 ${currentComparison.candidates.length}개 중 3개 표시 · 전체는 비교 근거와 원문에서 확인하세요. ` : ''}{currentComparison && currentComparison.candidates.length > 1 ? '비교 후보별 조건입니다. 대응 제품은 아직 선택되지 않았습니다.' : '표시된 비교 제품의 해당 조건입니다. 설비 전체의 충족 여부를 뜻하지 않습니다.'}</p>
+      </div>}
+      {kind !== 'task' && !!currentComparison?.candidates.length && <p className="response-comparison-note">{currentComparison.candidates.length > 3 ? `비교 후보 ${currentComparison.candidates.length}개 중 3개 표시 · 전체는 비교 근거와 원문에서 확인하세요. ` : ''}{currentComparison.candidates.length > 1 ? '비교 후보별 조건입니다. 대응 제품은 아직 선택되지 않았습니다.' : '표시된 비교 제품의 해당 조건입니다. 설비 전체의 충족 여부를 뜻하지 않습니다.'}</p>}
+      {kind !== 'task' && <dl className="response-facts">{gapRows}</dl>}
       {(selectionRecord || hasSavedPath) && <p className="response-saved-path">{selectionRecord ? `보완 선택 기록 · ${label(PATH_LABEL, selectionRecord)}` : `판정에 기록된 경로 · ${label(PATH_LABEL, savedPath)}`}{!selectionRecord && currentDetail?.judgement.provenance_kind === 'ai_draft' ? ' · AI 제안' : ''}{reviewNeeded || selectionRecord && selectionRecord !== savedPath || currentOptions && !currentOptions.options.some(o => o.path === (selectionRecord || savedPath) && o.allowed) ? ' · 재확인 필요' : ''}</p>}
-      {!guided && <p className="response-action-explanation">{actionExplanation}</p>}{(!guided || issue || reviewNeeded) && activePanel !== next.panel && <div className="response-next-action"><span>다음 할 일</span><button className="kb primary" type="button" onClick={openNext} disabled={next.panel === 'loading'}>{next.text} →</button><Link to={`/tft/projects/${projectId}/requirements/${id}`}>요구 상세</Link></div>}
+      {(!taskChoices.length && !guided || issue || reviewNeeded) && activePanel !== next.panel && <div className="response-next-action"><span>다음 할 일</span><button className="kb primary" type="button" onClick={openNext} disabled={next.panel === 'loading'}>{next.text} →</button></div>}
       {!canSelect && <p className="response-readonly">현재 읽기 전용 · 담당자 권한과 최신 조회 상태를 확인하세요.</p>}
     </section>
     <div className="response-visible-alerts">
@@ -127,15 +162,24 @@ export function ResponseDecision({ projectId, actorId, requirement, canSelect, o
       {candidates.isSuccess && !candidateVersionsMatch && <p role="alert">현재 요구·프로필 판본과 연결된 등급을 확인할 수 없습니다.</p>}
     </div>
     <div className="response-workspace-actions" role="group" aria-label="검토 작업 선택">
-      {guided && activePanel !== 'questions' && <button className="kb" type="button" aria-expanded={activePanel === 'questions'} aria-controls="response-questions-workspace" onClick={() => openWorkspace('questions')}>질문·회신 기록</button>}
-      <button className="kb" type="button" aria-expanded={activePanel === 'selection'} aria-controls="response-selection-workspace" onClick={() => openWorkspace('selection')}>대응 방안 기록</button>
-      {showDevelopment && !(activePanel === undefined && next.panel === 'development') && <button className="kb" type="button" aria-expanded={activePanel === 'development'} aria-controls="response-development-workspace" onClick={() => openWorkspace('development')}>개발팀 가능성·일정 확인</button>}
-      {showPartners && <button className="kb" type="button" aria-expanded={activePanel === 'partners'} aria-controls="response-partners-workspace" onClick={() => openWorkspace('partners')}>협력사 후보 비교</button>}
+      {guided && !taskChoices.length && activePanel !== 'questions' && <button className="kb" type="button" aria-expanded={activePanel === 'questions'} aria-controls="response-questions-workspace" onClick={() => openWorkspace('questions')}>질문·회신 기록</button>}
+      <button className="kb" type="button" aria-expanded={activePanel === 'selection'} aria-controls="response-selection-workspace" onClick={() => { setChosen(undefined); openWorkspace('selection'); }}>대응 방안 기록</button>
+      {showDevelopment && !taskChoices.some(c => c.panel === 'development') && !(activePanel === undefined && next.panel === 'development') && <button className="kb" type="button" aria-expanded={activePanel === 'development'} aria-controls="response-development-workspace" onClick={() => openWorkspace('development')}>개발팀 가능성·일정 확인</button>}
+      {showPartners && !!partnerCount && !taskChoices.some(c => c.panel === 'partners') && <button className="kb" type="button" aria-expanded={activePanel === 'partners'} aria-controls="response-partners-workspace" onClick={() => openWorkspace('partners')}>협력사 후보 비교</button>}
       <button className="kb" type="button" aria-expanded={activePanel === 'criteria'} aria-controls="response-criteria-workspace" onClick={() => activePanel === 'criteria' ? setExpanded(undefined) : openWorkspace('criteria')}>비교 근거와 원문</button>
       {activePanel && <button className="kb" type="button" onClick={() => setExpanded('closed')}>검토 작업 닫기</button>}
+      <Link className="response-detail-link" to={`/tft/projects/${projectId}/requirements/${id}`}>요구 상세</Link>
     </div>
+    <details className="response-basis"><summary>판단 근거·기록 보기</summary>
+      <dl>
+        <dt>판정</dt><dd>{currentDetail ? `${label(STATUS_LABEL, currentDetail.judgement.status)}${currentDetail.judgement.provenance_kind === 'ai_draft' ? ' · AI 제안' : ''}` : '확인 중'}</dd>
+        {currentDetail?.judgement.reason && <><dt>판단 근거</dt><dd>{currentDetail.judgement.reason}</dd></>}
+        <dt>검색 범위</dt><dd>{currentComparison ? `문서 ${currentComparison.search_trace.documents_searched}건${currentComparison.search_trace.filters.length ? ` · ${currentComparison.search_trace.filters.join(' · ')}` : ''}${currentComparison.search_trace.search_failed ? ' · 검색 실패' : ''}` : ownSummary}</dd>
+        <dt>요구 번호</dt><dd>{requirementNo(requirement.code)} · 요구 v{version}{currentComparison ? ` · 비교 v${currentComparison.version}` : ''}{currentDetail ? ` · ${formatDateTime(currentDetail.known_at)}` : ''}</dd>
+      </dl>
+    </details>
     <div ref={workspace} className="response-workspace" hidden={!activePanel} aria-label="선택한 검토 작업">
-    {guided && currentDetail && <div id="response-questions-workspace" hidden={activePanel !== 'questions'}><GuidedRequirementReview key={`${id}:${version}`} projectId={projectId} actorId={actorId} requirement={currentDetail} departments={reviewDepartments} canWrite={canSelect && !detail.isFetching} customerValueMissing={customerValueMissing} commercial={commercial} designated={!!designated} onSaved={onSaved} /></div>}
+    {questionsAvailable && currentDetail && <div id="response-questions-workspace" hidden={activePanel !== 'questions'}><GuidedRequirementReview key={`${id}:${version}`} projectId={projectId} actorId={actorId} requirement={currentDetail} departments={reviewDepartments} canWrite={canSelect && !detail.isFetching} customerValueMissing={customerValueMissing} commercial={commercial} designated={!!designated} scope={kind === 'task'} onSaved={onSaved} /></div>}
     {showDevelopment && <div id="response-development-workspace" hidden={activePanel !== 'development'}>{visited.has('development') && <DevelopmentReviewFlow taskReview={task} embedded key={`${id}:${version}`} projectId={projectId} actorId={actorId} requirement={currentDetail} requirementId={id} requirementVersion={version} canRequest={canSelect && !detail.isFetching} reviewDepartments={reviewDepartments} projectVersion={projectVersion} canEditProject={canEditProject} onProjectSaved={onProjectSaved} partnerCount={candidates.isSuccess && candidateVersionsMatch ? candidateRows.filter(c => currentGrade(c).some(g => g.grade !== 'EXCLUDED')).length : undefined} onSaved={onSaved} />}</div>}
 {showPartners && <section id="response-partners-workspace" hidden={activePanel !== 'partners'} className="response-card response-disclosure" aria-label="협력사 후보">
       <header><h4>협력사 후보</h4><small>{partnerSummary}</small></header>{visited.has('partners') && <><div className="response-disclosure-body">
@@ -149,7 +193,7 @@ export function ResponseDecision({ projectId, actorId, requirement, canSelect, o
       {comparison.isPending ? <Loading label="자사 비교 조회 중" /> : comparison.isError ? null : !currentComparison ? null : <>
         <div className="response-own-list">{currentComparison.candidates.map(c => <article className="response-evidence" key={`${c.product_code}:${c.variant}`}><b>{c.product_code} {c.variant}</b><p>{[c.attribute_match.our_value, c.attribute_match.our_unit].filter(Boolean).join(' ') || '자료 없음'} · {resultLabel[c.attribute_match.result]}</p><details><summary>비교 근거</summary>{c.attribute_match.evidence.map((e, index) => <p key={index}>근거: {[e.document, e.version, e.clause, e.applicability, e.limits].filter(Boolean).join(' · ')}</p>)}{!c.attribute_match.evidence.length && <p>근거 미기재</p>}</details></article>)}</div>
         {!currentComparison.candidates.length && <p>{currentComparison.search_trace.search_failed ? '자사 후보 검색 실패' : '현재 검색 범위의 자사 후보 없음'}</p>}
-        <small>요구 v{currentComparison.requirement_version} · 비교 v{currentComparison.version} · {currentComparison.known_at}</small>
+        <small>요구 v{currentComparison.requirement_version} · 비교 v{currentComparison.version} · {formatDateTime(currentComparison.known_at)}</small>
       </>}
 
       {detail.isPending && <Loading label="요구 상세 조회 중" />}

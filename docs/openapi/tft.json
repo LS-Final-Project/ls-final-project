@@ -2139,6 +2139,22 @@
         "title": "DraftEdit",
         "type": "object"
       },
+      "DraftRegenerate": {
+        "additionalProperties": false,
+        "description": "\ud654\uba74\uc774 \ubcf8 \ucd5c\uc2e0 \ucd08\uc548 \ud310\ubcf8. \ucd08\uc548\uc774 \uc544\uc9c1 \uc5c6\uc73c\uba74 0\uc774\ub2e4.",
+        "properties": {
+          "version": {
+            "minimum": 0.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "DraftRegenerate",
+        "type": "object"
+      },
       "DraftRewrite": {
         "additionalProperties": false,
         "properties": {
@@ -2267,6 +2283,110 @@
           "export_id"
         ],
         "title": "ExportAccepted",
+        "type": "object"
+      },
+      "ExportItem": {
+        "additionalProperties": false,
+        "description": "\ub0b4\ubcf4\ub0b4\uae30 \uc774\ub825 \ud55c \uc904. tft\ub294 \uc644\ub8cc\ub9cc \uae30\ub85d\ud558\ubbc0\ub85c \ub05d\ub098\uc9c0 \uc54a\uc740 \uc791\uc5c5\uc740 QUEUED\ub2e4.",
+        "properties": {
+          "export_id": {
+            "format": "uuid",
+            "title": "Export Id",
+            "type": "string"
+          },
+          "file_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Name"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "format": {
+            "enum": [
+              "DOCX",
+              "PDF"
+            ],
+            "title": "Format",
+            "type": "string"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "requested_by": {
+            "format": "uuid",
+            "title": "Requested By",
+            "type": "string"
+          },
+          "requested_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested By Name"
+          },
+          "review_version": {
+            "title": "Review Version",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "QUEUED",
+              "SUCCEEDED"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "export_id",
+          "review_version",
+          "format",
+          "status",
+          "requested_by",
+          "requested_at",
+          "finished_at",
+          "file_name"
+        ],
+        "title": "ExportItem",
+        "type": "object"
+      },
+      "ExportList": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ExportItem"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "ExportList",
         "type": "object"
       },
       "ExportRequest": {
@@ -5706,6 +5826,98 @@
         "title": "ReviewVersionCreate",
         "type": "object"
       },
+      "ReviewVersionItem": {
+        "additionalProperties": false,
+        "description": "\uac80\ud1a0\ubcf8 \uc774\ub825 \ud55c \uc904. tft\uc5d0\ub294 \uc0ac\uc6a9\uc790 \uc774\ub984\uc774 \uc5c6\uc5b4 \uc774\ub984\uc740 null\uc774\ub2e4.",
+        "properties": {
+          "draft_version": {
+            "title": "Draft Version",
+            "type": "integer"
+          },
+          "judgement_status": {
+            "enum": [
+              "NEEDS_REVIEW",
+              "CONDITION_CHECK",
+              "OWNER_CONFIRMED"
+            ],
+            "title": "Judgement Status",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "output_status": {
+            "enum": [
+              "INTAKE",
+              "ANALYZING",
+              "REVIEW_DRAFT"
+            ],
+            "title": "Output Status",
+            "type": "string"
+          },
+          "review_version": {
+            "title": "Review Version",
+            "type": "integer"
+          },
+          "saved_at": {
+            "format": "date-time",
+            "title": "Saved At",
+            "type": "string"
+          },
+          "saved_by": {
+            "format": "uuid",
+            "title": "Saved By",
+            "type": "string"
+          },
+          "saved_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saved By Name"
+          }
+        },
+        "required": [
+          "review_version",
+          "draft_version",
+          "note",
+          "output_status",
+          "judgement_status",
+          "saved_by",
+          "saved_at"
+        ],
+        "title": "ReviewVersionItem",
+        "type": "object"
+      },
+      "ReviewVersionList": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewVersionItem"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "ReviewVersionList",
+        "type": "object"
+      },
       "RewriteSummary": {
         "additionalProperties": false,
         "description": "\ubaa8\ub378 \uc791\uc131 \uacb0\uacfc. failures\ub294 \uc591\uc2dd\uc73c\ub85c \ub0a8\uc740 \ubb38\uc7a5\uc758 \uace0\uc815 \uc0ac\uc720 \ucf54\ub4dc\ubcc4 \uac74\uc218\ub2e4.",
@@ -6627,6 +6839,22 @@
         "title": "SuccessResponse[ExportAccepted]",
         "type": "object"
       },
+      "SuccessResponse_ExportList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ExportList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[ExportList]",
+        "type": "object"
+      },
       "SuccessResponse_HealthData_": {
         "properties": {
           "data": {
@@ -6833,6 +7061,22 @@
           "meta"
         ],
         "title": "SuccessResponse[RequirementList]",
+        "type": "object"
+      },
+      "SuccessResponse_ReviewVersionList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ReviewVersionList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[ReviewVersionList]",
         "type": "object"
       },
       "SuccessResponse_ReviewVersion_": {
@@ -9437,6 +9681,98 @@
       }
     },
     "/api/v1/tft/projects/{project_id}/draft/exports": {
+      "get": {
+        "description": "36. \ub0b4\ubcf4\ub0b4\uae30 \uc774\ub825, \ucd5c\uc2e0\uc21c.",
+        "operationId": "tft_list_rfp_exports",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ExportList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "List Exports",
+        "tags": [
+          "rfp"
+        ]
+      },
       "post": {
         "description": "28. DOCX \ube44\ub3d9\uae30 \ub0b4\ubcf4\ub0b4\uae30. PDF\ub294 \uba85\uc2dc\uc801 422 \ubbf8\uc9c0\uc6d0.",
         "operationId": "tft_export_rfp_draft",
@@ -9651,7 +9987,214 @@
         ]
       }
     },
+    "/api/v1/tft/projects/{project_id}/draft/regenerate": {
+      "post": {
+        "description": "34. \uc800\uc7a5\ub41c \uacb0\uacfc\ub85c \ucd08\uc548 \uc0c8 \ud310\ubcf8\uc744 \ub9cc\ub4e0\ub2e4. \ubaa8\ub378\u00b7\uc6d0\ubb38 \ud574\uc11d \uc5c6\uc74c, \ucc98\ub9ac \uc911\uc774\uba74 409.",
+        "operationId": "tft_regenerate_rfp_draft",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DraftRegenerate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Draft_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Regenerate Draft",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
     "/api/v1/tft/projects/{project_id}/draft/review-versions": {
+      "get": {
+        "description": "35. \uac80\ud1a0\ubcf8 \uc774\ub825, \ucd5c\uc2e0\uc21c.",
+        "operationId": "tft_list_rfp_review_versions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ReviewVersionList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "List Review Versions",
+        "tags": [
+          "rfp"
+        ]
+      },
       "post": {
         "description": "27. \uadfc\uac70\u00b7\ub2e4\uc74c \ud589\ub3d9\u00b7\ud1b5\ud569 \ucc45\uc784\uc744 \ud655\uc778\ud558\uace0 \uac80\ud1a0\ubcf8 \uc800\uc7a5.",
         "operationId": "tft_save_rfp_review_version",

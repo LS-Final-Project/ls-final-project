@@ -14,7 +14,11 @@ export type Job = Platform['schemas']['TftJobStatus'];
 type ReviewInput = components['schemas']['ReviewVersionCreate'];
 type ExportInput = components['schemas']['ExportRequest'];
 type DraftResponse = paths['/api/v1/tft/projects/{project_id}/draft']['get']['responses'][200]['content']['application/json'];
-export type Command = { actorId: string; kind: 'review'; key: string; body: ReviewInput } | { actorId: string; kind: 'export'; key: string; body: ExportInput } | { actorId: string; kind: 'rewrite'; key: string; body: components['schemas']['DraftRewrite'] };
+export type ReviewRow = components['schemas']['ReviewVersionItem'];
+export type ExportRow = components['schemas']['ExportItem'];
+type Items<T> = { items: T[] };
+export type Command = { actorId: string; kind: 'review'; key: string; body: ReviewInput } | { actorId: string; kind: 'export'; key: string; body: ExportInput } | { actorId: string; kind: 'rewrite'; key: string; body: components['schemas']['DraftRewrite'] }
+  | { actorId: string; kind: 'regenerate'; key: string; body: components['schemas']['DraftRegenerate'] };
 export const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const deadline = (signal?: AbortSignal) => signal ? AbortSignal.any([signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000);
@@ -37,6 +41,8 @@ async function read<T>(path: string, signal?: AbortSignal): Promise<T> {
 }
 export const getDraft = (id: string, version?: number, signal?: AbortSignal) =>
   read<DraftResponse['data']>(`${base(id)}${version ? `?version=${version}` : ''}`, signal);
+export const getReviewVersions = (id: string, signal?: AbortSignal) => read<Items<ReviewRow>>(`${base(id)}/review-versions`, signal).then(body => body?.items ?? []);
+export const getExports = (id: string, signal?: AbortSignal) => read<Items<ExportRow>>(`${base(id)}/exports`, signal).then(body => body?.items ?? []);
 export const getDraftProject = (id: string, signal?: AbortSignal) =>
   read<ProjectDetail>(`/api/v1/tft/projects/${encodeURIComponent(id)}`, signal);
 
@@ -66,7 +72,12 @@ async function write<T>(path: string, method: string, body: unknown, actorId: st
   catch { throw new UncertainWrite(); }
 }
 export const editDraft = (id: string, actorId: string, body: DraftEdit, signal?: AbortSignal) => write<Draft>(base(id), 'PATCH', body, actorId, undefined, signal);
-export async function sendCommand(id: string, command: Command, signal?: AbortSignal): Promise<Review | Accepted | RewriteAccepted> {
+export async function sendCommand(id: string, command: Command, signal?: AbortSignal): Promise<Review | Accepted | RewriteAccepted | Draft> {
+  if (command.kind === 'regenerate') {
+    const made = await write<Draft>(`${base(id)}/regenerate`, 'POST', command.body, command.actorId, command.key, signal);
+    if (!made || made.project_id !== id || !Number.isSafeInteger(made.version) || made.version < 1 || !Array.isArray(made.sections)) throw new UncertainWrite();
+    return made;
+  }
   const result = command.kind === 'review'
     ? await write<Review>(`${base(id)}/review-versions`, 'POST', command.body, command.actorId, command.key, signal)
     : command.kind === 'rewrite'

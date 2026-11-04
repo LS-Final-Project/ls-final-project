@@ -651,6 +651,50 @@ async def get_draft_rewrite(
 
 
 @router.post(
+    P + "/draft/regenerate",
+    status_code=201,
+    response_model=SuccessResponse[s.Draft],
+    operation_id="tft_regenerate_rfp_draft",
+)
+async def regenerate_draft(
+    request: Request,
+    user: User,
+    project_id: UUID,
+    payload: s.DraftRegenerate,
+    idempotency_key: Key,
+) -> SuccessResponse[s.Draft]:
+    """34. 저장된 결과로 초안 새 판본을 만든다. 모델·원문 해석 없음, 처리 중이면 409."""
+    return respond(
+        request,
+        await routes_draft.regenerate(request, user, project_id, payload, idempotency_key),
+    )
+
+
+@router.get(
+    P + "/draft/review-versions",
+    response_model=SuccessResponse[s.ReviewVersionList],
+    operation_id="tft_list_rfp_review_versions",
+)
+async def list_review_versions(
+    request: Request, user: User, project_id: UUID
+) -> SuccessResponse[s.ReviewVersionList]:
+    """35. 검토본 이력, 최신순."""
+    return respond(request, await routes_draft.review_versions(request, user, project_id))
+
+
+@router.get(
+    P + "/draft/exports",
+    response_model=SuccessResponse[s.ExportList],
+    operation_id="tft_list_rfp_exports",
+)
+async def list_exports(
+    request: Request, user: User, project_id: UUID
+) -> SuccessResponse[s.ExportList]:
+    """36. 내보내기 이력, 최신순."""
+    return respond(request, await routes_draft.exports(request, user, project_id))
+
+
+@router.post(
     P + "/draft/review-versions",
     status_code=201,
     response_model=SuccessResponse[s.ReviewVersion],

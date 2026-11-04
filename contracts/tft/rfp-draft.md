@@ -188,7 +188,7 @@ XML escaping 및 `w:br`·`w:tab`으로 한글/특수문자/줄바꿈을 보존�
 객체 생성 후 DB commit 전에 실패하면 private 객체만 남을 수 있다(기존 업로드와 동일).
 재시도는 같은 바이트일 때만 기존 객체를 인정하며 다른 바이트를 덮어쓰지 않는다.
 
-서버/플랫폼 웹 중계는 이 다섯 경로와 정확한 export 파일 경로의 DOCX 응답을 허용한다.
+서버/플랫폼 웹 중계는 이 다섯 경로와 34~36과 정확한 export 파일 경로의 DOCX 응답을 허용한다.
 본체 JSON 경로에 바이너리를 허용하지 않는다. 실제 모델·외부 발송·공식 추적률 평가 연결은 포함하지 않는다.
 로컬 일반 합성/파일/HTTP 검증과 전용 PostgreSQL CI 검증을 분리하며 DB 미실행을 통과로 보고하지 않는다.
 
@@ -210,9 +210,28 @@ ID·절·본문·근거·조건·정적 flags·마지막 편집 이유를 새 �
 **범위 한계:** 근거 링크에는 요구 판본 baseline이 없다. 이번은 기존 mark 기반 보존이며 요구의
 실제 판본/값/인용 변경만을 정확히 판별하는 기능은 구현하지 않는다. `needs_review`를 요구 변경의
 증거로 간주하지 않는다. 현재 요구의 검토 표시는 기존 live 조회 정책을 유지한다. 새 migration/DTO는 없다.
-초안 다시 만들기 버튼은 보류한다. 공개 API로 명시 문서 판본의 처리 완료를 보장할 수 없어 새 연결을
-추가하지 않으며 기존 접수 화면의 사유 입력 후 처리 재실행을 사용한다. 이미 처리된 문서만 재실행하면
-worker가 parse/extract를 건너뛰므로 모델 재호출 없이 승인·보완 선택으로 초안을 재생성한다.
+초안만 다시 만들 때는 아래 경로 34를 쓴다. 처리 재실행과 달리 요구 등급을 다시 계산하지 않는다.
+
+## 경로 34~36: 초안 다시 만들기와 이력
+
+- **34 POST draft/regenerate** `{version:N}`(초안이 없으면 0). 담당 sales·책임자, Idempotency-Key 필수,
+  응답은 201과 25번과 같은 `Draft`(`evidence_labels` 포함)다. 처리 worker와 같은 `drafts.build`로
+  저장된 요구·비교·보완 선택·협력사·질문·통합 책임을 읽어 head+1을 만들고 `preserve_human`으로 사람 문장을
+  그대로 옮긴다. 모델 호출, 원문 해석, `regrade_stored`(요구 등급 재계산)는 하지 않는다. 이전 판본은 남는다.
+  N이 head와 다르면 409 `TFT_VERSION_CONFLICT`, 처리 worker가 저장 단계(프로젝트 advisory lock 187)를
+  쥐고 있으면 409 `TFT_DRAFT_JOB_ACTIVE`다. 플랫폼 대기열의 QUEUED 작업은 tft가 볼 수 없어(tft_app에는
+  runtime 권한이 없다) 막지 않는다. 그 작업은 끝날 때 이 판본 위에 새 판본을 만든다.
+  멱등은 `rfp_commands` 대신 `draft_versions.source_job_id`에 `uuid5(project, "regenerate:{actor}:{key}")`를
+  저장해 처리한다(연산 CHECK를 바꾸는 migration이 없다). 같은 키 재전송은 처음 판본을 주고, 같은 키에 다른 N은
+  409 `IDEMPOTENCY_CONFLICT`다. 감사는 `draft.regenerate`(detail `previous_version`)다.
+- **35 GET draft/review-versions**: 25번과 같은 조회 범위. `items`는 최신 검토본부터
+  `review_version`·`draft_version`·`note`·`output_status`(저장이 언제나 `REVIEW_DRAFT`로 바꾼다)·
+  `judgement_status`·`saved_by`·`saved_by_name`·`saved_at`이다.
+- **36 GET draft/exports**: 25번과 같은 조회 범위. `items`는 최신 요청부터 `export_id`·`review_version`·
+  `format`·`status`·`requested_by`·`requested_by_name`·`requested_at`·`finished_at`·`file_name`이다.
+  tft는 완료만 기록하므로 `status`는 완료면 `SUCCEEDED`, 아니면 `QUEUED`다. 실패한 작업도 `QUEUED`로 남는다.
+  `file_name`은 내려받기 응답과 같은 `rfp-{export_id}.docx`이고 미완료면 null이다.
+- 이름 칸(`saved_by_name`·`requested_by_name`)은 tft에 사용자 이름이 없어 null이다.
 
 
 ## 모델 문장 작성의 양식 기원 (KAN-188)

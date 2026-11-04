@@ -38,12 +38,12 @@ EVIDENCE_TEXT = {
     "question": "질문",
 }
 SECTION_TITLES: dict[s.DraftSection, str] = {
-    "CUSTOMER_GOAL_SCOPE": "고객 목표·제안 검토 범위",
-    "OUR_RESPONSE": "자사 후보",
-    "DEVIATIONS": "사양 차이·대체",
+    "CUSTOMER_GOAL_SCOPE": "고객 목표와 범위",
+    "OUR_RESPONSE": "자사 대응",
+    "DEVIATIONS": "차이 사항",
     "PARTNER_SUPPLEMENT": "협력사 보완",
-    "ASSUMPTIONS_EXCLUSIONS": "전제·제외·미확인",
-    "QUESTIONS_NEXT_ACTIONS": "질문·다음 행동",
+    "ASSUMPTIONS_EXCLUSIONS": "가정과 제외",
+    "QUESTIONS_NEXT_ACTIONS": "질문과 다음 행동",
 }
 
 

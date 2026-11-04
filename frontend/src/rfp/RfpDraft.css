@@ -16,13 +16,14 @@
 .rfp-draft .draft-sentence-body{min-width:0}
 .rfp-draft .draft-sentence-text{display:block;width:100%;border:0;background:transparent;color:inherit;padding:0;text-align:left;font:inherit;margin:0 0 5px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.9;font-size:14px;cursor:pointer}.rfp-draft .draft-sentence-text:focus-visible{outline:2px solid var(--erp-accent);outline-offset:3px}
 .rfp-draft .draft-edit-button{font-size:11px;opacity:.85}
-.rfp-draft .draft-proof{grid-column:2;display:flex;gap:8px;flex-wrap:wrap;min-width:0;font-size:11px;line-height:1.55;color:var(--erp-muted);overflow-wrap:anywhere}
-.rfp-draft .draft-proof p{margin:0 0 3px}
-.rfp-draft .draft-proof summary{cursor:pointer;color:var(--erp-accent)}
-.rfp-draft .draft-proof details[open]{flex-basis:100%;padding:5px;background:var(--erp-head);border:1px solid var(--erp-border-soft)}
-.rfp-draft .draft-proof ul{margin:3px 0;padding-left:12px}
-.rfp-draft .draft-proof details>div{display:block;margin-top:5px}
-.rfp-draft .draft-proof details>div>div{display:block}
+.rfp-draft .draft-proof{grid-column:2;min-width:0;font-size:11.5px;line-height:1.6;color:var(--erp-muted);overflow-wrap:anywhere}
+.rfp-draft .draft-proof p{margin:0}
+.rfp-draft .draft-proof a{color:var(--erp-accent)}
+.rfp-draft .draft-more{border:0;background:transparent;padding:0;font:inherit;color:var(--erp-accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.rfp-draft .draft-more:disabled{color:var(--erp-muted);cursor:default}
+.rfp-draft .draft-more:focus-visible{outline:2px solid var(--erp-accent);outline-offset:2px}
+.rfp-draft .draft-flag{font-style:normal;margin-left:6px;padding:0 4px;border:1px solid #cf1744;border-radius:2px;color:#cf1744;font-size:11px;line-height:16px;display:inline-block}
+.rfp-draft .draft-conditions{margin:4px 0 0;padding:6px 8px 6px 22px;background:var(--erp-head);border:1px solid var(--erp-border-soft);max-height:220px;overflow:auto}
 .rfp-draft .draft-attention{color:#cf1744;font-weight:600}
 .rfp-draft .draft-actions{min-width:0}
 .rfp-draft .draft-actions>section{margin-bottom:8px}
@@ -49,17 +50,23 @@
 @media(max-width:1000px){.rfp-draft .draft-overview{grid-template-columns:1fr 1fr}.rfp-draft .draft-checks>div{flex-wrap:wrap}.rfp-draft .draft-sentence{grid-template-columns:30px minmax(0,1fr)}.rfp-draft .draft-proof{grid-column:2}}
 @media(max-width:800px){.rfp-draft .draft-sections{height:auto;max-height:none;overflow:visible}.rfp-draft .draft-overview{grid-template-columns:1fr}.rfp-draft .draft-version-form{align-items:stretch;flex-direction:column}}
 
-.rfp-draft .draft-model-help{margin:4px 14px;color:var(--erp-muted);font-size:11px;line-height:1.6}
-.rfp-draft .draft-model-help summary{cursor:pointer}
 .rfp-draft .draft-section-nav{display:flex;gap:5px;flex-wrap:wrap;margin:10px 14px}
 .rfp-draft .draft-section-nav button{display:flex;gap:6px;align-items:center}
 .rfp-draft .draft-section-nav button[aria-pressed=true]{background:var(--erp-head);border-color:var(--erp-accent);color:var(--erp-accent)}
 .rfp-draft .draft-section-nav span{color:var(--erp-muted);font-size:10px}
 .rfp-draft .draft-document{min-width:0;background:white;border:1px solid var(--erp-border);box-shadow:0 2px 8px #132e4910}
 .rfp-draft .draft-document-heading{padding:24px 30px 18px;border-bottom:1px solid var(--erp-border-soft);margin-bottom:18px}
-.rfp-draft .draft-document-heading h2{font-size:22px;line-height:1.5;margin:8px 0;color:var(--erp-text)}
+.rfp-draft .draft-document-heading h2{font-size:22px;line-height:1.5;margin:0 0 6px;color:var(--erp-text);text-wrap:balance}
 .rfp-draft .draft-document-heading p{margin:0;font-size:11px;color:var(--erp-muted)}
 .rfp-draft .draft-document-section{margin:0 0 24px}
-.rfp-draft .draft-document-section h3{margin:0 0 8px;padding-bottom:8px;border-bottom:1px solid var(--erp-border);font-size:16px;font-weight:600}
+.rfp-draft .draft-document-section h3{display:flex;align-items:baseline;gap:8px;margin:0 0 8px;padding-bottom:8px;border-bottom:1px solid var(--erp-border);font-size:16px;font-weight:600}
+.rfp-draft .draft-document-section h3 small{font-size:11px;font-weight:400;color:var(--erp-muted)}
 .rfp-draft .draft-sentence.is-selected{border-left:2px solid var(--erp-accent);padding-left:8px;margin-left:-10px}
 @media(max-width:800px){.rfp-draft .draft-document-heading{padding:18px}.rfp-draft .draft-sections{padding:0 18px 18px}.rfp-draft .draft-section-nav{gap:4px}.rfp-draft .draft-sentence-text{font-size:13px}}
+.ls-root .rfp-draft .draft-actions .kv-tablewrap{overflow-x:auto;margin-top:8px}
+/* 좁은 화면에서는 표 안에서 옆으로 넘긴다. 메모와 파일 이름은 줄을 바꿔 다 보인다. */
+.ls-root .rfp-draft .draft-actions .kv-grid{min-width:400px}
+.ls-root .rfp-draft .draft-actions .kv-grid td.c{white-space:nowrap}
+.ls-root .rfp-draft .draft-actions .kv-grid td{white-space:normal;overflow-wrap:anywhere;line-height:1.45;height:auto!important;padding:5px 6px!important;font-size:12px;vertical-align:top}
+.rfp-draft .draft-actions .kv-grid td .draft-more{text-align:left}
+.ls-root .rfp-draft .kv-next b.sep{font-weight:400;margin:0 6px}

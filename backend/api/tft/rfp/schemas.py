@@ -877,9 +877,50 @@ class ReviewVersion(Model):
     saved_at: datetime
 
 
+class ReviewVersionItem(Model):
+    """검토본 이력 한 줄. tft에는 사용자 이름이 없어 이름은 null이다."""
+
+    review_version: int
+    draft_version: int
+    note: str | None
+    output_status: OutputStatus
+    judgement_status: JudgementStatus
+    saved_by: UUID
+    saved_by_name: str | None = None
+    saved_at: datetime
+
+
+class ReviewVersionList(Model):
+    items: list[ReviewVersionItem]
+
+
+class DraftRegenerate(Model):
+    """화면이 본 최신 초안 판본. 초안이 아직 없으면 0이다."""
+
+    version: int = Field(ge=0)
+
+
 class ExportRequest(Model):
     review_version: int = Field(ge=1)
     format: ExportFormat
+
+
+class ExportItem(Model):
+    """내보내기 이력 한 줄. tft는 완료만 기록하므로 끝나지 않은 작업은 QUEUED다."""
+
+    export_id: UUID
+    review_version: int
+    format: ExportFormat
+    status: Literal["QUEUED", "SUCCEEDED"]
+    requested_by: UUID
+    requested_by_name: str | None = None
+    requested_at: datetime
+    finished_at: datetime | None
+    file_name: str | None
+
+
+class ExportList(Model):
+    items: list[ExportItem]
 
 
 class AnnotationProcess(Model):

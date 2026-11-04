@@ -10,3 +10,5 @@
 .rfp-context-review-summary small { flex-basis:100%; color:#63738c; }
 .rfp-context-review-filter { display:flex; gap:6px; margin-bottom:10px; }
 .rfp-context-review-filter [aria-pressed="true"] { background:#e8f0fb; border-color:#517eae; color:#203b60; }
+/* .ls-root .kv div span forces display:block; keep the clause label and its status on one row. */
+.ls-root .rfp-context-requirements .rfp-context-requirement-label{display:flex;align-items:baseline;gap:8px}.rfp-context-requirement-label small{flex:none;white-space:nowrap}

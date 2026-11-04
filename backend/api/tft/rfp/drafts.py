@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5
 
 from psycopg import AsyncConnection
 
@@ -52,10 +52,85 @@ async def generate(
     await db.lock(conn, project_id)
     existing = await db.generated(conn, project_id, job_id)
     if existing is not None:
-        result = await db.load(conn, project_id, existing)
-        if result is None:
-            raise ValueError("TFT_DRAFT_VERSION_MISSING")
-        return result
+        return await loaded(conn, project_id, existing)
+    result, reasons = await build(conn, project_id)
+    await db.save(conn, result, actor=actor, source_job_id=job_id, reasons=reasons)
+    await commands.audit(
+        conn,
+        project_id=project_id,
+        actor=actor,
+        entity="draft",
+        entity_id=result.version,
+        action="draft.generate",
+        detail={"job_id": str(job_id)},
+    )
+    return await loaded(conn, project_id, result.version)
+
+
+def regenerate_id(project_id: UUID, actor: UUID, key: str) -> UUID:
+    """다시 만들기 요청 하나의 source_job_id. 같은 사용자·키의 재전송은 같은 판본을 찾는다."""
+    return uuid5(project_id, f"regenerate:{actor}:{key}")
+
+
+async def regenerate(
+    conn: AsyncConnection[Row], project_id: UUID, actor: UUID, seen: int, key: str
+) -> s.Draft:
+    """저장된 요구·비교·보완·질문으로 초안 판본을 새로 만든다.
+
+    모델 호출·원문 해석·요구 등급 재계산은 하지 않는다. 사람 문장은 generate와 같이 이관한다.
+
+    Args:
+        conn: 호출자가 커밋하는 트랜잭션.
+        project_id: 프로젝트 ID.
+        actor: 요청자.
+        seen: 화면이 본 최신 판본(없으면 0).
+        key: Idempotency-Key.
+
+    Returns:
+        s.Draft: 새 판본. 같은 키 재전송이면 처음 만든 판본이다.
+    """
+    await db.lock(conn, project_id)
+    source = regenerate_id(project_id, actor, key)
+    existing = await db.generated(conn, project_id, source)
+    if existing is not None:
+        if existing != seen + 1:
+            raise ApplicationError(409, "IDEMPOTENCY_CONFLICT", "The request key is already used.")
+        return await loaded(conn, project_id, existing)
+    # 처리 worker는 저장 단계 내내 이 잠금을 쥔다(worker_processor.process). 기다리지 않고 거절한다.
+    # ponytail: 플랫폼 대기열(QUEUED)은 tft가 볼 수 없다. 그 작업은 나중에 이 판본 위에 새 판본을 만든다.
+    cursor = await conn.execute(
+        "SELECT pg_try_advisory_xact_lock(hashtextextended(%s,187)) AS free", (str(project_id),)
+    )
+    row = await cursor.fetchone()
+    if row is None or not row["free"]:
+        raise ApplicationError(
+            409, "TFT_DRAFT_JOB_ACTIVE", "처리 작업이 진행 중입니다. 끝난 뒤 다시 만드세요."
+        )
+    if await db.head(conn, project_id) != seen:
+        raise repository.version_conflict()
+    result, reasons = await build(conn, project_id)
+    await db.save(conn, result, actor=actor, source_job_id=source, reasons=reasons)
+    await commands.audit(
+        conn,
+        project_id=project_id,
+        actor=actor,
+        entity="draft",
+        entity_id=result.version,
+        action="draft.regenerate",
+        detail={"previous_version": seen},
+    )
+    return await loaded(conn, project_id, result.version)
+
+
+async def loaded(conn: AsyncConnection[Row], project_id: UUID, version: int) -> s.Draft:
+    result = await db.load(conn, project_id, version)
+    if result is None:
+        raise ValueError("TFT_DRAFT_VERSION_MISSING")
+    return result
+
+
+async def build(conn: AsyncConnection[Row], project_id: UUID) -> tuple[s.Draft, dict[UUID, str]]:
+    """잠금 안에서 head+1 판본과 이관할 사람 편집 이유를 만든다. 저장은 호출자가 한다."""
     version = await db.head(conn, project_id)
     previous = await db.load_snapshot(conn, project_id, version) if version else None
     human = (
@@ -126,21 +201,7 @@ async def generate(
         replaced=replacements,
         clause_ids=await repository.project_clause_ids(conn, project_id),
     )
-    result = preserve_human(result, previous, await valid_references(conn, project_id))
-    await db.save(conn, result, actor=actor, source_job_id=job_id, reasons=reasons)
-    await commands.audit(
-        conn,
-        project_id=project_id,
-        actor=actor,
-        entity="draft",
-        entity_id=result.version,
-        action="draft.generate",
-        detail={"job_id": str(job_id)},
-    )
-    display = await db.load(conn, project_id, result.version)
-    if display is None:
-        raise ValueError("TFT_DRAFT_VERSION_MISSING")
-    return display
+    return preserve_human(result, previous, await valid_references(conn, project_id)), reasons
 
 
 def preserve_human(

@@ -161,8 +161,10 @@ test('multiple products are individually identified and text or incompatible uni
 test('task server development gate preserves the actual feasibility request flow', async () => {
   vi.mocked(getSupplementOptions).mockResolvedValue({ data: { ...options, deficiency_cause: 'TASK', options: [{ ...options.options[0], path: 'OWN_DEVELOPMENT' }, { ...options.options[0], path: 'TASK_SUBCONTRACT', allowed: false, gate: { requires: 'OWN_DEVELOPMENT_CHECK', status: 'NOT_REQUIRED' } }] }, meta: { request_id: 'test' } });
   show();
-  const action = await screen.findByRole('button', { name: '담당·수행 범위와 제출 근거 확인 →' });
+  const action = await screen.findByRole('button', { name: /^자사 수행/ });
+  expect(screen.queryByRole('button', { name: /^협력사 위탁/ })).toBeNull();
   fireEvent.click(action);
+  expect(action.getAttribute('aria-expanded')).toBe('true');
   expect(screen.getByRole('heading', { name: '개발팀 가능성·일정 확인' })).toBeTruthy();
   expect(screen.getByRole('button', { name: '개발팀에 확인할 질문 작성' })).toBeTruthy();
   expect(selectSupplement).not.toHaveBeenCalled();
@@ -284,4 +286,45 @@ test('a task without a scalar value keeps its real development gate instead of i
   vi.mocked(getSupplementOptions).mockResolvedValue({ data: { ...options, deficiency_cause: 'TASK', options: [{ ...options.options[0], gate: { requires: 'OWN_DEVELOPMENT_CHECK', status: 'NOT_REQUIRED' } }] }, meta: { request_id: 'test' } });
   show();fireEvent.click(await screen.findByRole('button', { name: '담당·수행 범위와 제출 근거 확인 →' }));
   expect(screen.getByRole('heading', { name: '개발팀 가능성·일정 확인' })).toBeTruthy();expect(screen.queryByRole('button', { name: '고객 확인 질문 작성' })).toBeNull();expect(selectSupplement).not.toHaveBeenCalled();
+});
+
+test('a task card asks who performs it from allowed paths without a value comparison or automatic save', async () => {
+  vi.mocked(getSupplementRequirement).mockResolvedValue({ data: { ...MOCK_DETAIL, spec: { ...MOCK_DETAIL.spec, equipment: 'GIS', attribute: null, task: '설치 후 현장시험 성공적 완료', operator: 'TEXT', value: null, unit: null }, judgement: { ...MOCK_DETAIL.judgement, status: 'INSUFFICIENT_EVIDENCE', unresolved: ['수행 주체 확인(자사/협력사)'] } } as never });
+  vi.mocked(getComparison).mockResolvedValue({ data: { ...MOCK_COMPARISON, candidates: [] } });
+  vi.mocked(getSupplementOptions).mockResolvedValue({ data: { ...options, deficiency_cause: 'TASK', customer_permission: 'UNSTATED', options: [{ ...options.options[0], path: 'TASK_SUBCONTRACT', conditions_to_confirm: ['RFP에 외부 보완 허용 여부가 없음: 발주처 확인'] }, { ...options.options[0], path: 'OWN_DEVELOPMENT', rank: 2 }, { ...options.options[0], path: 'JOINT_PROPOSAL', allowed: false }] }, meta: { request_id: 'test' } });
+  vi.mocked(listSupplementCandidates).mockResolvedValue({ data: { items: [], manufacturer_list_basis: 'CURRENT_PROJECT_INPUT' }, meta: { request_id: 'test' } });
+  show(true, vi.fn(), { ...requirement, code: 'abcd1234:2.1.A:1', task: '설치 후 현장시험 성공적 완료', status: 'INSUFFICIENT_EVIDENCE' }, ['SALES_OPS']);
+  const partner = await screen.findByRole('button', { name: /^협력사 위탁/ });
+  await waitFor(() => expect(partner.textContent).toContain('등록된 후보 없음'));
+  expect(partner.textContent).toContain('발주처가 외부 위탁을 허용하는지 먼저 확인 필요');
+  expect(screen.getByRole('button', { name: /^자사 수행/ })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: /^공동 제안/ })).toBeNull();
+  const current = screen.getByRole('region', { name: '선택 요구 현재 상태' });
+  expect(current.textContent).toContain('조항 2.1.A');
+  expect(current.textContent).not.toContain('2.1.A-1');
+  expect(current.textContent).toContain('설치 후 현장시험 성공적 완료');
+  expect(current.textContent).toContain('불가 판정 아님');
+  expect(current.textContent).not.toContain('문자 조건');
+  expect(screen.queryByLabelText('고객 요구와 자사 조건 비교')).toBeNull();
+  expect(screen.queryByRole('button', { name: '협력사 후보 비교' })).toBeNull();
+  expect(screen.queryByRole('region', { name: '확인 질문과 기록' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: /^아직 모름/ }));
+  expect(screen.getByRole('heading', { name: '발주처에 수행 범위 확인' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: '발주처 질문 작성' })).toBeTruthy();
+  fireEvent.click(partner);
+  expect(partner.getAttribute('aria-expanded')).toBe('true');
+  expect(screen.getByRole('region', { name: '대응 경로 선택' })).toBeTruthy();
+  expect(selectSupplement).not.toHaveBeenCalled();
+});
+
+test('a spec requirement without a customer value says so and leads to the customer question', async () => {
+  vi.mocked(getSupplementRequirement).mockResolvedValue({ data: { ...MOCK_DETAIL, spec: { ...MOCK_DETAIL.spec, attribute_key: 'rated_power', value: null } } as never });
+  show(true, vi.fn(), requirement, ['SALES_OPS']);
+  const current = await screen.findByRole('region', { name: '선택 요구 현재 상태' });
+  await waitFor(() => expect(current.textContent).toContain('원문에 수치 없음'));
+  expect(screen.getByLabelText('고객 요구와 자사 조건 비교')).toBeTruthy();
+  expect(current.textContent).not.toContain('값 확인 필요');
+  expect(screen.getByRole('button', { name: '고객 확인 질문 작성' })).toBeTruthy();
+  expect(screen.queryByRole('group', { name: '결정할 것' })).toBeNull();
+  expect(selectSupplement).not.toHaveBeenCalled();
 });
