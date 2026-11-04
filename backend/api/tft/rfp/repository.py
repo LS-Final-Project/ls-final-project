@@ -1059,6 +1059,8 @@ async def insert_approved_version(
         # 코드 전용 경고는 사람이 승인한 판본에 잇지 않는다.
         "needs_review": False,
     }
+    if proposed.get("next_owner_field") is not None:
+        changed["next_owner_field"] = proposed["next_owner_field"]
     if proposed.get("spec") is not None:
         changed.update(proposed["spec"])
         if proposed["spec"] != proposal["current"].get("spec"):

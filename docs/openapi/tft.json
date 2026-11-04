@@ -1307,6 +1307,193 @@
         "title": "CrossReference",
         "type": "object"
       },
+      "DecisionRequest": {
+        "additionalProperties": false,
+        "description": "\uacb0\uc815 \ud558\ub098. \ub204\ub974\uba74 \ubc14\ub85c \ud655\uc815\ud55c\ub2e4(\uc81c\uc548 \uc791\uc131\uacfc \uc2b9\uc778\uc744 \uac19\uc740 \ud2b8\ub79c\uc7ad\uc158\uc5d0\uc11c).",
+        "properties": {
+          "action": {
+            "enum": [
+              "confirm_met",
+              "record_deviation",
+              "request_check",
+              "add_query",
+              "select_partner",
+              "ask_rnd",
+              "assign",
+              "change_verdict",
+              "undo"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "candidate_codes": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "title": "Candidate Codes",
+            "type": "array"
+          },
+          "decision_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Id"
+          },
+          "holder": {
+            "anyOf": [
+              {
+                "enum": [
+                  "OWN",
+                  "PARTNER"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holder"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "enum": [
+                  "SALES",
+                  "TECH",
+                  "PURCHASE"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
+          "target_dept": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Dept"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "enum": [
+                  "MET",
+                  "CONFIRM",
+                  "DEVIATION",
+                  "QUERY",
+                  "SUPPLEMENT",
+                  "ASSIGN"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verdict"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "action"
+        ],
+        "title": "DecisionRequest",
+        "type": "object"
+      },
+      "DecisionResult": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "confirm_met",
+              "record_deviation",
+              "request_check",
+              "add_query",
+              "select_partner",
+              "ask_rnd",
+              "assign",
+              "change_verdict",
+              "undo"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "decision_id": {
+            "format": "uuid",
+            "title": "Decision Id",
+            "type": "string"
+          },
+          "question_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question Id"
+          },
+          "requirement_id": {
+            "format": "uuid",
+            "title": "Requirement Id",
+            "type": "string"
+          },
+          "requirement_version": {
+            "title": "Requirement Version",
+            "type": "integer"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision_id",
+          "action",
+          "summary",
+          "requirement_id",
+          "requirement_version"
+        ],
+        "title": "DecisionResult",
+        "type": "object"
+      },
       "DeletedValue": {
         "additionalProperties": false,
         "description": "\ucde8\uc18c\uc120\uc73c\ub85c \uc9c0\uc6b4 \uac12. \ud604\ud589 \ud14d\uc2a4\ud2b8\uc5d0 \uc11e\uc9c0 \uc54a\ub294\ub2e4(\"5033%\" \uae08\uc9c0).",
@@ -4562,6 +4749,24 @@
             ],
             "title": "Necessity"
           },
+          "next_owner_field": {
+            "anyOf": [
+              {
+                "enum": [
+                  "SALES",
+                  "TECH",
+                  "PURCHASE",
+                  "CUSTOMER",
+                  "RND"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Owner Field"
+          },
           "reason": {
             "anyOf": [
               {
@@ -7074,6 +7279,22 @@
           "meta"
         ],
         "title": "SuccessResponse[ContextResponse]",
+        "type": "object"
+      },
+      "SuccessResponse_DecisionResult_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/DecisionResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[DecisionResult]",
         "type": "object"
       },
       "SuccessResponse_DiagramList_": {
@@ -13083,6 +13304,121 @@
           }
         },
         "summary": "Get Comparison",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
+    "/api/v1/tft/requirements/{requirement_id}/decision": {
+      "post": {
+        "description": "\uacb0\uc815 \ud328\ub110\uc758 \uacb0\uc815 \ud558\ub098\ub97c \ubc14\ub85c \ud655\uc815\ud55c\ub2e4(KAN-219).",
+        "operationId": "tft_decide_rfp_requirement",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requirement_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Requirement Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_DecisionResult_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Decide Requirement",
         "tags": [
           "rfp"
         ]
