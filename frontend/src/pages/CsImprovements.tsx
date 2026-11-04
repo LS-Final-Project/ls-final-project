@@ -14,6 +14,7 @@ import { useHotkey } from '../ls-shell/kv';
 import LogTable, { sortRows, type LogColumn, type LogSort } from './LogTable';
 import { CAUSE_LABEL, REQUEST_STATUS_LABEL, dayOf, deptName, formatStamp } from '../ls-shell/cs-labels';
 import { addEvidence, getCaseComparison, removeEvidence, type CaseComparison } from '../api/cs-repeat-cases';
+import { me } from '../api/platform';
 import type { RequestSummary } from '../ls-shell/cs-labels';
 import './ticket-detail-v3.css';
 import './improvements-v3.css';
@@ -111,7 +112,10 @@ function EvidenceCompare({ data, locked, onSaved, onEditingChange, openSignal = 
   const controller = useRef<AbortController | null>(null);
   useEffect(() => () => controller.current?.abort(), []);
   useEffect(() => { onEditingChange(removing !== null); return () => onEditingChange(false); }, [removing, onEditingChange]);
-  const writable = mode === 'live' && r.status !== 'COMPLETED' && !locked && !busy && !uncertain;
+  // 근거를 넣고 빼는 것은 C/S 담당자만(서버도 막는다). 다른 역할에는 버튼을 끈다.
+  const identity = useQuery({ queryKey: ['cs-improvement-actor', mode], queryFn: me, enabled: mode === 'live', retry: false, staleTime: 0 });
+  const agent = Array.isArray(identity.data?.data?.roles) && (identity.data!.data.roles as string[]).includes('cs_agent');
+  const writable = mode === 'live' && agent && r.status !== 'COMPLETED' && !locked && !busy && !uncertain;
   const needsCase = r.request_type === 'FAULT';
   const write = async (send: (signal: AbortSignal) => Promise<ImprovementDetail>, done: string): Promise<boolean> => {
     if (controller.current) return false;

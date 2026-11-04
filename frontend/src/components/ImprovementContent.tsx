@@ -179,6 +179,8 @@ export default function ImprovementContent({ request: r, title, tags, locked, on
   const changes: ImprovementPatch = { version: r.version };
   if (editing) {
     for (const f of FIELDS) {
+      // 손대지 않은 칸은 저장본 그대로 둔다(앞뒤 공백 포함).
+      if (editing.values[f] === (r[f] ?? '')) continue;
       const value = editing.values[f].trim();
       if (value !== (r[f] ?? '')) (changes as Record<string, unknown>)[f] = f === 'problem_statement' ? value : value || null;
     }

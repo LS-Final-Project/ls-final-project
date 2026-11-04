@@ -14,6 +14,9 @@ import './customers-v3.css';
 type Data = CustomerHistory['data'];
 const join = (values: Record<string, number>, label: (key: string) => string) => Object.keys(values).length ? Object.entries(values).map(([key, count]) => `${label(key)} ${count}`).join(', ') : '기록 없음';
 const stateName = (key: string) => STATE_LABEL[key as keyof typeof STATE_LABEL] ?? key;
+// 고객 코드는 늘 CUST-로 시작한다. 입력 칸에 미리 적어 두고 번호만 쓰게 한다. 앞부분만 있으면 입력 안 한 것으로 본다.
+const PREFIX = 'CUST-';
+const typed = (value: string) => { const v = value.trim(); return v === PREFIX ? '' : v; };
 const UNIT_STATUS: Record<string, string> = { ACTIVE: '사용 중', REPLACED: '교체됨', DECOMMISSIONED: '철거' };
 
 // 고객 이력 CS0103. 고객 한 곳의 기간 내 문의, 설치 장비, 연결된 개선요청을 저장된 기록에서 읽어 보인다.
@@ -27,13 +30,13 @@ function CustomersView() {
   const mode = getApiMode();
   // 문의 처리 화면의 고객 링크(?customer=)로 들어오면 그 고객을 바로 조회한다.
   const [params] = useSearchParams();
-  const initial: StatsFilters = { ...emptyFilters, customer: params.get('customer')?.trim() ?? '', start: params.get('start') ?? '', end: params.get('end') ?? '' };
+  const initial: StatsFilters = { ...emptyFilters, customer: params.get('customer')?.trim() || PREFIX, start: params.get('start') ?? '', end: params.get('end') ?? '' };
   const [draft, setDraft] = useState(initial);
-  const [filters, setFilters] = useState<StatsFilters>(() => initial.customer && !rangeError(initial) ? toApiFilters(initial) : emptyFilters);
-  const [error, setError] = useState(() => initial.customer ? rangeError(initial) : '');
+  const [filters, setFilters] = useState<StatsFilters>(() => typed(initial.customer) && !rangeError(initial) ? toApiFilters(initial) : emptyFilters);
+  const [error, setError] = useState(() => typed(initial.customer) ? rangeError(initial) : '');
   const history = useQuery({ queryKey: ['cs-stats', mode, 'customer', filters], queryFn: ({ signal }) => getCustomerHistory(filters, signal), enabled: filters.customer !== '', retry: false, staleTime: 0 });
   const apply = () => {
-    const invalid = rangeError(draft) || (draft.customer.trim() ? '' : '고객 ID를 입력하세요.');
+    const invalid = rangeError(draft) || (typed(draft.customer) ? '' : '고객 ID를 입력하세요.');
     setError(invalid);
     if (invalid) return;
     const next = toApiFilters(draft);
@@ -43,12 +46,12 @@ function CustomersView() {
 
   // 다시 읽는 동안에는 이전 값을 보이지 않는다.
   const data: Data | undefined = history.isSuccess && !history.isFetching ? history.data.data : undefined;
-  const unapplied = draft.customer.trim() !== filters.customer;
+  const unapplied = typed(draft.customer) !== filters.customer;
   const closed = data?.by_state.CLOSED ?? 0;
   const open = data ? Object.entries(data.by_state).filter(([key]) => key !== 'CLOSED').reduce((sum, [, count]) => sum + count, 0) : 0;
   const exportCsv = () => data && downloadCsv(`고객_이력_${data.customer_external_id}`, ['문의번호', '접수일시', '제목', '접수 경로', '제품', '상태'],
     data.tickets.map(item => [item.external_id ?? item.id, formatStamp(item.received_at), item.subject ?? '', item.channel, item.product_code, stateName(item.workflow_state)]));
-  const reset = () => { setDraft(emptyFilters); setFilters(emptyFilters); setError(''); };
+  const reset = () => { setDraft({ ...emptyFilters, customer: PREFIX }); setFilters(emptyFilters); setError(''); };
 
   return <main className="td3 cu3">
     <div className="title">
@@ -66,14 +69,14 @@ function CustomersView() {
       {mode === 'mock' && <div className="tier-note" role="status">모의 응답 모드 — 계약 예시이며 실제 업무 집계가 아닙니다. 고객별 예시가 없는 요청은 실패할 수 있습니다.</div>}
       <form className="cond" onSubmit={event => { event.preventDefault(); apply(); }}>
         <span className="k">고객코드</span>
-        <input type="text" aria-label="고객 ID" maxLength={64} placeholder="CUST-" autoComplete="off" value={draft.customer} onChange={event => setDraft({ ...draft, customer: event.target.value })} />
+        <input type="text" aria-label="고객 ID" maxLength={64} placeholder="CUST-0565" autoComplete="off" value={draft.customer} onChange={event => setDraft({ ...draft, customer: event.target.value })} />
         <span className="k">기간</span>
         <span className="range"><input type="date" aria-label="시작일" value={draft.start} onChange={event => setDraft({ ...draft, start: event.target.value })} /><em>~</em><input type="date" aria-label="종료일 (포함)" value={draft.end} onChange={event => setDraft({ ...draft, end: event.target.value })} /></span>
         <a href="#clear" className="clear" onClick={event => { event.preventDefault(); reset(); }}>초기화</a>
         {/* 입력 칸이 여럿이면 제출 단추가 있어야 Enter로 조회된다. 보이는 조회 단추는 제목 줄에 있다. */}
         <button type="submit" hidden tabIndex={-1} aria-hidden="true" />
       </form>
-      {unapplied && draft.customer.trim() !== '' && <div className="stale">입력한 고객 ID는 아직 적용되지 않았습니다. 조회를 누르면 해당 고객을 조회합니다.</div>}
+      {unapplied && typed(draft.customer) !== '' && <div className="stale">입력한 고객 ID는 아직 적용되지 않았습니다. 조회를 누르면 해당 고객을 조회합니다.</div>}
       {error && <div className="note err" role="alert">{error}</div>}
       {filters.customer === '' && <div className="pane"><div className="pb empty">고객 ID를 입력하고 조회하세요.<small>문의 처리 화면의 고객 링크로 들어오면 그 고객을 바로 보여 줍니다.</small></div></div>}
       {filters.customer !== '' && history.isFetching && <Loading />}
