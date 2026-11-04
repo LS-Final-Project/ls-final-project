@@ -93,6 +93,19 @@ export const codeLabel = (code?: string | null) => clauseLabel(code?.match(/^[0-
 const VERDICT_WORD: Record<string, string> = {
   '값 다름': '값이 다릅니다', 미달: '요구에 못 미칩니다', 초과: '요구를 넘습니다', '범위 밖': '범위를 벗어납니다', 충족: '충족합니다',
 };
+// vocabulary.ConditionName. 서버 판단 문장은 영문 이름의 밑줄을 공백으로 바꿔 쓴다.
+const CONDITION_WORD: Record<string, string> = {
+  duration: '지속 시간', 'ambient temperature': '주위온도', 'temperature rise': '온도 상승', 'reference temperature': '기준온도',
+  frequency: '주파수', altitude: '표고', voltage: '전압', 'current type': '전류 종류', duty: '사용 조건', cooling: '냉각 방식',
+  'tap type': '탭 방식', 'arc current': '아크 전류',
+};
+// 서버가 쓰는 고정 문장을 화면 말로(비교기·등급 함수의 문구, KAN-217·220).
+const FIXED: [RegExp, string][] = [
+  [/요구값 미정\(자리표시자\)\.\s*충족 판정에서 제외\./, '원문에 값이 비어 있습니다. 고객 질의가 필요합니다.'],
+  [/^검색 범위\([^)]*\)에서 자사 후보를 찾지 못함\..*$/, '자사 제품 자료에서 맞는 후보를 찾지 못했습니다.'],
+  [/수행 과업 요구\.\s*수행 주체 확인\(자사\/협력사\) 필요\./, '수행 과업입니다. 자사가 할지 협력사가 할지 정하세요.'],
+  [/값은 충족하나 조건이 달라 확인 필요\./, '값은 맞지만 조건이 다릅니다.'],
+];
 /**
  * 비교 판단 문장(서버 원문, 근거 ID·조항 코드·영문 속성 키 포함)을 화면용으로 줄인다. 원문은 title로 남긴다.
  * 예 "이미지 전사 원문 확인 필요. 원문 OCR-DOCX-0001.7 rated_voltage 요구 11 kV, 자사 25.8 kV(근거 DS-VCB 2.1): 값 다름."
@@ -100,10 +113,14 @@ const VERDICT_WORD: Record<string, string> = {
  */
 export function reasonText(reason?: string | null) {
   if (!reason) return '';
-  const short = reason
+  let short = reason
     .replace(/^이미지 전사 원문 확인 필요\.\s*/, '')
+    .replace(/^원문\s+\S+(?:\s+(?:(?!요구 )[^:]){1,30})?:\s*/, '')
     .replace(/^원문\s+\S+\s+.*?(?=요구 )/, '')
     .replace(/\s*\(근거 [^)]*\)/g, '')
-    .replace(/:\s*(값 다름|미달|초과|범위 밖|충족)\.?$/, (_, w: string) => `. ${VERDICT_WORD[w]}.`);
+    .replace(/:\s*(값 다름|미달|초과|범위 밖|충족)\.?$/, (_, w: string) => `. ${VERDICT_WORD[w]}.`)
+    .replace(/조건 차이:\s*([a-z][a-z ]*?) 요구/g, (_, n: string) => `${CONDITION_WORD[n] ?? n} 차이: 요구`)
+    .replace(/,\s*(?:후보|자사 근거)\s/g, ', 자사 ');
+  for (const [from, to] of FIXED) short = short.replace(from, to);
   return short.trim();
 }
