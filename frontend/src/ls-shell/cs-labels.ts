@@ -96,7 +96,7 @@ export const infoName = (code: string) => INFO_LABEL[code] ?? code;
 // 문의 언어(body_language의 주 언어). 제공 문의 15개 언어와 한국어. 없는 코드는 코드 그대로 보인다.
 export const LANGUAGE_LABEL: Record<string, string> = {
   en: '영어', ko: '한국어', es: '스페인어', fr: '프랑스어', th: '태국어', id: '인도네시아어', it: '이탈리아어', zh: '중국어',
-  tr: '튀르키예어', ru: '러시아어', ar: '아랍어', vi: '베트남어', pt: '포르투갈어', de: '독일어', ja: '일본어', pl: '폴란드어',
+  tr: '튀르키예어', ru: '러시아어', ar: '아랍어', vi: '베트남어', pt: '포르투갈어', de: '독일어', ja: '일본어', pl: '폴란드어', nl: '네덜란드어', sv: '스웨덴어', hu: '헝가리어',
 };
 export const languageName = (tag: string) => LANGUAGE_LABEL[tag.trim().replace('_', '-').split('-')[0].toLowerCase()] ?? tag;
 

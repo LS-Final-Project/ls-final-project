@@ -5,13 +5,18 @@ A C/S agent sees the same overview limited to tickets they own. Customer history
 tickets, so it needs the full ticket scope.
 """
 
+import json
+import logging
 import re
+import time
 from datetime import datetime
-from typing import Annotated, get_args
+from typing import Annotated, Any, get_args
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from backend.api.cs.stats import repository
+from backend.api.cs.improvements import repository as improvement_repository
+from backend.api.cs.improvements.followup_routes import signal_for
+from backend.api.cs.stats import repository, sla
 from backend.api.cs.stats.schemas import (
     CustomerHistory,
     CustomerLoad,
@@ -26,10 +31,11 @@ from backend.api.cs.stats.schemas import (
     OwnerList,
     OwnerLoad,
     Period,
+    RecurrenceCount,
     TicketCounts,
     Unconfirmed,
 )
-from backend.api.cs.tickets.access import sees_all_tickets
+from backend.api.cs.tickets.access import sees_all_tickets, transfer_departments
 from backend.api.cs.tickets.routes import PARTIAL, respond
 from backend.api.cs.tickets.schemas import WorkflowState
 from backend.api.cs.translation import repository as translations
@@ -38,6 +44,8 @@ from backend.shared.database import connection
 from backend.shared.departments import TransferDepartment
 from backend.shared.errors import ApplicationError
 from backend.shared.models import CUSTOMER_ID, ErrorResponse, SuccessResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/v1/cs/stats",
@@ -52,10 +60,52 @@ router = APIRouter(
 
 # Neither is stored yet: SLA due times and rule results are saved by the ticket job (KAN-107).
 UNCONFIRMED: list[Unconfirmed] = ["SLA_DUE", "RULE_ASSIGNED_DEPT"]
+# The overview computes SLA figures on read (KAN-233), so only the rule department is left.
+OVERVIEW_UNCONFIRMED: list[Unconfirmed] = ["RULE_ASSIGNED_DEPT"]
 STATES = get_args(WorkflowState)
 Start = Annotated[datetime | None, Query(description="Inclusive, with a time zone.")]
 End = Annotated[datetime | None, Query(description="Exclusive, with a time zone.")]
 Customer = Annotated[str | None, Query(pattern=f"^{CUSTOMER_ID}$")]
+
+
+# The SLA rule inputs are read once and shared by /overview and /owners for a short time.
+# Both endpoints open together on the stats screen and would otherwise read and compute the
+# same open tickets twice. Entries expire after SLA_ROWS_TTL seconds; nothing is stored.
+SLA_ROWS_TTL = 30.0
+_sla_rows: dict[str, tuple[float, list[Any]]] = {}
+
+
+async def shared_sla_rows(conn: Any, p: dict[str, Any]) -> list[Any]:
+    key = json.dumps(p, default=str, sort_keys=True)
+    now = time.monotonic()
+    hit = _sla_rows.get(key)
+    if hit and hit[0] > now:
+        return hit[1]
+    rows = await repository.sla_tickets(conn, p)
+    for stale in [k for k, (expires, _) in _sla_rows.items() if expires <= now]:
+        _sla_rows.pop(stale, None)
+    if len(_sla_rows) >= 32:
+        _sla_rows.clear()
+    _sla_rows[key] = (now + SLA_ROWS_TTL, rows)
+    return rows
+
+
+async def recurrence_after_completion(
+    conn: Any, faults: list[Any], documents: int, limited: bool, now: Any
+) -> RecurrenceCount | None:
+    """KAN-117 signal over the most recent completed fault requests. Any failure makes the
+    whole count null (contract: null when it cannot be computed), never the overview."""
+    try:
+        recurrence = 0
+        for row in faults:
+            signal, _ = await signal_for(conn, row, now)
+            recurrence += signal.decision == "RECURRENCE"
+    except Exception:  # noqa: BLE001 - 보조 집계라 실패해도 개요 전체를 막지 않는다.
+        logger.warning("CS_STATS_RECURRENCE_FAILED")
+        return None
+    return RecurrenceCount(
+        checked=len(faults), recurrence=recurrence, not_applicable=documents, limited=limited
+    )
 
 
 def period(start: datetime | None, end: datetime | None) -> Period:
@@ -96,9 +146,15 @@ async def overview(
         ages = await repository.open_age(conn, p)
         departments = await repository.departments(conn, p)
         customers = await repository.top_customers(conn, p)
+        now = await improvement_repository.database_now(conn)
+        sla_rows = await shared_sla_rows(conn, p)
         improvements = None
         if scope == "ALL":
             groups, totals = await repository.improvements(conn, p)
+            faults, documents, limited = await repository.completed_fault_requests(conn, p)
+            recurrence_count = await recurrence_after_completion(
+                conn, faults, documents, limited, now
+            )
             by_status: dict[str, int] = {}
             by_type = {"FAULT": 0, "DOCUMENT": 0}
             for row in groups:
@@ -109,6 +165,11 @@ async def overview(
                 by_type=by_type,  # type: ignore[arg-type]
                 open=totals["open"],
                 receiver_unconfirmed=totals["receiver_unconfirmed"],
+                completed_in_period=totals["completed_in_period"],
+                info_requested=totals["info_requested"],
+                rejected=totals["rejected"],
+                reply_overdue=totals["reply_overdue"],
+                recurrence_after_completion=recurrence_count,
             )
     data = Overview(
         scope=scope,  # type: ignore[arg-type]
@@ -127,7 +188,15 @@ async def overview(
         departments=[DepartmentCount.model_validate(d) for d in departments],
         top_customers=[CustomerLoad.model_validate(c) for c in customers],
         improvements=improvements,
-        unconfirmed=UNCONFIRMED,
+        unconfirmed=OVERVIEW_UNCONFIRMED,
+        sla=sla.summary(
+            sla_rows,
+            start=start,
+            end=end,
+            now=now,
+            sees_all=sees_all_tickets(principal),
+            departments=transfer_departments(principal),
+        ),
     )
     return respond(request, data)
 
@@ -149,11 +218,21 @@ async def owners(
     if not principal.has("manager"):
         raise HTTPException(403)
     window = period(start, end)
+    p = repository.params(start, end, dept)
     async with connection(request.app.state.settings) as conn:
-        rows = await repository.owners(conn, repository.params(start, end, dept))
+        rows = await repository.owners(conn, p)
+        now = await improvement_repository.database_now(conn)
+        deadlines = sla.by_owner(await shared_sla_rows(conn, p), now)
+        requests = await repository.owner_requests(conn, dept)
+    empty = {"due_today": 0, "overdue": 0, "sla_unknown": 0}
     items = [
         OwnerLoad.model_validate(
-            {**r, "by_state": {state: r[f"state_{state.lower()}"] for state in STATES}}
+            {
+                **r,
+                **deadlines.get(r["owner_user_id"], empty),
+                "improvements_open": requests.get(r["owner_user_id"], 0),
+                "by_state": {state: r[f"state_{state.lower()}"] for state in STATES},
+            }
         )
         for r in rows
     ]
