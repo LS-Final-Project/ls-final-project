@@ -294,3 +294,31 @@ OPEN), `review_pending`(결정했는데 책임자 확인이 없는 요구). 책�
 `review_return`(대상 `decision_id`, 프로젝트 책임자만)이다. 되돌려 보내기는 되돌리기와 같은 반대 기록을 쓴다.
 담당 sales와 책임자가 같은 사람인 프로젝트는 그 사람이 결정도 확인도 한다. 이때 확인을 생략하지 않고 `review_pending`에 그대로
 남기며, `decision_gate.self_review=true`로 화면이 "본인 결정"을 표시한다(확인 기록은 출력 전 한 번 더 보는 절차로 남긴다).
+
+## 변경 이력 (KAN-226, 2026-11-04)
+
+`GET /projects/{id}/history`(프로젝트 전체)와 `GET /requirements/{id}/history`(요구 한 건)는 이미 쌓인 표를 읽어
+시간순 이벤트로 합친다. 저장 구조를 바꾸지 않고, 기록에 없는 사건은 만들지 않는다. 범위 밖 프로젝트·요구는 다른 RFP 경로와
+같은 404(`TFT_PROJECT_NOT_FOUND`·`TFT_REQUIREMENT_NOT_FOUND`)다. 구현은 `backend/api/tft/rfp/history.py` `SOURCES` 한 곳이다.
+
+query: `kind`(아래 값을 쉼표로 이음, 예 `kind=decision,recompared`, 그 밖은 422. 두 중계가 같은 키 반복을 400으로 막아 반복형이 아니다), `actor`(사용자 UUID), `limit`(1~200, 기본 50), `cursor`. 정렬은
+`(at, id)` 최신순이고 커서는 마지막 행의 `(at, id)` 키셋이다. 틀린 커서는 400 `TFT_INVALID_CURSOR`다.
+응답은 `{items: [{id, at, kind, actor_user_id, requirement_id, requirement_version, summary, before, after}], next_cursor}`이고
+`next_cursor`가 null이면 마지막 쪽이다. 행위자 표시 이름은 화면이 플랫폼 사용자 조회로 붙인다(tft는 identity 스키마를 읽지 않는다).
+
+| kind | 출처 | actor | summary | before·after |
+|---|---|---|---|---|
+| ai_verdict | `requirement_versions` provenance_kind `ai_draft` | null | 판본 `reason` | 앞 판본과 달라진 칸(status·value·unit·operator·necessity·path), 첫 판본은 after만 |
+| human_change | `requirement_versions` `human_input`(제안 출처 web·pdf_annot) | `decided_by` | 판본 `reason` | 같음 |
+| reply_applied | `requirement_versions` `human_input`, 제안 `origin=customer_reply` | `decided_by` | 판본 `reason` | 같음 |
+| system_record | `requirement_versions` `system_record` | `decided_by` | 판본 `reason` | 같음 |
+| decision | `requirement_decisions`(undo·review_* 외 action) | `actor_user_id` | 결정 `summary` | after `{action}` |
+| decision_undone | `requirement_decisions` action `undo` | 같음 | 같음 | 같음 |
+| review_confirmed | `requirement_decisions` action `review_confirm` | 같음 | 같음 | 같음 |
+| review_returned | `requirement_decisions` action `review_return` | 같음 | 같음 | 같음 |
+| recompared | `rfp_audit_events` action `requirement.recompare` | `actor_user_id` | `다시 비교` | 없음 |
+| reply_recorded | `question_replies`(질문의 요구·issue_type) | `recorded_by` | `회신 기록 (issue_type)` | 없음. 회신 원문은 내지 않는다 |
+
+판단을 바꾸는 결정은 결정 행과 그 결정이 만든 판본 행이 같은 시각으로 둘 다 나온다. 재비교는 `requirement_recomparisons`가
+아니라 감사 행을 읽는다. 그 표에는 제안 승인 때 물려받은 비교 사본도 쌓이고 행위자가 없어서다. 직접 추가·빼기(KAN-225)처럼
+아직 저장 표가 없는 사건은 나오지 않으며, 표가 생기면 `SOURCES`에 SELECT 하나를 더한다.
