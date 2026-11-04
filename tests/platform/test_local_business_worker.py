@@ -163,6 +163,15 @@ def test_partial_or_invalid_usage_never_settles_partial_estimate(tmp_path, field
     assert len(calls) == 1
 
 
+def test_omitted_thoughts_count_is_zero_only_when_the_total_proves_it(tmp_path):
+    permit = FakePermit()
+    meter = worker.Meter(permit, configuration(tmp_path), PRICES)
+    client, _ = client_for(meter, response(thoughts_token_count=None, total_token_count=120))
+    client.models.generate_content(model=MODEL)
+    assert permit.settlements[0][1] is not None
+    assert permit.settlements[0][2]["thought_tokens"] == 0
+
+
 def test_absent_or_boolean_usage_is_unknown(tmp_path):
     for raw in [
         None,
