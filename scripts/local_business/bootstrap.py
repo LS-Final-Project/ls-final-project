@@ -341,6 +341,23 @@ def load_units(state, config, inputs):
     )
 
 
+def load_candidates(state, config, inputs):
+    """KAN-162 QA: draft the provided groups already past the repeat threshold (proposal 4.4 ⑩)."""
+    output = runtime(
+        state,
+        config,
+        ["-m", "scripts.local_business.bootstrap_candidates"],
+        "postgres",
+        inputs,
+        state / "logs/bootstrap-candidates.log",
+    )
+    result = json.loads(output.decode().splitlines()[-1])
+    require(
+        result["created"] + result["already_requested"] + result["skipped"] == result["eligible"],
+        "CANDIDATES_CHECK_FAILED",
+    )
+
+
 def start_ready(state, config):
     from scripts.local_business.__main__ import stop_tunnel
 
@@ -477,6 +494,7 @@ def bootstrap(namespace, profile="full", port=38443, *, plan_only=False):
         for name, action in (
             ("history", lambda: load_history(state, config, manifest, inputs, loader_hash)),
             ("assumed_units", lambda: load_units(state, config, inputs)),
+            ("improvement_candidates", lambda: load_candidates(state, config, inputs)),
             ("corpus", lambda: load_corpus(state, config, manifest, inputs)),
             ("partners", lambda: load_partners(state, config, inputs)),
         ):
