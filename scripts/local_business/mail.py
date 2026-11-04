@@ -158,8 +158,10 @@ class LocalMailTransport(httpx.AsyncBaseTransport):
             request.url = request.url.copy_with(
                 scheme="http", host="127.0.0.1", port=self.ports["cs"]
             )
-        elif host == "graph.microsoft.com" and request.url.path.endswith("/sendMail"):
-            addresses = recipients(await request.aread())
+        elif host == "graph.microsoft.com" and request.method != "GET":
+            # The workers only write to Graph through sendMail; any other write is refused.
+            send = request.url.path == "/v1.0/me/sendMail"
+            addresses = recipients(await request.aread()) if send else []
             if not addresses or not all(allowed(a, self.allow) for a in addresses):
                 # Recorded by the send worker as a failed intent (GRAPH_FORBIDDEN); nothing leaves.
                 log.warning("LOCAL_MAIL_SEND_BLOCKED recipients=%d", len(addresses))
@@ -327,16 +329,19 @@ def configure_platform(
         while True:
             await asyncio.sleep(interval)
             for path in jobs:
-                await transport.call(
-                    {
-                        "url": PLATFORM_ORIGIN + PREFIX + path,
-                        "oidcToken": {
-                            "audience": PLATFORM_ORIGIN,
-                            "serviceAccountEmail": PLATFORM_SA,
+                try:
+                    await transport.call(
+                        {
+                            "url": PLATFORM_ORIGIN + PREFIX + path,
+                            "oidcToken": {
+                                "audience": PLATFORM_ORIGIN,
+                                "serviceAccountEmail": PLATFORM_SA,
+                            },
                         },
-                    },
-                    tries=1,
-                )
+                        tries=1,
+                    )
+                except Exception:  # keep the loop alive; the reason may hold secrets
+                    log.warning("LOCAL_MAIL_SCHEDULER_FAILED path=%s", path)
 
     inner = app.router.lifespan_context
 

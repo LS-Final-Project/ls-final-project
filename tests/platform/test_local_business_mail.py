@@ -161,11 +161,14 @@ async def _send_outside_the_allow_list_never_reaches_graph(tmp_path):
         to_outside = await client.post(url, json=send_body("customer@gmail.com"))
         cc_outside = await client.post(url, json=send_body("csdesk-01@outlook.kr", cc=["x@y.com"]))
         nobody = await client.post(url, json=send_body())
+        reply = await client.post(
+            "https://graph.microsoft.com/v1.0/me/messages/m1/reply", json=send_body("a@outlook.kr")
+        )
         other = client.get("https://example.com/")
         with pytest.raises(httpx.ConnectError):
             await other
     assert ok.status_code == 202
-    assert [r.status_code for r in (to_outside, cc_outside, nobody)] == [403, 403, 403]
+    assert [r.status_code for r in (to_outside, cc_outside, nobody, reply)] == [403] * 4
     assert [str(r.url) for r in seen] == [url]
 
 
