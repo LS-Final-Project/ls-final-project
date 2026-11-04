@@ -117,6 +117,24 @@ function delay(ms: number, signal: AbortSignal) {
   });
 }
 
+/** 끝난 작업의 저장된 진행 이벤트를 처음부터 재생한다(분석 기록). 진행 중인 작업은 watchRfpJob이 맡는다. */
+export async function replayRfpJob(target: RfpTarget, signal: AbortSignal): Promise<{ job: RfpJob; activity: RfpProgress[]; startedAt?: string }> {
+  const job = await readRfpJob(target, signal);
+  let activity: RfpProgress[] = [], startedAt: string | undefined;
+  if (job.last_event_sequence > 0) {
+    try {
+      await stream(target, 0, signal, () => undefined, p => {
+        if (p.type === 'job.started') startedAt = p.occurredAt;
+        if (p.step) activity = [...activity.filter(item => item.step !== p.step), p];
+      });
+    } catch (error) {
+      // 서버가 재생 뒤 종료 이벤트 없이 연결을 닫아도 받은 단계까지는 보인다.
+      if (signal.aborted || !activity.length) throw error;
+    }
+  }
+  return { job, activity, startedAt };
+}
+
 export async function watchRfpJob(target: RfpTarget, signal: AbortSignal, update: (view: RfpWatch) => void): Promise<void> {
   let cursor: number | undefined, progress: RfpProgress | undefined, failures = 0, resetCursor = false;
   let job: RfpJob | undefined, checkedAt: number | undefined;

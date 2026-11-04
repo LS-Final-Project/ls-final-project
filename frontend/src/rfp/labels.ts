@@ -81,3 +81,12 @@ export const INTEGRATION_HOLDER_LABEL: Record<string, string> = {
 };
 
 export const OFF_LIST_PERMISSION_LABEL: Record<string, string> = { ALLOWED: '허용', FORBIDDEN: '금지', UNSTATED: '미확인' };
+
+export const OCR_CLAUSE = /^OCR-(DOCX-|PDF-P)(\d+)(?:\.|$)/;
+/** 조항 번호를 사람이 읽는 말로: 이미지 전사는 "본문 이미지 n"·"PDF n쪽", 나머지는 원문 번호(제n조.m 등) 그대로. */
+export function clauseLabel(clauseNo?: string | null, page?: number | null) {
+  const ocr = clauseNo?.match(OCR_CLAUSE);
+  return !ocr ? clauseNo ?? '' : ocr[1] === 'DOCX-' ? `본문 이미지 ${Number(ocr[2])}` : `PDF ${page ?? Number(ocr[2])}쪽`;
+}
+/** 요구 코드(문서 판본 앞 8자:조항 번호:순번)를 조항 표시로 바꾼다. 형식이 다르면 그대로 둔다. */
+export const codeLabel = (code?: string | null) => clauseLabel(code?.match(/^[0-9a-f]{8}:(.+):\d+$/)?.[1] ?? code);

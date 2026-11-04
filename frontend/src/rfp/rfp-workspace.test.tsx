@@ -64,7 +64,7 @@ describe('결정 (담당)', () => {
 
   it('설비 선택과 검색어가 실제로 거른다', () => {
     show('sales');
-    fireEvent.change(screen.getByLabelText('설비'), { target: { value: 'TR-01' } });
+    fireEvent.change(screen.getByLabelText('설비'), { target: { value: 'TR' } });
     expect(screen.queryByRole('button', { name: '질의서에 넣기' })).toBeNull();
     fireEvent.change(screen.getByLabelText('요구 검색'), { target: { value: '임피던스' } });
     expect(screen.getAllByRole('button', { name: '임피던스' }).length).toBeGreaterThan(0);
@@ -310,7 +310,8 @@ describe('보드 맞춤', () => {
     expect(within(row).queryByRole('button', { name: '질의서에 넣기' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '설비별로 보기' }));
     const groups = [...document.querySelectorAll('tr.g')].map(g => g.textContent?.split(' ')[0]);
-    expect(groups).toEqual(['MV-SWG-01', 'TR-01', 'LV-SWB-01', '공통']);
+    // KAN-231: 맥락 태그가 없으면 설비 계열(MV·TR·LV·공통)로 묶는다(보드와 같다).
+    expect(groups).toEqual(['MV', 'TR', 'LV', '공통']);
     expect(screen.queryByText('충족 14건 펼치기')).toBeNull();
   });
   it('엑셀은 보이는 요구를 CSV로 내려받는다', () => {
