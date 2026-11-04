@@ -24,6 +24,7 @@ from backend.api.tft.rfp import drafts
 from backend.api.tft.rfp import schemas as s
 from backend.api.tft.rfp.decisions import VERDICT_WORDS, gate, states
 from backend.api.tft.rfp.docx_layout import check_text
+from backend.api.tft.rfp.grouping import equipment_groups
 
 Row = dict[str, Any]
 Cell = str | int
@@ -113,12 +114,10 @@ async def collect(
     for dup in result.duplicates if result else []:
         sources[dup.canonical_requirement_id] = dup.clause_nos
         hidden |= set(dup.requirement_ids) - {dup.canonical_requirement_id}
-    groups = {g.entity_id: g for g in result.groups if g.kind == "EQUIPMENT"} if result else {}
-    equipment: dict[str, str] = {}
-    for assignment in result.assignments if result else []:
-        group = next((groups[i] for i in assignment.group_ids if i in groups), None)
-        if group:
-            equipment[assignment.requirement_id] = group.tag or group.name
+    # 화면 묶음(KAN-231 grouping.equipment_groups)과 같은 규칙: 배정의 첫 설비 묶음, 없으면 근거로 든 설비 묶음.
+    equipment = {
+        rid: g.tag or g.name for rid, g in (equipment_groups(result) if result else {}).items()
+    }
     rows = sorted(
         (r for r in requirements if str(r.requirement_id) not in hidden),
         key=lambda r: (clause_key(r.origin.clause_no or ""), r.code),

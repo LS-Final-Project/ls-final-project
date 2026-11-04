@@ -260,7 +260,7 @@ def test_verdict_change_writes_a_judgement_and_assign_needs_a_task(client, chain
 CHIEF = Principal(user_id=RESPONSIBLE, roles=frozenset({"sales"}))
 
 
-def verdict_of(**row):
+def verdict_of(supplied=False, **row):
     base = {
         "status": "INSUFFICIENT_EVIDENCE",
         "kind": "SPEC",
@@ -271,7 +271,9 @@ def verdict_of(**row):
         "unresolved": [],
         "next_owner_field": "TECH",
     }
-    return bid_verdict({**base, **row}, differs=False, customer_question=False, override=None)
+    return bid_verdict(
+        {**base, **row}, differs=False, customer_question=False, override=None, supplied=supplied
+    )
 
 
 def test_bid_verdict_rules_follow_the_rfp91_cases():
@@ -293,11 +295,19 @@ def test_bid_verdict_rules_follow_the_rfp91_cases():
         )
         == "DEVIATION"
     )
-    # 값이 빈 요구(R-06)는 질의, 과업·제출물(R-25~31)은 배정, 자사 근거가 없는 것(R-17)은 보완.
+    # 값이 빈 요구(R-06)는 질의, 과업·제출물(R-25~31)은 배정, 자사 근거가 없고 협력사 경로가 있는 것(R-17)은 보완.
     assert verdict_of(value=None, next_owner_field="CUSTOMER") == "QUERY"
     assert verdict_of(kind="TASK") == "ASSIGN"
     assert verdict_of(kind="DOCUMENT") == "ASSIGN"
-    assert verdict_of() == "SUPPLEMENT"
+    assert verdict_of(supplied=True) == "SUPPLEMENT"
+    # KAN-231(P26-0025 점검): 고를 보완 경로가 없으면(계열 미정·속성 미연결·자사 자료 근거 없음) 충족 확인이다.
+    assert verdict_of() == "CONFIRM"
+    # OCR 전사 표시와 "후보 근거에 없음"은 조건 차이가 아니다(편차 아님).
+    assert verdict_of(status="CONDITIONAL", unresolved=["이미지 전사 원문 확인 필요"]) == "CONFIRM"
+    assert (
+        verdict_of(status="CONDITIONAL", unresolved=["cooling 요구 강제공랭(AF), 후보 근거에 없음"])
+        == "CONFIRM"
+    )
     assert bid_verdict({}, differs=False, customer_question=False, override="QUERY") == "QUERY"
 
 

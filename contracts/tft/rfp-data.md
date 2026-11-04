@@ -279,11 +279,16 @@ sales만 한다(책임자는 403 `TFT_DECISION_SALES_ONLY`). 책임자 확인·�
 | CONDITIONAL, 최신 비교의 자사 후보가 모두 DIFFERS(자료 없음 제외) | 편차 |
 | CONDITIONAL, 형식(form) 요구 | 충족 확인 |
 | CONDITIONAL, 문자열 요구(operator TEXT) | 편차 |
-| CONDITIONAL, 미해결에 조건 차이가 있음(값 확인·단위 확인·지속시간 환산 항목 외) | 편차 |
+| CONDITIONAL, 미해결에 조건 차이가 있음(값 확인·단위 확인·지속시간 환산·도면 OCR 전사 확인·"후보 근거에 없음" 외) | 편차 |
 | 그 밖의 CONDITIONAL(숫자를 못 읽음 등) | 충족 확인 |
 | INSUFFICIENT_EVIDENCE, kind TASK·DOCUMENT 또는 과업 | 배정 |
 | INSUFFICIENT_EVIDENCE, 값 없음·보낼 고객 질문 있음·담당 CUSTOMER | 질의 |
-| 그 밖의 INSUFFICIENT_EVIDENCE | 보완 |
+| INSUFFICIENT_EVIDENCE, 보완 양식에 고를 경로가 있음(제외되지 않은 협력사 등급, 지정품, 핵심 기기 부재 원인) | 보완 |
+| 그 밖의 INSUFFICIENT_EVIDENCE(계열·속성을 못 정해 비교하지 않음, 자사 자료에 근거 없음 등) | 충족 확인 |
+
+KAN-231(2026-11-05): 보완은 협력사 선정 등 보완 양식에 고를 경로가 있을 때만이다. 경로 없는 근거 부족을 보완으로
+보내면 화면의 협력사 선정이 비어 있다. 도면 OCR 요구의 "이미지 전사 원문 확인 필요"와 후보 근거에 그 조건이 없는
+것은 다름이 아니라 확인할 일이라 편차가 아니다.
 
 결정함은 되돌리지 않은 결정(판정 바꾸기 제외)이 지금 최신 판본에서 한 것일 때다. 판본이 바뀌면(재비교 승인, 재처리, 판정 바꾸기)
 다시 결정 대상이 된다. 충족은 결정이 필요 없다.
@@ -458,3 +463,23 @@ null은 입력 전), `decisions_remaining`(= 상세 `decision_gate.undecided`), 
 - `process_mode`: 최신 판본의 규격 문서(RFP_SPEC·ADDENDUM·DRAWING)가 모두 조항을 가지면 `regrade`(처리 실행이 원문을 다시
   읽지 않고 저장 요구를 모델 없이 재채점), 하나라도 없으면 `extract`(새 판본 추출, 모델 비용), 규격 문서가 없으면 null.
   처리 함수의 `document_processed` 규칙과 같다. 새 판본 분석은 문서 올리기(새 판본) 뒤 처리 실행이다.
+
+## 요구 화면의 묶음·중복·설비 계열 (KAN-231, 2026-11-05)
+
+요구 목록·상세에 싣는다. 계산은 `backend/api/tft/rfp/grouping.py` 한 곳이고 읽기 전용이다(모델 호출 없음).
+
+- `bucket`: 설비 계열 묶음 MV(MV_EQUIP)·TR(TRANSFORMER)·LV(LV_BREAKER, LV_SWITCHGEAR)·OTHER(그 밖의 계열)·
+  COMMON(계열 없음·OTHER, 과업·제출물). 맥락이 없어도 늘 있다.
+- `group {group_id, tag, name}`: 최신 맥락 결과(KAN-216 consolidate)에서 요구의 설비 묶음. 배정의 첫 설비 묶음, 없으면
+  근거로 든 첫 설비 묶음이다. 출력(KAN-221) 설비 칸과 같은 함수(`equipment_groups`)를 쓴다.
+- `duplicate {representative_id, member_count, is_representative}`: KAN-223 `duplicates`. 대표는 맥락의 대표 요구다.
+- `context_stale`: 맥락 이후 요구의 비교 칸(문서 판본·설비·속성·값·단위)이 바뀌었거나 맥락에 없는 요구. 결정은 판단만
+  바꾸므로 판본이 올라가도 이 칸이 같으면 맥락은 그대로 유효하다. stale인 요구는 `group`·`duplicate`가 null이고, 대표가
+  stale이거나 남은 구성원이 하나뿐인 중복 묶음은 쓰지 않는다. 맥락이 없으면 `group`·`duplicate`·`context_stale` 모두 null.
+
+**중복 결정 규칙.** 대표만 결정한다. 구성원(대표 아님)은 `decision.follows`(대표 ID)를 갖고 `needed=false`라
+`decision_gate`(undecided·deviation_missing)와 목록의 결정 남은 수에서 빠진다. 구성원에 결정 행동(DECIDING)이나
+판정 바꾸기를 보내면 409 `TFT_DUPLICATE_MEMBER`, `details=[{field: representative_id, reason: <대표 ID>}]`다. 빼기·되살리기·
+되돌리기·책임자 확인은 구성원에도 된다. 대표를 빼면 구성원은 다시 결정 대상이다(`follows=null`). 출력은 대표 한 행과 출처
+조항으로 낸다(KAN-221). 도면 OCR 요구가 본문 요구와 같은 값으로 중복이면 도면 확인도 대표의 결정을 따른다(값이 다르면
+`value_conflicts`로 남고 결정 대상이다).

@@ -1959,6 +1959,18 @@
             ],
             "title": "Excluded Reason"
           },
+          "follows": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follows"
+          },
           "manually_added": {
             "default": false,
             "title": "Manually Added",
@@ -2889,6 +2901,32 @@
           "version"
         ],
         "title": "DraftRewrite",
+        "type": "object"
+      },
+      "DuplicateInfo": {
+        "additionalProperties": false,
+        "description": "\uc6d0\ubb38 \uc5ec\ub7ec \uacf3\uc5d0 \ubc18\ubcf5\ub41c \uac19\uc740 \uc694\uad6c(KAN-223). \ub300\ud45c\ub9cc \uacb0\uc815\ud558\uace0 \uad6c\uc131\uc6d0\uc740 \ub300\ud45c\ub97c \ub530\ub978\ub2e4(KAN-231).",
+        "properties": {
+          "is_representative": {
+            "title": "Is Representative",
+            "type": "boolean"
+          },
+          "member_count": {
+            "title": "Member Count",
+            "type": "integer"
+          },
+          "representative_id": {
+            "format": "uuid",
+            "title": "Representative Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "representative_id",
+          "member_count",
+          "is_representative"
+        ],
+        "title": "DuplicateInfo",
         "type": "object"
       },
       "DuplicateSet": {
@@ -6995,9 +7033,32 @@
             ],
             "title": "Bid Verdict"
           },
+          "bucket": {
+            "default": "COMMON",
+            "enum": [
+              "MV",
+              "TR",
+              "LV",
+              "OTHER",
+              "COMMON"
+            ],
+            "title": "Bucket",
+            "type": "string"
+          },
           "code": {
             "title": "Code",
             "type": "string"
+          },
+          "context_stale": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context Stale"
           },
           "data_origin": {
             "enum": [
@@ -7027,6 +7088,26 @@
             ],
             "title": "Derivation Kind",
             "type": "string"
+          },
+          "duplicate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DuplicateInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "group": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RequirementGroup"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "judgement": {
             "$ref": "#/components/schemas/Judgement"
@@ -7092,6 +7173,38 @@
           "needs_rereview"
         ],
         "title": "RequirementDetail",
+        "type": "object"
+      },
+      "RequirementGroup": {
+        "additionalProperties": false,
+        "description": "\uc694\uad6c\uac00 \uc18d\ud55c \uc124\ube44 \ubb36\uc74c(KAN-231). \ucd5c\uc2e0 \ub9e5\ub77d \uacb0\uacfc(KAN-216)\uc758 \ubb36\uc74c ID\u00b7\uc6d0\ubb38 \uc81c\ubaa9 \ud0dc\uadf8\u00b7\uc774\ub984.",
+        "properties": {
+          "group_id": {
+            "title": "Group Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag"
+          }
+        },
+        "required": [
+          "group_id",
+          "tag",
+          "name"
+        ],
+        "title": "RequirementGroup",
         "type": "object"
       },
       "RequirementLinks": {
@@ -7469,14 +7582,47 @@
             ],
             "title": "Bid Verdict"
           },
+          "bucket": {
+            "default": "COMMON",
+            "enum": [
+              "MV",
+              "TR",
+              "LV",
+              "OTHER",
+              "COMMON"
+            ],
+            "title": "Bucket",
+            "type": "string"
+          },
           "code": {
             "title": "Code",
             "type": "string"
+          },
+          "context_stale": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context Stale"
           },
           "decision": {
             "anyOf": [
               {
                 "$ref": "#/components/schemas/DecisionState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "duplicate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DuplicateInfo"
               },
               {
                 "type": "null"
@@ -7493,6 +7639,16 @@
               }
             ],
             "title": "Equipment"
+          },
+          "group": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RequirementGroup"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "is_designated_item": {
             "default": false,

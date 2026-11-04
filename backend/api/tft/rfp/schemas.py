@@ -448,6 +448,26 @@ class OwnValue(Model):
     result: Literal["MEETS", "DIFFERS", "NOT_COMPARABLE", "NO_DATA"]
 
 
+class RequirementGroup(Model):
+    """요구가 속한 설비 묶음(KAN-231). 최신 맥락 결과(KAN-216)의 묶음 ID·원문 제목 태그·이름."""
+
+    group_id: str
+    tag: str | None
+    name: str
+
+
+class DuplicateInfo(Model):
+    """원문 여러 곳에 반복된 같은 요구(KAN-223). 대표만 결정하고 구성원은 대표를 따른다(KAN-231)."""
+
+    representative_id: UUID
+    member_count: int
+    is_representative: bool
+
+
+# 설비 계열 묶음(KAN-231): 중전압·변압기·저압·그 밖의 계열·공통(계열 없음, 과업, 제출물).
+Bucket = Literal["MV", "TR", "LV", "OTHER", "COMMON"]
+
+
 class Equipment(Model):
     """프로젝트 설비 하나(KAN-227). tag는 원문 제목의 설비 태그(KAN-216), 없으면 null."""
 
@@ -547,6 +567,11 @@ class RequirementSummary(Model):
     decision: "DecisionState | None" = None
     # KAN-227: 비교에 쓴 자사 값. 비교가 없거나 자사 값이 없으면 null.
     own_value: OwnValue | None = None
+    # KAN-231: 설비 계열 묶음은 늘 있다. 묶음·중복·context_stale은 맥락이 없으면 null(규칙은 rfp-data.md).
+    bucket: Bucket = "COMMON"
+    group: RequirementGroup | None = None
+    duplicate: DuplicateInfo | None = None
+    context_stale: bool | None = None
 
 
 class RequirementList(Model):
@@ -574,6 +599,11 @@ class RequirementDetail(Provenance):
     decision: "DecisionState | None" = None
     # KAN-227: 비교에 쓴 자사 값. 비교가 없거나 자사 값이 없으면 null.
     own_value: OwnValue | None = None
+    # KAN-231: 설비 계열 묶음은 늘 있다. 묶음·중복·context_stale은 맥락이 없으면 null(규칙은 rfp-data.md).
+    bucket: Bucket = "COMMON"
+    group: RequirementGroup | None = None
+    duplicate: DuplicateInfo | None = None
+    context_stale: bool | None = None
 
 
 # --- 자사 비교 (§4.5) -------------------------------------------------------------------
@@ -1220,6 +1250,8 @@ class DecisionState(Model):
     change_id: UUID | None = None
     change_action: RecordedAction | None = None
     change_reviewed: bool = False
+    # KAN-231: 중복 묶음의 구성원이면 대표 요구 ID. 대표가 결정하고 이 요구는 결정 대상이 아니다(대표를 빼면 null).
+    follows: UUID | None = None
 
 
 # 일괄 결정(KAN-228)으로 할 수 있는 행동. 묶음 되돌리기가 늘 되는 결정 행동만 받는다.
