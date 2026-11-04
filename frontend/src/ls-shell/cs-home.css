@@ -4,19 +4,6 @@
 .ls-root .kv .td3.home3 .hello h2{margin:2px 0 0;font-size:20px;font-weight:700;color:#1d2433}
 .ls-root .kv .td3.home3 .hello h2 b{color:var(--ls-red,#ED164B)}
 .ls-root .kv .td3.home3 .hello small.req-miss{color:#a3221a;margin-top:2px}
-.ls-root .kv .td3.home3 .hello .late{font-size:12.5px;font-weight:600;color:#a3221a;background:#fdf1f0;padding:5px 10px}
-.ls-root .kv .td3.home3 .cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
-.ls-root .kv .td3.home3 .card{display:flex;flex-direction:column;gap:2px;padding:14px 16px;background:#fff;border:1px solid #d9dde4;text-decoration:none;color:inherit;border-top:3px solid #c9cfda;transition:border-color .15s,box-shadow .15s}
-.ls-root .kv .td3.home3 .card:hover{box-shadow:0 2px 8px rgba(26,58,122,.10);border-color:#9fb8e3}
-.ls-root .kv .td3.home3 .card small{font-size:12.5px;color:#6b7385;font-weight:600}
-.ls-root .kv .td3.home3 .card b{font-size:32px;line-height:1.15;font-weight:700;color:#1d2433;font-variant-numeric:tabular-nums}
-.ls-root .kv .td3.home3 .card span{font-size:12px;color:#6b7385}
-.ls-root .kv .td3.home3 .card.hot{border-top-color:var(--ls-red,#ED164B)}
-.ls-root .kv .td3.home3 .card.hot b{color:var(--ls-red,#ED164B)}
-.ls-root .kv .td3.home3 .card:not(.hot):not(.calm):not(.req){border-top-color:#1a3a7a}
-.ls-root .kv .td3.home3 .card.calm{border-top-color:#c9cfda}
-.ls-root .kv .td3.home3 .card.calm b{color:#5b6475}
-.ls-root .kv .td3.home3 .card.req{border-top-color:#2f7d4f}
 .ls-root .kv .td3.home3 .home-cols{display:grid;grid-template-columns:1.6fr 1fr;gap:10px;align-items:start}
 .ls-root .kv .td3.home3 .ph h2{margin:0;font-size:inherit;font-weight:700}
 .ls-root .kv .td3.home3 .ph .r{display:flex;align-items:center;gap:10px}
@@ -38,7 +25,6 @@
 .ls-root .kv .td3.home3 .req-list .task{margin-left:auto;white-space:nowrap;font-size:12px;font-weight:600;padding:2px 8px;background:#eef3fb;color:#1f3d73}
 .ls-root .kv .td3.home3 .req-list .task.draft{background:#f1f2f5;color:#5b6475;font-weight:500}
 .ls-root .kv .td3.home3 .wait-note{margin:0;font-size:12px;color:#6b7385}
-@media (max-width:1200px){.ls-root .kv .td3.home3 .cards{grid-template-columns:repeat(2,minmax(0,1fr))}.ls-root .kv .td3.home3 .home-cols{grid-template-columns:1fr}}
 /* 기한·긴급·회신 도착·처리 준비 표시 */
 .ls-root .kv .td3.home3 .log tr.p1row td:first-child{box-shadow:inset 3px 0 0 var(--ls-red,#ED164B)}
 .ls-root .kv .td3.home3 .flag{display:inline-block;margin-right:6px;padding:0 6px;font-size:11px;font-weight:700;line-height:18px;vertical-align:1px}
@@ -53,7 +39,10 @@
 .ls-root .kv .td3.home3 .due.today{color:#8a5a00;font-weight:700}
 .ls-root .kv .td3.home3 .flag.raw{background:#f1f2f5;color:#7a8394;font-weight:500}
 /* 지금 할 일(1순위 크게 + 다음 순서) · 부서 검토·회신. 문의 처리 화면과 같은 각진 상자·색. */
-.ls-root .kv .td3.home3 .home-cols{grid-template-columns:1.25fr 1fr}
+/* 두 칸은 같은 너비·같은 높이(위 카드 2개씩과 줄이 맞게). 내용이 적은 쪽도 칸을 채운다. */
+.ls-root .kv .td3.home3 .home-cols{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:stretch}
+.ls-root .kv .td3.home3 .home-cols>.pane>.hm-focus,.ls-root .kv .td3.home3 .home-cols>.pane>.hm-dept,.ls-root .kv .td3.home3 .home-cols>.pane>.pb.none{flex:1}
+.ls-root .kv .td3.home3 .home-cols>.pane>.pb.none{display:grid;place-items:center}
 .ls-root .kv .td3.home3 .pb.none{padding:22px 12px;text-align:center;color:#9aa2b1}
 .ls-root .kv .td3.home3 .hm-focus{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:18px;padding:14px 16px 16px}
 .ls-root .kv .td3.home3 .hm-main{display:flex;flex-direction:column;min-width:0}
@@ -92,6 +81,45 @@
 .ls-root .kv .td3.home3 .hm-dept em{display:block;font-style:normal;font-size:12px;color:#6b7385;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ls-root .kv .td3.home3 .hm-dept .go{font-size:12.5px;font-weight:700;color:var(--ls-red,#ED164B);white-space:nowrap}
 @media (max-width:1280px){.ls-root .kv .td3.home3 .hm-focus{grid-template-columns:1fr}.ls-root .kv .td3.home3 .hm-queue{border-left:0;padding-left:0;border-top:1px solid #e6e9ee;padding-top:12px}}
-.ls-root .kv .td3.home3 .card b em{margin-left:4px;font-size:14px;font-weight:600;font-style:normal;color:#6b7385}
-.ls-root .kv .td3.home3 .card.back{border-top-color:#1f4fbf}
-.ls-root .kv .td3.home3 .card.back b{color:#1f4fbf}
+/* 요약 카드: 색 아이콘 칸 + 큰 숫자 + 구성 막대/상태 배지(헬프데스크 KPI 카드 패턴). */
+.ls-root .kv .td3.home3 .cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.ls-root .kv .td3.home3 .card{--tone:#1a3a7a;--soft:#eef2fa;position:relative;display:flex;flex-direction:column;gap:10px;padding:16px 18px 14px;background:#fff;border:1px solid #e1e5ec;border-radius:6px;text-decoration:none;color:inherit;box-shadow:0 1px 2px rgba(16,24,40,.04);transition:box-shadow .15s,transform .15s,border-color .15s;overflow:hidden}
+.ls-root .kv .td3.home3 .card::before{content:"";position:absolute;inset:0 auto 0 0;width:3px;background:var(--tone)}
+.ls-root .kv .td3.home3 .card:hover{box-shadow:0 6px 16px rgba(16,24,40,.08);transform:translateY(-1px);border-color:#cfd6e2}
+.ls-root .kv .td3.home3 .card:focus-visible{outline:2px solid var(--tone);outline-offset:2px}
+.ls-root .kv .td3.home3 .card.t-red{--tone:var(--ls-red,#ED164B);--soft:#fdeef2}
+.ls-root .kv .td3.home3 .card.t-navy{--tone:#1a3a7a;--soft:#eef2fa}
+.ls-root .kv .td3.home3 .card.t-blue{--tone:#2f6fd6;--soft:#ecf3fd}
+.ls-root .kv .td3.home3 .card.t-green{--tone:#2f7d4f;--soft:#eaf5ee}
+.ls-root .kv .td3.home3 .card .ct{display:flex;align-items:center;gap:10px}
+.ls-root .kv .td3.home3 .card .ic{width:34px;height:34px;border-radius:6px;display:grid;place-items:center;background:var(--soft);color:var(--tone);flex:none}
+.ls-root .kv .td3.home3 .card .ic svg{width:19px;height:19px}
+.ls-root .kv .td3.home3 .card small{font-size:13px;color:#4a5263;font-weight:600}
+.ls-root .kv .td3.home3 .card>b{font-size:34px;line-height:1;font-weight:800;color:#1d2433;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
+.ls-root .kv .td3.home3 .card.t-red>b{color:var(--ls-red,#ED164B)}
+.ls-root .kv .td3.home3 .card>b em{margin-left:4px;font-size:14px;font-weight:600;font-style:normal;color:#8a92a3;letter-spacing:0}
+.ls-root .kv .td3.home3 .card .cf{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:auto;font-size:12px;color:#6b7385}
+.ls-root .kv .td3.home3 .card .pill{display:inline-flex;align-items:center;padding:3px 9px;border-radius:999px;background:var(--soft);color:var(--tone);font-size:12px;font-weight:600}
+.ls-root .kv .td3.home3 .card .pill.warn{background:#fdf3dc;color:#8a5a00}
+.ls-root .kv .td3.home3 .card .pill.bad{background:#fdecec;color:#a3221a}
+.ls-root .kv .td3.home3 .split{margin-top:auto;display:flex;flex-direction:column;gap:7px}
+.ls-root .kv .td3.home3 .split .bar{display:flex;gap:2px;height:6px;border-radius:999px;background:#eef0f4;overflow:hidden}
+.ls-root .kv .td3.home3 .split .bar i{display:block;min-width:4px}
+.ls-root .kv .td3.home3 .split .legend{display:flex;gap:12px;font-size:12px;color:#6b7385}
+.ls-root .kv .td3.home3 .split .legend span{display:inline-flex;align-items:center;gap:5px}
+.ls-root .kv .td3.home3 .split .legend i{width:7px;height:7px;border-radius:50%}
+.ls-root .kv .td3.home3 .split .legend b{color:#1d2433;font-weight:700;font-variant-numeric:tabular-nums}
+.ls-root .kv .td3.home3 .split .navy{background:#1a3a7a}
+.ls-root .kv .td3.home3 .split .green{background:#2f9e5f}
+.ls-root .kv .td3.home3 .split .blue{background:#2f6fd6}
+.ls-root .kv .td3.home3 .split .gray{background:#a9b1bf}
+/* 인사 줄 경고 배지 */
+.ls-root .kv .td3.home3 .alerts{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.ls-root .kv .td3.home3 .alerts .al{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;font-size:12.5px;font-weight:700}
+.ls-root .kv .td3.home3 .alerts .al i{width:7px;height:7px;border-radius:50%;background:currentColor}
+.ls-root .kv .td3.home3 .alerts .al.red{background:#fdecec;color:#c2123f}
+.ls-root .kv .td3.home3 .alerts .al.amber{background:#fdf3dc;color:#8a5a00}
+.ls-root .kv .td3.home3 .alerts .al.solid{background:var(--ls-red,#ED164B);color:#fff}
+.ls-root .kv .td3.home3 .alerts small{font-size:12.5px;color:#6b7385;margin-left:2px}
+@media (max-width:1200px){.ls-root .kv .td3.home3 .cards{grid-template-columns:repeat(2,minmax(0,1fr))}.ls-root .kv .td3.home3 .home-cols{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){.ls-root .kv .td3.home3 .card{transition:none}.ls-root .kv .td3.home3 .card:hover{transform:none}}
