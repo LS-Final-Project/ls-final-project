@@ -64,7 +64,7 @@
 .ls-root .kv .td3 .box{border:1px solid #c9cfda;min-height:30px;display:flex;align-items:center;padding:0 10px;font-weight:600;gap:8px}
 .ls-root .kv .td3 .box .ok{margin-left:auto;color:#2f7d4f;font-weight:500;font-size:12px}
 .ls-root .kv .td3 .box .ai2{margin-left:auto;color:#2a5bb5;font-weight:500;font-size:12px}
-.ls-root .kv .td3 .box.dash{border:1px dashed #9fb8e3;background:#f8f7fe;color:#6b7385;font-weight:400}
+.ls-root .kv .td3 .box.dash{border:1px dashed #9fb8e3;background:#f8fafd;color:#6b7385;font-weight:400}
 .ls-root .kv .td3 .unit{border:2px solid #1a3a7a;padding:10px;display:flex;flex-direction:column;gap:6px}
 .ls-root .kv .td3 .uh{display:flex;align-items:center;gap:8px;font-weight:700}
 .ls-root .kv .td3 .uh .r{margin-left:auto;color:#7a8394;font-weight:400;font-size:12px}
@@ -125,7 +125,7 @@
 .ls-root .kv .td3 .box.edit select{flex:1;height:30px;border:0;background:transparent;padding:0 10px;font:inherit;font-weight:600;color:#1d2433;outline:none;min-width:0}
 .ls-root .kv .td3 .box.edit:focus-within{border-color:#1a3a7a;box-shadow:0 0 0 2px rgba(26,58,122,.12)}
 .ls-root .kv .td3 .box.moved{border-color:#3a6bc4;background:#f2f6fc}
-.ls-root .kv .td3 .chg{margin-left:auto;font-size:11px;font-weight:600;color:#2a5bb5;background:#ebe6fc;padding:1px 7px}
+.ls-root .kv .td3 .chg{margin-left:auto;font-size:11px;font-weight:600;color:#2a5bb5;background:#e3ecfa;padding:1px 7px}
 .ls-root .kv .td3 .was{margin-top:3px;font-size:11.5px;color:#7a8394}
 .ls-root .kv .td3 .corr textarea{width:100%;border:1px solid #c9cfda;padding:8px 10px;font:inherit;font-size:13px;line-height:1.5;resize:vertical;outline:none}
 .ls-root .kv .td3 .corr textarea:focus{border-color:#1a3a7a;box-shadow:0 0 0 2px rgba(26,58,122,.12)}
@@ -156,7 +156,7 @@
 .ls-root .kv .td3 .act .cand.sel{border:1.5px solid #3a6bc4;background:#f2f6fc}
 .ls-root .kv .td3 .act .cand small{font-size:11.5px}
 .ls-root .kv .td3 .act .rad{accent-color:#2a5bb5}
-.ls-root .kv .td3 .why.sug{font-size:11px;font-weight:600;color:#2a5bb5;background:#ebe6fc;padding:1px 7px}
+.ls-root .kv .td3 .why.sug{font-size:11px;font-weight:600;color:#2a5bb5;background:#e3ecfa;padding:1px 7px}
 /* 첫 응답 기한: 제목 줄 오른쪽 작은 표시 */
 .ls-root .kv .td3 .sla{margin-left:auto;font-size:11.5px;font-weight:600;padding:2px 8px;background:#eef0f4;color:#5b6475}
 .ls-root .kv .td3 .sla.risk{background:#fdf3dc;color:#8a5a00}
