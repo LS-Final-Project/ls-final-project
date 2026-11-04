@@ -92,3 +92,36 @@ export const INFO_LABEL: Record<string, string> = {
   wiring_diagram: '배선도·단선도',
 };
 export const infoName = (code: string) => INFO_LABEL[code] ?? code;
+
+// 문의 언어(body_language의 주 언어). 제공 문의 15개 언어와 한국어. 없는 코드는 코드 그대로 보인다.
+export const LANGUAGE_LABEL: Record<string, string> = {
+  en: '영어', ko: '한국어', es: '스페인어', fr: '프랑스어', th: '태국어', id: '인도네시아어', it: '이탈리아어', zh: '중국어',
+  tr: '튀르키예어', ru: '러시아어', ar: '아랍어', vi: '베트남어', pt: '포르투갈어', de: '독일어', ja: '일본어', pl: '폴란드어',
+};
+export const languageName = (tag: string) => LANGUAGE_LABEL[tag.trim().replace('_', '-').split('-')[0].toLowerCase()] ?? tag;
+
+// product_master.csv의 family 코드(11개). 묶음(기술지원 부서)은 TS_LV·TS_MV·TS_TRF·TS_AUTO·TS_ENERGY.
+export const FAMILY_LABEL: Record<string, string> = {
+  LV_BREAKER: '저압 차단기', CONTROL: '모터 제어기기', METER: '전력량계', MV_EQUIP: '중압 차단기·배전반', TRANSFORMER: '변압기',
+  DRIVE: '인버터', PLC: 'PLC', HMI: 'HMI', PV: '태양광 인버터', ESS: '에너지 저장장치', UPS: 'UPS',
+};
+export const familyName = (code: string) => FAMILY_LABEL[code] ?? code;
+
+// 자동 배정 사유(contracts/cs/assignment.md). 규칙 결과이며 AI 판단이 아니다.
+export const ASSIGN_REASON_LABEL: Record<string, string> = {
+  LANGUAGE_AND_FAMILY: '언어·제품군 담당', LANGUAGE_ONLY: '언어 담당(제품군 담당 없음)',
+  FAMILY_ENGLISH_FALLBACK: '제품군·영어 담당(언어 담당 없음)', NO_MATCH: '맞는 담당자 없음',
+};
+
+type AssignmentLike = { reason_code: string; matched_language?: string | null; matched_family?: string | null; candidate_count: number; chosen_open_count?: number | null };
+// 예: "자동 배정: 태국어·저압 차단기 담당, 2명 중 진행 1건으로 가장 적음"
+export function assignmentText(item: AssignmentLike): string {
+  if (item.reason_code === 'NO_MATCH') return '자동 배정 안 됨: 맞는 담당자 없음';
+  const parts = item.reason_code === 'LANGUAGE_AND_FAMILY' ? [item.matched_language && languageName(item.matched_language), item.matched_family && familyName(item.matched_family)]
+    : item.reason_code === 'LANGUAGE_ONLY' ? [item.matched_language && languageName(item.matched_language)]
+      : [item.matched_family && familyName(item.matched_family), '영어'];
+  const note = item.reason_code === 'LANGUAGE_ONLY' ? ' (제품군 담당 없음)' : item.reason_code === 'FAMILY_ENGLISH_FALLBACK' ? ' (문의 언어 담당 없음)' : '';
+  const load = item.chosen_open_count ?? 0;
+  const pick = item.candidate_count > 1 ? `${item.candidate_count}명 중 진행 ${load}건으로 가장 적음` : `진행 ${load}건`;
+  return `자동 배정: ${parts.filter(Boolean).join('·')} 담당${note}, ${pick}`;
+}

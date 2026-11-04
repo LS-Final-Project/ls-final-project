@@ -10,6 +10,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from backend.api.cs.assignments.schemas import AssignmentRecord
 from backend.api.cs.tickets.schemas import TransferStatus, WorkflowState
 from backend.shared.departments import TransferDepartment
 
@@ -87,6 +88,12 @@ class Workflow(BaseModel):
     customer_sends: list["CustomerSend"] = Field(default_factory=list, description="Oldest first.")
     customer_replies: list["CustomerReply"] = Field(
         default_factory=list, description="Oldest first."
+    )
+    # KAN-214: the rule decision behind the current owner. Null when there is none, when a
+    # person chose the owner (reassignment, start of review), and for department users.
+    assignment: AssignmentRecord | None = Field(
+        default=None,
+        description="Latest assignment decision when it still matches the current owner.",
     )
 
 

@@ -23,3 +23,6 @@ export async function logoutSession(): Promise<void> {
 // 담당 변경 후보(활성 cs_agent). 사용자 이름은 이 목록에서만 알 수 있다.
 export type AssigneeListResponse = paths['/api/v1/platform/assignees']['get']['responses'][200]['content']['application/json'];
 export const listCsAssignees = (signal?: AbortSignal) => request<AssigneeListResponse>('/api/v1/platform/assignees?role=cs_agent', { signal });
+// 업무 기록의 사용자 ID를 이름으로 묶어 읽는다(로그인한 누구나, 한 번에 100개까지). 없는 ID는 빠진다.
+export type UserNameListResponse = paths['/api/v1/platform/users']['get']['responses'][200]['content']['application/json'];
+export const listUserNames = (ids: string[], signal?: AbortSignal) => request<UserNameListResponse>(`/api/v1/platform/users?ids=${ids.slice(0, 100).map(encodeURIComponent).join(',')}`, { signal });

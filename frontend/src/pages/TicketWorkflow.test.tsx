@@ -48,6 +48,7 @@ test('조회 중 반복 클릭을 막고 이탈 시 취소하며 재진입은 �
   let signal:AbortSignal|undefined;let calls=0;
   vi.stubGlobal('fetch',vi.fn((_url:RequestInfo|URL,init?:RequestInit)=>{
     if(isRequests(_url))return Promise.resolve(jsonResponse(200,{data:{items:[]}}));
+    if(String(_url).endsWith('/platform/me'))return Promise.resolve(jsonResponse(200,{data:{id:'c',roles:['cs_agent'],managed_departments:[]}}));
     calls++;if(calls>1)return Promise.resolve(jsonResponse(200,list('IN_REVIEW')));
     signal=init?.signal as AbortSignal;
     return new Promise<Response>((_resolve,reject)=>signal?.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError'))));

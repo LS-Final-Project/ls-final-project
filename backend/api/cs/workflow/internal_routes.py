@@ -17,6 +17,7 @@ import psycopg
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.api.cs.assignments.service import assign_on_intake
 from backend.api.cs.tickets import repository as tickets
 from backend.api.cs.tickets.access import require_ticket_write
 from backend.api.cs.tickets.routes import detail, not_found, respond
@@ -150,6 +151,8 @@ async def register_from_mail(
             if existing is None:
                 raise
             raise already_registered(existing) from None
+    # KAN-214: after the ticket is committed. Never fails the intake.
+    await assign_on_intake(settings, ticket_id)
     return respond(request, detail({**values, "version": 1, "workflow_state": "RECEIVED"}, None))
 
 

@@ -13,8 +13,11 @@ afterEach(()=>{cleanup();vi.unstubAllGlobals();setApiMode('mock');});
 function view(){setApiMode('live');renderAt('/cs/tickets','/cs/tickets',<Tickets/>);}
 // 개선요청 목록(화면 아래 표)은 문의 목록과 따로 불린다. 문의 목록 호출만 시험 대상으로 삼는다.
 const isRequests=(url:RequestInfo|URL)=>String(url).includes('/improvement-requests');
-function stub(tickets:(url:string)=>Response){const f=vi.fn(async(url:RequestInfo|URL)=>isRequests(url)?jsonResponse(200,{data:{items:[]}}):tickets(String(url)));vi.stubGlobal('fetch',f);return f;}
-const ticketCalls=(f:ReturnType<typeof stub>)=>f.mock.calls.filter(([url])=>!isRequests(url as RequestInfo|URL));
+// 관리자 단추(담당 변경·자동 배정)용 세션 확인(/platform/me)도 따로 답한다. 기본은 C/S 담당자다.
+const isMe=(url:RequestInfo|URL)=>String(url).endsWith('/platform/me');
+const AGENT_ME={id:'c',roles:['cs_agent'],managed_departments:[]};
+function stub(tickets:(url:string)=>Response,me:object=AGENT_ME){const f=vi.fn(async(url:RequestInfo|URL)=>isRequests(url)?jsonResponse(200,{data:{items:[]}}):isMe(url)?jsonResponse(200,{data:me}):tickets(String(url)));vi.stubGlobal('fetch',f);return f;}
+const ticketCalls=(f:ReturnType<typeof stub>)=>f.mock.calls.filter(([url])=>!isRequests(url as RequestInfo|URL)&&!isMe(url as RequestInfo|URL));
 const grid=()=>within(screen.getByRole('table',{name:'문의 목록'}));
 const subjects=()=>grid().getAllByRole('link').map(x=>x.textContent);
 const only=(list:unknown[])=>jsonResponse(200,{data:{items:list,next_cursor:null}});
@@ -67,7 +70,7 @@ test('엑셀은 선택한 행이 조건으로 모두 가려지면 보이는 행 
 // 선택 바의 담당 변경은 서버와 같은 조건(manager 역할 + C/S 부서 GCS_L1 관리)일 때만 열린다.
 for(const [who,data,open] of [['C/S 부서 관리자',{id:'m',roles:['manager'],managed_departments:['GCS_L1']},true],['다른 부서 관리자',{id:'m',roles:['manager'],managed_departments:['TS_TRF']},false],['C/S 담당자',{id:'c',roles:['cs_agent'],managed_departments:[]},false]] as const){
   test(`선택 바 담당 변경: ${who}이면 ${open?'열린다':'잠긴다'}`,async()=>{
-    stub(url=>url.endsWith('/platform/me')?jsonResponse(200,{data}):only(items));view();
+    stub(()=>only(items),data);view();
     await screen.findByRole('link',{name:'Alpha'});
     expect(screen.queryByRole('toolbar',{name:'선택한 문의'})).toBeNull();
     fireEvent.click(screen.getByLabelText('ID-A 선택'));
