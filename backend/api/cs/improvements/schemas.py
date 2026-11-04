@@ -539,7 +539,9 @@ class CaseRow(BaseModel):
     ticket_external_id: str | None
     ticket_subject: str | None = Field(description="The ticket's subject. Null without one (chat).")
     ticket_received_at: datetime
-    customer_external_id: str
+    customer_external_id: str | None = Field(
+        description="Null on a limited row (the viewer may not read that ticket)."
+    )
     product_code: str
     case_id: UUID | None
     case_external_id: str | None
@@ -553,13 +555,20 @@ class CaseRow(BaseModel):
         default=None, description="Firmware version when the fault happened, as recorded."
     )
     onsite_visit: bool | None = Field(default=None, description="Whether an engineer visited.")
+    limited: bool = Field(
+        default=False,
+        description="Evidence of a request sent to the viewer's department whose ticket the "
+        "viewer may not read: the resolution record is shown, the customer and the ticket "
+        "subject are not.",
+    )
 
 
 class CaseComparison(BaseModel):
     request_id: UUID
     items: list[CaseRow]
     hidden_case_count: int = Field(
-        description="Active evidence outside the viewer's scope. Candidate rows never count."
+        description="Active evidence outside the viewer's scope and not shown. Limited rows and "
+        "candidate rows never count."
     )
 
 
