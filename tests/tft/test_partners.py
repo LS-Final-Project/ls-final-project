@@ -80,7 +80,7 @@ def test_references_outside_own_products_are_rejected(tmp_path: Path, change, me
 
 
 def test_pools_only_name_known_candidates() -> None:
-    assert set(POOLS) == {"10", "11", "12", "14", "18"}
+    assert set(POOLS) == {"10", "11", "12", "14", "18", "91"}
     assert all(code in BY_CODE for pool in POOLS.values() for code in pool)
     assert POOLS["14"] == ["P-A", "P-B", "P-C", "L-A", "L-B", "T-A"]
     # 탈락 원인별 후보는 평가 풀에만 둔다.

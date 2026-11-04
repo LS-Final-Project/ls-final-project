@@ -482,6 +482,9 @@ FIXED_FUSED_GRADES = {
     "M-A": "EXCLUDED",
     "M-B": "EXCLUDED",
     "T-A": "REVIEW",
+    # RFP-91 시연 후보: 형식이 아니라 공급 지역(CONTEXT US ≠ 가상국 A)으로 제외된다.
+    "S-A": "EXCLUDED",
+    "S-B": "EXCLUDED",
 }
 DRAWOUT_VCB_GRADES = {
     "P-A": "EXCLUDED",
@@ -496,6 +499,9 @@ DRAWOUT_VCB_GRADES = {
     "M-A": "REVIEW",
     "M-B": "REVIEW",
     "T-A": "REVIEW",
+    # RFP-91 시연 후보: 형식이 아니라 공급 지역(CONTEXT US ≠ 가상국 A)으로 제외된다.
+    "S-A": "EXCLUDED",
+    "S-B": "EXCLUDED",
 }
 
 
@@ -599,6 +605,7 @@ def test_the_seeded_and_own_forms_keep_their_axes():
         "drawout LV switchgear": {"mounting": "DRAWOUT"},
         "metal-clad VCB switchgear": {"switching": "VCB"},
         "metal-enclosed fused load-break switchgear": {"switching": "FUSE_SWITCH"},
+        "type-tested metal-enclosed low-voltage switchboard": {},
     }
     own = {
         p.product_code: form_axes(f.value)

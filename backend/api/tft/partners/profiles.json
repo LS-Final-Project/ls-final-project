@@ -1081,5 +1081,180 @@
       ]
     },
     "notes": null
+  },
+  {
+    "candidate_code": "S-A",
+    "display_name": "가상 협력사 S-A",
+    "manufacturer_name": "가상 제조사 S-A",
+    "profile_source": "synthetic",
+    "profile_version": 1,
+    "data_origin": "synthetic",
+    "derivation_kind": "PROVIDED",
+    "known_at": "2026-11-04",
+    "product_family": "저압 배전반",
+    "products": [
+      {
+        "product_code": "SYN-SA-LVSB",
+        "model": "SA-LVS-1600",
+        "scope": [
+          "SUPPLY",
+          "ASSEMBLY",
+          "TEST"
+        ]
+      }
+    ],
+    "integrator_capable": {
+      "assembly": true,
+      "test": true,
+      "integration": null,
+      "warranty": null
+    },
+    "spec_facts": [
+      {
+        "product_code": "SYN-SA-LVSB",
+        "attribute": "form",
+        "value": "type-tested metal-enclosed low-voltage switchboard",
+        "unit": null,
+        "conditions": null,
+        "evidence_id": "SYN-DS-SA-01",
+        "section": "2.1"
+      },
+      {
+        "product_code": "SYN-SA-LVSB",
+        "attribute": "busbar_rated_current",
+        "value": "1600",
+        "unit": "A",
+        "conditions": null,
+        "evidence_id": "SYN-DS-SA-01",
+        "section": "2.2"
+      },
+      {
+        "product_code": "SYN-SA-LVSB",
+        "attribute": "short_time_withstand_current",
+        "value": "50",
+        "unit": "kA",
+        "conditions": [
+          {
+            "name": "duration",
+            "value": "1",
+            "unit": "s"
+          }
+        ],
+        "evidence_id": "SYN-DS-SA-01",
+        "section": "2.2"
+      }
+    ],
+    "certifications": [
+      {
+        "standard": "IEC 61439-2",
+        "applicable_models": [
+          "SA-LVS-1600"
+        ],
+        "kind": "TEST_REPORT",
+        "as_of": "2026-06-01",
+        "valid_until": null,
+        "evidence_id": "SYN-TR-SA-02"
+      }
+    ],
+    "similar_tasks": [
+      "415 V 형식시험 저압 배전반 공급·조립",
+      "공급자 지정 ACB 수용 조립"
+    ],
+    "supply_regions": [
+      "가상국 A"
+    ],
+    "lead_time": null,
+    "warranty": null,
+    "confirmation": {
+      "status": "UNCONFIRMED",
+      "as_of": "2026-11-04",
+      "reviewer": "가상 구매 검토자 1",
+      "follow_up_questions": [
+        "참여 의사",
+        "현장 도착 납기 2027-04-30 가능 여부",
+        "자사 ACB(ACB-AS-2000) 수용 조립 조건"
+      ]
+    },
+    "notes": "합성 시연 자료 · 가상 프로젝트 · 실제 사업·발주처·제품과 무관. KAN-188 시연 RFP-91 전용 후보. 공급자 지정 ACB를 받아 조립하는 범위를 가정한다."
+  },
+  {
+    "candidate_code": "S-B",
+    "display_name": "가상 협력사 S-B",
+    "manufacturer_name": "가상 제조사 S-B",
+    "profile_source": "synthetic",
+    "profile_version": 1,
+    "data_origin": "synthetic",
+    "derivation_kind": "PROVIDED",
+    "known_at": "2026-11-04",
+    "product_family": "저압 배전반",
+    "products": [
+      {
+        "product_code": "SYN-SB-LVSB",
+        "model": "SB-LVS-1000",
+        "scope": [
+          "SUPPLY",
+          "ASSEMBLY"
+        ]
+      }
+    ],
+    "integrator_capable": {
+      "assembly": true,
+      "test": null,
+      "integration": null,
+      "warranty": null
+    },
+    "spec_facts": [
+      {
+        "product_code": "SYN-SB-LVSB",
+        "attribute": "form",
+        "value": "type-tested metal-enclosed low-voltage switchboard",
+        "unit": null,
+        "conditions": null,
+        "evidence_id": "SYN-DS-SB-01",
+        "section": "2.1"
+      },
+      {
+        "product_code": "SYN-SB-LVSB",
+        "attribute": "busbar_rated_current",
+        "value": "1000",
+        "unit": "A",
+        "conditions": null,
+        "evidence_id": "SYN-DS-SB-01",
+        "section": "2.2"
+      },
+      {
+        "product_code": "SYN-SB-LVSB",
+        "attribute": "short_time_withstand_current",
+        "value": "20",
+        "unit": "kA",
+        "conditions": [
+          {
+            "name": "duration",
+            "value": "1",
+            "unit": "s"
+          }
+        ],
+        "evidence_id": "SYN-DS-SB-01",
+        "section": "2.2"
+      }
+    ],
+    "certifications": [],
+    "similar_tasks": [
+      "415 V 저압 배전반 공급"
+    ],
+    "supply_regions": [
+      "가상국 A"
+    ],
+    "lead_time": null,
+    "warranty": null,
+    "confirmation": {
+      "status": "UNCONFIRMED",
+      "as_of": "2026-11-04",
+      "reviewer": "가상 구매 검토자 1",
+      "follow_up_questions": [
+        "참여 의사"
+      ]
+    },
+    "notes": "합성 시연 자료 · 가상 프로젝트 · 실제 사업·발주처·제품과 무관. KAN-188 시연 RFP-91 전용 후보. 주모선(1,000 A)·단시간 내전류(20 kA 1 s)가 요구보다 낮아 제외되는 사례."
   }
 ]

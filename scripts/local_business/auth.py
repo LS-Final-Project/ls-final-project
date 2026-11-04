@@ -85,7 +85,7 @@ class LocalLogin:
         if (
             pending.purpose is not OAuthPurpose.LOGIN
             or pending.provider_flow != {"local_synthetic_only": True}
-            or code not in {"local-1", "local-2", "local-3", "local-4"}
+            or code not in {"local-1", "local-2", "local-3", "local-4", "local-5"}
         ):
             raise reject_callback()
         return MicrosoftSubject(

@@ -26,7 +26,7 @@ test('fixture chooser is explicit, no model-OFF promise after enable-real', () =
   assert.equal(response.headers['Cache-Control'], 'no-store');
   assert.match(response.body, /실제 Microsoft 로그인이 아닙니다/);
   assert.match(response.body, /enable-real/);
-  assert.equal((response.body.match(/name="code"/g) ?? []).length, 4);
+  assert.equal((response.body.match(/name="code"/g) ?? []).length, 5);
 });
 test('host, origin, state injection, duplicates and method rejected before relay', () => {
   for (const args of [
