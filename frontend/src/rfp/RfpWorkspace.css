@@ -144,3 +144,13 @@ button.ws-gateitem{color:#24518a;cursor:pointer}
 .ls-root .ws-tabs button .muted{display:inline;margin-left:6px}
 .ls-root .ws-opts{display:flex;gap:14px;flex-wrap:wrap}
 .ls-root .ws-opts label{white-space:nowrap;flex:none}
+/* 작업 공간 원문 칸: 보드처럼 원문 막대 바로 아래에 문서를 두고, 고른 요구의 인용문이 칸 안 위쪽에 보이게 높이를 줄인다. */
+.ws-source .rfp-original-pane>header,.ws-source .rfp-review-help{display:none}
+.ws-source .rfp-docx-frame,.ws-source .rfp-pdf-scroll{height:420px;min-height:0}
+.ls-root .ws-field.inline input,.ls-root .ws-field.inline select{width:auto}
+.ws-form .ws-go{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.ws-reply{margin:6px 0 2px}
+/* 셸의 ".kv div span{display:block}"이 패널 글을 줄마다 끊지 않게 한다. */
+.ls-root .ws .ws-panel span:where(:not(.ws-quote-line)){display:inline}
+.ws-form{gap:6px}
+.ws-form p{margin:4px 0}

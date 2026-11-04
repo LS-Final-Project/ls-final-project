@@ -504,7 +504,7 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
     </div>
     <div className="ws-source">
       {mode2 === 'quote' || !doc ? <p className="ws-quote"><span className="muted">{d?.origin?.clause_no ?? row.code}</span> {d?.origin?.quote ?? '조항 원문은 서버에서 읽습니다.'}</p>
-        : <OriginalDocument document={doc} origin={d?.origin} onQuoteClick={() => undefined} onSelectText={setPicked} />}
+        : <OriginalDocument document={doc} origin={d?.origin} selectionRevision={d ? 1 : 0} onQuoteClick={() => undefined} onSelectText={setPicked} />}
     </div>
   </div>;
 }
@@ -649,7 +649,7 @@ function ReplyFlow({ projectId, detail, question, onDone }: { projectId: string;
 </p>
       : <p className="muted ws-note">{found?.reason ? `${REASON[found.reason] ?? '회신에서 값을 찾지 못했습니다'}. ` : '회신에서 값을 찾지 못했습니다. '}값을 직접 입력하거나 다시 질의하세요.</p>}
     <div className="ws-go">
-      <label className="ws-field inline">새 요구값<input value={value} placeholder="값을 직접 입력" onChange={event => setValue(event.target.value)} /></label>
+      <label className="ws-field inline">새 요구값<input value={value} size={10} placeholder="값을 직접 입력" onChange={event => setValue(event.target.value)} /></label>
       <label className="ws-field inline">단위<input value={unit} size={5} onChange={event => setUnit(event.target.value)} /></label>
       <label className="ws-field inline">조건<input value={cond} placeholder="1 min" size={8} onChange={event => setCond(event.target.value)} /></label>
     </div>
