@@ -29,3 +29,9 @@
 .ls-root .kv .td3.cu3 .info{grid-template-columns:92px 1fr 92px 1fr 92px 1fr 92px 1fr}
 .ls-root .kv .td3.cu3 .info .k,.ls-root .kv .td3.cu3 .info .v,.ls-root .kv .td3.cu3 .chip,.ls-root .kv .td3.cu3 .log th{white-space:nowrap}
 @media (max-width:1200px){.ls-root .kv .td3.cu3 .info{grid-template-columns:92px 1fr 92px 1fr}}
+/* 제품별·상태별은 자르지 않고 줄을 넘겨 모두 보인다 */
+.ls-root .kv .td3.cu3 .info .v.wrap{white-space:normal;line-height:1.45;padding-top:6px;padding-bottom:6px;word-break:keep-all}
+/* 진행 중(주황)·종결(초록) 건수 상자 */
+.ls-root .kv .td3.cu3 .info .cnt{padding:1px 8px}
+.ls-root .kv .td3.cu3 .info .cnt.open{color:#8a5a00;background:#fdf3dc}
+.ls-root .kv .td3.cu3 .info .cnt.closed{color:#2f7d4f;background:#eaf5ee}

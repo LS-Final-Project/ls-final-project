@@ -32,6 +32,7 @@ KAN-112는 **저장 구조와 작성 API**다. 검토 완료·전달·부서 회
 | `PUT /{id}/owner` | C/S 부서(`GCS_L1`) manager | 담당자 재배정. 새 판본 |
 
 - **판본**: 모든 쓰기는 `version`을 보낸다. 다르면 409 `CS_REQUEST_VERSION_CONFLICT`. 완료된 요청은 고칠 수 없다(409 `CS_REQUEST_COMPLETED`). 재발 재개는 KAN-117 경로로만 연다. 변경마다 `audit_events`에 `improvement_request`로 남긴다.
+- **화면 범위(2026-11-04 결정)**: 개선요청은 고장 반복만 다룬다. 문서 담당 부서를 데이터로 알 수 없고(현업 확인 필요) 반복 사양 질문 대부분이 확인용 문의라, 문서 요청(`DOCUMENT`)은 화면에서 만들거나 보이지 않는다. API·DB의 문서 유형은 그대로 두며 기존 기록을 지우지 않는다.
 - **유형별 규칙**: 고장 요청은 `fault_id`(`FLT-000`)와 제안 부서 1개 이상이 필요하다(비우면 422 `CS_DEPARTMENT_REQUIRED`). 문서 요청은 `doc_signal`(`NOT_FOUND`·`VALUE_CONFLICT`·`BROKEN_LINK`·`REPEATED_SPEC`)이 필요하고, 문서 담당 부서가 부서 목록에 없으므로 제안 부서가 비어 있을 수 있다. 이때 `receiver_unconfirmed = true`이고 검토 뒤 다음 할 일은 `CONFIRM_RECEIVER`다(전달은 KAN-116에서 막는다). 묶음 키(유형·제품·고장·신호)는 만든 뒤 바꾸지 않는다.
 - **근거 검사**: 문의의 제품이 요청과 같아야 한다. 고장 요청은 그 문의의 **이미 알려진** 해결 사례가 필요하고 사례의 고장 ID가 요청과 같아야 한다. 문서 요청은 사례를 붙이지 않는다. 어긋나면 422 `CS_EVIDENCE_INVALID`, 이미 근거인 문의는 409 `CS_EVIDENCE_EXISTS`, 모르는 제품은 422 `CS_UNKNOWN_PRODUCT`.
 - **사용 조건**: `condition_status`가 `UNKNOWN`(기본)이면 조건을 확인하지 못한 묶음이다. 조건이 다른 사례는 다른 요청으로 나눈다. 조건 비교 판단은 KAN-114·113이 한다.

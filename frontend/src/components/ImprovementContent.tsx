@@ -179,6 +179,8 @@ export default function ImprovementContent({ request: r, title, tags, locked, on
   const changes: ImprovementPatch = { version: r.version };
   if (editing) {
     for (const f of FIELDS) {
+      // 손대지 않은 칸은 저장본 그대로 둔다(앞뒤 공백 포함).
+      if (editing.values[f] === (r[f] ?? '')) continue;
       const value = editing.values[f].trim();
       if (value !== (r[f] ?? '')) (changes as Record<string, unknown>)[f] = f === 'problem_statement' ? value : value || null;
     }
@@ -272,7 +274,6 @@ export default function ImprovementContent({ request: r, title, tags, locked, on
       {!showAi ? <>
         <h2 className="problem">{title}</h2>
         {tags}
-        {r.receiver_unconfirmed && <div className="warn-note">수신 부서 미확인 — 전달 준비가 끝난 상태가 아닙니다.</div>}
         {/* 규칙 값만 있는 시스템 초안은 칸을 비운 채(-) 보인다. 문의 처리의 AI 분석 전 칸과 같다. */}
         {editor || <div className="facts">
           {([['confirmed_facts', 'fact'], ['inconsistencies', 'conflict'], ['missing_info', 'missing'], ['review_task', 'task'], ['not_claimed', 'claim']] as const).map(([field, kind]) => {

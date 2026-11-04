@@ -202,3 +202,14 @@
 .ls-root .kv .td3.ir3 .cmp-add{flex-direction:row;align-items:center;gap:8px;border-top:1px solid #e6e9ee}
 .ls-root .kv .td3.ir3 .cmp-add .k{font-size:12.5px;color:#6b7385;white-space:nowrap}
 .ls-root .kv .td3.ir3 .cmp-add input{height:26px;width:300px;padding:0 8px;border:1px solid #c9cfda;font:inherit;font-size:12.5px}
+/* 목록: 문제 글씨는 검정, 상태는 단계별 색 */
+.ls-root .kv .td3.ir3 .log td.t .link{color:#1d2433}
+.ls-root .kv .td3.ir3 .log td.t .link:hover{text-decoration:underline}
+.ls-root .kv .td3.ir3 .chip.st-draft{background:#f1f2f5;color:#5b6475}
+.ls-root .kv .td3.ir3 .chip.st-reviewed{background:#eef3fb;color:#1f3d73}
+.ls-root .kv .td3.ir3 .chip.st-sent,.ls-root .kv .td3.ir3 .chip.st-acknowledged{background:#f4f2fd;color:#5b3fd0}
+.ls-root .kv .td3.ir3 .chip.st-info_requested{background:#fdf3dc;color:#8a5a00}
+.ls-root .kv .td3.ir3 .chip.st-rejected{background:#fdf1f0;color:#a3221a}
+.ls-root .kv .td3.ir3 .chip.st-adopted,.ls-root .kv .td3.ir3 .chip.st-action_taken{background:#eaf5ee;color:#2f7d4f}
+.ls-root .kv .td3.ir3 .chip.st-follow_up{background:#e6f4f5;color:#1b6b73}
+.ls-root .kv .td3.ir3 .chip.st-completed{background:#3a4558;color:#fff}
