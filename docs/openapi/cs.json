@@ -496,6 +496,66 @@
         "title": "AnalysisRun",
         "type": "object"
       },
+      "Applicability": {
+        "additionalProperties": false,
+        "description": "\uac19\uc740 \uc694\uccad\u00b7\uc7a5\ube44\u00b7\ud310\ubcf8\uc5d0 \ub300\ud55c \ud68c\uc2e0\uc778\uc9c0\uc640 \uac01 \ud310\uc815 \uc774\uc720.",
+        "properties": {
+          "same_request": {
+            "enum": [
+              "APPLIES",
+              "DIFFERENT_REQUEST",
+              "UNCLEAR"
+            ],
+            "title": "Same Request",
+            "type": "string"
+          },
+          "same_request_reason": {
+            "pattern": "\\S",
+            "title": "Same Request Reason",
+            "type": "string"
+          },
+          "same_unit": {
+            "enum": [
+              "SAME",
+              "DIFFERENT",
+              "NOT_MENTIONED",
+              "UNCLEAR"
+            ],
+            "title": "Same Unit",
+            "type": "string"
+          },
+          "same_unit_reason": {
+            "pattern": "\\S",
+            "title": "Same Unit Reason",
+            "type": "string"
+          },
+          "same_version": {
+            "enum": [
+              "SAME",
+              "DIFFERENT",
+              "NOT_MENTIONED",
+              "UNCLEAR"
+            ],
+            "title": "Same Version",
+            "type": "string"
+          },
+          "same_version_reason": {
+            "pattern": "\\S",
+            "title": "Same Version Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "same_request",
+          "same_request_reason",
+          "same_unit",
+          "same_unit_reason",
+          "same_version",
+          "same_version_reason"
+        ],
+        "title": "Applicability",
+        "type": "object"
+      },
       "ApplyItem": {
         "additionalProperties": false,
         "properties": {
@@ -4976,6 +5036,26 @@
         "title": "ImprovementReviewRequest",
         "type": "object"
       },
+      "InfoRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "info_code": {
+            "title": "Info Code",
+            "type": "string"
+          },
+          "question": {
+            "pattern": "\\S",
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "info_code",
+          "question"
+        ],
+        "title": "InfoRequest",
+        "type": "object"
+      },
       "InstalledUnit": {
         "properties": {
           "commissioning_date": {
@@ -5512,6 +5592,30 @@
           "note"
         ],
         "title": "NewEvidence",
+        "type": "object"
+      },
+      "NewFact": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "STATED",
+              "UNCONFIRMED"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "text": {
+            "pattern": "\\S",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "kind"
+        ],
+        "title": "NewFact",
         "type": "object"
       },
       "NextOwner": {
@@ -6236,6 +6340,240 @@
           "basis"
         ],
         "title": "RecordView",
+        "type": "object"
+      },
+      "ReplyAnalysisAttempt": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "message_id": {
+            "format": "uuid",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "VALID",
+              "INVALID_OUTPUT",
+              "PROVIDER_ERROR"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "message_id",
+          "outcome",
+          "error_code",
+          "created_at"
+        ],
+        "title": "ReplyAnalysisAttempt",
+        "type": "object"
+      },
+      "ReplyAnalysisRecord": {
+        "properties": {
+          "created_at": {
+            "description": "AI \uc791\uc131 \uc2dc\uac01.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "input_version": {
+            "title": "Input Version",
+            "type": "string"
+          },
+          "interpretation": {
+            "$ref": "#/components/schemas/ReplyInterpretation",
+            "description": "AI \ud574\uc11d: \uac19\uc740 \uc694\uccad\u00b7\uc7a5\ube44\u00b7\ud310\ubcf8\uc778\uc9c0\uc640 \uc774\uc720, \ub2f5\ud55c \uc694\uccad \ucf54\ub4dc, \uc0c8 \uc0ac\uc2e4, \ub0a8\uc740 \uc9c8\ubb38."
+          },
+          "message_id": {
+            "description": "\ud574\uc11d\ud55c \ud68c\uc2e0(cs.ticket_customer_replies).",
+            "format": "uuid",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "requested_model": {
+            "title": "Requested Model",
+            "type": "string"
+          },
+          "stale": {
+            "description": "True\uba74 \ud574\uc11d \ub4a4 \uc694\uccad\ud55c \uc815\ubcf4\u00b7\uc81c\uacf5 \uc815\ubcf4\u00b7\ud655\uc815 \uc7a5\ube44\u00b7\uc774\uc804 \ucd08\uc548\u00b7\ud504\ub86c\ud504\ud2b8 \ud310\ubcf8\uc774 \ubc14\ub00c\uc5c8\ub2e4. \ub2e4\uc2dc \ub9cc\ub4e4 \uc218 \uc788\ub2e4.",
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "update": {
+            "$ref": "#/components/schemas/ReplyUpdate",
+            "description": "\ud574\uc11d\uc744 \ubc18\uc601\ud558\uba74 \ucd08\uc548 \uc785\ub825\uc774 \uc5b4\ub5bb\uac8c \ubc14\ub00c\ub294\uc9c0(\uc81c\uacf5\u00b7\ubd80\uc871 \ucf54\ub4dc, \ub2e4\uc74c \ud589\ub3d9). \uc81c\uacf5 \uc815\ubcf4\uc5d0 \uc2e4\uc81c\ub85c \ubc18\uc601\ud558\ub294 \uac83\uc740 \uc0ac\ub78c\uc774 \uc815\uc815 API\ub85c \ud55c\ub2e4."
+          }
+        },
+        "required": [
+          "id",
+          "message_id",
+          "interpretation",
+          "update",
+          "created_at",
+          "requested_model",
+          "model_version",
+          "prompt_version",
+          "input_version",
+          "stale"
+        ],
+        "title": "ReplyAnalysisRecord",
+        "type": "object"
+      },
+      "ReplyAnalysisRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "message_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\ud574\uc11d\ud560 \uc5f0\uacb0\ub41c \ud68c\uc2e0. \uc5c6\uc73c\uba74 \ubcf8\ubb38\uc774 \uc788\ub294 \uac00\uc7a5 \ucd5c\uadfc \ud68c\uc2e0\uc774\ub2e4.",
+            "title": "Message Id"
+          }
+        },
+        "title": "ReplyAnalysisRequest",
+        "type": "object"
+      },
+      "ReplyInterpretation": {
+        "additionalProperties": false,
+        "description": "\ud68c\uc2e0 \ud574\uc11d \uc6d0\uc2dc \ucd9c\ub825. \ucf54\ub4dc\uac00 \uc694\uccad \ubc94\uc704 \uc548\uc778\uc9c0\ub294 validate_output\uc774 \ubcf8\ub2e4.",
+        "properties": {
+          "answered_codes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Answered Codes",
+            "type": "array"
+          },
+          "applicability": {
+            "$ref": "#/components/schemas/Applicability"
+          },
+          "new_facts": {
+            "items": {
+              "$ref": "#/components/schemas/NewFact"
+            },
+            "title": "New Facts",
+            "type": "array"
+          },
+          "remaining_questions": {
+            "items": {
+              "$ref": "#/components/schemas/InfoRequest"
+            },
+            "title": "Remaining Questions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "applicability",
+          "answered_codes",
+          "new_facts",
+          "remaining_questions"
+        ],
+        "title": "ReplyInterpretation",
+        "type": "object"
+      },
+      "ReplyUpdate": {
+        "additionalProperties": false,
+        "description": "\ucd08\uc548 \uc785\ub825 \uac31\uc2e0\uac12. \uc774\ub825\u00b7\uc7a5\ube44 \uc5f0\uacb0\u00b7\uc0c1\ud0dc \ud544\ub4dc\ub294 \ub450\uc9c0 \uc54a\uc73c\uba70 \ud638\ucd9c\uc790\uac00 \uc774\ub825 \ubcc0\uacbd\uc5d0 \uc4f8 \uac12\ub3c4 \ub0b4\uc9c0 \uc54a\ub294\ub2e4.",
+        "properties": {
+          "applicability": {
+            "$ref": "#/components/schemas/Applicability"
+          },
+          "new_facts": {
+            "items": {
+              "$ref": "#/components/schemas/NewFact"
+            },
+            "title": "New Facts",
+            "type": "array"
+          },
+          "next_action": {
+            "enum": [
+              "ESCALATE_TO_AGENT",
+              "CONFIRM_WITH_CUSTOMER",
+              "DRAFT_ANSWER",
+              "REQUEST_AGAIN"
+            ],
+            "title": "Next Action",
+            "type": "string"
+          },
+          "provided_codes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Provided Codes",
+            "type": "array"
+          },
+          "remaining_questions": {
+            "items": {
+              "$ref": "#/components/schemas/InfoRequest"
+            },
+            "title": "Remaining Questions",
+            "type": "array"
+          },
+          "still_missing": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Still Missing",
+            "type": "array"
+          }
+        },
+        "required": [
+          "provided_codes",
+          "still_missing",
+          "next_action",
+          "applicability",
+          "new_facts",
+          "remaining_questions"
+        ],
+        "title": "ReplyUpdate",
         "type": "object"
       },
       "RequestAction": {
@@ -8901,6 +9239,22 @@
         "title": "SuccessResponse[TicketList]",
         "type": "object"
       },
+      "SuccessResponse_TicketReplyAnalysisView_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/TicketReplyAnalysisView"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[TicketReplyAnalysisView]",
+        "type": "object"
+      },
       "SuccessResponse_TicketSummaryView_": {
         "properties": {
           "data": {
@@ -9604,6 +9958,64 @@
           "field"
         ],
         "title": "TicketLocation",
+        "type": "object"
+      },
+      "TicketReplyAnalysisView": {
+        "properties": {
+          "analysis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReplyAnalysisRecord"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\ub300\uc0c1 \ud68c\uc2e0\uc758 \uac00\uc7a5 \ucd5c\uadfc \uc131\uacf5\ud55c \ud574\uc11d(\uc9c0\uae08 \uc785\ub825\uacfc \ub9de\ub294 \uac83 \uc6b0\uc120). \uc5c6\uc73c\uba74 null."
+          },
+          "latest_attempt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReplyAnalysisAttempt"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\ub300\uc0c1 \ud68c\uc2e0\uc758 \uac00\uc7a5 \ucd5c\uadfc \uc2dc\ub3c4(\uc2e4\ud328 \ud3ec\ud568)."
+          },
+          "message_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\ub300\uc0c1 \ud68c\uc2e0. \uc694\uccad\ud55c \ud68c\uc2e0, \uc5c6\uc73c\uba74 \ubcf8\ubb38\uc774 \uc788\ub294 \uac00\uc7a5 \ucd5c\uadfc \ud68c\uc2e0. \uadf8\ub7f0 \ud68c\uc2e0\uc774 \uc5c6\uc73c\uba74 null.",
+            "title": "Message Id"
+          },
+          "provenance": {
+            "const": "ai_draft",
+            "default": "ai_draft",
+            "title": "Provenance",
+            "type": "string"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "message_id",
+          "analysis",
+          "latest_attempt"
+        ],
+        "title": "TicketReplyAnalysisView",
         "type": "object"
       },
       "TicketSummary": {
@@ -16587,6 +16999,240 @@
         "tags": [
           "tickets"
         ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/tickets/{ticket_id}/reply-analysis": {
+      "get": {
+        "description": "\uc800\uc7a5\ub41c \ud68c\uc2e0 \ud574\uc11d. \ub9cc\ub4e4\uc9c0\ub294 \uc54a\ub294\ub2e4(\ube44\uc6a9 \uc5c6\uc74c).",
+        "operationId": "cs_get_ticket_reply_analysis",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "message_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Message Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_TicketReplyAnalysisView_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Reply Analysis",
+        "tags": [
+          "reply-analysis"
+        ],
+        "x-activation": "CS_REPLY_ANALYSIS_ENABLED",
+        "x-implementation-status": "partial"
+      },
+      "post": {
+        "description": "\ud68c\uc2e0\uc744 \ud574\uc11d\ud55c\ub2e4. \uac19\uc740 \uc785\ub825\uc758 \uc131\uacf5\ud55c \ud574\uc11d\uc774 \uc788\uc73c\uba74 \uadf8\ub300\ub85c \ub3cc\ub824\uc900\ub2e4(200, \ubaa8\ub378 \ud638\ucd9c \uc5c6\uc74c).",
+        "operationId": "cs_create_ticket_reply_analysis",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ReplyAnalysisRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_TicketReplyAnalysisView_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_TicketReplyAnalysisView_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Create Reply Analysis",
+        "tags": [
+          "reply-analysis"
+        ],
+        "x-activation": "CS_REPLY_ANALYSIS_ENABLED",
         "x-implementation-status": "partial"
       }
     },

@@ -190,6 +190,10 @@ def app_for(service: str, state: Path):
             configure_improvement_draft,
         )
         from backend.api.cs.main import create_app
+        from backend.api.cs.reply_analysis.routes import (
+            CsReplyAnalysisSettings,
+            configure_reply_analysis,
+        )
         from backend.api.cs.summary.routes import CsSummarySettings, configure_summary
         from backend.api.cs.translation.routes import (
             CsTranslationSettings,
@@ -223,6 +227,11 @@ def app_for(service: str, state: Path):
             app,
             CsTranslationSettings(_env_file=None, enabled=True),
             provider=bridge_provider(state, "/translation"),
+        )
+        configure_reply_analysis(
+            app,
+            CsReplyAnalysisSettings(_env_file=None, enabled=True),
+            provider=bridge_provider(state, "/reply-analysis"),
         )
         configure_analysis_jobs(
             app,

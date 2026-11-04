@@ -8,6 +8,7 @@
 | --- | --- | --- |
 | C/S 문의 | backend/api/cs/tickets/schemas.py, routes.py, backend/api/cs/examples.py | docs/openapi/cs.json, frontend/src/mocks/generated/cs.json |
 | C/S 담당자 자동 배정 | backend/engine/cs/assignment.py, backend/api/cs/assignments/ ([자동 배정](cs/assignment.md)) | docs/openapi/cs.json, frontend/src/mocks/generated/cs.json |
+| C/S 회신 반영 분석 | backend/api/cs/reply_analysis/, backend/engine/cs/reply.py ([회신 반영 분석](cs/reply-analysis.md)) | docs/openapi/cs.json, frontend/src/mocks/generated/cs.json |
 | C/S 개선요청 후보 규칙 | backend/engine/cs/improvement_candidates.py ([후보 규칙](cs/improvement-candidates.md)) | 없음(엔진, HTTP 계약 아님) |
 | TFT 프로젝트 | backend/api/tft/projects/schemas.py, routes.py, backend/api/tft/examples.py | docs/openapi/tft.json, frontend/src/mocks/generated/tft.json |
 | TFT RFP 자사 대응 | backend/api/tft/rfp/schemas.py, routes.py ([데이터 구조](tft/rfp-data.md)) | docs/openapi/tft.json |

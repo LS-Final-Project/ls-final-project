@@ -6,6 +6,10 @@ from backend.api.cs.improvements.ai_draft import (
     CsImprovementDraftSettings,
     configure_improvement_draft,
 )
+from backend.api.cs.reply_analysis.routes import (
+    CsReplyAnalysisSettings,
+    configure_reply_analysis,
+)
 from backend.api.cs.routes import router
 from backend.api.cs.summary.routes import CsSummarySettings, configure_summary
 from backend.api.cs.translation.routes import CsTranslationSettings, configure_translation
@@ -40,6 +44,7 @@ def create_app(
     configure_analysis_jobs(app, CsAnalysisSettings())
     configure_summary(app, CsSummarySettings())
     configure_translation(app, CsTranslationSettings())
+    configure_reply_analysis(app, CsReplyAnalysisSettings())
     configure_improvement_draft(app, CsImprovementDraftSettings())
     app.include_router(router)
     return app

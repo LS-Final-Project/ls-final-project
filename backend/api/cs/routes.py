@@ -11,6 +11,7 @@ from backend.api.cs.improvements.candidates import router as improvement_candida
 from backend.api.cs.improvements.followup_routes import router as improvement_followups
 from backend.api.cs.improvements.routes import router as improvements
 from backend.api.cs.improvements.transition_routes import router as improvement_transitions
+from backend.api.cs.reply_analysis.routes import router as reply_analysis
 from backend.api.cs.stats.routes import router as stats
 from backend.api.cs.summary.routes import router as summary
 from backend.api.cs.tickets.routes import router as tickets
@@ -26,6 +27,7 @@ router.include_router(tickets)
 router.include_router(analysis)
 router.include_router(summary)
 router.include_router(translation)
+router.include_router(reply_analysis)
 router.include_router(units)
 router.include_router(workflow)
 router.include_router(case_router)
