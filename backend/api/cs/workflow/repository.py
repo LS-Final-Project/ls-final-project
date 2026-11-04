@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+import psycopg
 from psycopg import AsyncConnection
 from psycopg.types.json import Jsonb
 
@@ -272,17 +273,31 @@ async def insert_mail_origin(conn: AsyncConnection[Row], values: Row) -> None:
     )
 
 
+REPLY_COLUMNS = "message_id, ticket_id, method, received_at, reopened, created_at"
+
+
 async def list_replies(conn: AsyncConnection[Row], ticket_id: UUID) -> list[Row]:
-    cursor = await conn.execute(
-        "SELECT message_id, ticket_id, method, received_at, reopened, created_at "
-        "FROM cs.ticket_customer_replies WHERE ticket_id = %s ORDER BY received_at, message_id",
-        (ticket_id,),
-    )
-    return await cursor.fetchall()
+    """Linked customer replies, with subject and body (C30, KAN-230) when the DB has them."""
+    query = "FROM cs.ticket_customer_replies WHERE ticket_id = %s ORDER BY received_at, message_id"
+    try:
+        async with conn.transaction():
+            cursor = await conn.execute(
+                f"SELECT {REPLY_COLUMNS}, subject, body {query}", (ticket_id,)
+            )
+            return await cursor.fetchall()
+    except psycopg.errors.UndefinedColumn:
+        # Before C30 the reply rows have no text; the screen says to read them in the mail account.
+        cursor = await conn.execute(f"SELECT {REPLY_COLUMNS} {query}", (ticket_id,))
+        return await cursor.fetchall()
 
 
 async def insert_reply(conn: AsyncConnection[Row], values: Row) -> bool:
-    """Records a linked reply once. Returns False when the mail was recorded before."""
+    """Records a linked reply once. Returns False when the mail was recorded before.
+
+    Subject and body (C30) are written only when given, so a platform that does not send them
+    keeps working on a DB without C30.
+    """
+    values = {k: v for k, v in values.items() if k not in ("subject", "body") or v is not None}
     columns = ", ".join(values)
     cursor = await conn.execute(
         f"INSERT INTO cs.ticket_customer_replies ({columns}) "

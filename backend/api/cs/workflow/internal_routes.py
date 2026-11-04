@@ -172,7 +172,13 @@ async def customer_reply(
         if await tickets.get_ticket(conn, ticket_id) is None:
             raise not_found()
         workflow, reopened, recorded = await record_customer_reply(
-            conn, ticket_id, payload.message_id, payload.method, payload.received_at
+            conn,
+            ticket_id,
+            payload.message_id,
+            payload.method,
+            payload.received_at,
+            subject=payload.subject,
+            body=payload.body,
         )
     return respond(
         request,

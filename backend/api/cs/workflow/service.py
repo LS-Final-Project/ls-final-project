@@ -148,6 +148,9 @@ async def record_customer_reply(
     message_id: UUID,
     method: str,
     received_at: datetime,
+    *,
+    subject: str | None = None,
+    body: str | None = None,
 ) -> tuple[Row, bool, bool]:
     """Records a reply the platform linked (KAN-75) and reopens the ticket when its state
     allows (KAN-110). Recording the same mail again changes nothing.
@@ -166,6 +169,8 @@ async def record_customer_reply(
             "method": method,
             "received_at": received_at,
             "reopened": reopened,
+            "subject": subject,
+            "body": body,
         },
     )
     if not recorded:

@@ -265,6 +265,13 @@ class CustomerReply(BaseModel):
     received_at: datetime
     reopened: bool
     created_at: datetime
+    # KAN-230. Null for replies recorded before the platform sent the text, or when the platform
+    # could not read the original. The screen then says to read it in the mail account.
+    subject: str | None = Field(default=None, description="Reply subject from the mail.")
+    body: str | None = Field(
+        default=None,
+        description="Reply text from the mail, quoted history of earlier mail cut off.",
+    )
 
 
 class CustomerSendRequest(Action):
@@ -312,6 +319,9 @@ class CustomerReplyIn(BaseModel):
     message_id: UUID
     method: Literal["HEADER", "THREAD", "HUMAN"]
     received_at: datetime
+    # KAN-230. Optional so a platform that does not send them yet keeps working.
+    subject: str | None = Field(default=None, max_length=500)
+    body: str | None = Field(default=None, min_length=1, max_length=20000)
 
 
 class CustomerReplyResult(BaseModel):

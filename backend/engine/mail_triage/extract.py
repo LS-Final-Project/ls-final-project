@@ -194,3 +194,29 @@ def build_input(
         is_reply=is_reply,
         attachments=attachments,
     )
+
+
+# 고객 회신 본문 상한(KAN-230). C/S 회신 기록의 상한(C30)과 같다.
+REPLY_BODY_LIMIT = 20_000
+
+
+def reply_text(raw: bytes) -> tuple[str | None, str | None]:
+    """문의에 연결된 고객 회신의 제목과 본문(KAN-230). 우리가 보낸 이전 메일 인용은 자른다.
+
+    문의 접수(mail_text)처럼 가리지 않는다(문의 원문과 같은 수준으로 C/S에 남는다). 모델에 보낼 때는
+    C/S가 분류와 같은 마스킹을 한다. 상한을 넘으면 상한에서 자르고 잘렸다고 끝에 적는다.
+
+    Args:
+        raw: 원문 MIME 바이트.
+
+    Returns:
+        tuple: (제목 또는 None, 본문 또는 None). 인용을 자른 뒤 본문이 비면 None. 파싱할 수 없으면
+        ValueError("MAIL_INVALID_INPUT").
+    """
+    subject, body, _ = mail_text(raw)
+    # CRLF가 남으면 인용 시작 줄('… wrote:')을 줄 끝으로 찾지 못한다.
+    text = _clean(body.replace("\r\n", "\n").replace("\r", "\n"))
+    if len(text) > REPLY_BODY_LIMIT:
+        mark = "\n[이후 생략: 원문은 메일 계정에서 확인]"
+        text = text[: REPLY_BODY_LIMIT - len(mark)].rstrip() + mark
+    return (subject[:500] if subject else None), (text or None)

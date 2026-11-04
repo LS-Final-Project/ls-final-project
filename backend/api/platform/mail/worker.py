@@ -345,7 +345,9 @@ async def sync(request: Request) -> JSONResponse:
             caller = cs_caller(request)
             if caller is not None:
                 try:
-                    notified = await notify_cs_replies(request.app.state.settings, caller)
+                    notified = await notify_cs_replies(
+                        request.app.state.settings, caller, store=store
+                    )
                 except (psycopg.Error, ApplicationError, HTTPException):
                     notified = {"notified": 0, "failed": 1}
     if result is None:

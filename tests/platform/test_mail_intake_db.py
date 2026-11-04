@@ -316,3 +316,54 @@ def test_registration_is_closed_without_a_cs_caller(settings, notify, registered
             headers={"Origin": ORIGIN, CSRF_HEADER: csrf_token(session)},
         )
     assert response.status_code == 404
+
+
+class RawByHash:
+    """원문을 sha256으로 돌려주는 저장소. 모르는 원문은 읽기 실패(503)다."""
+
+    def __init__(self, *raws):
+        self.raws = {__import__("hashlib").sha256(raw).hexdigest(): raw for raw in raws}
+
+    async def get(self, stored):
+        from backend.shared.errors import ApplicationError
+
+        if stored.sha256 not in self.raws:
+            raise ApplicationError(503, "MAIL_OBJECT_UNAVAILABLE", "x")
+        return self.raws[stored.sha256]
+
+
+def test_reply_text_is_sent_with_the_quoted_history_cut_off(settings, notify):
+    """KAN-230: 저장소를 주면 회신 제목·본문을 같이 알린다. 우리가 보낸 이전 메일 인용은 뺀다."""
+    cs = FakeCs()
+    raw = (
+        "Subject: Re: 변압기 누유\r\nMessage-ID: <r1@customer.invalid>\r\n"
+        "Content-Type: text/plain; charset=utf-8\r\n\r\n"
+        "Serial is VSN-TRF-0042. Photos attached.\r\n\r\n"
+        "On Mon, Nov 3, 2026 at 10:00 AM LS C/S <cs@example.invalid> wrote:\r\n> Please send the serial.\r\n"
+    ).encode()
+    message = add_message(notify, raw, conversation=f"conv-{uuid4()}")
+    with psycopg.connect(notify["dsn"]) as conn:
+        conn.execute(
+            "INSERT INTO integration.mail_links (id, message_id, owner_service, business_ref, kind, "
+            "method) VALUES (%s, %s, 'cs', %s, 'REPLY', 'HEADER')",
+            (uuid4(), message, f"cs_ticket:{uuid4()}"),
+        )
+    assert (
+        asyncio.run(notify_cs_replies(settings, cs.caller(), store=RawByHash(raw)))["notified"] == 1
+    )
+    [sent] = [json.loads(c.content) for c in cs.calls]
+    assert sent["subject"] == "Re: 변압기 누유"
+    assert sent["body"] == "Serial is VSN-TRF-0042. Photos attached."
+    assert "Please send the serial" not in sent["body"]
+
+
+def test_a_reply_whose_original_cannot_be_read_waits_for_the_next_run(settings, notify):
+    """원문을 읽지 못하면 본문 없이 알리지 않고 다음 실행으로 미룬다(알림 표시 없음)."""
+    cs = FakeCs()
+    message = link_reply(notify, uuid4())
+    assert asyncio.run(notify_cs_replies(settings, cs.caller(), store=RawByHash())) == {
+        "notified": 0,
+        "missing": 0,
+        "failed": 1,
+    }
+    assert cs.calls == [] and notified(notify, message) is None

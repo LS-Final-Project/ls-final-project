@@ -260,12 +260,20 @@ def test_information_request_waits_and_a_linked_reply_reopens(
         "HEADER",
         True,
     )
+    # A platform that does not send the text yet: subject and body stay empty (KAN-230).
+    assert (recorded["subject"], recorded["body"]) == (None, None)
     # The same mail reported again changes nothing.
     again = client.post(f"/internal/v1/cs/tickets/{ticket}/customer-reply", json=reply)
     assert again.json()["data"]["recorded"] is False and again.json()["data"]["reopened"] is False
     assert state(client, ticket)["version"] == 4
-    # A reply while in review is recorded, but the state stays.
-    other = {**reply, "message_id": str(uuid4()), "method": "THREAD"}
+    # A reply while in review is recorded, but the state stays. Its text is kept (KAN-230).
+    other = {
+        **reply,
+        "message_id": str(uuid4()),
+        "method": "THREAD",
+        "subject": "Re: 누유",
+        "body": "Serial is VSN-TRF-0042.",
+    }
     assert client.post(f"/internal/v1/cs/tickets/{ticket}/customer-reply", json=other).json()[
         "data"
     ] == {
@@ -277,6 +285,16 @@ def test_information_request_waits_and_a_linked_reply_reopens(
     }
     missing = client.post(f"/internal/v1/cs/tickets/{uuid4()}/customer-reply", json=reply)
     assert missing.status_code == 404
+    texts = {
+        r["message_id"]: (r["subject"], r["body"])
+        for r in state(client, ticket)["customer_replies"]
+    }
+    assert texts[other["message_id"]] == ("Re: 누유", "Serial is VSN-TRF-0042.")
+    too_long = {**reply, "message_id": str(uuid4()), "body": "x" * 20001}
+    assert (
+        client.post(f"/internal/v1/cs/tickets/{ticket}/customer-reply", json=too_long).status_code
+        == 422
+    )
 
     # Closed by a sent message, then reopened by a later reply: closing data is cleared.
     data = ok(act(client, ticket, "close", version=4))
