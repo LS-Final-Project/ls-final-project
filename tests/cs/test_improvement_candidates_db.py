@@ -339,18 +339,75 @@ def test_data_origins_are_counted_apart(client, admin, product):
     }
 
 
-def test_a_saved_candidate_keeps_its_origin_and_proposes_known_departments(client, admin, product):
-    add_case(admin, product, 0, "CUST-1", origin="demo", dept="TS_LV")
-    add_case(admin, product, 1, "CUST-2", origin="demo", dept="QA_CLAIM")
-    add_case(admin, product, 2, "CUST-3", origin="demo", dept="GCS_L1")
+def proposed_of(admin, product, fault):
+    return admin.execute(
+        "SELECT proposed_depts FROM cs.improvement_requests WHERE product_code = %s "
+        "AND fault_id = %s",
+        (product, fault),
+    ).fetchall()
+
+
+@pytest.mark.parametrize(
+    ("product_code", "causes", "expected"),
+    [
+        ("TRF-OIL-1000", ["HARDWARE"] * 3, ["QA_CLAIM"]),
+        ("TRF-OIL-1000", ["WEAR_PART"] * 3, ["QA_CLAIM"]),
+        ("TRF-OIL-1000", ["SETTING"] * 3, ["FIELD_SVC"]),
+        ("TRF-OIL-1000", ["SITE_CONDITION"] * 3, ["TS_TRF"]),
+        ("INV-LSLV0750-iS7", ["SITE_CONDITION"] * 3, ["TS_AUTO"]),
+        (
+            "TRF-OIL-1000",
+            ["HARDWARE", "SETTING", "SITE_CONDITION"],
+            ["FIELD_SVC", "QA_CLAIM", "TS_TRF"],
+        ),
+    ],
+)
+def test_proposed_departments_follow_the_cause_types_of_the_evidence(
+    client, admin, product_code, causes, expected
+):
+    # 해결 부서(GCS_L1)는 제안에 쓰이지 않는다. 기획서 p.11 원인 유형별 1차 제안 부서.
+    fault = f"FLT-{uuid4().int % 800 + 100}"
+    for day, cause in enumerate(causes):
+        add_case(
+            admin, product_code, day, f"CUST-{uuid4()}", fault=fault, cause=cause, dept="GCS_L1"
+        )
+    collect(client)
+    assert proposed_of(admin, product_code, fault) == [(expected,)]
+
+
+def test_a_firmware_candidate_proposes_firmware_and_the_product_technical_support(client, admin):
+    # ACB-AS-2000 is LV_BREAKER, whose TECH_SPEC route is TS_LV (policy/routing_rules.csv).
+    fault = f"FLT-{uuid4().int % 800 + 100}"
+    add_case(admin, "ACB-AS-2000", 0, "CUST-FW", cause="FIRMWARE", fw="1.2", fault=fault)
+    collect(client)
+    assert proposed_of(admin, "ACB-AS-2000", fault) == [(["RND_FW", "TS_LV"],)]
+
+
+def test_an_unknown_family_drops_technical_support_and_falls_back_to_resolving_departments(
+    client, admin, product
+):
+    for day, dept in enumerate(("TS_LV", "QA_CLAIM", "GCS_L1")):
+        add_case(admin, product, day, f"CUST-{day}", cause="SITE_CONDITION", dept=dept)
+    collect(client)
+    [row] = requests_of(admin, product)
+    assert row[7] == ["QA_CLAIM", "TS_LV"]
+
+
+def test_a_saved_candidate_keeps_its_origin_and_falls_back_without_a_cause_type(
+    client, admin, product
+):
+    add_case(admin, product, 0, "CUST-1", origin="demo", dept="TS_LV", cause="UNKNOWN_KIND")
+    add_case(admin, product, 1, "CUST-2", origin="demo", dept="QA_CLAIM", cause="UNKNOWN_KIND")
+    add_case(admin, product, 2, "CUST-3", origin="demo", dept="GCS_L1", cause="UNKNOWN_KIND")
     collect(client)
     [row] = requests_of(admin, product)
     assert row[5] == "demo" and row[7] == ["QA_CLAIM", "TS_LV"]
 
 
 def test_a_group_with_no_department_to_propose_is_skipped_with_its_reason(client, admin, product):
+    # 제품군을 모르는 현장 조건 원인뿐이고 해결 부서도 이관 부서가 아니다.
     for day in (0, 1, 2):
-        add_case(admin, product, day, f"CUST-{day}", dept="GCS_L1")
+        add_case(admin, product, day, f"CUST-{day}", dept="GCS_L1", cause="SITE_CONDITION")
     data = collect(client)
     assert requests_of(admin, product) == []
     assert {

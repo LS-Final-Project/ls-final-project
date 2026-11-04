@@ -35,7 +35,7 @@ from backend.engine.cs.improvement_candidates import (
     RootCauseType,
     fault_candidates,
 )
-from backend.engine.cs.rules import firmware_releases
+from backend.engine.cs.rules import RuleInputError, firmware_releases, product_family, route
 from backend.shared.access import Principal, current_principal
 from backend.shared.database import connection
 from backend.shared.departments import TRANSFER_DEPARTMENTS
@@ -58,6 +58,17 @@ Judged = tuple[str, FaultCandidate]
 ROOT_CAUSES = frozenset(get_args(RootCauseType))
 DISPLAY_VALUES = ("ticket_external_id", "case_external_id", "ticket_subject", "ticket_received_at")
 NOT_CLAIMED = "후보는 사람이 검토할 거리다. 원인과 책임을 단정하지 않는다."
+# Stands for the product's technical-support department in CAUSE_DEPARTMENTS.
+PRODUCT_TECH_SUPPORT = "PRODUCT_TECH_SUPPORT"
+# First proposed departments per root cause type (C/S proposal p.11, 개선요청서 구성; agreed
+# 2026-11-04). A person edits them; the resolving departments stay visible in the evidence.
+CAUSE_DEPARTMENTS: dict[str, tuple[str, ...]] = {
+    "HARDWARE": ("QA_CLAIM",),
+    "WEAR_PART": ("QA_CLAIM",),
+    "FIRMWARE": ("RND_FW", PRODUCT_TECH_SUPPORT),
+    "SETTING": ("FIELD_SVC",),
+    "SITE_CONDITION": (PRODUCT_TECH_SUPPORT,),
+}
 
 
 def require_candidates(principal: Principal) -> None:
@@ -88,6 +99,33 @@ def record(row: Row) -> CaseRecord:
         root_cause_type=cause if cause in ROOT_CAUSES else None,
         fw_version_at_issue=row["fw_version_at_issue"],
     )
+
+
+def tech_support_dept(product_code: str) -> str | None:
+    """The product family's technical-support department (routing_rules.csv, TECH_SPEC)."""
+    try:
+        return route(product_family(product_code), "TECH_SPEC", None).dept
+    except RuleInputError:
+        return None
+
+
+def proposed_departments(
+    product_code: str, causes: set[str | None], resolved: set[str | None]
+) -> list[str]:
+    """First proposed departments of a fault candidate, sorted.
+
+    The union over the evidence cause types (CAUSE_DEPARTMENTS). A null or unknown cause adds
+    nothing, and the product's technical support is left out when its family is unknown. When
+    nothing is left, the resolving departments that are transfer departments are proposed.
+    """
+    support = tech_support_dept(product_code)
+    by_cause = {
+        support if dept == PRODUCT_TECH_SUPPORT else dept
+        for cause in causes
+        for dept in CAUSE_DEPARTMENTS.get(cause or "", ())
+    }
+    proposed = {dept for dept in by_cause if dept in TRANSFER_DEPARTMENTS}
+    return sorted(proposed or {dept for dept in resolved if dept in TRANSFER_DEPARTMENTS})
 
 
 def evidence(ref: EvidenceRef, rows: dict[str, Row]) -> CandidateEvidence:
@@ -235,7 +273,7 @@ async def save_candidates(
     skipped: list[CandidateSkipped] = []
     already_requested = 0
     rows = await repository.candidate_cases(conn, at)
-    departments = {str(row["case_id"]): row["resolved_by_dept"] for row in rows}
+    by_case = {str(row["case_id"]): row for row in rows}
     judged = [pair for pair in await judge(conn, at, rows) if pair[1].outcome == "ELIGIBLE"]
     if group is not None:
         judged = [p for p in judged if (p[0], p[1].product_code, p[1].fault_id) == group]
@@ -244,8 +282,12 @@ async def save_candidates(
         if (origin, candidate.product_code, candidate.fault_id) in requests:
             already_requested += 1
             continue
-        resolved = {departments[str(e.case_id)] for e in candidate.evidence}
-        proposed = sorted(resolved & TRANSFER_DEPARTMENTS)
+        cases = [by_case[str(e.case_id)] for e in candidate.evidence]
+        proposed = proposed_departments(
+            candidate.product_code,
+            {case["root_cause_type"] for case in cases},
+            {case["resolved_by_dept"] for case in cases},
+        )
         # A fault request needs a department (CS_DEPARTMENT_REQUIRED). No candidate skips that.
         if not proposed:
             skipped.append(

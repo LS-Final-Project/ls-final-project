@@ -4,6 +4,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
+from backend.api.cs.improvements.candidates import proposed_departments, tech_support_dept
 from backend.engine.cs.improvement_candidates import (
     CaseRecord,
     DocumentSignalRecord,
@@ -237,3 +238,38 @@ def test_reason_reports_the_threshold_at_reach_time_not_the_group_maximum():
     [result] = fault_candidates(cases, [], as_of=LATER)
     assert result.reason == "90일 안 서로 다른 고객 3/3곳 도달(한 구간 최대 5곳)."
     assert result.distinct_customers_in_best_window == 5
+
+
+# 저장할 후보의 1차 제안 부서(2026-11-04 합의, C/S 기획서 p.11 원인 유형별 1차 제안 부서).
+@pytest.mark.parametrize(
+    ("product", "causes", "resolved", "expected"),
+    [
+        ("TRF-OIL-1000", {"HARDWARE"}, {"GCS_L1"}, ["QA_CLAIM"]),
+        ("TRF-OIL-1000", {"WEAR_PART"}, {"FIELD_SVC"}, ["QA_CLAIM"]),
+        ("TRF-OIL-1000", {"SETTING"}, {"QA_CLAIM"}, ["FIELD_SVC"]),
+        ("TRF-OIL-1000", {"SITE_CONDITION"}, {"QA_CLAIM"}, ["TS_TRF"]),
+        ("VCB-25kV-1250", {"SITE_CONDITION"}, set(), ["TS_MV"]),
+        ("ESS-PCS-100kW", {"FIRMWARE"}, set(), ["RND_FW", "TS_ENERGY"]),
+        ("ACB-AS-2000", {"FIRMWARE"}, {"TS_LV"}, ["RND_FW", "TS_LV"]),
+        (
+            "PLC-XGI-CPUU",
+            {"HARDWARE", "FIRMWARE", "SETTING", None},
+            {"GCS_L1"},
+            ["FIELD_SVC", "QA_CLAIM", "RND_FW", "TS_AUTO"],
+        ),
+        # 제품군을 모르면 제품 기술지원만 빠진다.
+        ("UNKNOWN-1", {"FIRMWARE"}, {"QA_CLAIM"}, ["RND_FW"]),
+        ("UNKNOWN-1", {"SITE_CONDITION"}, {"QA_CLAIM", "GCS_L1"}, ["QA_CLAIM"]),
+        # 쓸 원인이 없으면 해결 부서 중 이관 부서로 돌아간다.
+        ("TRF-OIL-1000", {None}, {"TS_TRF", "QA_CLAIM", "GCS_L1", None}, ["QA_CLAIM", "TS_TRF"]),
+        ("TRF-OIL-1000", {"UNKNOWN_KIND"}, {"GCS_L1"}, []),
+    ],
+)
+def test_proposed_departments_follow_the_cause_type_rule(product, causes, resolved, expected):
+    assert proposed_departments(product, causes, resolved) == expected
+
+
+def test_technical_support_comes_from_the_family_route():
+    assert tech_support_dept("MCCB-ABS-103c") == "TS_LV"
+    assert tech_support_dept("HMI-XGT-eXP60") == "TS_AUTO"
+    assert tech_support_dept("NOT-A-PRODUCT") is None
