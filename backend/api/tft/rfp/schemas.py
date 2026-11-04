@@ -793,6 +793,31 @@ class RecordedReply(Model):
     schedule_fits: bool | None = None
 
 
+class ReplyValueCandidate(Model):
+    """회신에서 읽은 새 요구값 후보(KAN-224). 후보일 뿐 요구값을 바꾸지 않는다.
+
+    method: rule(규칙), ai(AI, 근거 검사 통과), none(못 읽음, reason에 이유).
+    """
+
+    method: Literal["rule", "ai", "none"]
+    value: str | None = None
+    unit: str | None = None
+    conditions: list[Condition] = Field(default_factory=list)
+    quote: str | None = None
+    reason: (
+        Literal[
+            "NO_VALUE",
+            "MULTIPLE_VALUES",
+            "CORRECTION",
+            "CONDITIONAL",
+            "MULTIPLE_QUESTIONS",
+            "AI_UNGROUNDED",
+            "AI_FAILED",
+        ]
+        | None
+    ) = None
+
+
 class Question(Provenance):
     question_id: UUID
     requirement_id: UUID | None
@@ -809,6 +834,8 @@ class Question(Provenance):
     target_dept: str | None = None
     rnd_feasibility: RndFeasibility | None = None
     follows_question_id: UUID | None = None
+    # 요구에 이어진 CUSTOMER 질의의 회신에서 읽은 새 요구값 후보(KAN-224). 회신 전이나 대상 밖이면 없다.
+    value_candidate: ReplyValueCandidate | None = None
 
 
 class QuestionList(Model):
@@ -879,39 +906,10 @@ class ProposalList(Model):
     items: list[Proposal]
 
 
-class ReplyValueCandidate(Model):
-    """회신에서 읽은 새 요구값 후보(KAN-224). 후보일 뿐 요구값을 바꾸지 않는다.
-
-    method: rule(규칙), ai(AI, 근거 검사 통과), none(못 읽음, reason에 이유).
-    """
-
-    method: Literal["rule", "ai", "none"]
-    value: str | None = None
-    unit: str | None = None
-    conditions: list[Condition] = Field(default_factory=list)
-    quote: str | None = None
-    reason: (
-        Literal[
-            "NO_VALUE",
-            "MULTIPLE_VALUES",
-            "CORRECTION",
-            "CONDITIONAL",
-            "MULTIPLE_QUESTIONS",
-            "AI_UNGROUNDED",
-            "AI_FAILED",
-        ]
-        | None
-    ) = None
-
-
 class QuestionReplyResult(Question):
-    """20. 회신 결과: 회신된 질문. CUSTOMER 회신이 판단을 바꿀 제안을 만들었을 때만 created_proposal이 있다.
-
-    value_candidate는 요구에 이어진 CUSTOMER 질의일 때만 있다(KAN-224).
-    """
+    """20. 회신 결과: 회신된 질문. CUSTOMER 회신이 판단을 바꿀 제안을 만들었을 때만 created_proposal이 있다."""
 
     created_proposal: Proposal | None = None
-    value_candidate: ReplyValueCandidate | None = None
 
 
 # --- 초안·검토본 (§4.9) -----------------------------------------------------------------

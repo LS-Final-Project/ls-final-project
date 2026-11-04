@@ -5172,6 +5172,16 @@
             ],
             "title": "Target Dept"
           },
+          "value_candidate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReplyValueCandidate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "version": {
             "minimum": 1.0,
             "title": "Version",
@@ -5407,7 +5417,7 @@
       },
       "QuestionReplyResult": {
         "additionalProperties": false,
-        "description": "20. \ud68c\uc2e0 \uacb0\uacfc: \ud68c\uc2e0\ub41c \uc9c8\ubb38. CUSTOMER \ud68c\uc2e0\uc774 \ud310\ub2e8\uc744 \ubc14\uafc0 \uc81c\uc548\uc744 \ub9cc\ub4e4\uc5c8\uc744 \ub54c\ub9cc created_proposal\uc774 \uc788\ub2e4.\n\nvalue_candidate\ub294 \uc694\uad6c\uc5d0 \uc774\uc5b4\uc9c4 CUSTOMER \uc9c8\uc758\uc77c \ub54c\ub9cc \uc788\ub2e4(KAN-224).",
+        "description": "20. \ud68c\uc2e0 \uacb0\uacfc: \ud68c\uc2e0\ub41c \uc9c8\ubb38. CUSTOMER \ud68c\uc2e0\uc774 \ud310\ub2e8\uc744 \ubc14\uafc0 \uc81c\uc548\uc744 \ub9cc\ub4e4\uc5c8\uc744 \ub54c\ub9cc created_proposal\uc774 \uc788\ub2e4.",
         "properties": {
           "created_at": {
             "format": "date-time",
