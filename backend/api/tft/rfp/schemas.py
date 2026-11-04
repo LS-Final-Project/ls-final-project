@@ -446,6 +446,8 @@ class OwnValue(Model):
     unit: str | None
     conditions: list[Condition]
     result: Literal["MEETS", "DIFFERS", "NOT_COMPARABLE", "NO_DATA"]
+    # "형식 미확인": 요구의 변압기 절연 형식(건식·유입)을 몰라 형식이 다른 후보가 함께 남은 경우(KAN-217).
+    note: str | None = None
 
 
 class RequirementGroup(Model):

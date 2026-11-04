@@ -434,8 +434,10 @@ null은 입력 전), `decisions_remaining`(= 상세 `decision_gate.undecided`), 
 **자사 보증값 `own_value`.** 요구 목록·상세 응답에 싣는다. 저장된 비교에서만 읽고 새로 계산하지 않는다. 출처는 요구 상세의
 비교(`GET /requirements/{id}/comparison`)와 같다: 지금 판본의 재비교 사본(`requirement_recomparisons`)이 있으면 그 후보,
 없으면 비교가 저장된 가장 최근 판본의 후보별 최신 `product_comparisons`. 자사 값(`our_value`)이 있는 후보 중 결과가
-충족(MEETS) → 다름(DIFFERS) → 비교 불가 → 자료 없음 순, 같으면 제품 코드·변형 순으로 하나를 고른다. 없으면 null.
-형식: `{product_code, variant, value, unit, conditions: [{name, value, unit}], result}`.
+충족(MEETS) → 다름(DIFFERS) → 비교 불가 → 자료 없음 순, 같으면 제품 코드·변형 순으로 하나를 고른다. 단 판정 사유(요구 판본
+`reason`, 재비교 사본은 그 `reason`)에 제품 코드가 하나만 나오면 그 후보를 먼저 고른다(판정 근거와 다른 후보를 보이지 않음,
+KAN-217 후속). 없으면 null. 남은 후보에 절연 형식(건식·유입)이 다른 변압기가 섞이면 `note="형식 미확인"`.
+형식: `{product_code, variant, value, unit, conditions: [{name, value, unit}], result, note}`.
 
 **도면 확인 `decision.drawing_check`.** 도면 OCR 조항(`OCR-DOCX-`·`OCR-PDF-P` 접두, worker `is_ocr`과 같음)에서 나온 요구는
 `drawing_check=true`다. 입찰 판정(`bid_verdict`) 값은 늘리지 않는다(화면 타입이 판정 값 전체를 쓰므로). 도면 요구는 판정이

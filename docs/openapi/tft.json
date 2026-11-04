@@ -4214,6 +4214,17 @@
             "title": "Conditions",
             "type": "array"
           },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
           "product_code": {
             "title": "Product Code",
             "type": "string"

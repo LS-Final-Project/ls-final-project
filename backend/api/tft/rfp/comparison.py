@@ -148,6 +148,7 @@ VOLTAGE_KEYS = frozenset(
     {"rated_max_voltage", "primary_voltage", "secondary_voltage", "rated_operational_voltage"}
 )
 VoltageClass = Literal["LV", "MV", "HV"]
+Insulation = Literal["DRY", "OIL"]
 
 
 class Strict(BaseModel):
@@ -201,6 +202,8 @@ class Requirement(Strict):
     core_equipment: bool = False
     # 같은 문서·같은 설비의 전압 요구 중 가장 높은 값(kV, KAN-217). 전압 등급이 다른 자사 제품을 후보에서 뺄 때 쓴다.
     equipment_voltage_kv: Decimal | None = None
+    # 같은 문서·같은 설비의 변압기 절연 형식(건식 DRY / 유입 OIL, equipment_insulations). 다른 형식 제품을 뺄 때 쓴다.
+    equipment_insulation: Insulation | None = None
     origin: Origin | None = None
 
 
@@ -676,6 +679,57 @@ def _kv(key: str | None, value: str | None, unit: str | None) -> Decimal | None:
     return None if kv is not None and key == "secondary_voltage" and kv <= 1 else kv
 
 
+# 변압기 절연 형식 낱말. 변압기 계열에서만 읽는다(단독 "몰드"는 다른 계열에서 MCCB 몰드 케이스일 수 있다).
+DRY_WORDS = ("건식", "몰드", "dry type", "cast resin", "캐스트 레진")
+OIL_WORDS = ("유입", "oil immersed", "oil filled", "liquid filled", "onan", "onaf", "광유")
+
+
+def insulation(text: str | None) -> Insulation | None:
+    """문구의 변압기 절연 형식. 건식·유입 낱말이 함께 있거나 부정어가 있으면 모른다(None)."""
+    plain = (text or "").lower().replace("-", " ")
+    if not plain or re.search(r"\b(?:not|non|without)\b|아닌|아니|제외|이외|대신", plain):
+        return None
+    dry = any(word in plain for word in DRY_WORDS)
+    oil = any(word in plain for word in OIL_WORDS)
+    return "DRY" if dry and not oil else "OIL" if oil and not dry else None
+
+
+def product_insulation(product: Product) -> Insulation | None:
+    """자사 변압기 제품의 절연 형식. 형식(form) 근거 문장에서 읽는다. 변압기가 아니거나 못 읽으면 None."""
+    if product.family != "TRANSFORMER":
+        return None
+    found = {insulation(f.value) for f in product.spec_facts if f.attribute == "form"} - {None}
+    return found.pop() if len(found) == 1 else None
+
+
+def requirement_insulation(requirement: Requirement) -> Insulation | None:
+    """요구의 절연 형식: 장비 이름·형식 값에 근거가 있으면 그것, 없으면 같은 설비의 형식 요구(equipment_insulation)."""
+    own = insulation(requirement.item) or (
+        insulation(requirement.value) if requirement.attribute == "form" else None
+    )
+    return own or requirement.equipment_insulation
+
+
+def equipment_insulations(
+    rows: Iterable[tuple[str | None, str | None, str | None]],
+) -> dict[str, Insulation]:
+    """같은 문서 요구의 설비별 절연 형식(equipment_key → DRY/OIL). 설비 이름과 형식(form) 값을 본다.
+
+    Args:
+        rows: (equipment, attribute_key, value). 한 문서 판본의 요구만 넘긴다.
+
+    Returns:
+        dict[str, Insulation]: 근거가 한 가지로 모인 설비만. 건식·유입 근거가 섞이면 뺀다(모른다).
+    """
+    seen: dict[str, set[Insulation]] = {}
+    for equipment, key, value in rows:
+        if not equipment:
+            continue
+        found = {insulation(equipment), insulation(value) if key == "form" else None} - {None}
+        seen.setdefault(equipment_key(equipment), set()).update(found)  # type: ignore[arg-type]
+    return {name: kinds.pop() for name, kinds in seen.items() if len(kinds) == 1}
+
+
 def voltage_class(kv: Decimal) -> VoltageClass:
     """전압(kV)의 등급. 1 kV 이하 저압, 52 kV 이하 중전압, 그 위는 고전압."""
     return "LV" if kv <= 1 else "MV" if kv <= 52 else "HV"
@@ -1042,12 +1096,20 @@ def compare_in_family(
                 "요구 속성을 자사 사양 항목에 연결하지 못해 비교하지 않음.",
                 "요구 속성(사양 항목) 확인",
             )
-    found, trace = master_filter(products, family or "OTHER", requirement_voltage(requirement))
+    found, trace = master_filter(
+        products,
+        family or "OTHER",
+        requirement_voltage(requirement),
+        requirement_insulation(requirement),
+    )
     return compare(requirement, found, trace)
 
 
 def master_filter(
-    products: Sequence[Product], family: str, voltage_kv: Decimal | None = None
+    products: Sequence[Product],
+    family: str,
+    voltage_kv: Decimal | None = None,
+    insulation_kind: Insulation | None = None,
 ) -> tuple[list[Product], SearchTrace]:
     """제품 마스터 계열·전압 등급 필터(compare_in_family가 쓴다). 문서 검색(R10)과 합치는 연결은 A07(KAN-188)에서 한다.
 
@@ -1055,6 +1117,7 @@ def master_filter(
         products: 자사 후보 전체.
         family: 요구 장비의 제품 계열(예: TRANSFORMER).
         voltage_kv: 요구 설비 전압(requirement_voltage). 있으면 등급이 다른 제품을 뺀다(등급을 모르는 제품은 남긴다).
+        insulation_kind: 요구 변압기 절연 형식(requirement_insulation). 있으면 다른 형식 제품을 뺀다(모르는 제품은 남긴다).
 
     Returns:
         tuple: 계열·등급이 맞는 후보와 그 검색 범위.
@@ -1065,4 +1128,7 @@ def master_filter(
         wanted = voltage_class(voltage_kv)
         found = [p for p in found if product_voltage_class(p) in (None, wanted)]
         filters.append(f"voltage_class={wanted}")
+    if insulation_kind is not None and family == "TRANSFORMER":
+        found = [p for p in found if product_insulation(p) in (None, insulation_kind)]
+        filters.append(f"insulation={insulation_kind}")
     return found, SearchTrace(filters=filters, documents_searched=len(found), search_failed=False)

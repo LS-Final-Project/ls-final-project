@@ -153,6 +153,9 @@ async def add(
                 to_comparison(
                     item,
                     voltages=await repository.equipment_voltages(conn, project_id, source["id"]),
+                    insulations=await repository.equipment_insulations(
+                        conn, project_id, source["id"]
+                    ),
                 ),
                 item.equipment_family,
                 comparison.load_own_products(),
