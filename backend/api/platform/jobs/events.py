@@ -176,6 +176,9 @@ async def read_event_batch(request: Request, job_id: UUID, after: int) -> EventB
                 raise ApplicationError(
                     503, "EVENT_DATA_UNAVAILABLE", "Event data is unavailable."
                 ) from None
+    # 세션 확인은 위 스냅샷 밖의 연결에서 먼저 한다. 그 사이 세션 회수와 새 이벤트가 같이 커밋되면 스냅샷이
+    # 이벤트를 보므로, 읽은 뒤 한 번 더 확인해 회수 뒤 이벤트를 내보내지 않는다.
+    await require_session(request)
     return EventBatch(events, status.status in TERMINAL_STATES, status.last_event_sequence)
 
 
