@@ -3,6 +3,7 @@ import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/re
 import Tickets from './Tickets';
 import TicketDetail from './TicketDetail';
 import CsAdmin from './CsAdmin';
+import CsImprovements from './CsImprovements';
 import { setApiMode } from '../api/client';
 import { jsonResponse, renderAt } from '../test/render';
 import examples from '../mocks/generated/cs.json';
@@ -107,4 +108,58 @@ test('운영 현황은 담당자 배정 기준을 한국어 이름으로 읽기 
   // 아직 이름을 못 찾은 사람은 ID 앞부분으로 보인다. 고치는 단추는 없다.
   expect(section.getByText(/^사용자 88888888/)).toBeTruthy();
   expect(section.queryByRole('button')).toBeNull();
+});
+
+// 개선요청 목록의 미배정 자동 배정: 자동 배정 전에 만들어져 C/S 담당이 빈 요청을 관리자가 채운다.
+const request = (id: string, extra: object) => ({ id, origin: 'SYSTEM_CANDIDATE', problem_statement: `합성 요청 ${id}`, request_type: 'FAULT', product_code: 'MCCB-ABS-103c', fault_id: 'F-01', doc_signal: null, status: 'DRAFT', version: 1, evidence_count: 1, cs_owner: null, created_at: '2026-10-20T00:00:00Z', ...extra });
+const REQUESTS = [request('r1', {}), request('r2', { status: 'COMPLETED' }), request('r3', { cs_owner: 'u-lv' }), request('r4', { product_code: 'PLC-XGI-CPUU', fault_id: null }), request('d1', { request_type: 'DOCUMENT' })];
+const requestProposal = (id: string, extra: object) => ({ request_id: id, request_type: 'FAULT', product_code: 'MCCB-ABS-103c', fault_id: 'F-01', family: 'LV_BREAKER', status: 'DRAFT', created_at: '2026-10-20T00:00:00Z', matched_family: 'LV_BREAKER', candidate_count: 2, chosen_open_count: 1, ...extra });
+const REQUEST_PREVIEW = { rule_version: 'cs-assign-request-v1', items: [requestProposal('r1', { user_id: 'u-lv', reason_code: 'FAMILY' }), requestProposal('r4', { product_code: 'PLC-XGI-CPUU', fault_id: null, family: 'PLC', user_id: null, reason_code: 'NO_MATCH', matched_family: null, candidate_count: 0, chosen_open_count: null })] };
+function serveRequests(me: object) {
+  const calls: Call[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input); calls.push({ url, init });
+    if (url.endsWith('/platform/me')) return new Response(JSON.stringify({ data: me }), { status: 200, headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'synthetic-csrf' } });
+    if (url.endsWith('/assignments/improvements/preview')) return jsonResponse(200, { data: REQUEST_PREVIEW });
+    if (url.endsWith('/assignments/improvements/apply')) return jsonResponse(200, { data: { rule_version: 'cs-assign-request-v1', assigned: 1, skipped: 1, items: [{ request_id: 'r1', outcome: 'ASSIGNED', user_id: 'u-lv', reason_code: 'FAMILY' }, { request_id: 'r4', outcome: 'NO_MATCH', user_id: null, reason_code: 'NO_MATCH' }] } });
+    if (url.includes('/platform/users?')) return jsonResponse(200, { data: { items: [{ user_id: 'u-lv', display_name: '가정 상담원 1' }] } });
+    if (url.includes('/cs/faults')) return jsonResponse(200, { data: { items: [] } });
+    return jsonResponse(200, { data: { items: REQUESTS } });
+  }));
+  return calls;
+}
+const requests = () => { setApiMode('live'); renderAt('/cs/improvements', '/cs/improvements', <CsImprovements />); };
+
+test('개선요청 목록은 누구에게나 미배정 건수(고장 요청, 담당 없음, 완료 제외)를 보인다', async () => {
+  serveRequests({ id: 'c', roles: ['cs_agent'], managed_departments: [] }); requests();
+  await screen.findByRole('table', { name: '개선요청 목록' });
+  // r1·r4만 센다: r2는 완료, r3은 담당 있음, d1은 문서 요청(목록 밖).
+  expect(screen.getByText('미배정 2건')).toBeTruthy();
+  const button = screen.getByRole('button', { name: '미배정 자동 배정' }) as HTMLButtonElement;
+  await waitFor(() => expect(button.getAttribute('title')).toBe('C/S 부서 관리자만 자동 배정할 수 있습니다'));
+  expect(button.disabled).toBe(true);
+});
+
+test('C/S 관리자는 미배정 개선요청을 미리 보고 적용하면 결과 건수를 보고 목록을 다시 읽는다', async () => {
+  const calls = serveRequests(CS_MANAGER); requests();
+  await screen.findByRole('table', { name: '개선요청 목록' });
+  const button = screen.getByRole('button', { name: '미배정 자동 배정' }) as HTMLButtonElement;
+  await waitFor(() => expect(button.disabled).toBe(false));
+  fireEvent.click(button);
+  const table = within(await screen.findByRole('table', { name: '미배정 자동 배정 미리보기' }));
+  expect(await table.findByText('가정 상담원 1')).toBeTruthy();
+  expect(table.getByText('MCCB-ABS-103c · F-01')).toBeTruthy();
+  expect(table.getByText('제품군 담당 · 2명 중 진행 1건')).toBeTruthy();
+  expect(table.getByText('PLC-XGI-CPUU · 고장 미확인')).toBeTruthy(); expect(table.getByText('맞는 담당자 없음')).toBeTruthy();
+  expect(screen.getByText(/배정 대상 1건, 맞는 담당자 없음 1건/)).toBeTruthy();
+  expect(calls.some(c => c.url.endsWith('/improvements/apply'))).toBe(false);
+  const listCalls = calls.filter(c => c.url.includes('/api/v1/cs/improvement-requests')).length;
+  fireEvent.click(screen.getByRole('button', { name: '배정 적용' }));
+  expect(await screen.findByText(/끝남: 배정 1건, 미배정 1건 \(맞는 담당자 없음 1\)/)).toBeTruthy();
+  const apply = calls.find(c => c.url.endsWith('/assignments/improvements/apply'))!;
+  expect(apply.init?.headers).toMatchObject({ 'X-CSRF-Token': 'synthetic-csrf' });
+  expect(JSON.parse(String(apply.init?.body))).toEqual({ rule_version: 'cs-assign-request-v1', items: [{ request_id: 'r1', user_id: 'u-lv' }, { request_id: 'r4', user_id: null }] });
+  await waitFor(() => expect(calls.filter(c => c.url.includes('/api/v1/cs/improvement-requests')).length).toBeGreaterThan(listCalls));
+  fireEvent.click(screen.getByRole('button', { name: '닫기' }));
+  expect(screen.queryByRole('table', { name: '미배정 자동 배정 미리보기' })).toBeNull();
 });
