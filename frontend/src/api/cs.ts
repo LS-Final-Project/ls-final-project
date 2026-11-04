@@ -4,6 +4,8 @@ import { request } from './client';
 export type TicketListResponse = paths['/api/v1/cs/tickets']['get']['responses'][200]['content']['application/json'];
 export type TicketDetailResponse = paths['/api/v1/cs/tickets/{ticket_id}']['get']['responses'][200]['content']['application/json'];
 export const listTickets = (cursor?:string, signal?:AbortSignal) => request<TicketListResponse>(`/api/v1/cs/tickets${cursor ? `?limit=50&cursor=${encodeURIComponent(cursor)}` : ''}`, {signal});
+// 조건을 준 문의 목록(업무 홈의 오늘 할 일 집계). 서버 필터·정렬을 그대로 쓴다. limit 최대 100.
+export const listTicketsBy = (params: Record<string, string>, signal?: AbortSignal) => request<TicketListResponse>(`/api/v1/cs/tickets?${new URLSearchParams(params)}`, { signal, mockFallback: () => ({ data: { items: [], next_cursor: null } }) });
 export const getTicket = (id: string, signal?:AbortSignal) => request<TicketDetailResponse>(`/api/v1/cs/tickets/${encodeURIComponent(id)}`, {signal});
 
 export type TicketUnitsResponse = paths['/api/v1/cs/tickets/{ticket_id}/units']['get']['responses'][200]['content']['application/json'];

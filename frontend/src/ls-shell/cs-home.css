@@ -1,0 +1,40 @@
+/* 업무 홈(CS0001): 출근해서 오늘 할 일을 한눈에. 문의 처리(td3)와 같은 제목 줄·상자·표를 쓴다. */
+.ls-root .kv .td3.home3 .hello{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;padding:4px 2px 0}
+.ls-root .kv .td3.home3 .hello small{display:block;font-size:12.5px;color:#6b7385}
+.ls-root .kv .td3.home3 .hello h2{margin:2px 0 0;font-size:20px;font-weight:700;color:#1d2433}
+.ls-root .kv .td3.home3 .hello h2 b{color:var(--ls-red,#ED164B)}
+.ls-root .kv .td3.home3 .hello .late{font-size:12.5px;font-weight:600;color:#a3221a;background:#fdf1f0;padding:5px 10px}
+.ls-root .kv .td3.home3 .cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.ls-root .kv .td3.home3 .card{display:flex;flex-direction:column;gap:2px;padding:14px 16px;background:#fff;border:1px solid #d9dde4;text-decoration:none;color:inherit;border-top:3px solid #c9cfda;transition:border-color .15s,box-shadow .15s}
+.ls-root .kv .td3.home3 .card:hover{box-shadow:0 2px 8px rgba(26,58,122,.10);border-color:#9fb8e3}
+.ls-root .kv .td3.home3 .card small{font-size:12.5px;color:#6b7385;font-weight:600}
+.ls-root .kv .td3.home3 .card b{font-size:32px;line-height:1.15;font-weight:700;color:#1d2433;font-variant-numeric:tabular-nums}
+.ls-root .kv .td3.home3 .card span{font-size:12px;color:#6b7385}
+.ls-root .kv .td3.home3 .card.hot{border-top-color:var(--ls-red,#ED164B)}
+.ls-root .kv .td3.home3 .card.hot b{color:var(--ls-red,#ED164B)}
+.ls-root .kv .td3.home3 .card:not(.hot):not(.calm):not(.req){border-top-color:#1a3a7a}
+.ls-root .kv .td3.home3 .card.calm{border-top-color:#c9cfda}
+.ls-root .kv .td3.home3 .card.calm b{color:#5b6475}
+.ls-root .kv .td3.home3 .card.req{border-top-color:#2f7d4f}
+.ls-root .kv .td3.home3 .home-cols{display:grid;grid-template-columns:1.6fr 1fr;gap:10px;align-items:start}
+.ls-root .kv .td3.home3 .ph h2{margin:0;font-size:inherit;font-weight:700}
+.ls-root .kv .td3.home3 .ph .r{display:flex;align-items:center;gap:10px}
+.ls-root .kv .td3.home3 .ph .meta{font-size:11.5px;font-weight:400}
+.ls-root .kv .td3.home3 .ph .link{font-size:12px;font-weight:600}
+.ls-root .kv .td3.home3 .log td.t{max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ls-root .kv .td3.home3 .log td.c{text-align:center}
+.ls-root .kv .td3.home3 .log td.age.late{color:#a3221a;font-weight:700}
+.ls-root .kv .td3.home3 .chip.st-new{background:#fdecec;color:#c2123f}
+.ls-root .kv .td3.home3 .chip.st-open{background:#fdf3dc;color:#8a5a00}
+.ls-root .kv .td3.home3 .req-list{list-style:none;margin:0;padding:4px 0}
+.ls-root .kv .td3.home3 .req-list li{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid #eceef2}
+.ls-root .kv .td3.home3 .req-list li:last-child{border-bottom:0}
+.ls-root .kv .td3.home3 .req-list li.none{color:#9aa2b1;justify-content:center;padding:18px}
+.ls-root .kv .td3.home3 .req-list a{display:flex;flex-direction:column;min-width:0;text-decoration:none;color:#1d2433}
+.ls-root .kv .td3.home3 .req-list a b{font-size:13px;font-weight:600}
+.ls-root .kv .td3.home3 .req-list a:hover b{text-decoration:underline}
+.ls-root .kv .td3.home3 .req-list small{font-size:11.5px;color:#7a8394}
+.ls-root .kv .td3.home3 .req-list .task{margin-left:auto;white-space:nowrap;font-size:12px;font-weight:600;padding:2px 8px;background:#eef3fb;color:#1f3d73}
+.ls-root .kv .td3.home3 .req-list .task.draft{background:#f1f2f5;color:#5b6475;font-weight:500}
+.ls-root .kv .td3.home3 .wait-note{margin:0;font-size:12px;color:#6b7385}
+@media (max-width:1200px){.ls-root .kv .td3.home3 .cards{grid-template-columns:repeat(2,minmax(0,1fr))}.ls-root .kv .td3.home3 .home-cols{grid-template-columns:1fr}}
