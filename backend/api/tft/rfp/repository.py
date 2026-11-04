@@ -12,12 +12,14 @@
 import json
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
 from psycopg import AsyncConnection
 from psycopg.types.json import Jsonb
 
+from backend.api.tft.rfp import comparison
 from backend.api.tft.rfp.rnd import DeptKind, RndQuestion, rnd_check_of
 from backend.api.tft.rfp.schemas import UploadForm
 from backend.api.tft.rfp.supplement import RndCheck
@@ -1732,6 +1734,30 @@ async def stored_grading_requirements(conn: AsyncConnection[Row], project_id: UU
         (project_id,),
     )
     return await cursor.fetchall()
+
+
+async def equipment_voltages(
+    conn: AsyncConnection[Row], project_id: UUID, document_version_id: UUID
+) -> dict[str, Decimal]:
+    """같은 문서 판본 요구(현행 판본)의 설비별 최고 전압(kV). 다시 비교·직접 추가가 처리 때와 같은 전압 등급을 쓴다(KAN-217).
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 프로젝트 ID.
+        document_version_id: 문서 판본 ID.
+
+    Returns:
+        dict[str, Decimal]: comparison.equipment_voltages 결과.
+    """
+    cursor = await conn.execute(
+        "SELECT v.equipment, v.attribute_key, v.value, v.unit FROM tft.requirements r "
+        "JOIN tft.requirement_versions v ON v.requirement_id=r.id AND v.version=r.latest_version "
+        "WHERE r.project_id=%s AND v.document_version_id=%s AND v.attribute_key = ANY(%s)",
+        (project_id, document_version_id, sorted(comparison.VOLTAGE_KEYS)),
+    )
+    return comparison.equipment_voltages(
+        (r["equipment"], r["attribute_key"], r["value"], r["unit"]) for r in await cursor.fetchall()
+    )
 
 
 async def prior_grades_for_regrading(conn: AsyncConnection[Row], project_id: UUID) -> list[Row]:

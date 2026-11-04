@@ -150,7 +150,12 @@ async def add(
         outcome = image_comparison_review(
             item,
             comparison.compare_in_family(
-                to_comparison(item), item.equipment_family, comparison.load_own_products()
+                to_comparison(
+                    item,
+                    voltages=await repository.equipment_voltages(conn, project_id, source["id"]),
+                ),
+                item.equipment_family,
+                comparison.load_own_products(),
             ),
         )
         cursor = await conn.execute(
