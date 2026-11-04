@@ -12,7 +12,7 @@ import { getImprovement, listImprovements, type ImprovementDetail } from '../api
 import { ErrorState, Loading } from '../components/states';
 import { useHotkey } from '../ls-shell/kv';
 import LogTable, { sortRows, type LogColumn, type LogSort } from './LogTable';
-import { CAUSE_LABEL, REQUEST_STATUS_LABEL, REQUEST_TYPE_LABEL, dayOf, deptName, formatStamp } from '../ls-shell/cs-labels';
+import { CAUSE_LABEL, REQUEST_STATUS_LABEL, dayOf, deptName, formatStamp } from '../ls-shell/cs-labels';
 import { addEvidence, getCaseComparison, removeEvidence, type CaseComparison } from '../api/cs-repeat-cases';
 import type { RequestSummary } from '../ls-shell/cs-labels';
 import './ticket-detail-v3.css';
@@ -20,6 +20,8 @@ import './improvements-v3.css';
 
 // 단계 바: 상태는 서버가 정한다. 화면은 지금 어느 단계인지만 보인다.
 const PAGE = 10;
+// 시스템 후보가 만들어진 기준(기획서 4.4): 90일 안 서로 다른 고객 3곳, 또는 수정 펌웨어가 이미 배포된 고장은 고객 1곳부터.
+const REASON_LABEL: Record<string, string> = { REPEAT_90D_3_CUSTOMERS: '90일 안 고객 3곳', FIRMWARE_FIX_RELEASED: '수정 펌웨어 배포 (1곳부터)' };
 const STEPS = ['작성', '검토', '부서 전달', '부서 처리', '후속 확인', '완료'];
 // 상태별로 지금 해야 할 단계(깜빡이는 단계). 그 앞은 끝난 단계다. 작성 중 요청은 내용이 갖춰지면 '검토'로 넘어간다(아래 at 계산).
 const STEP_OF: Record<string, number> = { DRAFT: 0, REVIEWED: 2, SENT: 3, ACKNOWLEDGED: 3, ADOPTED: 3, INFO_REQUESTED: 3, REJECTED: 3, ACTION_TAKEN: 4, FOLLOW_UP: 4, COMPLETED: 6 };
@@ -178,7 +180,7 @@ function EvidenceCompare({ data, locked, onSaved, onEditingChange, openSignal = 
           } },
         ]} />
       {comparison.data.data.hidden_case_count > 0 && <div className="pb"><p className="meta">볼 수 있는 범위 밖의 근거 {comparison.data.data.hidden_case_count}건은 비교표에서 뺐습니다.</p></div>}
-      {/* 후보 목록에 없는 문의를 직접 넣는다. 문서 요청은 후보가 없어 이 길로만 근거를 더한다(반려 뒤 새 근거 재요청 포함). */}
+      {/* 후보 목록에 없는 문의를 직접 넣는다(반려 뒤 새 근거 재요청 포함). */}
       <form className="pb cmp-add" onSubmit={event => { event.preventDefault(); addDirect(); }}>
         <span className="k">문의 직접 추가</span>
         <input aria-label="추가할 문의 ID" placeholder="문의 시스템 ID" value={direct.ticket} disabled={!writable || removing !== null} onChange={event => setDirect({ ...direct, ticket: event.target.value })} />
@@ -248,9 +250,8 @@ function ImprovementView(){
   const saved=(result:ImprovementDetail)=>{client.setQueryData(['cs-improvements',mode,requestId],result);for(const key of ['cs-improvement-versions','cs-improvement-signals'])void client.invalidateQueries({queryKey:[key,mode,result.data.request.id]});void client.invalidateQueries({queryKey:['cs-improvements',mode,'list']});};
   const listColumns:LogColumn<RequestSummary>[]=[
     {key:'title',header:'문제',className:'t',sortValue:item=>titleOf(item),cell:item=><Link className="link" to={`/cs/improvements/${encodeURIComponent(item.id)}`}>{titleOf(item)}</Link>},
-    {key:'type',header:'유형',width:64,className:'c',sortValue:item=>REQUEST_TYPE_LABEL[item.request_type],cell:item=>REQUEST_TYPE_LABEL[item.request_type]},
     {key:'product',header:'제품',width:150,sortValue:item=>item.product_code,cell:item=>item.product_code},
-    {key:'status',header:'상태',width:110,className:'c',sortValue:item=>STEP_OF[item.status]??-1,cell:item=><span className={item.status==='COMPLETED'?'chip x':'chip'}>{REQUEST_STATUS_LABEL[item.status]??item.status}</span>},
+    {key:'status',header:'상태',width:110,className:'c',sortValue:item=>STEP_OF[item.status]??-1,cell:item=><span className={`chip st-${item.status.toLowerCase()}`}>{REQUEST_STATUS_LABEL[item.status]??item.status}</span>},
     {key:'evidence',header:'근거',width:64,className:'c',sortValue:item=>item.evidence_count,cell:item=>`${item.evidence_count}건`},
     {key:'created',header:'작성일',width:96,className:'c',sortValue:item=>Date.parse(item.created_at),cell:item=>dayOf(item.created_at)},
     {key:'owner',header:'담당',width:230,sortValue:item=>item.cs_owner??'',cell:item=>`담당자 ID: ${item.cs_owner??'미배정'}`},
@@ -299,10 +300,10 @@ function ImprovementView(){
 
       {r&&d&&<>
         <div className="info">
-          <div className="k">유형</div><div className="v">{r.request_type==='FAULT'?'고장':'문서'}</div>
           <div className="k">제품</div><div className="v">{r.product_code}</div>
-          <div className="k">고장 / 문서</div><div className="v">{r.fault_id??r.doc_signal??'미확인'}{r.doc_id&&<span className="meta"> · {r.doc_id}</span>}</div>
-          <div className="k">상태</div><div className="v last"><strong className="ir-state">{REQUEST_STATUS_LABEL[r.status]??r.status}</strong></div>
+          <div className="k">고장</div><div className="v">{r.fault_id??'미확인'}</div>
+          <div className="k">상태</div><div className="v"><strong className="ir-state">{REQUEST_STATUS_LABEL[r.status]??r.status}</strong></div>
+          <div className="k">생성 사유</div><div className="v last">{r.origin==='SYSTEM_CANDIDATE'?REASON_LABEL[r.candidate_reason_code??'']??'시스템 후보':'직접 작성'}</div>
           <div className="k nb">판본 / 회차</div><div className="v nb">{r.version} / {r.current_round}</div>
           <div className="k nb">조건 확인</div><div className="v nb">{r.condition_status==='UNKNOWN'?<span className="chip w">미확인</span>:r.condition_status}</div>
           <div className="k nb">수정 FW</div><div className="v nb">{r.fw_fixed_version??'미확인'} / {r.fw_released_on??'미확인'}</div>
@@ -322,7 +323,7 @@ function ImprovementView(){
         <div className="cols">
           <ImprovementContent key={r.id} request={r} title={titleOf(r)} ruleOnly={ruleOnly(r)} locked={acting||sorting} onSaved={saved} onReload={()=>{void detail.refetch();}} onEditingChange={setWriting} onPending={setReviewBlock} next={r.status==='REVIEWED'?control?.rows.filter(row=>row.kind==='send'&&!row.done).map(row=>actButton(row))[0]:undefined} tags={<div className="tags">
             <span className="tag-box"><small>제품</small><b>{r.product_code}</b></span>
-            {r.request_type==='FAULT'?<span className="tag-box"><small>고장</small><b>{r.fault_id??'미확인'}</b></span>:<span className="tag-box"><small>문서 신호</small><b>{r.doc_signal??'미확인'}</b></span>}
+            <span className="tag-box"><small>고장</small><b>{r.fault_id??'미확인'}</b></span>
             <button type="button" className="tag-box link-box" title="근거 비교 열기" onClick={()=>setShowEvidence(n=>n+1)}><small>근거</small><b>{d.evidence.filter(e=>!e.removed_at).length}건</b></button>
           </div>}/>
 

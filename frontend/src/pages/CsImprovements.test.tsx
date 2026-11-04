@@ -24,7 +24,7 @@ test.each([401,403,404,503])('오류 %i 뒤 이전 상세를 숨기고 복구한
 });
 test('미배정·조건 미확인·제외 근거를 성공으로 표시하지 않는다',async()=>{
  const body=structuredClone(source) as unknown as ImprovementDetail;body.data.request.condition_status='UNKNOWN';body.data.request.receiver_unconfirmed=true;body.data.next_owners=[{actor:'CS_OWNER',user_id:null,dept_code:null,task:'REVIEW'}];body.data.evidence=[{id:'e',ticket_id:'t',ticket_external_id:'SYNTHETIC',case_id:null,case_external_id:null,added_by:null,added_at:'2026-10-27',removed_by:null,removed_at:'2026-10-27',removal_reason:'제품 불일치'}];
- vi.stubGlobal('fetch',vi.fn(async()=>jsonResponse(200,body)));view();await screen.findByText(/수신 부서 미확인/);expect(screen.getByText('검토 완료 기록',{selector:'.now b'})).toBeTruthy();expect(screen.getByText('미확인',{selector:'.chip'})).toBeTruthy();
+ vi.stubGlobal('fetch',vi.fn(async()=>jsonResponse(200,body)));view();await screen.findByText('수신 부서와 할 일');expect(screen.getByText('검토 완료 기록',{selector:'.now b'})).toBeTruthy();expect(screen.getByText('미확인',{selector:'.chip'})).toBeTruthy();
 });
 test('대기중 반복 클릭을 막고 이탈 시 조회를 취소한다',async()=>{
  let signal:AbortSignal|undefined;const fetch=vi.fn((_url:RequestInfo|URL,init?:RequestInit)=>{signal=init?.signal as AbortSignal;return new Promise<Response>((_r,reject)=>signal?.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError'))));});vi.stubGlobal('fetch',fetch);const page=view();await waitFor(()=>expect(fetch).toHaveBeenCalledTimes(1));fireEvent.click(screen.getByText('최신 요청 조회'));expect(fetch).toHaveBeenCalledTimes(1);page.unmount();expect(signal?.aborted).toBe(true);
@@ -49,9 +49,8 @@ test('초안 생성 후 실제 반환 ID의 상세를 새로 조회한다',async
  });vi.stubGlobal('fetch',fetch);setApiMode('live');
  renderAt('/cs/improvements','/cs/improvements/*',<Routes><Route index element={<CsImprovements/>}/><Route path=":requestId" element={<CsImprovements/>}/></Routes>);
  fireEvent.click(await screen.findByText('새 개선요청 작성'));
- fireEvent.change(screen.getByLabelText('요청 유형'),{target:{value:'DOCUMENT'}});
  fireEvent.change(screen.getByLabelText('제품 코드'),{target:{value:'SYNTHETIC'}});
- fireEvent.change(screen.getByLabelText('문서 신호'),{target:{value:'NOT_FOUND'}});
+ fireEvent.change(screen.getByLabelText('고장 ID'),{target:{value:'FLT-001'}});fireEvent.click(screen.getByLabelText('TS_LV'));
  fireEvent.change(screen.getByLabelText('검토할 문제'),{target:{value:'새 합성 초안'}});
  fireEvent.click(screen.getByText('초안 저장'));await screen.findByRole('heading',{name:'개선요청 상세'});
  await screen.findByRole('heading',{name:'새 합성 초안'});expect(fetch.mock.calls.filter(([,init])=>init?.method==='POST')).toHaveLength(1);
@@ -69,7 +68,7 @@ test.each([false,true])('편집 중 포커스·재조회가 입력과 저장 결
  });vi.stubGlobal('fetch',fetch);view(detail);
  fireEvent.click(await screen.findByRole('button',{name:detail?'내용 수정':'새 개선요청 작성'}));
  fireEvent.change(screen.getByLabelText('검토할 문제'),{target:{value:'보존할 합성 입력'}});
- if(!detail){fireEvent.change(screen.getByLabelText('요청 유형'),{target:{value:'DOCUMENT'}});fireEvent.change(screen.getByLabelText('제품 코드'),{target:{value:'SYNTHETIC'}});fireEvent.change(screen.getByLabelText('문서 신호'),{target:{value:'NOT_FOUND'}});}
+ if(!detail){fireEvent.change(screen.getByLabelText('제품 코드'),{target:{value:'SYNTHETIC'}});fireEvent.change(screen.getByLabelText('고장 ID'),{target:{value:'FLT-001'}});fireEvent.click(screen.getByLabelText('TS_LV'));}
  const refresh=screen.getByRole('button',{name:'최신 요청 조회'});
  expect((refresh as HTMLButtonElement).disabled).toBe(true);
  await act(async()=>{focusManager.setFocused(false);focusManager.setFocused(true);});
@@ -299,17 +298,17 @@ test('단계 바는 지금 해야 할 단계를 표시하고, 근거 칸을 누�
  await waitFor(()=>expect(fold.getAttribute('aria-expanded')).toBe('true'));
 });
 
-test('문서 요청도 근거 비교에서 문의 ID로 근거를 직접 넣는다',async()=>{
- const body=structuredClone(source) as unknown as ImprovementDetail;const r=body.data.request;r.request_type='DOCUMENT';r.fault_id=null;r.doc_signal='NOT_FOUND';
+test('근거 비교에서 후보에 없는 문의도 문의·해결 사례 ID로 직접 넣는다',async()=>{
+ const body=structuredClone(source) as unknown as ImprovementDetail;const r=body.data.request;r.request_type='FAULT';r.fault_id='FLT-001';r.doc_signal=null;
  const fetch=vi.fn(async(url:RequestInfo|URL,_init?:RequestInit)=>{const path=String(url);
   if(path.endsWith('/me'))return new Response(JSON.stringify({data:{roles:['cs_agent'],dept:null,managed_departments:[]}}),{headers:{'X-CSRF-Token':'synthetic'}});
   if(path.includes('/case-comparison'))return jsonResponse(200,{data:{request_id:r.id,hidden_case_count:0,items:[]}});
   return jsonResponse(200,body);});
  vi.stubGlobal('fetch',fetch);view();
  fireEvent.click(await screen.findByTitle('근거 비교 열기'));
- const input=await screen.findByLabelText('추가할 문의 ID');expect(screen.queryByLabelText('추가할 해결 사례 ID')).toBeNull();
- fireEvent.change(input,{target:{value:'22222222-2222-4222-8222-222222222299'}});
+ const input=await screen.findByLabelText('추가할 문의 ID');
+ fireEvent.change(input,{target:{value:'22222222-2222-4222-8222-222222222299'}});fireEvent.change(screen.getByLabelText('추가할 해결 사례 ID'),{target:{value:'44444444-4444-4444-8444-444444444499'}});
  const add=screen.getAllByRole('button',{name:'넣기'}).find(b=>b.closest('.cmp-add'))!;await waitFor(()=>expect((add as HTMLButtonElement).disabled).toBe(false));fireEvent.click(add);
  await waitFor(()=>expect(fetch.mock.calls.some(([url,init])=>String(url).endsWith('/evidence')&&init?.method==='POST')).toBe(true));
- const call=fetch.mock.calls.find(([url])=>String(url).endsWith('/evidence'))!;expect(JSON.parse(call[1]!.body as string)).toEqual({ticket_id:'22222222-2222-4222-8222-222222222299',version:r.version});
+ const call=fetch.mock.calls.find(([url])=>String(url).endsWith('/evidence'))!;expect(JSON.parse(call[1]!.body as string)).toEqual({ticket_id:'22222222-2222-4222-8222-222222222299',case_id:'44444444-4444-4444-8444-444444444499',version:r.version});
 });
