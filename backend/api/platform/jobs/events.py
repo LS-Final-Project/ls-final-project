@@ -48,11 +48,20 @@ class RfpCounts(BaseModel):
     proposals: int = Field(ge=0)
 
 
+class RfpFocus(BaseModel):
+    """진행 화면의 한 줄(KAN-232). 처리 상태에서 만든 조 번호·제목·위치 이름과 건수만."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    kind: Literal["section", "found", "ocr", "compare"]
+    label: str = Field(pattern=r"^[0-9A-Za-z가-힣 .,()·/~-]{1,40}$")
+    n: int | None = Field(default=None, ge=0)
+
+
 class EventPayload(BaseModel):
     """내부 generation·오류 코드·임의 문자열을 제외한 이벤트 허용 필드.
 
     C/S 처리(KAN-194)는 그래프 노드(step)·단계(stage)·재호출·회복 수·분류·초안 최종 outcome만 낸다. RFP 처리
-    (KAN-199)는 단계(step)·문서 판본 ID·진행 수(counts)·검토 필요(needs_review)만 낸다. 모르는 키는 버린다(extra
+    (KAN-199)는 단계(step)·문서 판본 ID·진행 수(counts)·검토 필요(needs_review)·진행 한 줄(focus, KAN-232)만 낸다. 모르는 키는 버린다(extra
     ignore). 오류 코드와 원문은 SSE로 내지 않는다.
     """
 
@@ -84,6 +93,7 @@ class EventPayload(BaseModel):
         default=None, pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
     )
     counts: RfpCounts | None = None
+    focus: RfpFocus | None = None
 
 
 class JobEvent(BaseModel):

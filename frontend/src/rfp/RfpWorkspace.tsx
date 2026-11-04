@@ -6,7 +6,7 @@ import {
   addRequirement, approveProposal, bulkDecide, listEquipment, markQuestionsSent, undoBulk, type BulkDecisionItem, createProject, listClauses, listProjectHistory, type Clause, type ManualRequirementRequest, listRequirementHistory, type HistoryItem, type HistoryKind, type HistoryPage, createProposal, createQuestion, decideRequirement, getAnalysis, getComparison, getRequirement, listAllRequirements, readReplyAgain, listDocuments, listQuestions, recompareRequirement, startProcess, uploadDocument,
   type BidVerdict, type DecisionRequest, type DocumentVersion, type Proposal, type ProposalCreate, type Question, type QuestionCreate, type RequirementDetail, type RequirementSummary,
 } from '../api/rfp';
-import { activeRfpJob, replayRfpJob, type RfpWatch } from '../api/rfp-job-events';
+import { activeRfpJob, replayRfpJob, type RfpProgress, type RfpWatch } from '../api/rfp-job-events';
 import { listSupplementCandidates } from '../api/rfp-supplement';
 import { downloadExportFile, getDraft, getExportJob, getExports, getReviewVersions, sendCommand, type Accepted, type ExportRow } from '../api/rfp-draft';
 import { getProject, listProjects, type ProjectDetail } from '../api/tft';
@@ -18,8 +18,7 @@ import { fileProblem, latestVersions } from './IntakeForms';
 import { OriginalDocument } from './OriginalDocument';
 import { clauseLabel, codeLabel, ISSUE_LABEL, label, NECESSITY_LABEL, OPERATOR_LABEL, PATH_LABEL, STATUS_LABEL } from './labels';
 import { useNames } from './names';
-import { RfpPersona } from './RfpPersona';
-import { RfpReasoning, rfpStageDescription } from './RfpReasoning';
+import { focusText } from './RfpReasoning';
 import { useRfpJobEvents } from './useRfpJobEvents';
 import { DEPARTMENT_LABEL } from './labels';
 import { constraintsBody, emptyConstraints } from './ProjectConstraintsForm';
@@ -34,7 +33,9 @@ export const DECIDE_ORDER: Kind[] = ['QUERY', 'DEVIATION', 'SUPPLEMENT', 'ASSIGN
 export const kindOf = (r: Pick<RequirementSummary, 'bid_verdict' | 'decision'>): Kind => r.decision?.drawing_check ? 'DRAWING' : r.bid_verdict as BidVerdict;
 const ROW_ACTION: Partial<Record<Kind, string>> = { DEVIATION: '편차 기재', QUERY: '질의서에 넣기', SUPPLEMENT: '협력사 선정', ASSIGN: '배정', CONFIRM: '충족 확정', DRAWING: '도면 대조' };
 const STEPS = ['parse', 'extract', 'search', 'compare', 'supplement', 'candidates', 'draft'];
-const STEP_LABEL: Record<string, string> = { parse: '원문 읽기', extract: '요구 뽑기', search: '자사 자료 찾기', compare: '자사 제품 비교', supplement: '보완 경로', candidates: '협력사 후보', draft: '검토본 초안' };
+const STEP_LABEL: Record<string, string> = { parse: '원문 읽기', extract: '요구 뽑기', search: '자사 자료 찾기', compare: '자사 제품 비교', supplement: '보완 경로', candidates: '협력사 후보', draft: '검토본 초안', context_map: '설비 묶음', context_link: '설비 묶음', context_validate: '설비 묶음' };
+// 처리 작업 끝에 이어지는 맥락 단계(context_*)는 마지막 칸으로 본다(막대가 1단계로 되돌아가지 않게).
+const stepIndex = (step?: string) => { const i = STEPS.indexOf(step ?? 'parse'); return i >= 0 ? i : step?.startsWith('context') ? STEPS.length - 1 : 0; };
 const NEW = 'new';
 // 내보내기 작업 상태를 묻는 간격. 시험에서 줄인다.
 export const EXPORT_POLL_MS = 1500;
@@ -193,30 +194,61 @@ function StartAnalysis({ projectId, documents }: { projectId: string; documents:
 }
 
 // 분석 중 상태 띠. 서버 이벤트는 단계·요구 건수만 준다. 한 줄 문장은 단계 설명으로 대신한다(서버에 문장 필드가 생기면 바꾼다).
+// 분석 중 띠(보드 "분석 중"): 페르소나, 분석 중, 단계, 막대, 걸린 시간, 지금 하는 일 한 줄(연한 작은 글씨), [자세히].
+const STEP_NOW: Record<string, string> = {
+  parse: '원문을 여는 중입니다', extract: '요구를 뽑는 중입니다', search: '자사 자료를 찾는 중입니다', compare: '자사 제품과 비교하는 중입니다',
+  supplement: '보완 경로를 확인하는 중입니다', candidates: '협력사 후보를 확인하는 중입니다', draft: '검토본 초안을 만드는 중입니다',
+  context_map: '설비별로 요구를 묶는 중입니다', context_link: '요구와 설비를 잇는 중입니다', context_validate: '묶음을 점검하는 중입니다',
+};
+const lineOf = (a: RfpProgress) => a.focus ? focusText(a.focus) : STEP_NOW[a.step ?? ''] ?? '';
+const bySequence = (activity: RfpProgress[]) => [...activity].sort((a, b) => a.sequence - b.sequence);
+
+function useElapsed(since?: string) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+  if (!since) return '';
+  const s = Math.max(0, Math.floor((now - Date.parse(since)) / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+// 보드의 분석 기록: 단계와 한 줄을 시간 순서대로, 연한 작은 글씨.
+function ActivityLines({ activity }: { activity: RfpProgress[] }) {
+  // 한 줄이 있는 단계는 단계 문장을 겹쳐 쓰지 않는다.
+  const focused = new Set(activity.filter(a => a.focus).map(a => a.step));
+  const lines = bySequence(activity).filter(a => a.focus || (a.step && !focused.has(a.step)));
+  if (!lines.length) return <p className="muted">아직 받은 진행 기록이 없습니다.</p>;
+  return <div className="ws-lines">{lines.map(a => <p key={a.sequence}><span>{STEP_LABEL[a.step ?? ''] ?? ''}</span>{lineOf(a)}</p>)}</div>;
+}
+
 function AnalysisStrip({ projectId, documents, live, failed }: { projectId: string; documents: DocumentVersion[]; live: ReturnType<typeof useRfpJobEvents>; failed: boolean }) {
   const client = useQueryClient();
   const [open, setOpen] = useState(false);
   const activity = live && 'activity' in live ? live.activity ?? [] : [];
   const step = live && 'progress' in live ? live.progress?.step ?? activity.at(-1)?.step : undefined;
-  const at = Math.max(0, STEPS.indexOf(step ?? 'parse'));
+  const at = stepIndex(step);
   const disconnected = live?.connection === 'reconnecting' || live?.connection === 'fallback';
+  const clock = useElapsed(live && 'startedAt' in live ? live.startedAt : undefined);
   const retry = useMutation({
     mutationFn: () => startProcess(projectId, { document_version_ids: documents.map(d => d.document_version_id), reason: '분석 중단 뒤 다시 시도' }, key()),
     onSettled: () => client.invalidateQueries({ queryKey: ['projects'] }),
   });
-  const line = failed ? `${STEPS.length}단계 중 ${at + 1}단계에서 멈췄습니다` : disconnected ? '연결이 끊겼습니다. 다시 연결하는 중입니다. 분석은 서버에서 계속됩니다.' : rfpStageDescription(step);
+  const latest = bySequence(activity).filter(a => a.focus).at(-1);
+  const line = latest ? lineOf(latest) : STEP_NOW[step ?? 'parse'];
   return <>
     <div className="ws-strip" aria-label="AI 분석 상태">
-      <span className="ws-persona"><RfpPersona state={failed ? 'idle' : 'thinking'} paused={failed} label={failed ? '분석 중단' : 'AI 분석 중'} /></span>
-      <span className={failed ? 'ws-strong' : 'ws-shim'}>{failed ? '분석이 멈췄습니다' : '분석 중'}</span>
-      <span className="muted">{STEP_LABEL[STEPS[at]]} ({at + 1}/{STEPS.length})</span>
+      <span className={failed ? 'ws-orb stop' : 'ws-orb'} role="img" aria-label={failed ? 'AI 분석 멈춤' : 'AI 분석 중'}><span className="p-body" /><span className="p-light" /><span className="p-gloss" /><span className="p-spark" /></span>
+      {failed ? <span className="ws-strong">{STEPS.length}단계 중 {at + 1}단계에서 멈췄습니다</span>
+        : <><span className="ws-shim">분석 중</span><span className="muted ws-small">{STEP_LABEL[step ?? 'parse'] ?? STEP_LABEL[STEPS[at]]} ({at + 1}/{STEPS.length})</span></>}
       <span className="ws-seg" role="img" aria-label={`${STEPS.length}단계 중 ${at + 1}단계`}>{STEPS.map((s, i) => <i key={s} className={i < at ? 'done' : i === at ? (failed ? 'stop' : 'now') : ''} />)}</span>
-      <span className="ws-line" aria-live="polite">{line}</span>
+      {!failed && clock && <span className="ws-clock">{clock}</span>}
+      {failed ? <span className="ws-line" /> : disconnected
+        ? <span className="ws-line warn" role="status">연결이 끊겼습니다. 다시 연결하는 중입니다. 분석은 서버에서 계속됩니다.</span>
+        : <span className="ws-line" aria-live="polite"><span key={latest?.sequence ?? step} className="ws-fade">{line}</span></span>}
       {failed && <button className="kb primary" title="다시 분석하면 모델 비용이 듭니다" disabled={retry.isPending} onClick={() => retry.mutate()}>다시 시도</button>}
-      <button className="ws-link" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? '접기' : '자세히'}</button>
+      <button className={open ? 'ws-link ws-toggle open' : 'ws-link ws-toggle'} aria-expanded={open} onClick={() => setOpen(!open)}>자세히<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M3 4.5l3 3 3-3" /></svg></button>
     </div>
     {retry.isError && <p role="alert" className="ws-alert">{failureText(retry.error)}</p>}
-    {open && <div className="ws-log"><RfpReasoning activity={activity} active={!failed} completed={false} disconnected={disconnected} currentStep={step} documents={documents} labels={STEP_LABEL} /></div>}
+    {open && <div className="ws-log"><ActivityLines activity={activity} /></div>}
   </>;
 }
 
@@ -411,10 +443,10 @@ function AnalysisLog({ projectId, actorId, documents, live }: { projectId: strin
   const body = overview.isError ? <p role="alert">{failureText(overview.error)}</p>
     : overview.isPending ? <p className="muted">분석 기록을 불러오는 중입니다.</p>
     : !jobs.length ? <p className="muted">지난 분석 작업이 없습니다.</p>
-    : running ? <RfpReasoning activity={live?.activity ?? []} active completed={false} disconnected={false} documents={documents} labels={STEP_LABEL} />
+    : running ? <ActivityLines activity={live?.activity ?? []} />
     : replay.isError ? <p role="alert">{failureText(replay.error)}</p>
     : !replay.data ? <p className="muted">분석 기록을 불러오는 중입니다.</p>
-    : replay.data.activity.length ? <RfpReasoning activity={replay.data.activity} active={false} completed={replay.data.job.status === 'SUCCEEDED' || replay.data.job.status === 'PARTIAL'} disconnected={false} documents={documents} labels={STEP_LABEL} />
+    : replay.data.activity.length ? <ActivityLines activity={replay.data.activity} />
     : <p className="muted">이 작업에는 단계 기록이 없습니다.</p>;
   return <div className="ws-log" aria-label="분석 기록">
     {jobs.length > 1 && <label className="ws-field inline">작업<select value={jobId} onChange={event => setPick(event.target.value)}>

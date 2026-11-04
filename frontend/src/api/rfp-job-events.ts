@@ -7,7 +7,10 @@ export type RfpProgress = {
   sequence: number; occurredAt: string; type: string;
   step?: string; documentVersionId?: string;
   counts?: { requirements: number; proposals: number }; needsReview?: boolean;
+  focus?: RfpFocus;
 };
+/** 진행 화면 한 줄의 재료(KAN-232). 처리 상태에서 만든 절 번호·제목·위치 이름과 건수만 온다. */
+export type RfpFocus = { kind: 'section' | 'found' | 'ocr' | 'compare'; label: string; n?: number };
 export type RfpWatch = {
   connection: 'connecting' | 'connected' | 'reconnecting' | 'fallback' | 'stopped' | 'ended';
   job?: RfpJob; progress?: RfpProgress; checkedAt?: number; message?: string;
@@ -17,6 +20,8 @@ const states = new Set(['QUEUED', 'RUNNING', 'SUCCEEDED', 'PARTIAL', 'FAILED', '
 const kinds = new Set(['rfp.process', 'rfp.export', 'rfp.annotate', 'rfp.draft_rewrite', 'rfp.context']);
 const types = new Set(['job.queued', 'job.started', 'job.progress', 'job.completed', 'job.failed']);
 const steps = new Set(['parse', 'extract', 'search', 'compare', 'supplement', 'candidates', 'draft', 'export', 'annotate', 'context_map', 'context_link', 'context_validate']);
+const focusKinds = new Set(['section', 'found', 'ocr', 'compare']);
+const focusLabel = /^[0-9A-Za-z가-힣 .,()·/~-]{1,40}$/;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const integer = (v: unknown, min = 0): v is number => Number.isSafeInteger(v) && (v as number) >= min;
@@ -58,10 +63,20 @@ export function parseRfpEvent(frame: string[], jobId: string): RfpProgress | und
   if (p.needs_review != null && typeof p.needs_review !== 'boolean') throw invalid();
   if (p.state != null && (typeof p.state !== 'string' || !states.has(p.state))) throw invalid();
   if (p.counts != null && (!object(p.counts) || !integer(p.counts.requirements) || !integer(p.counts.proposals))) throw invalid();
+  const f = p.focus;
+  if (f != null && (!object(f) || typeof f.kind !== 'string' || !focusKinds.has(f.kind) || typeof f.label !== 'string' || !focusLabel.test(f.label) || (f.n != null && !integer(f.n)))) throw invalid();
   return { sequence: v.sequence, occurredAt: v.occurred_at, type,
     step: p.step == null ? undefined : p.step as string,
     documentVersionId: p.document_version_id == null ? undefined : p.document_version_id as string,
-    counts: p.counts == null ? undefined : p.counts as RfpProgress['counts'], needsReview: p.needs_review == null ? undefined : p.needs_review as boolean };
+    counts: p.counts == null ? undefined : p.counts as RfpProgress['counts'], needsReview: p.needs_review == null ? undefined : p.needs_review as boolean,
+    focus: f == null ? undefined : { kind: f.kind as RfpFocus['kind'], label: f.label as string, ...(f.n == null ? {} : { n: f.n as number }) } };
+}
+
+/** 단계는 최신 관측 하나씩, 진행 한 줄(focus)은 순서대로 쌓는다(최근 80건). */
+export function addActivity(activity: RfpProgress[], p: RfpProgress): RfpProgress[] {
+  if (p.focus) return [...activity, p].slice(-80);
+  if (!p.step) return activity;
+  return [...activity.filter(item => item.focus || item.step !== p.step), p];
 }
 
 class CursorExpired extends Error {}
@@ -125,7 +140,7 @@ export async function replayRfpJob(target: RfpTarget, signal: AbortSignal): Prom
     try {
       await stream(target, 0, signal, () => undefined, p => {
         if (p.type === 'job.started') startedAt = p.occurredAt;
-        if (p.step) activity = [...activity.filter(item => item.step !== p.step), p];
+        activity = addActivity(activity, p);
       });
     } catch (error) {
       // 서버가 재생 뒤 종료 이벤트 없이 연결을 닫아도 받은 단계까지는 보인다.
@@ -155,7 +170,7 @@ export async function watchRfpJob(target: RfpTarget, signal: AbortSignal, update
         cursor = p.sequence; progress = p; failures = 0;
         if (p.type === 'job.started') startedAt = p.occurredAt;
         // One latest observation per public stage; neither order nor presence means completion.
-        if (p.step) activity = [...activity.filter(item => item.step !== p.step), p];
+        activity = addActivity(activity, p);
         if (p.sequence === restoreThrough) restoredCount = activity.length;
         if (p.sequence >= restoreThrough) publish('connected');
       });

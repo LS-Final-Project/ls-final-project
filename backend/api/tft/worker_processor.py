@@ -20,7 +20,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import date
 from decimal import Decimal
-from threading import RLock
+from threading import RLock, local
 from typing import Any, Literal
 from uuid import UUID
 
@@ -628,8 +628,27 @@ def pick_documents(versions: Sequence[Mapping[str, Any]], wanted: str) -> list[M
     raise ValueError("TFT_WORKER_INPUT_NOT_FOUND")
 
 
-def lease_keeping(provider: Provider, emit: Emit) -> tuple[Provider, list[BaseException]]:
-    """Serialize lease events and stop coverage calls after ownership/accounting loss."""
+_FOCUS_DROP = re.compile(r"[^0-9A-Za-z가-힣 .,()·/~-]")
+
+
+def focus(kind: str, text: str, n: int | None = None) -> dict[str, Any]:
+    """진행 화면 한 줄의 재료(KAN-232). 허용 문자만 남겨 40자로 자른다(tft_worker.FOCUS_LABEL)."""
+    label = " ".join(_FOCUS_DROP.sub(" ", text).split())[:40].strip() or "문서"
+    return {"kind": kind, "label": label} | ({} if n is None else {"n": n})
+
+
+def section_label(item: Any) -> str:
+    """절 번호와 제목(예 "제7조 건식 변압기"). 시험의 가짜 입력은 그 값 자체를 쓴다."""
+    return f"{getattr(item, 'section_no', item)} {getattr(item, 'section_title', None) or ''}"
+
+
+def lease_keeping(
+    provider: Provider, emit: Emit, reading: Callable[[], str | None] = lambda: None
+) -> tuple[Provider, list[BaseException]]:
+    """Serialize lease events and stop coverage calls after ownership/accounting loss.
+
+    reading: 이 호출이 읽는 절(진행 화면 한 줄, KAN-232). 새 이벤트를 만들지 않고 호출마다 남기는 진행에 싣는다.
+    """
     stopped: list[BaseException] = []
     lock = RLock()
 
@@ -650,7 +669,11 @@ def lease_keeping(provider: Provider, emit: Emit) -> tuple[Provider, list[BaseEx
             with lock:
                 if not stopped:
                     try:
-                        emit({"step": "extract"})
+                        label = reading()
+                        emit(
+                            {"step": "extract"}
+                            | ({} if label is None else {"focus": focus("section", label)})
+                        )
                     except BaseException as error:
                         stopped.append(error)
                         raise
@@ -674,7 +697,10 @@ def extract_sections(
         with lock:
             emit(values)
 
-    tracked, stopped = lease_keeping(provider, serialized_emit)
+    current = local()
+    tracked, stopped = lease_keeping(
+        provider, serialized_emit, lambda: getattr(current, "label", None)
+    )
     results: dict[int, SectionResult] = {}
     total = 0
 
@@ -683,6 +709,7 @@ def extract_sections(
             if stopped:
                 raise stopped[0]
         try:
+            current.label = section_label(inputs[index])
             result = extract_section(inputs[index], tracked)
             with lock:
                 if stopped:
@@ -712,7 +739,15 @@ def extract_sections(
                             raise stopped[0]
                         results[index] = result
                         total += len(result.requirements)
-                        serialized_emit({"step": "extract", "counts": counts(total)})
+                        serialized_emit(
+                            {
+                                "step": "extract",
+                                "counts": counts(total),
+                                "focus": focus(
+                                    "found", section_label(inputs[index]), len(result.requirements)
+                                ),
+                            }
+                        )
                 with lock:
                     if stopped:
                         raise stopped[0]
@@ -1050,7 +1085,13 @@ def transcribe_image_plan(
 
         def tracked(item: vision.ImageInput) -> Generation:
             # Check ownership before each image and after a possibly long paid call.
-            emit({"step": "parse", "document_version_id": document_version_id})
+            emit(
+                {
+                    "step": "parse",
+                    "document_version_id": document_version_id,
+                    "focus": focus("ocr", item.location),
+                }
+            )
             try:
                 return image_provider(item)
             finally:
@@ -1201,7 +1242,13 @@ async def process(
             emit({"step": "extract", "counts": counts(total)})
 
         # search: 문서 검색기 연결 전에는 요구마다 제품 마스터의 같은 계열 후보가 범위다(compare_in_family, trace에 남음).
-        emit({"step": "search", "counts": counts(total)})
+        emit(
+            {
+                "step": "search",
+                "counts": counts(total),
+                "focus": focus("compare", "자사 제품", total),
+            }
+        )
 
         # 요구 장비 계열의 자사 후보 안에서만 비교한다(KAN-199). 계열을 모르면 비교하지 않는다.
         # 절별 규격 체계는 문서마다 따로 본다(다른 문서의 같은 절 번호와 섞지 않는다).

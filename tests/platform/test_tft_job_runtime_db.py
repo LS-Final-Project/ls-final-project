@@ -506,6 +506,7 @@ def test_rfp_events_stream_only_allowed_keys(settings, jobs_database, registered
         "document_version_id": str(uuid4()),
         "counts": {"requirements": 12, "proposals": 3},
         "needs_review": True,
+        "focus": {"kind": "found", "label": "제7조 건식 변압기", "n": 9},
         "error_code": "TFT_SECRET_CODE",
     }
     with psycopg.connect(jobs_database) as conn:
@@ -533,6 +534,11 @@ def test_rfp_events_stream_only_allowed_keys(settings, jobs_database, registered
         {"counts": {"requirements": 1}},
         {"counts": {"requirements": 1, "proposals": 0, "raw": 1}},
         {"document_version_id": "not-a-uuid"},
+        {"focus": {"kind": "thought", "label": "제7조"}},
+        {"focus": {"kind": "section", "label": "<script>"}},
+        {"focus": {"kind": "section", "label": "가" * 41}},
+        {"focus": {"kind": "found", "label": "제7조", "n": -1}},
+        {"focus": {"kind": "section", "label": "제7조", "text": "원문"}},
     ],
 )
 def test_event_payload_refuses_bad_rfp_values(payload):

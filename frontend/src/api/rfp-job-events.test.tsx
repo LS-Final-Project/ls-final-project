@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { parseRfpEvent, readRfpJob, watchRfpJob, type RfpWatch } from './rfp-job-events';
+import { addActivity, parseRfpEvent, readRfpJob, watchRfpJob, type RfpWatch } from './rfp-job-events';
+import { focusText } from '../rfp/RfpReasoning';
 const target = { jobId: '11111111-1111-4111-8111-111111111111', projectId: '22222222-2222-4222-8222-222222222222', actorId: '33333333-3333-4333-8333-333333333333' };
 const doc = '44444444-4444-4444-8444-444444444444';
 const snap = (status = 'RUNNING', seq = 1, extra = {}) => ({ job_id: target.jobId, project_id: target.projectId, owner: 'tft', kind: 'rfp.process', status, version: 1, last_event_sequence: seq, ...extra });
@@ -21,6 +22,9 @@ it.each([
   event(1, 'job.progress', { step: 'invented' }), event(1, 'job.progress', { counts: { requirements: -1, proposals: 0 } }),
   event(1, 'job.progress', { counts: { requirements: '2', proposals: 0 } }), event(1, 'job.progress', { document_version_id: 'bad' }),
   event(1, 'job.progress', { needs_review: 'true' }),
+  event(1, 'job.progress', { step: 'extract', focus: { kind: 'thought', label: '제7조' } }),
+  event(1, 'job.progress', { step: 'extract', focus: { kind: 'section', label: '<b>원문</b>' } }),
+  event(1, 'job.progress', { step: 'extract', focus: { kind: 'found', label: '제7조', n: -1 } }),
 ])('rejects malformed/cross-job public events %#', e => expect(() => parseRfpEvent(frame(e), target.jobId)).toThrow());
 it('rejects duplicated id and mismatched event type', () => {
   expect(() => parseRfpEvent([...frame(), 'id: 1'], target.jobId)).toThrow();
@@ -119,4 +123,18 @@ it('accepts context jobs and only the three explicit context observation steps',
   expect((await readRfpJob(target,new AbortController().signal)).kind).toBe('rfp.context');
   for(const step of ['context_map','context_link','context_validate'])expect(parseRfpEvent(frame(event(2,'job.progress',{step,counts:{requirements:9,proposals:0}})),target.jobId)?.step).toBe(step);
   expect(()=>parseRfpEvent(frame(event(2,'job.progress',{step:'context_approved'})),target.jobId)).toThrow();
+});
+
+it('진행 한 줄(focus)을 읽어 문장으로 만들고, 단계 기록은 하나씩 두되 한 줄은 순서대로 쌓는다', () => {
+  const at = (sequence: number, payload: unknown) => parseRfpEvent(frame(event(sequence, 'job.progress', payload)), target.jobId)!;
+  const a = at(2, { step: 'extract' });
+  const b = at(3, { step: 'extract', focus: { kind: 'section', label: '제7조 건식 변압기' } });
+  const c = at(4, { step: 'extract', counts: { requirements: 9, proposals: 0 }, focus: { kind: 'found', label: '제7조 건식 변압기', n: 9 } });
+  const d = at(5, { step: 'extract' });
+  const all = [a, b, c, d].reduce(addActivity, []);
+  expect(all.map(x => x.sequence)).toEqual([3, 4, 5]);
+  expect(focusText(b.focus!)).toBe('제7조 건식 변압기 읽는 중');
+  expect(focusText(c.focus!)).toBe('제7조 건식 변압기에서 요구 9건');
+  expect(focusText({ kind: 'ocr', label: '본문 이미지 1' })).toBe('본문 이미지 1 글자 읽기(OCR)');
+  expect(focusText({ kind: 'compare', label: '자사 제품', n: 87 })).toBe('요구 87건을 자사 제품과 비교');
 });
