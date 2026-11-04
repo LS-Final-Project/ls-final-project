@@ -509,6 +509,18 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
             <div className="fr"><span className="k">주분류</span>{waitingClass ? <div className="box sk" aria-busy="true"><i /></div> : <div className="box reveal" key={`c-${run0?.id}`} style={reveal(0)}>{category ? CATEGORY_LABEL[category] ?? category : '-'}{tagOf('category_code')}</div>}</div>
             <div className="fr"><span className="k">보조분류</span>{waitingClass ? <div className="box sk" aria-busy="true"><i /></div> : <div className="box reveal" key={`s-${run0?.id}`} style={reveal(1)}>{(fv('secondary_category') as string | null) ?? '-'}{tagOf('secondary_category')}</div>}</div>
             <div className="fr"><span className="k">긴급 여부</span>{waitingClass ? <div className="box sk" aria-busy="true"><i /></div> : <div className="box reveal" key={`u-${run0?.id}`} style={reveal(2)} title={rule ? `우선순위 ${rule.priority} · 첫 응답 기한 ${formatStamp(analysisData?.rules?.first_response_due?.effective ?? rule.first_response_due)}` : undefined}>{urgency ? (urgency === 'NONE' ? '아니오' : `예 · ${URGENCY_LABEL[urgency] ?? urgency}`) : '-'}{tagOf('urgency_flag')}</div>}</div>
+            <div className="fr"><span className="k">받은 자료</span>{waitingClass ? <div className="chips sk-chips" aria-busy="true"><i /><i /><i /></div> : <div className="chips reveal" key={`p-${run0?.id}`} style={reveal(3)}>
+              {provided.map(item => <span key={item} className="chip" title={item}>✓ {infoName(item)}</span>)}
+              {missing.map(item => <span key={item} className="chip w" title={`${item} · 아직 받지 못함`}>✕ {infoName(item)}</span>)}
+              {provided.length === 0 && missing.length === 0 && <span className="meta">-</span>}
+            </div>}</div>
+            <div className="fr"><span className="k">반품 유형</span>
+              {waitingClass ? <div className="box sk" aria-busy="true"><i /></div> : category === 'RETURN'
+                ? <div className="box">{analysisData?.return_subtype_stated ? `${RETURN_STATED_LABEL[analysisData.return_subtype_stated]} (고객 주장)` : '고객 주장 없음'}
+                  <button className="mini" onClick={() => setDialog('return')}>{wf?.return_responsibility ? '확정 보기' : '반품 확정'}</button></div>
+                : <div className="box dash">해당 없음</div>}
+            </div>
+            {/* 설치 장비 확인(4.3): 문의 정보 칸들 아래에 둔다. 다른 상자와 같은 얇은 테두리. */}
             <div className="unit" id="td-unit">
               <div className="uh">설치 장비 <span className="ai">후보 {unitRows.filter(row => row.matches_ticket).length}</span><span className="r">{confirmedUnit ? `확정: ${confirmedUnit.unit.serial_no}` : `고객 보유 장비 ${unitRows.length}대 중`}</span></div>
               {units.isPending && <div className="meta">불러오는 중</div>}
@@ -520,17 +532,6 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
                 <span className="why">{row.link?.link_status === 'CONFIRMED' ? '확정됨' : row.link?.link_status === 'REJECTED' ? '아님' : row.matches_ticket ? '고객·제품 일치' : '고객·제품 다름'}</span>
               </label>)}</div>
               {pickedUnit && <div className="uact"><span className="meta">맞는 장비 하나만 확정하면 됩니다. 나머지 후보는 그대로 두세요.</span><button className="kb3 sm" disabled={busy || !canWrite} title="고객이 아니라고 한 경우처럼, 고른 장비가 이 문의의 장비가 아니라는 근거가 있을 때만 기록합니다" onClick={() => saveUnit('REJECTED')}>이 장비 아님</button></div>}
-            </div>
-            <div className="fr"><span className="k">받은 자료</span>{waitingClass ? <div className="chips sk-chips" aria-busy="true"><i /><i /><i /></div> : <div className="chips reveal" key={`p-${run0?.id}`} style={reveal(3)}>
-              {provided.map(item => <span key={item} className="chip" title={item}>✓ {infoName(item)}</span>)}
-              {missing.map(item => <span key={item} className="chip w" title={`${item} · 아직 받지 못함`}>✕ {infoName(item)}</span>)}
-              {provided.length === 0 && missing.length === 0 && <span className="meta">-</span>}
-            </div>}</div>
-            <div className="fr"><span className="k">반품 유형</span>
-              {waitingClass ? <div className="box sk" aria-busy="true"><i /></div> : category === 'RETURN'
-                ? <div className="box">{analysisData?.return_subtype_stated ? `${RETURN_STATED_LABEL[analysisData.return_subtype_stated]} (고객 주장)` : '고객 주장 없음'}
-                  <button className="mini" onClick={() => setDialog('return')}>{wf?.return_responsibility ? '확정 보기' : '반품 확정'}</button></div>
-                : <div className="box dash">해당 없음</div>}
             </div>
           </div>
         </div>
