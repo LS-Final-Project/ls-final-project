@@ -36,7 +36,7 @@ from backend.api.cs.reply_analysis.schemas import (
     TicketReplyAnalysisView,
 )
 from backend.api.cs.summary.routes import load, usage_values
-from backend.api.cs.tickets.access import require_ticket_write
+from backend.api.cs.tickets.access import require_ticket_write, sees_all_tickets
 from backend.api.cs.tickets.routes import PARTIAL, respond
 from backend.engine.cs.analysis import effective_fields
 from backend.engine.cs.classification_call import ClassificationCallError
@@ -245,10 +245,16 @@ async def get_reply_analysis(
     message_id: UUID | None = None,
     principal: Principal = Depends(current_principal),
 ) -> SuccessResponse[TicketReplyAnalysisView]:
-    """저장된 회신 해석. 만들지는 않는다(비용 없음)."""
+    """저장된 회신 해석. 만들지는 않는다(비용 없음).
+
+    고객 회신은 C/S 업무라 부서 사용자에게 보이지 않는다(tickets.md 조회 범위). 회신에서 만든
+    해석도 같다: cs_agent와 C/S 부서 관리자만 읽는다. 범위 밖이면 먼저 404다.
+    """
     reply_analysis_provider(request)
     async with connection(request.app.state.settings) as conn:
         ticket = await load(conn, principal, ticket_id)
+        if not sees_all_tickets(principal):
+            raise HTTPException(403)
         reply = await repository.reply(conn, ticket_id, message_id)
         if reply is None:
             if message_id is not None:
@@ -352,7 +358,12 @@ async def make(
     if stored is None:
         # 다른 인스턴스가 같은 입력의 해석을 먼저 저장했다(고유 색인). 그것을 돌려준다.
         reused = await existing_view(request, ticket_id, prepared)
-        assert reused is not None
+        if reused is None:
+            raise ApplicationError(
+                409,
+                "CS_REPLY_ANALYSIS_CONFLICT",
+                "Another request stored this analysis. Read it again.",
+            )
         return reused
     if stored["outcome"] != "VALID":
         raise ApplicationError(

@@ -34,8 +34,8 @@
 
 | 메서드 | 허용 | 동작 |
 | --- | --- | --- |
-| `GET` (`?message_id=` 선택) | 문의 조회 범위(이관받은 부서의 dept_staff 포함) | 대상 회신의 지금 입력·프롬프트 판본에 맞는 성공한 해석, 없으면 가장 최근의 성공한 해석(`analysis`, 없으면 null)과 가장 최근 시도(`latest_attempt`, 실패 포함). 모델을 부르지 않는다. 본문이 있는 회신이 없으면 `message_id`·`analysis`·`latest_attempt`가 모두 null |
-| `POST` (본문 `{"message_id": uuid}` 선택) | cs_agent만(범위 안). 부서 담당자는 403 | 본문이 있는 회신이 없거나 지정한 회신에 본문이 없으면 422 `CS_REPLY_TEXT_MISSING`(모델 호출 없음). 같은 회신·입력·프롬프트 판본의 성공한 해석이 있으면 모델을 부르지 않고 200. 없으면 모델을 한 번 불러 저장하고 201. 동시 요청은 번역과 같다(프로세스 안 줄 세우기, 다른 인스턴스 저장은 고유 색인). 실패하면 시도를 저장하고 502 `CS_REPLY_ANALYSIS_FAILED`(`details[0].code`에 위 코드 또는 `CS_PROVIDER_TIMEOUT`·`CS_RATE_LIMITED`·`CS_PROVIDER_ERROR`) |
+| `GET` (`?message_id=` 선택) | cs_agent와 C/S 부서 관리자(범위 안). 고객 회신은 C/S 업무라 부서 사용자는 403(tickets.md 조회 범위) | 대상 회신의 지금 입력·프롬프트 판본에 맞는 성공한 해석, 없으면 가장 최근의 성공한 해석(`analysis`, 없으면 null)과 가장 최근 시도(`latest_attempt`, 실패 포함). 모델을 부르지 않는다. 본문이 있는 회신이 없으면 `message_id`·`analysis`·`latest_attempt`가 모두 null |
+| `POST` (본문 `{"message_id": uuid}` 선택) | cs_agent만(범위 안). 부서 담당자는 403 | 본문이 있는 회신이 없거나 지정한 회신에 본문이 없으면 422 `CS_REPLY_TEXT_MISSING`(모델 호출 없음). 같은 회신·입력·프롬프트 판본의 성공한 해석이 있으면 모델을 부르지 않고 200. 없으면 모델을 한 번 불러 저장하고 201. 동시 요청은 번역과 같다(프로세스 안 줄 세우기, 다른 인스턴스 저장은 고유 색인). 다른 인스턴스가 먼저 저장했는데 다시 읽지 못하면 409 `CS_REPLY_ANALYSIS_CONFLICT`. 실패하면 시도를 저장하고 502 `CS_REPLY_ANALYSIS_FAILED`(`details[0].code`에 위 코드 또는 `CS_PROVIDER_TIMEOUT`·`CS_RATE_LIMITED`·`CS_PROVIDER_ERROR`) |
 
 - 순서는 permissions.md 1.3: 범위 밖 문의 404 `CS_TICKET_NOT_FOUND`, 역할 403, 다른 문의의 회신(`message_id`) 404 `CS_REPLY_NOT_FOUND`. 맥락으로 입력을 만들 수 없으면(잘못된 언어 표기 등) POST는 422 `CS_REPLY_INPUT_INVALID`이고, GET은 저장본을 `stale = true`로 보여 준다.
 - `stale`: 해석 뒤 입력이 바뀌었다(요청 코드가 늘었거나, 사람이 제공 정보를 정정했거나, 새 분석·초안이 생겼거나, 확정 장비가 바뀌어 대조 결과가 달라졌거나, 프롬프트 판본이 바뀜). 다시 누르면 새로 만든다.

@@ -243,7 +243,7 @@ def test_no_reply_text_is_422_without_a_model_call(client, model, admin, ticket)
 
 
 def test_scope_role_and_activation(cs_database, client, model, admin, ticket):
-    """범위 밖은 404. 이관받은 부서 담당자는 읽기만 하고 만들 수 없다(403). 다른 문의 회신은 404."""
+    """범위 밖은 404. 이관받은 부서 담당자도 회신 해석은 읽지도 만들지도 못한다(403, 회신은 C/S 업무). 다른 문의 회신은 404."""
     message_id = add_reply(admin, ticket)
     assert client.get(path(ticket), headers=principal_header(TRF_STAFF)).status_code == 404
     assert client.post(path(ticket), headers=principal_header(TRF_STAFF)).status_code == 404
@@ -252,7 +252,7 @@ def test_scope_role_and_activation(cs_database, client, model, admin, ticket):
         "transferred_by) VALUES (%s, %s, 'TS_TRF', 'check', 1, 'OPEN', %s)",
         (uuid4(), ticket, uuid4()),
     )
-    assert client.get(path(ticket), headers=principal_header(TRF_STAFF)).status_code == 200
+    assert client.get(path(ticket), headers=principal_header(TRF_STAFF)).status_code == 403
     assert client.post(path(ticket), headers=principal_header(TRF_STAFF)).status_code == 403
     assert client.post(path(uuid4())).status_code == 404
     other = new_ticket(admin)
