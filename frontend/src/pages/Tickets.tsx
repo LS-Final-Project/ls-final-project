@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { getApiMode } from '../api/client';
-import type { TicketListResponse } from '../api/cs';
+import { listTicketsBy, type TicketListResponse } from '../api/cs';
 import { ErrorState, Loading } from '../components/states';
 import TicketCreateDialog from '../components/TicketCreateDialog';
 import BatchOwnerDialog from '../components/BatchOwnerDialog';
@@ -62,7 +62,16 @@ export default function Tickets() {
   };
   useHotkey('F8', refresh, access.ready);
 
-  const all = useMemo(() => tickets.data?.pages.flatMap(page => page.data.items) ?? [], [tickets.data]);
+  // 검색어는 서버에서도 찾는다(문의번호·제목·고객). 아직 받아 오지 않은 쪽의 문의도 나오게.
+  const [term, setTerm] = useState('');
+  useEffect(() => { const timer = window.setTimeout(() => setTerm(search.trim()), 300); return () => window.clearTimeout(timer); }, [search]);
+  const hits = useQuery({ queryKey: ['tickets-search', mode, term], queryFn: ({ signal }) => listTicketsBy({ q: term, limit: '100' }, signal), enabled: access.ready && term.length > 0, retry: false, staleTime: 30_000 });
+  const hitIds = useMemo(() => new Set((hits.data?.data.items ?? []).map(item => item.id)), [hits.data]);
+  const all = useMemo(() => {
+    const loaded = tickets.data?.pages.flatMap(page => page.data.items) ?? [];
+    const extra = (hits.data?.data.items ?? []).filter(item => !loaded.some(row => row.id === item.id));
+    return [...loaded, ...extra];
+  }, [tickets.data, hits.data]);
   const now = Date.now();
   const ageOf = (item: Ticket) => Math.max(0, Math.floor((now - Date.parse(item.received_at)) / DAY));
   const needle = search.trim().toLocaleLowerCase();
@@ -75,12 +84,12 @@ export default function Tickets() {
         && (!product || item.product_code === product)
         && (age === '' || (age === 'WAIT3' ? item.workflow_state === 'WAITING_CUSTOMER' && days >= 3 : days >= Number(age)))
         && (!from || day >= from) && (!to || day <= to)
-        && (!needle || `${item.subject_ko ?? ''} ${item.subject ?? ''} ${item.external_id ?? ''} ${item.product_code} ${item.id}`.toLocaleLowerCase().includes(needle));
+        && (!needle || hitIds.has(item.id) || `${item.subject_ko ?? ''} ${item.subject ?? ''} ${item.external_id ?? ''} ${item.product_code} ${item.id}`.toLocaleLowerCase().includes(needle));
     });
     // 경과일이 길수록 접수일시가 이르다. 경과일 내림차순 = 접수일시 오름차순.
     const oldestFirst = sort.key === 'age' ? sort.dir === 'desc' : sort.dir === 'asc';
     return kept.sort((a, b) => (Date.parse(a.received_at) - Date.parse(b.received_at)) * (oldestFirst ? 1 : -1));
-  }, [all, status, channel, product, age, from, to, needle, sort]);
+  }, [all, hitIds, status, channel, product, age, from, to, needle, sort]);
   // 조건·정렬이 바뀌면 첫 쪽으로 간다.
   useEffect(() => { setPage(0); }, [status, channel, product, age, from, to, needle, sort]);
 
@@ -135,7 +144,7 @@ export default function Tickets() {
       <form className="cond lc" onSubmit={event => { event.preventDefault(); refresh(); }}>
         <label className="search">
           <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
-          <input type="text" aria-label="검색어" placeholder="문의번호, 제목, 제품으로 검색" autoComplete="off" value={search} onChange={event => setSearch(event.target.value)} />
+          <input type="text" aria-label="검색어" placeholder="문의번호, 제목, 고객, 제품으로 검색" autoComplete="off" value={search} onChange={event => setSearch(event.target.value)} />
         </label>
         <label><span className="k">상태</span><select aria-label="상태" value={status} onChange={event => setStatus(event.target.value)}>{STATUS_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         <label><span className="k">접수 경로</span><select aria-label="접수 경로" value={channel} onChange={event => setChannel(event.target.value)}><option value="">전체</option>{(Object.keys(CHANNEL_LABEL) as TicketChannel[]).map(value => <option key={value} value={value}>{CHANNEL_LABEL[value]}</option>)}</select></label>
@@ -166,8 +175,7 @@ export default function Tickets() {
         <div className="foot">
           <nav className="pager" aria-label="문의 쪽">
             <button type="button" className="kb3 sm" disabled={at === 0} onClick={() => setPage(at - 1)}>이전</button>
-            {Array.from({ length: pages }, (_, i) => i).filter(i => i === 0 || i === pages - 1 || Math.abs(i - at) <= 2).map((i, k, list) => <span key={i} className="pg">
-              {k > 0 && i - list[k - 1] > 1 && <span className="gap">…</span>}
+            {Array.from({ length: pages }, (_, i) => i).map(i => <span key={i} className="pg">
               <button type="button" className={i === at ? 'kb3 sm pri' : 'kb3 sm'} aria-current={i === at ? 'page' : undefined} aria-label={`${i + 1}쪽`} onClick={() => setPage(i)}>{i + 1}</button></span>)}
             <button type="button" className="kb3 sm" disabled={last && (!tickets.hasNextPage || tickets.isFetchingNextPage)} title={last && tickets.hasNextPage ? '다음 문의를 더 받아 옵니다' : undefined} onClick={next}>{tickets.isFetchingNextPage ? '받는 중' : '다음'}</button>
           </nav>

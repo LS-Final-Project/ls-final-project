@@ -89,7 +89,8 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
   const [translating, setTranslating] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
   const [returnFormKey, setReturnFormKey] = useState(0);
-  const [lang, setLang] = useState<'orig' | 'ko'>('orig');
+  // 원문은 항상 보이고, 한국어 번역은 원문 위에 덧붙인다(전환 아님).
+  const [showKo, setShowKo] = useState(false);
   const [draftPick, setDraftPick] = useState<string | undefined>(undefined);
   const [action, setAction] = useState<'info' | 'answer' | 'transfer' | undefined>(undefined);
   // 회신 상자 안에서 고쳐 쓰고(edit) 보내기 확인(step)까지 한다. 고객 메일이라 승인 체크는 꼭 거친다.
@@ -475,11 +476,9 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
       <div className="cols">
         <div className="pane">
           <div className="ph">고객 원문 <div className="r">
-            {/* AI 요약 만들기는 원문/한국어 전환 옆에 둔다. 이미 요약이 있으면 단추를 숨긴다(같은 원문은 다시 만들어도 같은 결과). */}
+            {/* AI 요약 만들기는 한국어 번역 보기 옆에 둔다. 이미 요약이 있으면 단추를 숨긴다(같은 원문은 다시 만들어도 같은 결과). */}
             {!summaryRecord && !summaryOff && canWrite && <button className="kb3 sm" disabled={busy || summary.isPending} title="모델을 한 번 호출합니다(비용)" onClick={() => { setSummarizing(true); void run('요약을 만들었습니다.', signal => createTicketSummary(ticketId, signal)).then(() => summary.refetch()).finally(() => setSummarizing(false)); }}>{summarizing ? '✦ 요약 중…' : '✦ AI 요약'}</button>}
-            <div className="seg">
-            <button className={lang === 'orig' ? 'on' : ''} onClick={() => setLang('orig')}>원문</button>
-            <button className={lang === 'ko' ? 'on' : ''} onClick={() => setLang('ko')}>한국어</button></div></div></div>
+            {!koSource && <button className={showKo ? 'kb3 sm on' : 'kb3 sm'} aria-pressed={showKo} onClick={() => setShowKo(value => !value)}>{showKo ? '한국어 번역 숨기기' : '한국어 번역 보기'}</button>}</div></div>
           <div className="pb">
             <div className="sum">
               <div className="h"><span className="ai">✦ AI 요약</span><span className="meta">{summaryRecord ? hm(summaryRecord.created_at) : ''}</span></div>
@@ -489,21 +488,19 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
                 : summary.isPending ? <p className="meta">불러오는 중</p>
                 : <p className="meta">아직 요약이 없습니다{canWrite ? '. 위의 "✦ AI 요약"을 누르면 만듭니다.' : ''}</p>}
             </div>
-            {lang === 'ko'
-              ? koSource
-                // 원문이 한국어면 번역하지 않는다. 한국어 탭에도 원문을 그대로 보인다.
-                ? <><div className="meta" style={{ marginBottom: 6 }}>원문이 한국어입니다. 번역 없이 원문을 보입니다.</div>{mailCard(data.subject || '(제목 없음)', data.body)}</>
-                : translating ? <div className="sk-lines" aria-busy="true"><span>AI가 원문을 한국어로 옮기는 중…</span><i /><i /><i /></div>
+            {showKo && !koSource && <div className="ko-add">
+              {translating ? <div className="sk-lines" aria-busy="true"><span>AI가 원문을 한국어로 옮기는 중…</span><i /><i /><i /></div>
                 : translationRecord ? <>
                   {translationRecord.stale && <div className="meta" style={{ marginBottom: 6 }}>원문이 바뀌어 다시 번역할 수 있습니다 {translateButton}</div>}
                   {mailCard(translationRecord.subject_ko || '(제목 없음)', translationRecord.body_ko, <><span className="ai">✦ AI 번역</span> {hm(translationRecord.created_at)}</>)}
-                  <div className="meta" style={{ marginTop: 6 }}>AI 번역은 참고용입니다. 숫자·코드·판단은 원문이 기준입니다.</div>
+                  <div className="meta" style={{ marginTop: 6 }}>AI 번역은 참고용입니다. 숫자·코드·판단은 아래 원문이 기준입니다.</div>
                 </>
                 : translationOff ? <div className="meta">번역 기능이 이 배포에서 꺼져 있습니다</div>
                 : translation.isPending ? <div className="meta">불러오는 중</div>
-                : <div className="meta">아직 번역이 없습니다 {translateButton}</div>
-              // 메일처럼 보이는 원문 카드: 보낸 사람·경로·시각, 제목, 본문, 고객이 적은 오류 코드·FW
-              : mailCard(data.subject || '(제목 없음)', data.body)}
+                : <div className="meta">아직 번역이 없습니다 {translateButton}</div>}
+            </div>}
+            {/* 메일처럼 보이는 원문 카드: 보낸 사람·경로·시각, 제목, 본문, 고객이 적은 오류 코드·FW. 항상 보인다. */}
+            <div className="orig-always"><div className="meta">원문</div>{mailCard(data.subject || '(제목 없음)', data.body)}</div>
             {wf && ((wf.customer_sends ?? []).length > 0 || (wf.customer_replies ?? []).length > 0) && <div className="thread">
               <div className="meta" style={{ marginBottom: 4 }}>이후 대화</div>
               <CustomerThread original={data} workflow={wf} actions={sendActions} />

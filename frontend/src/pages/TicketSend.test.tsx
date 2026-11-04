@@ -254,7 +254,7 @@ test.each([
   expect([...box.querySelectorAll('p')].map(p => [p.querySelector('.n')?.textContent, p.textContent?.replace(p.querySelector('.n')?.textContent ?? '', '')])).toEqual(items.map((text, index) => [String(index + 1), text]));
 });
 
-// 고객 원문의 한국어 탭: 번역이 없으면 만들기 단추, 만들면 메일 카드로 보인다. 원문이 한국어면 번역을 권하지 않는다.
+// 고객 원문: 원문은 항상 보이고 '한국어 번역 보기'로 번역을 원문 위에 덧붙인다. 번역이 없으면 만들기 단추. 원문이 한국어면 번역을 권하지 않는다.
 const translationView = (translation: Record<string, unknown> | null) => ({ data: { ticket_id: 'x', provenance: 'ai_draft', latest_attempt: null, translation } });
 const translated = (over: Record<string, unknown> = {}) => ({ id: 't', subject_ko: '변압기 누유', body_ko: '개스킷에서 기름이 샙니다.\n보증 대상인가요?', created_at: '2026-11-03T00:00:00Z', requested_model: 'm', model_version: null, prompt_version: 'v1', input_version: 'v', stale: false, ...over });
 function withTranslation(answer: () => Response, language = 'es') {
@@ -269,7 +269,7 @@ function withTranslation(answer: () => Response, language = 'es') {
   }));
   return posts;
 }
-const toKorean = async () => { view(); await ready('검토중'); fireEvent.click(screen.getByRole('button', { name: '한국어' })); };
+const toKorean = async () => { view(); await ready('검토중'); fireEvent.click(screen.getByRole('button', { name: '한국어 번역 보기' })); };
 
 test('번역이 없으면 한국어 번역 단추를 보이고, 누르면 POST한 뒤 번역을 메일 카드로 보인다', async () => {
   let made = false;
@@ -282,6 +282,8 @@ test('번역이 없으면 한국어 번역 단추를 보이고, 누르면 POST�
   expect(card.querySelector('.mail')?.textContent).toBe('개스킷에서 기름이 샙니다.\n보증 대상인가요?');
   expect(within(card).getByText('✦ AI 번역')).toBeTruthy();
   expect(screen.getByText(/원문이 기준입니다/)).toBeTruthy();
+  // 번역을 덧붙여도 원문 카드는 그대로 있다.
+  expect(document.querySelectorAll('.mail-card').length).toBeGreaterThanOrEqual(2);
   expect(posts.filter(call => call.url.endsWith('/translation'))).toHaveLength(1);
   expect(screen.queryByRole('button', { name: '✦ 한국어 번역' })).toBeNull();
   // 처리 기록에 AI 행으로 남는다.
@@ -296,10 +298,10 @@ test('원문이 바뀐 번역은 그대로 보이고 다시 번역 단추를 둔
   expect(screen.getByRole('button', { name: '✦ 한국어 번역' })).toBeTruthy();
 });
 
-test('원문이 한국어면 번역을 권하지 않고 한국어 탭에도 원문을 보인다', async () => {
+test('원문이 한국어면 번역 보기 단추를 두지 않고 원문만 보인다', async () => {
   const posts = withTranslation(() => jsonResponse(200, translationView(null)), 'ko');
-  await toKorean();
-  expect(await screen.findByText(/원문이 한국어입니다/)).toBeTruthy();
+  view(); await ready('검토중');
+  expect(screen.queryByRole('button', { name: '한국어 번역 보기' })).toBeNull();
   expect(screen.queryByRole('button', { name: '✦ 한국어 번역' })).toBeNull();
   expect(document.querySelector('.mail-card .mail')?.textContent).toBe(base.body);
   expect(posts.filter(call => call.url.endsWith('/translation'))).toHaveLength(0);

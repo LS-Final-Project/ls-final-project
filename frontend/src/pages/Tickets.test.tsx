@@ -97,3 +97,18 @@ test('한국어 번역 제목이 있으면 목록에 보이고 원문은 툴팁�
   fireEvent.change(screen.getByLabelText('검색어'),{target:{value:'Alpha'}});expect(subjects()).toEqual(['알파 고장']);
   fireEvent.change(screen.getByLabelText('검색어'),{target:{value:'고장'}});expect(subjects()).toEqual(['알파 고장']);
 });
+
+test('검색어는 서버에서도 찾아, 아직 받아 오지 않은 문의도 목록에 보인다',async()=>{
+  const far={...items[0],id:'far',subject:'Winding temperature alarm',external_id:'CSV1-002459',workflow_state:'RECEIVED'};
+  const f=stub(url=>only(url.includes('q=')?[far]:items));
+  view();await screen.findByRole('link',{name:'Alpha'});
+  fireEvent.change(screen.getByLabelText('검색어'),{target:{value:'CSV1-002459'}});
+  expect(await screen.findByRole('link',{name:'Winding temperature alarm'})).toBeTruthy();
+  expect(ticketCalls(f).some(([url])=>String(url).includes('q=CSV1-002459'))).toBe(true);
+});
+test('쪽 번호는 줄이지 않고 모두 보인다',async()=>{
+  const many=Array.from({length:75},(_,i)=>({...items[0],id:`m${i}`,subject:`문의 ${i}`,external_id:`ID-${i}`}));
+  stub(()=>only(many));view();await screen.findByRole('link',{name:'문의 0'});
+  const pager=within(screen.getByRole('navigation',{name:'문의 쪽'}));
+  expect(pager.getAllByRole('button',{name:/쪽$/}).map(x=>x.textContent)).toEqual(['1','2','3','4','5','6','7','8']);
+});
