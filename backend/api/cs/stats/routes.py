@@ -11,7 +11,9 @@ from typing import Annotated, get_args
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from backend.api.cs.stats import repository
+from backend.api.cs.improvements import repository as improvement_repository
+from backend.api.cs.improvements.followup_routes import signal_for
+from backend.api.cs.stats import repository, sla
 from backend.api.cs.stats.schemas import (
     CustomerHistory,
     CustomerLoad,
@@ -26,10 +28,11 @@ from backend.api.cs.stats.schemas import (
     OwnerList,
     OwnerLoad,
     Period,
+    RecurrenceCount,
     TicketCounts,
     Unconfirmed,
 )
-from backend.api.cs.tickets.access import sees_all_tickets
+from backend.api.cs.tickets.access import sees_all_tickets, transfer_departments
 from backend.api.cs.tickets.routes import PARTIAL, respond
 from backend.api.cs.tickets.schemas import WorkflowState
 from backend.api.cs.translation import repository as translations
@@ -52,6 +55,8 @@ router = APIRouter(
 
 # Neither is stored yet: SLA due times and rule results are saved by the ticket job (KAN-107).
 UNCONFIRMED: list[Unconfirmed] = ["SLA_DUE", "RULE_ASSIGNED_DEPT"]
+# The overview computes SLA figures on read (KAN-233), so only the rule department is left.
+OVERVIEW_UNCONFIRMED: list[Unconfirmed] = ["RULE_ASSIGNED_DEPT"]
 STATES = get_args(WorkflowState)
 Start = Annotated[datetime | None, Query(description="Inclusive, with a time zone.")]
 End = Annotated[datetime | None, Query(description="Exclusive, with a time zone.")]
@@ -96,9 +101,16 @@ async def overview(
         ages = await repository.open_age(conn, p)
         departments = await repository.departments(conn, p)
         customers = await repository.top_customers(conn, p)
+        now = await improvement_repository.database_now(conn)
+        sla_rows = await repository.sla_tickets(conn, p)
         improvements = None
         if scope == "ALL":
             groups, totals = await repository.improvements(conn, p)
+            faults, documents = await repository.completed_fault_requests(conn, p)
+            recurrence = 0
+            for row in faults:
+                signal, _ = await signal_for(conn, row, now)
+                recurrence += signal.decision == "RECURRENCE"
             by_status: dict[str, int] = {}
             by_type = {"FAULT": 0, "DOCUMENT": 0}
             for row in groups:
@@ -109,6 +121,13 @@ async def overview(
                 by_type=by_type,  # type: ignore[arg-type]
                 open=totals["open"],
                 receiver_unconfirmed=totals["receiver_unconfirmed"],
+                completed_in_period=totals["completed_in_period"],
+                info_requested=totals["info_requested"],
+                rejected=totals["rejected"],
+                reply_overdue=totals["reply_overdue"],
+                recurrence_after_completion=RecurrenceCount(
+                    checked=len(faults), recurrence=recurrence, not_applicable=documents
+                ),
             )
     data = Overview(
         scope=scope,  # type: ignore[arg-type]
@@ -127,7 +146,15 @@ async def overview(
         departments=[DepartmentCount.model_validate(d) for d in departments],
         top_customers=[CustomerLoad.model_validate(c) for c in customers],
         improvements=improvements,
-        unconfirmed=UNCONFIRMED,
+        unconfirmed=OVERVIEW_UNCONFIRMED,
+        sla=sla.summary(
+            sla_rows,
+            start=start,
+            end=end,
+            now=now,
+            sees_all=sees_all_tickets(principal),
+            departments=transfer_departments(principal),
+        ),
     )
     return respond(request, data)
 
@@ -149,11 +176,21 @@ async def owners(
     if not principal.has("manager"):
         raise HTTPException(403)
     window = period(start, end)
+    p = repository.params(start, end, dept)
     async with connection(request.app.state.settings) as conn:
-        rows = await repository.owners(conn, repository.params(start, end, dept))
+        rows = await repository.owners(conn, p)
+        now = await improvement_repository.database_now(conn)
+        deadlines = sla.by_owner(await repository.sla_tickets(conn, p), now)
+        requests = await repository.owner_requests(conn, dept)
+    empty = {"due_today": 0, "overdue": 0, "sla_unknown": 0}
     items = [
         OwnerLoad.model_validate(
-            {**r, "by_state": {state: r[f"state_{state.lower()}"] for state in STATES}}
+            {
+                **r,
+                **deadlines.get(r["owner_user_id"], empty),
+                "improvements_open": requests.get(r["owner_user_id"], 0),
+                "by_state": {state: r[f"state_{state.lower()}"] for state in STATES},
+            }
         )
         for r in rows
     ]

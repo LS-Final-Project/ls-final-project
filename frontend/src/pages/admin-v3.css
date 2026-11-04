@@ -54,8 +54,6 @@
 .ls-root .kv .td3.as3 .as-tabs button b.hot{background:var(--ls-red,#ED164B);color:#fff}
 .ls-root .kv .td3.as3 .as-tabs .hint{margin-left:auto;align-self:center;font-size:11.5px;color:#6b7385}
 /* 업무 통계: 더미 미리보기·SLA·단계 막대·개선 단계 */
-.ls-root .kv .td3.as3 .demo-note{padding:8px 12px;font-size:12.5px;color:#8a5a00;background:#fdf6e3;border:1px solid #f3e1b5}
-.ls-root .kv .td3.as3 .demo-note b{margin-right:8px;color:#6b4500}
 .ls-root .kv .td3.as3 .kpi.warm{border-top-color:#c27a0a}
 .ls-root .kv .td3.as3 .kpi.warm b{color:#b36c06}
 .ls-root .kv .td3.as3 .pb .kpis{margin-bottom:14px}
