@@ -36,6 +36,10 @@
   `1`·`a`로 다시 시작하는 곳에서 연다(`DEFERRED_ARTICLE`).
 - 한 문단에 항목 두 개가 붙어 있으면(PDF 변환, 14번 2.4 C.3 "… open. b. Expulsion …") 문장 끝 바로 뒤에
   **같은 깊이의 다음 번호**가 대문자 글 앞에 올 때만 나눈다(`INLINE_SPLIT`). 그 밖의 "No. 2." 같은 글은 두지 않는다.
+- PDF 글자층은 빈 줄 없는 줄들을 한 문단으로 준다(`SECTION …\n2.1 …`, `A. …\nB. …`). 문단 안의 줄이 번호로
+  시작하고 앞 줄이 문장 끝이거나 제목 줄(SECTION·PART·대문자 절)이면 그 줄에서 나눈다. 나눈 조각은 원래 block_id를
+  그대로 쓴다(원문 강조 위치는 같은 블록이다). 앞 줄이 문장 끝이 아닌 `13.8 kV class` 같은 끊긴 줄은 나누지 않는다(KAN-229).
+- PART 줄이 없어도 `SECTION …` 줄 뒤의 대문자 제목 절(`2.1 EQUIPMENT REQUIREMENTS`)은 절로 시작한다(도면 PDF, KAN-229).
 - 절 번호(`2.5`)는 지금 PART 번호와 앞 자리가 같고 그 PART의 앞 절보다 클 때만 절이다. 끊긴 줄이
   `13.8 kV class`처럼 소수로 시작해도 절로 읽지 않는다. 미뤄 둔 절이 문서 끝이나 다음 절까지 열리지 않으면
   그 자리에서 열고 `numbering_issues`(`UNPLACED_ARTICLE`)에 남긴다.
@@ -56,7 +60,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from backend.engine.documents.model import Block, CrossReference, DeletedValue, ExtractedDocument
 
 # v5: 공백 없는 번호 제목의 잡음 오인·장 항목 부모, 점선 목차 제외(KAN-215)
-CLAUSE_TREE_VERSION = "clause-tree-v5"
+# v6: PDF 문단 안 번호 줄 나누기, PART 없는 SECTION 문서의 대문자 절 제목(KAN-229)
+CLAUSE_TREE_VERSION = "clause-tree-v6"
 # "PART 2 - PRODUCTS"(14번) 또는 대시 없는 "PART 1 GENERAL"(평가 11번 유형, KAN-207). 대시가 없으면 제목이 대문자일
 # 때만 PART다(본문의 "PART 2 of …"를 PART로 읽지 않는다).
 PART = re.compile(r"^PART\s+(\d+)(?:\s*[-–—]\s*|\s+(?=[A-Z][A-Z0-9 ,/&()'\-]*$))(.+)$")
@@ -231,6 +236,46 @@ def _article_heading(tail: str) -> bool:
         and not KOREAN_REFERENCE.match(tail)
         and not tail.endswith((".", "…", "다", ":", ";", "?", "!"))
     )
+
+
+def _heading(text: str) -> bool:
+    """줄 하나가 제목 줄(SECTION·PART·대문자 절 제목)인지."""
+    if SECTION_HEAD.match(text) or PART.match(text):
+        return True
+    m = ARTICLE.match(text)
+    return m is not None and _upper_title(m.group(3))
+
+
+def _upper_title(title: str) -> bool:
+    return title == title.upper() and any(ch.isalpha() for ch in title)
+
+
+def _pdf_lines(block: Block) -> list[Block]:
+    """PDF 문단 안에서 번호로 시작하는 줄을 따로 나눈다(KAN-229). 조각은 원래 block_id를 쓴다."""
+    if block.kind != "PARAGRAPH" or "\n" not in block.text.strip() or block.deleted_values:
+        return [block]
+    pieces: list[list[str]] = []
+    for line in block.text.strip().split("\n"):
+        head = line.strip()
+        previous = pieces[-1][-1].strip() if pieces else ""
+        if pieces and not (
+            (_label(head) is not None or SECTION_HEAD.match(head))
+            and (previous.endswith(SENTENCE_END) or _heading(previous))
+        ):
+            pieces[-1].append(line)
+        else:
+            pieces.append([line])
+    if len(pieces) == 1:
+        return [block]
+    texts = ["\n".join(lines) for lines in pieces]
+    refs: list[list[CrossReference]] = [[] for _ in texts]
+    for ref in block.cross_references:
+        at = next((n for n, text in enumerate(texts) if ref.text in text), 0)
+        refs[at].append(ref)
+    return [
+        block.model_copy(update={"text": text, "cross_references": found})
+        for text, found in zip(texts, refs, strict=True)
+    ]
 
 
 def _label(text: str) -> tuple[int, str, str, str | None] | None:
@@ -418,6 +463,8 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
     blocks = [_auto_numbered(b) for b in document.blocks]
     noise = _boilerplate(blocks)
     texts = {b.block_id: b.text.strip() for b in blocks}
+    if document.source_kind == "PDF":
+        blocks = [piece for block in blocks for piece in _pdf_lines(block)]
     clauses: list[Clause] = []
     issues: list[NumberingIssue] = []
     preamble: list[str] = []
@@ -733,7 +780,8 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
         offset = len(joined) + len(sep)
         current.text = joined + sep + text
         current.deleted = current.deleted + _shift(deleted, offset)
-        current.block_ids.append(block.block_id)
+        if current.block_ids[-1:] != [block.block_id]:
+            current.block_ids.append(block.block_id)
         current.starts.append((offset, block.block_id))
         current.refs.extend(block.cross_references)
         if broken:
@@ -945,11 +993,20 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
             and not (korean and compact_korean)
         ):
             major, minor = found[1].split(".")
-            if not started or not article_ok(major, minor):
+            # PART 없는 SECTION 문서(도면 PDF)는 대문자 제목 절이 시작이다(KAN-229).
+            section_start = (
+                not started
+                and section_title is not None
+                and part_no is None
+                and not korean
+                and _heading(text)
+            )
+            if not (started or section_start) or not article_ok(major, minor):
                 found = None
         if found is not None and (
             found[0] == 1
             or started
+            or (found[0] == 2 and ARTICLE.match(text) and not korean)
             or KOREAN_ARTICLE.match(text)
             or (simple_korean and KOREAN_NUMBER.match(text))
         ):
@@ -999,7 +1056,7 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
         edit_trace_support=document.edit_trace_support,
         section_title=section_title,
         clauses=clauses,
-        preamble_block_ids=preamble,
+        preamble_block_ids=list(dict.fromkeys(preamble)),
         boilerplate_block_ids=boilerplate,
         excluded=[Excluded(block_id=b, text=texts[b], reason=noise[b]) for b in boilerplate],
         numbering_issues=issues,
