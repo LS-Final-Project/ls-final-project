@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import TicketAnalysisPanel from '../components/TicketAnalysisPanel';
@@ -7,8 +7,8 @@ import ResolutionCaseForm, { listFaults } from '../components/ResolutionCaseForm
 import DeptResultReview from '../components/DeptResultReview';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ApiError, getApiMode, request } from '../api/client';
-import { getTicket, getTicketAnalysis, getTicketAudit, getTicketSummary, getTicketUnits, type TicketListResponse } from '../api/cs';
-import { closeTicket, confirmReturn, correctAnalysis, createTicketSummary, getTicketWorkflow, INVALID_TRANSITION_TEXT, isInvalidOwner, isInvalidTransition, isSendPending, isResolutionExists, isResultVersionConflict, isVersionConflict, reassignOwner, recallTransfer, registerResolutionCase, reviewDeptResult, saveUnitLink, startReview, transferTicket, type DeptCode, type UnitLinkBody, type WorkflowRecord, refreshCustomerSend, retryCustomerSend, sendCustomerMessage } from '../api/cs-workflow';
+import { getTicket, getTicketAnalysis, getTicketAudit, getTicketSummary, getTicketTranslation, getTicketUnits, type TicketListResponse } from '../api/cs';
+import { closeTicket, confirmReturn, correctAnalysis, createTicketSummary, createTicketTranslation, getTicketWorkflow, INVALID_TRANSITION_TEXT, isInvalidOwner, isInvalidTransition, isSendPending, isResolutionExists, isResultVersionConflict, isVersionConflict, reassignOwner, recallTransfer, registerResolutionCase, reviewDeptResult, saveUnitLink, startReview, transferTicket, type DeptCode, type UnitLinkBody, type WorkflowRecord, refreshCustomerSend, retryCustomerSend, sendCustomerMessage } from '../api/cs-workflow';
 import { listCsAssignees, me } from '../api/platform';
 import { listMailboxes } from '../api/mailbox';
 import { ErrorState, Loading } from '../components/states';
@@ -72,6 +72,7 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
   const analysisData = analysis.isSuccess && analysis.data.data && typeof analysis.data.data.fields === 'object' && analysis.data.data.fields ? analysis.data.data : undefined;
   const workflow = useQuery({ queryKey: ['workflow', mode, ticketId], queryFn: ({ signal }) => getTicketWorkflow(ticketId, signal), enabled: access.ready && ticketId !== '' && ticket.isSuccess });
   const summary = useQuery({ queryKey: ['ticket-summary', mode, ticketId], queryFn: ({ signal }) => getTicketSummary(ticketId, signal), enabled: access.ready && ticketId !== '', retry: false, staleTime: 0 });
+  const translation = useQuery({ queryKey: ['ticket-translation', mode, ticketId], queryFn: ({ signal }) => getTicketTranslation(ticketId, signal), enabled: access.ready && ticketId !== '', retry: false, staleTime: 0 });
   const units = useQuery({ queryKey: ['ticket-units', mode, ticketId], queryFn: ({ signal }) => getTicketUnits(ticketId, signal), enabled: access.ready && ticketId !== '', retry: false, staleTime: 0 });
   const audit = useQuery({ queryKey: ['ticket-audit', mode, ticketId], queryFn: ({ signal }) => getTicketAudit(ticketId, signal), enabled: access.ready && ticketId !== '', retry: false, staleTime: 0 });
   const customer = ticket.data?.data?.customer_external_id;
@@ -84,6 +85,8 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
   const [busy, setBusy] = useState(false);
   // AI 요약을 만드는 동안 요약 상자에 회신 초안과 같은 줄 모양 로딩을 보인다.
   const [summarizing, setSummarizing] = useState(false);
+  // 한국어 번역을 만드는 동안 한국어 쪽에 같은 줄 모양 로딩을 보인다.
+  const [translating, setTranslating] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
   const [returnFormKey, setReturnFormKey] = useState(0);
   const [lang, setLang] = useState<'orig' | 'ko'>('orig');
@@ -351,7 +354,7 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
     : at === 3 ? (isMail ? { label: '고객 회신', button: '회신 준비', act: () => scrollTo('td-reply') } : { label: `${channelName}로 직접 응대한 뒤 종결`, button: '종결', act: () => setDialog('close'), blocked: reasons.close })
     : { label: '종결', button: '종결', act: () => setDialog('close'), blocked: reasons.close };
 
-  // 처리 기록: 감사 이력 + AI 실행(분석·초안·요약)
+  // 처리 기록: 감사 이력 + AI 실행(분석·초안·요약·번역)
   type LogRow = { key: string; at: string; who: string; text: string };
   const changeText = (changes: unknown) => {
     const entries = Object.entries((changes ?? {}) as Record<string, { from?: unknown; to?: unknown }>);
@@ -366,6 +369,7 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
     ...(analysisData?.runs ?? []).map(item => ({ key: `run-${item.id}`, at: item.created_at, who: 'ai', text: item.outcome === 'VALID' ? '분류' : `분류 실패 (${item.outcome})` })),
     ...(analysisData?.drafts ?? []).map(item => ({ key: `draft-${item.id}`, at: item.created_at, who: 'ai', text: item.outcome === 'VALID' ? `초안 ${optionsOf(item).length}개` : `초안 실패 (${item.outcome})` })),
     ...(summary.data?.data.summary ? [{ key: 'summary', at: summary.data.data.summary.created_at, who: 'ai', text: '한국어 요약' }] : []),
+    ...(translation.data?.data.translation ? [{ key: 'translation', at: translation.data.data.translation.created_at, who: 'ai', text: '한국어 번역' }] : []),
     ...(data ? [{ key: 'received', at: data.received_at, who: 'system', text: `${CHANNEL_LABEL[data.channel]} 수신` }] : []),
   ].sort((a, b) => b.at.localeCompare(a.at));
 
@@ -397,6 +401,24 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
     { key: 'review', header: '답변 확인', width: 68, className: 'c', cell: item => reviewOf(item.id) },
   ];
   const summaryOff = summary.error instanceof ApiError && summary.error.status === 404;
+  // 한국어 번역(원문/한국어 전환의 한국어 쪽). 꺼진 배포(404)는 안내만 한다. 원문이 한국어면 번역하지 않는다.
+  const translationRecord = translation.data?.data.translation;
+  const translationOff = translation.error instanceof ApiError && translation.error.status === 404;
+  const koSource = (data?.body_language ?? '').split('-')[0] === 'ko';
+  const translateButton = canWrite && <button className="kb3 sm" disabled={busy || translating || translation.isPending} title="모델을 한 번 호출합니다(비용)" onClick={() => { setTranslating(true); void run('번역을 만들었습니다.', signal => createTicketTranslation(ticketId, signal)).then(() => translation.refetch()).finally(() => setTranslating(false)); }}>✦ 한국어 번역</button>;
+  const mailCard = (subject: string, body: string, when?: ReactNode) => data && <div className="mail-card">
+    <div className="mail-head">
+      <span className="avatar" aria-hidden="true">{(wf?.mail_origin?.sender_address ?? data.customer_external_id).slice(0, 1).toUpperCase()}</span>
+      <div className="who"><b>{wf?.mail_origin?.sender_address ?? data.customer_external_id}</b><small>{CHANNEL_LABEL[data.channel as keyof typeof CHANNEL_LABEL] ?? data.channel} · {data.customer_external_id}</small></div>
+      <span className="when">{when ?? formatStamp(data.received_at)}</span>
+    </div>
+    <div className="mail-subj">{subject}</div>
+    <div className="mail">{body}</div>
+    {(data.error_code_reported || data.fw_version_reported) && <div className="mail-tags">
+      {data.error_code_reported && <span className="tag"><small>보고된 오류 코드</small>{data.error_code_reported}</span>}
+      {data.fw_version_reported && <span className="tag"><small>FW</small>{data.fw_version_reported}</span>}
+    </div>}
+  </div>;
   const code = data ? data.external_id ?? data.id.slice(0, 8) : '';
 
   return <main className="td3">
@@ -464,23 +486,20 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
                 : <p className="meta">아직 요약이 없습니다{canWrite ? '. 위의 "✦ AI 요약"을 누르면 만듭니다.' : ''}</p>}
             </div>
             {lang === 'ko'
-              ? <div className="meta">한국어 번역 기능은 아직 없습니다. 위 AI 요약이 한국어입니다.</div>
-              : <>
-                {/* 메일처럼 보이는 원문 카드: 보낸 사람·경로·시각, 제목, 본문, 고객이 적은 오류 코드·FW */}
-                <div className="mail-card">
-                  <div className="mail-head">
-                    <span className="avatar" aria-hidden="true">{(wf?.mail_origin?.sender_address ?? data.customer_external_id).slice(0, 1).toUpperCase()}</span>
-                    <div className="who"><b>{wf?.mail_origin?.sender_address ?? data.customer_external_id}</b><small>{CHANNEL_LABEL[data.channel as keyof typeof CHANNEL_LABEL] ?? data.channel} · {data.customer_external_id}</small></div>
-                    <span className="when">{formatStamp(data.received_at)}</span>
-                  </div>
-                  <div className="mail-subj">{data.subject || '(제목 없음)'}</div>
-                  <div className="mail">{data.body}</div>
-                  {(data.error_code_reported || data.fw_version_reported) && <div className="mail-tags">
-                    {data.error_code_reported && <span className="tag"><small>보고된 오류 코드</small>{data.error_code_reported}</span>}
-                    {data.fw_version_reported && <span className="tag"><small>FW</small>{data.fw_version_reported}</span>}
-                  </div>}
-                </div>
-              </>}
+              ? koSource
+                // 원문이 한국어면 번역하지 않는다. 한국어 탭에도 원문을 그대로 보인다.
+                ? <><div className="meta" style={{ marginBottom: 6 }}>원문이 한국어입니다. 번역 없이 원문을 보입니다.</div>{mailCard(data.subject || '(제목 없음)', data.body)}</>
+                : translating ? <div className="sk-lines" aria-busy="true"><span>AI가 원문을 한국어로 옮기는 중…</span><i /><i /><i /></div>
+                : translationRecord ? <>
+                  {translationRecord.stale && <div className="meta" style={{ marginBottom: 6 }}>원문이 바뀌어 다시 번역할 수 있습니다 {translateButton}</div>}
+                  {mailCard(translationRecord.subject_ko || '(제목 없음)', translationRecord.body_ko, <><span className="ai">✦ AI 번역</span> {hm(translationRecord.created_at)}</>)}
+                  <div className="meta" style={{ marginTop: 6 }}>AI 번역은 참고용입니다. 숫자·코드·판단은 원문이 기준입니다.</div>
+                </>
+                : translationOff ? <div className="meta">번역 기능이 이 배포에서 꺼져 있습니다</div>
+                : translation.isPending ? <div className="meta">불러오는 중</div>
+                : <div className="meta">아직 번역이 없습니다 {translateButton}</div>
+              // 메일처럼 보이는 원문 카드: 보낸 사람·경로·시각, 제목, 본문, 고객이 적은 오류 코드·FW
+              : mailCard(data.subject || '(제목 없음)', data.body)}
             {wf && ((wf.customer_sends ?? []).length > 0 || (wf.customer_replies ?? []).length > 0) && <div className="thread">
               <div className="meta" style={{ marginBottom: 4 }}>이후 대화</div>
               <CustomerThread original={data} workflow={wf} actions={sendActions} />

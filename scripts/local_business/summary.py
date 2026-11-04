@@ -1,7 +1,8 @@
 """Local-only synchronous summary bridge; model keys never enter an API container.
 
-The same bridge also serves the improvement-request AI draft (KAN-115) on its own path with its
-own prompt check and output schema; both share the driver's lock, limits and usage accounting.
+The same bridge also serves the improvement-request AI draft (KAN-115) and the ticket Korean
+translation on their own paths with their own prompt check and output schema; all share the
+driver's lock, limits and usage accounting.
 
 Only the explicit CS driver serves this authenticated Docker-internal endpoint. Calls
 share its worker lock, job/call limits, reservations and fail-closed usage accounting.
@@ -27,6 +28,9 @@ from backend.engine.cs.improvement_drafting import instruction as draft_instruct
 from backend.engine.cs.improvement_drafting import render_prompt as render_draft_prompt
 from backend.engine.cs.providers import GenerationKnobs, gemini_text_provider
 from backend.engine.cs.summary import INSTRUCTION, SummaryOutput, render_prompt
+from backend.engine.cs.translation import INSTRUCTION as TRANSLATION_INSTRUCTION
+from backend.engine.cs.translation import TranslationOutput
+from backend.engine.cs.translation import render_prompt as render_translation_prompt
 from backend.shared import ai
 from backend.shared.errors import ApplicationError
 from scripts.local_business.permit import Denied
@@ -53,7 +57,7 @@ def unavailable():
 def bridge_provider(state: Path, endpoint: str = "/summary"):
     """Read the current driver capability per call; cached summaries need no driver.
 
-    endpoint is "/summary" or "/improvement-draft" (KAN-115).
+    endpoint is "/summary", "/improvement-draft" (KAN-115) or "/translation".
     """
 
     def provide(prompt):
@@ -132,6 +136,13 @@ def metered_draft_provider(permit, token, control, model):
     )
 
 
+def metered_translation_provider(permit, token, control, model):
+    """The ticket Korean translation: its schema and a larger output limit (whole bodies)."""
+    return metered_provider(
+        permit, token, control, model, response_schema=TranslationOutput, max_output_tokens=16384
+    )
+
+
 def checked_prompt(path, prompt):
     """Accept only the exact prompt the C/S route renders for that path; else ValueError."""
     if path == "/summary":
@@ -146,6 +157,12 @@ def checked_prompt(path, prompt):
             raise ValueError
         draft = ImprovementDraftInput.model_validate_json(prompt[len(prefix) :])
         rendered = render_draft_prompt(draft)
+    elif path == "/translation":
+        prefix = TRANSLATION_INSTRUCTION + "\n\n입력:\n"
+        if not prompt.startswith(prefix):
+            raise ValueError
+        payload = ClassificationInput.model_validate_json(prompt[len(prefix) :])
+        rendered = render_translation_prompt(payload)
     else:
         raise ValueError
     if rendered != prompt:
@@ -164,6 +181,7 @@ class SummaryBridge:
         address=("0.0.0.0", PORT),
         factory=metered_provider,
         draft_factory=metered_draft_provider,
+        translation_factory=metered_translation_provider,
     ):
         from scripts.local_business.runtime import local_only
 
@@ -200,7 +218,11 @@ class SummaryBridge:
                     self.send_error(503)
                     return
                 try:
-                    make = factory if self.path == "/summary" else draft_factory
+                    make = {
+                        "/summary": factory,
+                        "/improvement-draft": draft_factory,
+                        "/translation": translation_factory,
+                    }[self.path]
                     result = make(permit, token, control, model)(prompt)
                     usage = asdict(result.usage)
                     usage.pop("billable_input_tokens", None)

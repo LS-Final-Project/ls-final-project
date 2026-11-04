@@ -65,6 +65,14 @@
       "query": []
     },
     {
+      "path": "/api/v1/cs/tickets/{uuid}/translation",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "query": []
+    },
+    {
       "path": "/api/v1/cs/tickets/{uuid}/units",
       "methods": [
         "GET"
@@ -725,6 +733,17 @@
     {
       "method": "DELETE",
       "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/summary",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/translation",
+      "forward": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/translation",
       "forward": false,
       "status": 405
     },

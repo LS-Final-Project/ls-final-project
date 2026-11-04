@@ -8,6 +8,7 @@ from backend.api.cs.improvements.ai_draft import (
 )
 from backend.api.cs.routes import router
 from backend.api.cs.summary.routes import CsSummarySettings, configure_summary
+from backend.api.cs.translation.routes import CsTranslationSettings, configure_translation
 from backend.api.cs.workflow.mail import CustomerMailSettings, configure_customer_mail
 from backend.engine.cs.rules import fault_catalog, firmware_releases, load_policy
 from backend.shared.settings import Settings
@@ -38,6 +39,7 @@ def create_app(
     configure_customer_mail(app, customer_mail or CustomerMailSettings())
     configure_analysis_jobs(app, CsAnalysisSettings())
     configure_summary(app, CsSummarySettings())
+    configure_translation(app, CsTranslationSettings())
     configure_improvement_draft(app, CsImprovementDraftSettings())
     app.include_router(router)
     return app
