@@ -30,7 +30,7 @@ QUESTION_COLUMNS = (
     "q.derivation_kind, q.known_at, q.created_by, q.created_at, q.follows_question_id, "
     "r.received_at AS reply_received_at, r.recorded_at AS reply_recorded_at, r.rnd_feasibility, "
     "r.id AS reply_id, r.reply_text, r.source_ref AS reply_source_ref, r.recorded_by, "
-    "r.earliest_available_on, r.schedule_fits"
+    "r.earliest_available_on, r.schedule_fits, r.value_candidate"
 )
 
 
@@ -688,6 +688,7 @@ async def insert_reply(
     earliest_available_on: date | None,
     schedule_fits: bool | None,
     actor: UUID,
+    value_candidate: Mapping[str, Any] | None = None,
 ) -> Row:
     """회신을 저장하고 질문을 REPLIED·판본+1로 바꾼다. 질문 하나에 회신은 하나다.
 
@@ -711,7 +712,8 @@ async def insert_reply(
     await conn.execute(
         "INSERT INTO tft.question_replies (id, question_id, reply_text, received_at, source_ref, "
         "recorded_by, rnd_feasibility, earliest_available_on, schedule_fits, data_origin, "
-        "derivation_kind, known_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'PROVIDED',%s)",
+        "derivation_kind, known_at, value_candidate) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'PROVIDED',%s,%s)",
         (
             uuid4(),
             question["id"],
@@ -724,6 +726,7 @@ async def insert_reply(
             schedule_fits,
             question["data_origin"],
             received_at,
+            Jsonb(dict(value_candidate)) if value_candidate is not None else None,
         ),
     )
     await conn.execute(

@@ -203,6 +203,10 @@ def test_customer_reply_returns_a_value_candidate_and_follow_up_links(client, ga
         "reason": None,
     }
     assert data["created_proposal"] is None
+    # 작업 공간은 질문 목록으로 회신을 읽는다. 저장한 후보가 그대로 나와야 한다.
+    listed = call(client, "GET", f"/projects/{gap['project']}/questions", OWNER).json()["data"]
+    (row,) = [q for q in listed["items"] if q["question_id"] == asked["question_id"]]
+    assert row["value_candidate"] == data["value_candidate"]
     with psycopg.connect(admin) as conn:
         assert conn.execute(
             "SELECT value FROM tft.requirement_versions WHERE requirement_id=%s",

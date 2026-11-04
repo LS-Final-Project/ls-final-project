@@ -128,6 +128,7 @@ def question_out(row: Mapping[str, Any]) -> s.Question:
         target_dept=row["target_dept"],
         rnd_feasibility=row["rnd_feasibility"],
         follows_question_id=row.get("follows_question_id"),
+        value_candidate=row.get("value_candidate"),
     )
 
 
@@ -488,12 +489,10 @@ async def reply_question(
                 earliest_available_on=payload.earliest_available_on,
                 schedule_fits=payload.schedule_fits,
                 actor=principal.user_id,
+                value_candidate=candidate.model_dump(mode="json") if candidate else None,
             )
             # A reply records evidence. Only an explicit reviewed proposal can resolve items.
-            result = s.QuestionReplyResult(
-                **question_out(replied).model_dump(),
-                value_candidate=candidate.model_dump() if candidate else None,
-            )
+            result = s.QuestionReplyResult(**question_out(replied).model_dump())
             return result.model_dump(mode="json")
 
         result = await commands.run_command(
