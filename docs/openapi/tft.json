@@ -1401,7 +1401,9 @@
               "change_verdict",
               "undo",
               "review_confirm",
-              "review_return"
+              "review_return",
+              "exclude_requirement",
+              "restore_requirement"
             ],
             "title": "Action",
             "type": "string"
@@ -1530,7 +1532,10 @@
               "change_verdict",
               "undo",
               "review_confirm",
-              "review_return"
+              "review_return",
+              "exclude_requirement",
+              "restore_requirement",
+              "add_requirement"
             ],
             "title": "Action",
             "type": "string"
@@ -1594,7 +1599,10 @@
                   "change_verdict",
                   "undo",
                   "review_confirm",
-                  "review_return"
+                  "review_return",
+                  "exclude_requirement",
+                  "restore_requirement",
+                  "add_requirement"
                 ],
                 "type": "string"
               },
@@ -1603,6 +1611,50 @@
               }
             ],
             "title": "Action"
+          },
+          "change_action": {
+            "anyOf": [
+              {
+                "enum": [
+                  "confirm_met",
+                  "record_deviation",
+                  "request_check",
+                  "add_query",
+                  "select_partner",
+                  "ask_rnd",
+                  "assign",
+                  "change_verdict",
+                  "undo",
+                  "review_confirm",
+                  "review_return",
+                  "exclude_requirement",
+                  "restore_requirement",
+                  "add_requirement"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Action"
+          },
+          "change_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Id"
+          },
+          "change_reviewed": {
+            "default": false,
+            "title": "Change Reviewed",
+            "type": "boolean"
           },
           "decided": {
             "title": "Decided",
@@ -1631,6 +1683,27 @@
               }
             ],
             "title": "Decision Id"
+          },
+          "excluded": {
+            "default": false,
+            "title": "Excluded",
+            "type": "boolean"
+          },
+          "excluded_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Excluded Reason"
+          },
+          "manually_added": {
+            "default": false,
+            "title": "Manually Added",
+            "type": "boolean"
           },
           "needed": {
             "title": "Needed",
@@ -3555,6 +3628,195 @@
           "unknown"
         ],
         "title": "MandatoryCheck",
+        "type": "object"
+      },
+      "ManualRequirementRequest": {
+        "additionalProperties": false,
+        "description": "\uc6d0\ubb38\uc5d0\uc11c \uace0\ub978 \uae00\ub85c \uc694\uad6c\ub97c \uc9c1\uc811 \ucd94\uac00\ud55c\ub2e4(KAN-225). \uac12\uc740 \uc0ac\ub78c\uc774 \ub123\uace0 AI\ub294 \uc4f0\uc9c0 \uc54a\ub294\ub2e4.",
+        "properties": {
+          "allow_duplicate": {
+            "default": false,
+            "title": "Allow Duplicate",
+            "type": "boolean"
+          },
+          "attribute": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Attribute",
+            "type": "string"
+          },
+          "attribute_key": {
+            "default": "OTHER",
+            "enum": [
+              "form",
+              "rated_max_voltage",
+              "bil",
+              "short_time_withstand_current",
+              "rated_current",
+              "arc_resistant",
+              "internal_arc_classification",
+              "secondary_voltage",
+              "primary_voltage",
+              "rated_power",
+              "insulation_class",
+              "impedance",
+              "tap",
+              "forced_air_capacity_increase",
+              "protection_functions",
+              "arc_flash_reduction",
+              "winding_material",
+              "winding_temperature_sensor",
+              "communication_interface",
+              "warranty_months",
+              "rated_operational_voltage",
+              "busbar_rated_current",
+              "power_frequency_withstand",
+              "breaking_capacity_icu",
+              "breaking_capacity_ics",
+              "rated_short_circuit_breaking_current",
+              "frame_size",
+              "number_of_poles",
+              "vector_group",
+              "protection_degree",
+              "OTHER"
+            ],
+            "title": "Attribute Key",
+            "type": "string"
+          },
+          "clause_id": {
+            "format": "uuid",
+            "title": "Clause Id",
+            "type": "string"
+          },
+          "conditions": {
+            "items": {
+              "$ref": "#/components/schemas/Condition"
+            },
+            "maxItems": 10,
+            "title": "Conditions",
+            "type": "array"
+          },
+          "equipment": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Equipment"
+          },
+          "equipment_family": {
+            "anyOf": [
+              {
+                "enum": [
+                  "CONTROL",
+                  "DRIVE",
+                  "ESS",
+                  "HMI",
+                  "LV_BREAKER",
+                  "LV_SWITCHGEAR",
+                  "METER",
+                  "MV_EQUIP",
+                  "PLC",
+                  "PV",
+                  "TRANSFORMER",
+                  "UPS",
+                  "OTHER"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Equipment Family"
+          },
+          "kind": {
+            "enum": [
+              "SPEC",
+              "TASK",
+              "DOCUMENT"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "necessity": {
+            "default": "MANDATORY",
+            "enum": [
+              "MANDATORY",
+              "PREFERRED",
+              "CONDITION_BOUND",
+              "UNDETERMINED"
+            ],
+            "title": "Necessity",
+            "type": "string"
+          },
+          "operator": {
+            "default": "EQ",
+            "enum": [
+              "EQ",
+              "GTE",
+              "LTE",
+              "RANGE",
+              "TEXT"
+            ],
+            "title": "Operator",
+            "type": "string"
+          },
+          "quote": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Quote",
+            "type": "string"
+          },
+          "task": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "clause_id",
+          "quote",
+          "kind",
+          "attribute"
+        ],
+        "title": "ManualRequirementRequest",
         "type": "object"
       },
       "OptionGate": {
@@ -13099,7 +13361,7 @@
     },
     "/api/v1/tft/projects/{project_id}/requirements": {
       "get": {
-        "description": "12. \uc694\uad6c \ubaa9\ub85d\u00b7\ud544\ud130 10\uac1c.",
+        "description": "12. \uc694\uad6c \ubaa9\ub85d\u00b7\ud544\ud130 11\uac1c. \ube80 \uc694\uad6c\ub294 excluded=true\uc77c \ub54c\ub9cc \ub098\uc628\ub2e4(KAN-225 \ubcc4\ub3c4 \ubaa9\ub85d).",
         "operationId": "tft_list_rfp_requirements",
         "parameters": [
           {
@@ -13319,6 +13581,16 @@
               ],
               "title": "Unresolved Mandatory"
             }
+          },
+          {
+            "in": "query",
+            "name": "excluded",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Excluded",
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -13394,6 +13666,119 @@
           }
         },
         "summary": "List Requirements",
+        "tags": [
+          "rfp"
+        ]
+      },
+      "post": {
+        "description": "\uc6d0\ubb38\uc5d0\uc11c \uace0\ub978 \uae00\ub85c \uc694\uad6c\ub97c \uc9c1\uc811 \ucd94\uac00\ud558\uace0 \uaddc\uce59 \ube44\uad50\ub85c \ubc14\ub85c \ud310\uc815\ud55c\ub2e4(KAN-225).",
+        "operationId": "tft_add_rfp_requirement",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualRequirementRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_DecisionResult_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Add Requirement",
         "tags": [
           "rfp"
         ]

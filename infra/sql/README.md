@@ -450,3 +450,11 @@ TFT `20261121_KAN-218_decisions.sql`은 `20261120_KAN-188_workflow_snapshot.sql`
 
 TFT `20261122_KAN-224_question_follow_up.sql`은 `20261121_KAN-218_decisions.sql` 뒤에 적용한다.
 `tft.customer_questions.follows_question_id` 열 하나(원래 질의 참조, 비울 수 있음)만 더한다. 다시 적용해도 깨지지 않는다.
+
+## KAN-225 원문에서 요구 직접 추가와 요구에서 빼기
+
+TFT `20261122_KAN-225_manual_requirements.sql`은 `20261121_KAN-218_decisions.sql` 뒤에 적용한다.
+`requirement_decisions`의 연산 CHECK에 `add_requirement`·`exclude_requirement`·`restore_requirement`를 더한다. 이 CHECK는
+KAN-218만 정의하고(CREATE TABLE IF NOT EXISTS) 이전 마이그레이션 재적용이 다시 정의하지 않으므로 새 값의 행이 있어도 깨지지
+않는다. tft_worker에 빼기 표시 계산 열(id·requirement_id·detail·created_at) SELECT를 주고, `20261104_KAN-199_tft_worker.sql`
+재적용도 같은 권한을 복구한다. 표·행은 더하거나 지우지 않는다. 규칙은 [RFP 데이터 구조](../../contracts/tft/rfp-data.md)다.

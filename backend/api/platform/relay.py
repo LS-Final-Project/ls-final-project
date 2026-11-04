@@ -150,7 +150,7 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ("/api/v1/tft/projects/{uuid}/process", ("POST",), ()),
     (
         "/api/v1/tft/projects/{uuid}/requirements",
-        ("GET",),
+        ("GET", "POST"),
         (
             "limit",
             "cursor",
@@ -164,6 +164,7 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
             "has_open_question",
             "next_owner_field",
             "unresolved_mandatory",
+            "excluded",
         ),
     ),
     ("/api/v1/tft/requirements/{uuid}", ("GET",), ()),

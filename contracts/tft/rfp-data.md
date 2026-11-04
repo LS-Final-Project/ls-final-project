@@ -347,3 +347,41 @@ query: `kind`(아래 값을 쉼표로 이음, 예 `kind=decision,recompared`, �
 판단을 바꾸는 결정은 결정 행과 그 결정이 만든 판본 행이 같은 시각으로 둘 다 나온다. 재비교는 `requirement_recomparisons`가
 아니라 감사 행을 읽는다. 그 표에는 제안 승인 때 물려받은 비교 사본도 쌓이고 행위자가 없어서다. 직접 추가·빼기(KAN-225)처럼
 아직 저장 표가 없는 사건은 나오지 않으며, 표가 생기면 `SOURCES`에 SELECT 하나를 더한다.
+
+### 원문에서 요구 직접 추가와 요구에서 빼기 (KAN-225, 2026-11-04 사용자 확정)
+
+`POST /projects/{id}/requirements`는 원문에서 고른 글로 요구를 직접 추가한다. 본문은 `{clause_id, quote, kind(SPEC·TASK·
+DOCUMENT), equipment?, task?, attribute, attribute_key?, equipment_family?, value?, unit?, operator?, conditions?, necessity?,
+allow_duplicate?}`이고 Idempotency-Key가 필수다. 값은 사람이 넣고 AI는 쓰지 않는다. 응답은 결정 결과(`action=add_requirement`,
+`requirement_id`는 새 요구)다. 권한은 결정과 같다(담당 sales만, 책임자 403 `TFT_DECISION_SALES_ONLY`).
+
+- 근거 검사는 추출과 같다(공백 하나·곧은 따옴표·대소문자 무시). 고른 글이 조항 현행 텍스트에 없으면 422
+  `TFT_QUOTE_NOT_IN_CLAUSE`, 값이 고른 글에 없으면 422 `TFT_VALUE_NOT_IN_QUOTE`, 다른 프로젝트 조항은 404다.
+  조항 현행 텍스트는 `tft.clauses.text`라 표 행(table_rows)의 글은 아직 고를 수 없다.
+- 설비·속성·값이 같은 빼지 않은 요구가 있으면(속성은 원문 표현이나 비교 어휘 키가 같으면 같다) 409
+  `TFT_REQUIREMENT_DUPLICATE`, `details[].reason`이 그 요구 ID다. `allow_duplicate=true`로 다시 보내면 추가한다.
+- 판본 1은 `human_input`·`PROVIDED`(판단자 기록), 요구 행 `derivation_kind=PROVIDED`가 "직접 추가" 표시다
+  (`decision.manually_added`). 코드는 `문서판본8자:조항:m순번`이라 같은 조항의 추출 요구 뒤에 정렬된다.
+- 판정은 처리와 같은 규칙 비교(`compare_in_family`, 모델 호출 없음)와 보완 선택지다. 계열·비교 어휘 키를 고르지 않으면
+  비교하지 않아 근거 부족이다. 규격 체계는 NONE, 지정품·허용 오차는 받지 않는다.
+
+요구에서 빼기·되살리기는 결정 경로의 `exclude_requirement`(사유 `text` 필수)·`restore_requirement`다. 요구 행과 판본은
+지우거나 올리지 않는다. 뺐는지는 그 요구의 결정 기록 중 `detail.excluded`가 있는 마지막 행이다(`repository.EXCLUDED`).
+
+- 요구 목록은 기본으로 뺀 요구를 숨기고 `excluded=true`면 뺀 요구만 낸다(별도 목록). 상세·목록의 `decision`에
+  `excluded`, `excluded_reason`을 낸다.
+- 뺀 요구는 판정·결정 대상이 아니다(`needed=false`, `undecided`·`deviation_missing`·보낼 질의 `open_queries`에서 빠진다).
+  초안·출력(`drafts.requirements_of`)과 맥락 정리(`context_repository.load_source`)에도 넣지 않는다. 초안 입력 지문은 뺀 요구에만
+  `excluded:true`를 더해, 빼지 않은 요구가 있는 기존 초안은 STALE이 되지 않는다.
+- 뺀 요구에는 되살리기와 책임자 확인·되돌려 보내기만 한다(그 밖은 409 `TFT_REQUIREMENT_EXCLUDED`). 빼지 않은 요구를 되살리면
+  409 `TFT_REQUIREMENT_NOT_EXCLUDED`다.
+
+직접 추가·빼기·되살리기도 책임자 확인 대상이다. `decision.change_id`·`change_action`·`change_reviewed`가 마지막 것이고,
+`review_confirm`·`review_return`의 `decision_id`로 받는다. `review_pending`은 확인 안 된 결정(뺀 요구 제외)과 확인 안 된
+추가·빼기·되살리기를 함께 센다. 되돌려 보내기는 추가와 되살리기를 빼고, 빼기를 되살린다(요약 "책임자가 되돌림: …").
+
+재처리 보존: 처리 작업은 처리하지 않은 문서 판본의 요구만 새로 쓰고 기존 요구 행·판본을 지우거나 고치지 않는다
+(`tft.requirement_versions`를 쓰는 곳은 처리의 판본 1과 승인한 제안의 새 판본뿐이다). 그래서 직접 추가한 요구와 빼기 기록은
+재처리 뒤에도 그대로이고, 재처리가 다시 만드는 초안도 뺀 요구를 넣지 않는다. 처리 작업(tft_worker)은 빼기 표시를 계산하는
+`requirement_decisions` 열(id·requirement_id·detail·created_at)만 읽는다. 새 문서 판본을 처리해 같은 내용의 요구가 다시
+추출되면 그 요구는 새 요구다(이전 판본 요구의 빼기는 따라가지 않는다).

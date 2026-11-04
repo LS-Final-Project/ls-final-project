@@ -27,7 +27,10 @@ async def inputs(conn: AsyncConnection[Row], project_id: UUID) -> dict[str, Any]
         "'comparisons',coalesce((SELECT jsonb_agg(p.id::text ORDER BY p.id) FROM tft.product_comparisons p WHERE p.requirement_id=r.id),'[]'), "
         "'recomparisons',coalesce((SELECT jsonb_agg(rc.id::text ORDER BY rc.id) FROM tft.requirement_recomparisons rc WHERE rc.requirement_id=r.id),'[]'), "
         "'selections',coalesce((SELECT max(ss.version) FROM tft.supplement_selections ss WHERE ss.requirement_id=r.id),0), "
-        "'questions',coalesce((SELECT jsonb_agg(jsonb_build_array(q.id::text,q.version) ORDER BY q.id) FROM tft.customer_questions q WHERE q.requirement_id=r.id),'[]')) AS state "
+        "'questions',coalesce((SELECT jsonb_agg(jsonb_build_array(q.id::text,q.version) ORDER BY q.id) FROM tft.customer_questions q WHERE q.requirement_id=r.id),'[]')) "
+        # KAN-225: 뺀 요구만 표시를 더한다(빼지 않은 요구의 키는 그대로라 기존 초안이 STALE이 되지 않는다).
+        f"|| CASE WHEN {repository.EXCLUDED.format(requirement='r.id')} "
+        "THEN jsonb_build_object('excluded',true) ELSE '{}'::jsonb END AS state "
         "FROM tft.requirements r WHERE r.project_id=%s ORDER BY r.id",
         (project_id,),
     )
