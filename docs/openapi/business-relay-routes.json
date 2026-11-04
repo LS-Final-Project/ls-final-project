@@ -590,6 +590,13 @@
       "query": []
     },
     {
+      "path": "/api/v1/tft/requirements/{uuid}/decision",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
       "path": "/api/v1/tft/requirements/{uuid}/supplement-options",
       "methods": [
         "GET"

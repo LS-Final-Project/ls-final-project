@@ -169,6 +169,7 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ("/api/v1/tft/requirements/{uuid}", ("GET",), ()),
     ("/api/v1/tft/requirements/{uuid}/comparison", ("GET",), ()),
     ("/api/v1/tft/requirements/{uuid}/recompare", ("POST",), ()),
+    ("/api/v1/tft/requirements/{uuid}/decision", ("POST",), ()),
     ("/api/v1/tft/requirements/{uuid}/supplement-options", ("GET",), ()),
     ("/api/v1/tft/requirements/{uuid}/supplement-selection", ("POST",), ()),
     ("/api/v1/tft/projects/{uuid}/supplement-selections/batch", ("POST",), ()),

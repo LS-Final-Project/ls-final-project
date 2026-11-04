@@ -854,3 +854,23 @@ async def recompare_requirement(
     return respond(
         request, await recompare(request, principal, requirement_id, payload, idempotency_key)
     )
+
+
+@router.post(
+    "/requirements/{requirement_id}/decision",
+    response_model=SuccessResponse[s.DecisionResult],
+    operation_id="tft_decide_rfp_requirement",
+)
+async def decide_requirement(
+    requirement_id: UUID,
+    payload: s.DecisionRequest,
+    idempotency_key: Key,
+    request: Request,
+    principal: User,
+) -> SuccessResponse[s.DecisionResult]:
+    """결정 패널의 결정 하나를 바로 확정한다(KAN-219)."""
+    from backend.api.tft.rfp.decisions import decide
+
+    return respond(
+        request, await decide(request, principal, requirement_id, payload, idempotency_key)
+    )

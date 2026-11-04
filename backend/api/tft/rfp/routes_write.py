@@ -95,7 +95,14 @@ async def project_fields(conn: AsyncConnection[Row], project_id: UUID) -> dict[s
         if row["latest_job_id"]
         else None,
         "integration_responsibility": integration_body(state),
+        "decision_gate": await decision_gate(conn, project_id),
     }
+
+
+async def decision_gate(conn: AsyncConnection[Row], project_id: UUID) -> s.DecisionGate:
+    from backend.api.tft.rfp.decisions import gate
+
+    return await gate(conn, project_id)
 
 
 async def project_detail(conn: AsyncConnection[Row], project_id: UUID) -> s.RfpProjectDetail:

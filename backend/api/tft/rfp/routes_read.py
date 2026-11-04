@@ -376,6 +376,12 @@ async def list_requirements(
         )
         page = rows[:limit]
         items = [await summary_of(conn, row) for row in page]
+        from backend.api.tft.rfp.decisions import states
+
+        found = await states(conn, project_id, [item.requirement_id for item in items])
+        for item in items:
+            if item.requirement_id in found:
+                item.bid_verdict, item.decision = found[item.requirement_id]  # type: ignore[assignment]
     more = len(rows) > limit
     return s.RequirementList(
         items=items,
@@ -523,9 +529,15 @@ async def requirement_out(
     parts = await repository.requirement_detail_parts(conn, requirement)
     state, question = await repository.rnd_check(conn, requirement_id)
     rereview = await repository.needs_rereview(conn, requirement_id)
-    return detail_of(
+    detail = detail_of(
         requirement, parts, state=state, rnd_question=question, needs_rereview=rereview
     )
+    from backend.api.tft.rfp.decisions import states
+
+    found = await states(conn, requirement["project_id"], [requirement_id])
+    if requirement_id in found:
+        detail.bid_verdict, detail.decision = found[requirement_id]  # type: ignore[assignment]
+    return detail
 
 
 async def get_requirement(

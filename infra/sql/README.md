@@ -438,3 +438,10 @@ T20 적용 뒤 T14 또는 T17을 각각 재적용해도 새 프로젝트 입력3
 원 요구/기존 판정·검토본은 변경하지 않으며, 검토본 저장 이후의 맥락 결과를 과거 DOCX에 소급하지 않는다.
 TFT 20261106·20261111의 명령 CHECK 재적용도 context.process 행을 보존하도록 허용집합을 확장했다.
 구체 계약은 [맥락별 정리](../../contracts/tft/rfp-context.md)다. 운영 적용과 복원 검증은 별도다.
+
+## KAN-218 결정 패널 저장
+
+TFT `20261121_KAN-218_decisions.sql`은 `20261120_KAN-188_workflow_snapshot.sql` 뒤에 적용한다. 새 표 셋
+(`requirement_decisions` 결정 기록과 멱등 결과, `deviations` 편차표 행, `question_withdrawals` 보내지 않을 질문)만
+더하고 기존 표·CHECK는 바꾸지 않는다. 연산 이름이나 질문 상태 값을 기존 CHECK에 더하면, 그 CHECK를 다시 정의하는
+20261106·20261111·20261119·20261120 재적용이 새 값의 행 때문에 실패하므로 새 표로 둔다. 앱은 SELECT·INSERT만 한다.

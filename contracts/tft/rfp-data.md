@@ -237,3 +237,56 @@ T20은 요구 판본 내부의 `kind`·`certification_listed`·`canonical_value`
 T14·T17 각각의 재적용은 T20의 프로젝트3열이 모두 존재할 때만 그 열의 worker SELECT를 복원한다. T20 이전 설치는 이를 건너뛰며 T20 자체 GRANT도 유지한다. 다른 프로젝트 열의 읽기나 UPDATE는 확장하지 않는다. 권한을 제거한 실제 processor 변이는 전용 DB CI에서 실패 상태·요구 rollback으로 검증하며 로컬 DB 미설정 시 미실행으로 구분한다.
 
 T20의 지역·제조사명 CHECK는 API와 같은 Unicode 공백 제거 후 1~200자 조건을 항목마다 확인한다. 목록은 null 또는 1차원 1~100개이며 null/공백 항목을 거부한다. 기존 T20의 약한 CHECK도 재적용 시 교체하며 값을 자동 수정하지 않는다. 순수 검증 함수 EXECUTE는 프로젝트를 쓰는 tft_app과 기존 output_status UPDATE를 수행하는 tft_worker에만 열고 PUBLIC에서는 회수한다.
+
+## 결정 패널 (KAN-218·219, 2026-11-04)
+
+`POST /requirements/{id}/decision`은 결정 하나를 바로 확정한다. 본문은 `{version, action, text?, target_dept?,
+candidate_codes?, holder?, owner?, verdict?, decision_id?}`이고 Idempotency-Key가 필수다. 권한은 제안 결정과 같다
+(담당 sales·책임자). 결정마다 `tft.requirement_decisions`에 한 행을 쓰고, 같은 사용자·키 재전송은 그 행의 결과를
+돌려준다(본문이 다르면 409 IDEMPOTENCY_CONFLICT). 판단을 바꾸는 결정은 웹 제안을 쓰고 같은 트랜잭션에서 승인한다
+(감사 `proposal.create`·`proposal.approve`, 승인 대기로 남지 않는다).
+
+| action | 쓰는 것 | 요약 |
+|---|---|---|
+| confirm_met | 제안+승인(EVIDENCE_FOUND) | 충족 확정 |
+| record_deviation | `tft.deviations` RECORDED(편차 내용 `text`) | 편차표에 기재 |
+| request_check | 내부 질문(`target_dept`, R&D 부서면 RND_FEASIBILITY, 아니면 TECH_ADVICE) OPEN | ○○에 확인 요청 |
+| add_query | AI 초안을 그대로 OPEN으로 확인하거나, 고친 문장은 새 고객 질문을 만들고 초안은 `question_withdrawals`로 보내지 않음 | 질의서에 넣음 |
+| select_partner | 보완 선택 EXTERNAL_PRODUCT(+역할 `text`). 규칙은 경로 16과 같다 | ○○ 선정 |
+| ask_rnd | 검토 부서의 R&D에 RND_FEASIBILITY 질문 | R&D에 개발 문의 |
+| assign | `holder` OWN이면 선택 없음, PARTNER면 TASK_SUBCONTRACT 선택. `owner`(SALES·TECH·PURCHASE)가 다르면 제안+승인으로 `next_owner_field` | 자사 수행, 기술 담당 |
+| change_verdict | 제안+승인(판정별 상태·담당). 결정으로 치지 않는다 | 판정 변경: 편차 |
+| undo | 대상의 반대 기록: 바꾼 판단을 되돌리는 제안+승인(대상 뒤 판본이 최신일 때만), 편차 WITHDRAWN, 회신 전 질문 철회. 보완 선택은 되돌리지 않는다 | 되돌림: … |
+
+과업 요구의 공동 수행은 받지 않는다. 과업 원인의 보완 경로는 자사 수행(OWN_DEVELOPMENT)과 과업 위탁(TASK_SUBCONTRACT)뿐이고
+공동 제안(JOINT_PROPOSAL)은 핵심 기기 부재 원인에만 있다(`backend/api/tft/rfp/supplement.py` FIRST_PATHS).
+자사 수행은 보완 선택을 저장하지 않는다(OWN_DEVELOPMENT 선택은 R&D 개발 질문을 자동으로 만들기 때문).
+
+### 입찰 판정·결정 상태·저장 조건 (KAN-220)
+
+요구 목록·상세는 `bid_verdict`(MET 충족, CONFIRM 충족 확인, DEVIATION 편차, QUERY 질의, SUPPLEMENT 보완, ASSIGN 배정)와
+`decision`(needed, decided, decision_id, action, summary, decided_at, reviewed)을 낸다. 계산은 `backend/api/tft/rfp/decisions.py`
+`bid_verdict`·`states` 한 곳이다.
+
+| 최신 판본 | 판정 |
+|---|---|
+| 지금 판본을 만든 판정 바꾸기 결정이 있음 | 그 판정 |
+| EVIDENCE_FOUND | 충족 |
+| SPEC_GAP | 편차 |
+| CONDITIONAL, 담당 CUSTOMER | 질의 |
+| CONDITIONAL, 최신 비교의 자사 후보가 모두 DIFFERS(자료 없음 제외) | 편차 |
+| CONDITIONAL, 형식(form) 요구 | 충족 확인 |
+| CONDITIONAL, 문자열 요구(operator TEXT) | 편차 |
+| CONDITIONAL, 미해결에 조건 차이가 있음(값 확인·단위 확인·지속시간 환산 항목 외) | 편차 |
+| 그 밖의 CONDITIONAL(숫자를 못 읽음 등) | 충족 확인 |
+| INSUFFICIENT_EVIDENCE, kind TASK·DOCUMENT 또는 과업 | 배정 |
+| INSUFFICIENT_EVIDENCE, 값 없음·보낼 고객 질문 있음·담당 CUSTOMER | 질의 |
+| 그 밖의 INSUFFICIENT_EVIDENCE | 보완 |
+
+결정함은 되돌리지 않은 결정(판정 바꾸기 제외)이 지금 최신 판본에서 한 것일 때다. 판본이 바뀌면(재비교 승인, 재처리, 판정 바꾸기)
+다시 결정 대상이 된다. 충족은 결정이 필요 없다.
+
+프로젝트 상세의 `decision_gate`: `undecided`(결정이 필요한데 결정하지 않은 요구), `deviation_missing`(편차인데 편차 기재나
+확인 요청으로 결정하지 않은 요구와, 최신 편차 행이 RECORDED인데 그 판본이 최신이 아닌 요구), `open_queries`(보낼 고객 질문 중
+OPEN), `review_pending`(결정했는데 책임자 확인이 없는 요구). 책임자 확인·되돌려 보내기는 결정 경로의 `review_confirm`·
+`review_return`(대상 `decision_id`, 프로젝트 책임자만)이다. 되돌려 보내기는 되돌리기와 같은 반대 기록을 쓴다.

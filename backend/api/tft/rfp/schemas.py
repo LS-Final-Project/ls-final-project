@@ -288,6 +288,7 @@ class RfpProjectDetail(RfpProjectSummary):
     integration_responsibility: IntegrationResponsibility = Field(
         default_factory=IntegrationResponsibility
     )
+    decision_gate: "DecisionGate" = Field(default_factory=lambda: DecisionGate())
 
 
 # --- 문서·조항 (§4.2) -------------------------------------------------------------------
@@ -510,6 +511,8 @@ class RequirementSummary(Model):
     provenance_kind: ProvenanceKind
     rnd_check: RndCheck = "NOT_REQUIRED"
     is_designated_item: bool = False
+    bid_verdict: "BidVerdict | None" = None
+    decision: "DecisionState | None" = None
 
 
 class RequirementList(Model):
@@ -533,6 +536,8 @@ class RequirementDetail(Provenance):
     links: RequirementLinks
     needs_rereview: bool
     needs_review: bool = False
+    bid_verdict: "BidVerdict | None" = None
+    decision: "DecisionState | None" = None
 
 
 # --- 자사 비교 (§4.5) -------------------------------------------------------------------
@@ -824,6 +829,8 @@ class ProposedChange(Model):
     reason: str | None = None
     conditions: list[Condition] | None = None
     unresolved: list[str] | None = None
+    # 담당 부서(영업·기술·구매·고객·R&D). 값이 오면 승인한 판본의 next_owner_field가 된다.
+    next_owner_field: NextOwner | None = None
 
 
 class ProposalCreate(Model):
@@ -1048,3 +1055,94 @@ class RecompareRequest(Model):
 class RecompareResult(Model):
     comparison: Comparison
     proposal: Proposal | None = None
+
+
+# --- 결정 패널 (KAN-219) -------------------------------------------------------------------
+
+# 입찰 판정. 충족·충족 확인·편차·질의·보완·배정.
+BidVerdict = Literal["MET", "CONFIRM", "DEVIATION", "QUERY", "SUPPLEMENT", "ASSIGN"]
+DecisionAction = Literal[
+    "confirm_met",
+    "record_deviation",
+    "request_check",
+    "add_query",
+    "select_partner",
+    "ask_rnd",
+    "assign",
+    "change_verdict",
+    "undo",
+    "review_confirm",
+    "review_return",
+]
+# 과업 수행 주체. 공동 수행(JOINT_PROPOSAL)은 과업 요구의 보완 경로가 아니라 받지 않는다(supplement.FIRST_PATHS).
+ExecutionHolder = Literal["OWN", "PARTNER"]
+AssignOwner = Literal["SALES", "TECH", "PURCHASE"]
+REQUIRED_BY_ACTION: dict[str, tuple[str, ...]] = {
+    "record_deviation": ("text",),
+    "request_check": ("text", "target_dept"),
+    "select_partner": ("text", "candidate_codes"),
+    "assign": ("holder", "owner"),
+    "change_verdict": ("verdict",),
+    "undo": ("decision_id",),
+    "review_confirm": ("decision_id",),
+    "review_return": ("decision_id",),
+}
+
+
+class DecisionRequest(Model):
+    """결정 하나. 누르면 바로 확정한다(제안 작성과 승인을 같은 트랜잭션에서)."""
+
+    version: int = Field(ge=1)
+    action: DecisionAction
+    # 편차 내용·확인 요청·질의 문장·협력사 역할. AI 초안을 사람이 고친 한 줄.
+    text: str | None = Field(default=None, min_length=1, max_length=2000)
+    target_dept: str | None = Field(default=None, min_length=1, max_length=32)
+    candidate_codes: list[str] = Field(default_factory=list, max_length=10)
+    holder: ExecutionHolder | None = None
+    owner: AssignOwner | None = None
+    verdict: BidVerdict | None = None
+    decision_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def check_action_fields(self) -> Self:
+        missing = [f for f in REQUIRED_BY_ACTION.get(self.action, ()) if not getattr(self, f)]
+        if missing:
+            raise ValueError(f"{self.action} needs {', '.join(missing)}")
+        return self
+
+
+class DecisionResult(Model):
+    decision_id: UUID
+    action: DecisionAction
+    summary: str
+    requirement_id: UUID
+    requirement_version: int
+    question_id: UUID | None = None
+
+
+class DecisionState(Model):
+    """요구의 결정 상태(KAN-220). 저장된 결정 기록에서 계산한다."""
+
+    # 충족은 결정이 필요 없다. 그 밖의 판정은 지금 판본에 결정 기록이 있어야 결정함이다.
+    needed: bool
+    decided: bool
+    decision_id: UUID | None = None
+    action: DecisionAction | None = None
+    summary: str | None = None
+    decided_at: datetime | None = None
+    # 책임자가 출력 전에 확인했는지.
+    reviewed: bool = False
+
+
+class DecisionGate(Model):
+    """검토본 저장 조건과 책임자 확인 대기(KAN-220). 0이면 통과다."""
+
+    undecided: int = 0
+    deviation_missing: int = 0
+    open_queries: int = 0
+    review_pending: int = 0
+
+
+RequirementSummary.model_rebuild()
+RequirementDetail.model_rebuild()
+RfpProjectDetail.model_rebuild()
