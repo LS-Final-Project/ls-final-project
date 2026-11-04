@@ -37,6 +37,10 @@ class TicketSummary(BaseModel):
     id: UUID
     # Chat inquiries have no subject in the provided data.
     subject: str | None
+    subject_ko: str | None = Field(
+        default=None,
+        description="Korean subject from the latest valid translation (KAN-213). None if not translated.",
+    )
     data_origin: DataOrigin
     # Manual input may have no source ID; the other fields are NOT NULL in cs.tickets.
     external_id: str | None

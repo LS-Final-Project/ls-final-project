@@ -110,6 +110,9 @@ class CustomerTicket(BaseModel):
     channel: str
     product_code: str
     subject: str | None
+    subject_ko: str | None = Field(
+        default=None, description="Korean subject from the latest valid translation (KAN-213)."
+    )
     workflow_state: WorkflowState
     data_origin: str
 

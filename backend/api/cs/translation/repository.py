@@ -1,13 +1,17 @@
 """한국어 번역 시도 저장(추가만). 표는 infra/migrations/cs C28."""
 
+import logging
 from typing import Any
 from uuid import UUID
 
+import psycopg
 from psycopg import AsyncConnection
 
 from backend.api.cs.summary.repository import USAGE
+from backend.engine.cs.translation import build_translation_input, input_sha256
 
 Row = dict[str, Any]
+logger = logging.getLogger(__name__)
 COLUMNS = (
     "id, ticket_id, outcome, error_code, subject_ko, body_ko, input_version, input_sha256, "
     "prompt_version, requested_model, model_version, created_at"
@@ -62,3 +66,41 @@ async def insert(conn: AsyncConnection[Row], values: Row) -> Row | None:
         tuple(values.get(name) for name in names),
     )
     return await cursor.fetchone()
+
+
+async def korean_subjects(conn: AsyncConnection[Row], ticket_ids: list[UUID]) -> dict[UUID, str]:
+    """목록에 보일 한국어 제목. 지금 원문과 같은 입력으로 만든 가장 최근의 성공한 번역만 쓴다.
+
+    문의 처리 화면의 stale 판단과 같은 기준(마스킹한 입력의 SHA-256)이다. 접수 뒤 제목·본문을
+    고쳤으면 옛 번역 제목을 보이지 않는다. 번역 표(C28)가 아직 없는 DB에서는 빈 값이다.
+    """
+    if not ticket_ids:
+        return {}
+    try:
+        async with conn.transaction():
+            cursor = await conn.execute(
+                "SELECT tr.ticket_id, tr.subject_ko, tr.input_sha256, "
+                "t.channel, t.body_language, t.subject, t.body "
+                "FROM cs.ticket_translations tr JOIN cs.tickets t ON t.id = tr.ticket_id "
+                "WHERE tr.ticket_id = ANY(%s) AND tr.outcome = 'VALID' "
+                "ORDER BY tr.created_at DESC, tr.id DESC",
+                (ticket_ids,),
+            )
+            rows = await cursor.fetchall()
+    except psycopg.errors.UndefinedTable:
+        logger.warning(
+            "cs translation table missing", extra={"code": "CS_TRANSLATION_TABLE_MISSING"}
+        )
+        return {}
+    out: dict[UUID, str] = {}
+    # 최근 것부터 보며 문의마다 지금 원문과 맞는 첫 번역을 쓴다.
+    for row in rows:
+        if row["ticket_id"] in out:
+            continue
+        try:
+            current = input_sha256(build_translation_input(row))
+        except ValueError:
+            continue
+        if row["subject_ko"] and row["input_sha256"] == current:
+            out[row["ticket_id"]] = row["subject_ko"]
+    return out

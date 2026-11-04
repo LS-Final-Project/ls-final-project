@@ -11,10 +11,12 @@
 """
 
 import asyncio
-from collections.abc import Callable
+import logging
+from collections.abc import AsyncIterator, Callable
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -22,6 +24,7 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from backend.api.cs.summary.routes import load, usage_values
+from backend.api.cs.tickets import repository as tickets
 from backend.api.cs.tickets.access import require_ticket_write
 from backend.api.cs.tickets.routes import PARTIAL, respond
 from backend.api.cs.translation import repository
@@ -50,6 +53,9 @@ from backend.shared.logs import bind_path_ids
 from backend.shared.models import ErrorResponse, SuccessResponse
 
 Provider = Callable[[str], Generation]
+logger = logging.getLogger(__name__)
+# 접수 때 자동 번역(KAN-213)을 요청한 주체. 로그인 사용자가 아니며 늘 같은 값이다(requested_by).
+INTAKE_ACTOR = uuid5(NAMESPACE_URL, "team4-cs/translation-on-intake")
 
 
 class CsTranslationSettings(BaseSettings):
@@ -200,14 +206,21 @@ async def create_translation(
         raise ApplicationError(
             422, "CS_TRANSLATION_NOT_NEEDED", "The ticket is already written in Korean."
         )
-    locks: dict[tuple[UUID, str], list[Any]] = request.app.state.translation_locks
+    async with ticket_lock(request.app.state, ticket_id, sha):
+        return await make(request, provider, principal, ticket_id, payload, sha)
+
+
+@asynccontextmanager
+async def ticket_lock(state: Any, ticket_id: UUID, sha: str) -> AsyncIterator[None]:
+    """같은 문의·원문의 번역 생성을 프로세스 안에서 한 번에 하나만 돌린다."""
+    locks: dict[tuple[UUID, str], list[Any]] = state.translation_locks
     key = (ticket_id, sha)
     # [잠금, 쓰는 요청 수]. 마지막 요청이 나갈 때만 지운다(요약과 같은 이유).
     entry = locks.setdefault(key, [asyncio.Lock(), 0])
     entry[1] += 1
     try:
         async with entry[0]:
-            return await make(request, provider, principal, ticket_id, payload, sha)
+            yield
     finally:
         entry[1] -= 1
         if entry[1] == 0:
@@ -239,7 +252,30 @@ async def make(
     reused = await existing_view(request, ticket_id, sha)
     if reused is not None:
         return reused
-    model = request.app.state.translation_model
+    stored = await generate(request.app.state, provider, ticket_id, payload, sha, principal.user_id)
+    if stored is None:
+        # 다른 인스턴스가 같은 원문의 번역을 먼저 저장했다(고유 색인). 그것을 돌려준다.
+        reused = await existing_view(request, ticket_id, sha)
+        assert reused is not None
+        return reused
+    if stored["outcome"] != "VALID":
+        raise ApplicationError(
+            502,
+            "CS_TRANSLATION_FAILED",
+            "The translation could not be made. Try again later.",
+            [{"code": str(stored["error_code"])}],
+        )
+    view = TicketTranslationView(
+        ticket_id=ticket_id, translation=record(stored, sha), latest_attempt=attempt(stored)
+    )
+    return respond(request, view)
+
+
+async def generate(
+    state: Any, provider: Provider, ticket_id: UUID, payload: Any, sha: str, requested_by: UUID
+) -> dict[str, Any] | None:
+    """모델을 한 번 불러 시도를 저장한다. 같은 원문의 성공한 번역이 먼저 저장됐으면 None."""
+    model = state.translation_model
     values: dict[str, Any] = {
         "id": uuid4(),
         "ticket_id": ticket_id,
@@ -247,13 +283,13 @@ async def make(
         "input_sha256": sha,
         "prompt_version": TRANSLATION_PROMPT_VERSION,
         "requested_model": model,
-        "requested_by": principal.user_id,
+        "requested_by": requested_by,
     }
     # DB 연결을 잡은 채 모델을 기다리지 않는다.
     loop = asyncio.get_running_loop()
     try:
         generation = await loop.run_in_executor(
-            request.app.state.translation_executor, provider, render_prompt(payload)
+            state.translation_executor, provider, render_prompt(payload)
         )
     except ClassificationCallError as error:
         values.update(outcome="PROVIDER_ERROR", error_code=error.code)
@@ -272,21 +308,43 @@ async def make(
             values.update(outcome="INVALID_OUTPUT", error_code=error.code)
         else:
             values.update(outcome="VALID", subject_ko=output.subject_ko, body_ko=output.body_ko)
-    async with connection(request.app.state.settings) as conn:
-        stored = await repository.insert(conn, values)
-    if stored is None:
-        # 다른 인스턴스가 같은 원문의 번역을 먼저 저장했다(고유 색인). 그것을 돌려준다.
-        reused = await existing_view(request, ticket_id, sha)
-        assert reused is not None
-        return reused
-    if stored["outcome"] != "VALID":
-        raise ApplicationError(
-            502,
-            "CS_TRANSLATION_FAILED",
-            "The translation could not be made. Try again later.",
-            [{"code": str(stored["error_code"])}],
+    async with connection(state.settings) as conn:
+        return await repository.insert(conn, values)
+
+
+async def translate_on_intake(state: Any, ticket_id: UUID) -> None:
+    """새로 접수된 문의를 한국어로 번역해 둔다(KAN-213). 응답을 보낸 뒤 배경에서 돈다.
+
+    번역이 꺼져 있거나 원문이 한국어면 아무것도 하지 않는다. 실패해도 접수는 그대로이고,
+    담당자가 문의 처리 화면에서 다시 번역할 수 있다. 예외를 밖으로 내지 않는다.
+    """
+    provider = getattr(state, "translation_provider", None)
+    if provider is None:
+        return
+    try:
+        async with connection(state.settings) as conn:
+            ticket = await tickets.get_ticket(conn, ticket_id)
+        if ticket is None:
+            return
+        try:
+            payload, sha = prepared(ticket)
+        except ApplicationError:
+            return
+        if not needs_translation(payload):
+            return
+        async with ticket_lock(state, ticket_id, sha):
+            async with connection(state.settings) as conn:
+                found = await repository.matching(conn, ticket_id, sha, TRANSLATION_PROMPT_VERSION)
+            if found:
+                return
+            stored = await generate(state, provider, ticket_id, payload, sha, INTAKE_ACTOR)
+        if stored is not None and stored["outcome"] != "VALID":
+            logger.warning(
+                "cs intake translation not valid",
+                extra={"code": str(stored["error_code"]), "ticket_id": str(ticket_id)},
+            )
+    except Exception:  # noqa: BLE001 - 번역은 접수의 보조 단계라 접수를 실패로 바꾸지 않는다.
+        logger.warning(
+            "cs intake translation failed",
+            extra={"code": "CS_TRANSLATE_ON_INTAKE_FAILED", "ticket_id": str(ticket_id)},
         )
-    view = TicketTranslationView(
-        ticket_id=ticket_id, translation=record(stored, sha), latest_attempt=attempt(stored)
-    )
-    return respond(request, view)

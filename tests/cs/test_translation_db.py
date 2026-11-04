@@ -303,3 +303,105 @@ def test_the_table_rejects_a_valid_row_without_translation(admin, ticket):
     ):
         with pytest.raises(psycopg.errors.CheckViolation):
             admin.execute(base, (uuid4(), ticket, outcome, code, subject, body, "0" * 64, uuid4()))
+
+
+# --- 접수 때 자동 번역(KAN-213) ---------------------------------------------------------------
+
+SPANISH = {
+    "channel": "EMAIL",
+    "body_language": "es",
+    "customer_external_id": "CUST-0374",
+    "product_code": "TRF-OIL-1000",
+    "subject": "Fuga de aceite en TRF-OIL-1000",
+    "body": "La junta pierde aceite.\n¿Lo cubre la garantía? Escríbame a buyer@example.com.",
+}
+
+
+def intake(client, **change):
+    response = client.post("/api/v1/cs/tickets", json={**SPANISH, **change})
+    assert response.status_code == 201, response.text
+    return response.json()["data"]["id"]
+
+
+def attempts(admin, ticket_id):
+    return admin.execute(
+        "SELECT outcome, requested_by FROM cs.ticket_translations WHERE ticket_id = %s",
+        (ticket_id,),
+    ).fetchall()
+
+
+def listed(client, ticket_id):
+    items = client.get("/api/v1/cs/tickets", params={"limit": 100}).json()["data"]["items"]
+    return next(item for item in items if item["id"] == ticket_id)
+
+
+def test_a_new_ticket_is_translated_at_intake_and_lists_show_the_korean_subject(
+    client, model, admin
+):
+    """접수 응답 뒤 배경에서 한 번 번역하고, 문의 목록·고객 이력이 한국어 제목을 같이 준다."""
+    from backend.api.cs.translation.routes import INTAKE_ACTOR
+
+    ticket_id = intake(client)
+    assert len(model.prompts) == 1 and "buyer@example.com" not in model.prompts[0]
+    assert attempts(admin, ticket_id) == [("VALID", INTAKE_ACTOR)]
+    item = listed(client, ticket_id)
+    assert (item["subject"], item["subject_ko"]) == (SPANISH["subject"], SUBJECT_KO)
+    history = client.get("/api/v1/cs/stats/customers/CUST-0374").json()["data"]
+    row = next(t for t in history["tickets"] if t["id"] == ticket_id)
+    assert row["subject_ko"] == SUBJECT_KO
+    # 문의 처리 화면은 저장본을 그대로 쓴다. 다시 만들지 않는다.
+    again = client.post(path(ticket_id))
+    assert again.status_code == 200 and len(model.prompts) == 1
+
+
+def test_mail_intake_is_translated_too(client, model, admin):
+    response = client.post(
+        "/internal/v1/cs/tickets/from-mail",
+        json={
+            "message_id": str(uuid4()),
+            "mailbox_id": str(uuid4()),
+            "external_id": f"AAMk-{uuid4()}",
+            "sender_address": "plant@customer.invalid",
+            "received_at": datetime.now(UTC).isoformat(),
+            **{k: v for k, v in SPANISH.items() if k != "channel"},
+        },
+    )
+    assert response.status_code == 201, response.text
+    assert [outcome for outcome, _ in attempts(admin, response.json()["data"]["id"])] == ["VALID"]
+    assert len(model.prompts) == 1
+
+
+def test_korean_or_untranslated_tickets_keep_no_korean_subject(client, model, admin):
+    korean = intake(
+        client, body_language="ko", subject="변압기 누유", body="개스킷에서 기름이 샙니다."
+    )
+    assert model.prompts == [] and attempts(admin, korean) == []
+    assert listed(client, korean)["subject_ko"] is None
+
+
+def test_a_failed_intake_translation_keeps_the_ticket(client, model, admin):
+    """모델이 실패해도 접수는 201이고, 실패 시도만 남는다. 목록은 원문 제목이다."""
+    model.next = ClassificationCallError("CS_PROVIDER_ERROR")
+    ticket_id = intake(client)
+    assert [outcome for outcome, _ in attempts(admin, ticket_id)] == ["PROVIDER_ERROR"]
+    assert listed(client, ticket_id)["subject_ko"] is None
+
+
+def test_intake_does_not_translate_when_the_feature_is_off(cs_database, admin):
+    app = create_app(settings_for(cs_database))
+    configure_translation(app, CsTranslationSettings(enabled=False))
+    with TestClient(app, headers=principal_header(AGENT)) as off:
+        ticket_id = intake(off)
+    assert attempts(admin, ticket_id) == []
+
+
+def test_an_edited_ticket_drops_the_old_korean_subject_from_lists(client, model, admin):
+    """접수 뒤 본문을 고치면 목록은 옛 번역 제목 대신 원문 제목을 보이고, 다시 번역하면 다시 보인다."""
+    ticket_id = intake(client)
+    assert listed(client, ticket_id)["subject_ko"] == SUBJECT_KO
+    admin.execute(
+        "UPDATE cs.tickets SET body = body || ' Empezó ayer.' WHERE id = %s", (ticket_id,)
+    )
+    assert listed(client, ticket_id)["subject_ko"] is None
+    assert client.post(path(ticket_id)).status_code == 201
+    assert listed(client, ticket_id)["subject_ko"] == SUBJECT_KO

@@ -75,7 +75,7 @@ export default function Tickets() {
         && (!product || item.product_code === product)
         && (age === '' || (age === 'WAIT3' ? item.workflow_state === 'WAITING_CUSTOMER' && days >= 3 : days >= Number(age)))
         && (!from || day >= from) && (!to || day <= to)
-        && (!needle || `${item.subject ?? ''} ${item.external_id ?? ''} ${item.product_code} ${item.id}`.toLocaleLowerCase().includes(needle));
+        && (!needle || `${item.subject_ko ?? ''} ${item.subject ?? ''} ${item.external_id ?? ''} ${item.product_code} ${item.id}`.toLocaleLowerCase().includes(needle));
     });
     // 경과일이 길수록 접수일시가 이르다. 경과일 내림차순 = 접수일시 오름차순.
     const oldestFirst = sort.key === 'age' ? sort.dir === 'desc' : sort.dir === 'asc';
@@ -94,8 +94,8 @@ export default function Tickets() {
   const togglePick = (id: string) => setPicked(prev => { const next = new Set(prev); if (!next.delete(id)) next.add(id); return next; });
   const exportCsv = () => {
     const target = pickedRows.length ? pickedRows : rows;
-    downloadCsv('문의_조회', ['문의번호', '제목', '제품', '접수 경로', '상태', '경과일', '접수일시'],
-      target.map(item => [number(item), item.subject ?? '', item.product_code, CHANNEL_LABEL[item.channel], STATE_LABEL[item.workflow_state], ageOf(item), formatStamp(item.received_at)]));
+    downloadCsv('문의_조회', ['문의번호', '제목(한국어)', '원문 제목', '제품', '접수 경로', '상태', '경과일', '접수일시'],
+      target.map(item => [number(item), item.subject_ko ?? '', item.subject ?? '', item.product_code, CHANNEL_LABEL[item.channel], STATE_LABEL[item.workflow_state], ageOf(item), formatStamp(item.received_at)]));
   };
 
   const pages = Math.max(1, Math.ceil(rows.length / PAGE));
@@ -107,7 +107,7 @@ export default function Tickets() {
     { key: 'pick', header: <input type="checkbox" aria-label="모두 선택" checked={allPicked} onChange={() => setPicked(allPicked ? new Set() : new Set(rows.map(item => item.id)))} />, width: 34, className: 'c',
       cell: item => <input type="checkbox" aria-label={`${number(item)} 선택`} checked={picked.has(item.id)} onChange={() => togglePick(item.id)} /> },
     { key: 'id', header: '문의번호', width: 110, cell: item => number(item) },
-    { key: 'subject', header: '제목', className: 't', cell: item => <Link className="link" to={`/cs/tickets/${item.id}`} title={item.subject ?? undefined}>{item.subject || '(제목 없음)'}</Link> },
+    { key: 'subject', header: '제목', className: 't', cell: item => <Link className="link" to={`/cs/tickets/${item.id}`} title={item.subject ? `원문: ${item.subject}` : undefined}>{item.subject_ko || item.subject || '(제목 없음)'}</Link> },
     { key: 'state', header: '상태', width: 110, className: 'c', cell: item => <span className={item.workflow_state === 'CLOSED' ? 'chip st-closed' : 'chip st-open'}>{STATE_LABEL[item.workflow_state]}</span> },
     { key: 'product', header: '제품', width: 160, cell: item => item.product_code },
     { key: 'channel', header: '접수 경로', width: 100, className: 'c', cell: item => <span className={`chip ch-${item.channel.toLowerCase()}`}>{CHANNEL_LABEL[item.channel] ?? item.channel}</span> },

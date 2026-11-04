@@ -2978,6 +2978,18 @@
             ],
             "title": "Subject"
           },
+          "subject_ko": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Korean subject from the latest valid translation (KAN-213).",
+            "title": "Subject Ko"
+          },
           "workflow_state": {
             "enum": [
               "RECEIVED",
@@ -9636,6 +9648,18 @@
               }
             ],
             "title": "Subject"
+          },
+          "subject_ko": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Korean subject from the latest valid translation (KAN-213). None if not translated.",
+            "title": "Subject Ko"
           },
           "transfer": {
             "anyOf": [

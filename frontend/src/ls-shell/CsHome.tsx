@@ -5,7 +5,7 @@ import { ErrorState, Loading } from '../components/states';
 import { useHotkey } from './kv';
 import { CHANNEL_LABEL, REQUEST_STATUS_LABEL, formatStamp, type TicketState } from './cs-labels';
 import { getApiMode } from '../api/client';
-import { getTicketAnalysis, getTicketTranslation, listTicketsBy, type TicketAnalysisResponse, type TicketListResponse } from '../api/cs';
+import { getTicketAnalysis, listTicketsBy, type TicketAnalysisResponse, type TicketListResponse } from '../api/cs';
 import { me } from '../api/platform';
 import { listMyImprovements } from '../api/cs-improvements';
 import '../pages/ticket-detail-v3.css';
@@ -60,16 +60,15 @@ function HomeView() {
   const ids = candidates.map(item => item.id);
   const analyses = useQuery({ queryKey: ['cs-home', mode, 'analysis', ids.join(',')], enabled: ids.length > 0, retry: false, staleTime: 60_000,
     queryFn: async ({ signal }) => {
-      // 분석과 저장된 한국어 번역(제목)을 같이 읽는다. 번역은 조회만 하고 새로 만들지 않는다(모델 호출 없음).
-      const out: Record<string, { analysis?: TicketAnalysisResponse; subjectKo?: string | null }> = {};
+      const out: Record<string, { analysis?: TicketAnalysisResponse }> = {};
       for (let i = 0; i < ids.length; i += 2) await Promise.all(ids.slice(i, i + 2).map(async id => {
-        const [analysis, translation] = await Promise.all([getTicketAnalysis(id, signal).catch(() => undefined), getTicketTranslation(id, signal).catch(() => undefined)]);
-        const record = translation?.data.translation as { subject_ko?: string | null; stale?: boolean } | null | undefined;
-        out[id] = { analysis, subjectKo: record && !record.stale ? record.subject_ko ?? null : null };
+        out[id] = { analysis: await getTicketAnalysis(id, signal).catch(() => undefined) };
       }));
       return out;
     } });
-  const koOf = (id: string) => analyses.data?.[id]?.subjectKo || null;
+  // 한국어 제목은 문의 목록 응답에 같이 온다(KAN-213 접수 때 번역). 없으면 원문 제목을 보인다.
+  const koById = new Map([...newItems, ...mineItems, ...waitItems].map(item => [item.id, item.subject_ko ?? null]));
+  const koOf = (id: string) => koById.get(id) || null;
   const signalOf = new Map(candidates.map(item => [item.id, signals(analyses.data?.[item.id]?.analysis, now)]));
   // 정렬: 긴급(P1) → 기한 가까운 순 → 오래된 순. 신호가 없는 건은 뒤로.
   const urgency = (item: Ticket) => { const sig = signalOf.get(item.id); return sig ? (sig.priority === 'P1' ? -1000 : 0) + sig.dueDays : 1000; };
