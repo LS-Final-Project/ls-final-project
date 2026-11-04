@@ -55,14 +55,16 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from backend.engine.documents.model import Block, CrossReference, DeletedValue, ExtractedDocument
 
-CLAUSE_TREE_VERSION = "clause-tree-v4"  # v4: 한글 규격의 공백 없는 독립 소수 번호(KAN-188)
+# v5: 공백 없는 번호 제목의 잡음 오인·장 항목 부모, 점선 목차 제외(KAN-215)
+CLAUSE_TREE_VERSION = "clause-tree-v5"
 # "PART 2 - PRODUCTS"(14번) 또는 대시 없는 "PART 1 GENERAL"(평가 11번 유형, KAN-207). 대시가 없으면 제목이 대문자일
 # 때만 PART다(본문의 "PART 2 of …"를 PART로 읽지 않는다).
 PART = re.compile(r"^PART\s+(\d+)(?:\s*[-–—]\s*|\s+(?=[A-Z][A-Z0-9 ,/&()'\-]*$))(.+)$")
 KOREAN_CHAPTER = re.compile(r"^(제\s*(\d+)\s*장)(?=\s|[（(.:]|$)\s*(.*)$")
 KOREAN_ARTICLE = re.compile(r"^(제\s*(\d+)\s*조)(?=\s|[（(.:]|$)\s*(.*)$")
 KOREAN_NUMBER = re.compile(r"^(\d+)\.\s*([가-힣].*)$")
-KOREAN_DECIMAL = re.compile(r"^(\d+(?:\.\d+)+)\s+([가-힣].*)$")
+# 번호와 한글 제목은 DOCX run 경계에서 공백 없이 붙기도 한다("1.4.3성능보증", KAN-215).
+KOREAN_DECIMAL = re.compile(r"^(\d+(?:\.\d+)+)\s*([가-힣].*)$")
 # 한글 장 안에서 반복되는 1.1.1본문 형식만 별도 문맥으로 지원한다. 공용 LABELS는 검색 청킹과 공유하므로 유지한다.
 COMPACT_KOREAN_DECIMAL = re.compile(r"^(\d+(?:\.\d+){1,5})\s*([가-힣].*)$")
 COMPACT_KOREAN_DETAIL = re.compile(r"^\d+(?:\.\d+){2,5}(?=[가-힣])")
@@ -92,6 +94,8 @@ LABELS: tuple[tuple[int, re.Pattern[str]], ...] = (
     (7, re.compile(r"^\(?([a-z])\)(?:\s+|$)")),
 )
 END_OF_SECTION = re.compile(r"^END OF SECTION\b", re.I)
+# 목차 줄: 점선 리더(.....·…)로 끝나거나 그 뒤에 쪽 번호만 온다. 본문 조항이 아니다(KAN-215).
+TABLE_OF_CONTENTS = re.compile(r"(?:\.{5,}|…{2,}|·{5,})\s*(?:\d+(?:\s*[-–]\s*\d+)?)?\s*$")
 SECTION_HEAD = re.compile(r"^SECTION\s+\d[\d .]*\s*[-–—]\s*\S")
 SENTENCE_END = (".", ":", ";", "?", "!")
 BOILERPLATE_MAX = 160
@@ -160,7 +164,10 @@ class Excluded(Strict):
     block_id: str
     text: str
     reason: str = Field(
-        description="PAGE_NOISE(페이지 머리말·바닥글 묶음), END_OF_SECTION, AFTER_END_OF_SECTION."
+        description=(
+            "PAGE_NOISE(페이지 머리말·바닥글 묶음), END_OF_SECTION, AFTER_END_OF_SECTION, "
+            "TABLE_OF_CONTENTS(점선 리더 목차 줄)."
+        )
     )
 
 
@@ -338,6 +345,8 @@ def _boilerplate(blocks: list[Block]) -> dict[str, str]:
             and not b.deleted_values
             and _shape(text) in noisy
             and _label(text) is None
+            # "1.4설계 및 제작 기술기준"처럼 공백 없이 붙은 번호 제목은 장마다 같은 모양으로 반복돼도 본문이다(KAN-215).
+            and not (COMPACT_KOREAN_DECIMAL.match(text) and not KOREAN_MEASURE.match(text))
         )
 
     out: dict[str, str] = {}
@@ -347,6 +356,8 @@ def _boilerplate(blocks: list[Block]) -> dict[str, str]:
             text = filled[i].text.strip()
             if filled[i].kind == "PARAGRAPH" and END_OF_SECTION.match(text):
                 out[filled[i].block_id] = "END_OF_SECTION"
+            elif filled[i].kind == "PARAGRAPH" and TABLE_OF_CONTENTS.search(text):
+                out[filled[i].block_id] = "TABLE_OF_CONTENTS"
             i += 1
             continue
         j = i
@@ -358,6 +369,15 @@ def _boilerplate(blocks: list[Block]) -> dict[str, str]:
                 out[b.block_id] = "PAGE_NOISE"
         i = j
     return out
+
+
+def _chapter_item(open_: "_Open", number: str) -> bool:
+    """장·조 바로 아래 "1.발전설비" 같은 숫자 항목인지. 그 아래 "1.2설비 구성"의 부모가 된다(KAN-215, D20 유형)."""
+    return (
+        "." not in number
+        and open_.label == number + "."
+        and (open_.parent_no or "").startswith("제")
+    )
 
 
 def _compact_sections(block: Block) -> list[Block]:
@@ -444,7 +464,12 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
                 token, body = decimal.groups()
                 parent_no = token.rsplit(".", 1)[0]
                 numeric_parent = next(
-                    (o for o in reversed(stack) if o.clause_no == parent_no), None
+                    (
+                        o
+                        for o in reversed(stack)
+                        if o.clause_no == parent_no or _chapter_item(o, parent_no)
+                    ),
+                    None,
                 )
                 root_section = token.count(".") == 1 and (
                     token.endswith(".1")
@@ -478,8 +503,13 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
             token, title = decimal.groups()
             depth = len(token.split(".")) + 1
             parent = token.rsplit(".", 1)[0]
-            has_parent = any(o.clause_no == parent for o in stack) or (
-                "." not in parent and any(o.clause_no == f"제{parent}장" for o in stack)
+            owner = next((o for o in reversed(stack) if _chapter_item(o, parent)), None)
+            if owner is not None:
+                depth = owner.depth + 1
+            has_parent = (
+                any(o.clause_no == parent for o in stack)
+                or ("." not in parent and any(o.clause_no == f"제{parent}장" for o in stack))
+                or owner is not None
             )
             if (
                 depth <= 7
