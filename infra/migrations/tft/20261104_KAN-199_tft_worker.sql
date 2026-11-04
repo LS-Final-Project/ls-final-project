@@ -67,6 +67,8 @@ BEGIN
     END IF;
     IF to_regclass('tft.requirement_recomparisons') IS NOT NULL THEN
         EXECUTE 'GRANT SELECT ON tft.requirement_recomparisons TO tft_worker';
+        -- KAN-232: 다시 채점이 비교 사본을 남긴다.
+        EXECUTE 'GRANT INSERT ON tft.requirement_recomparisons TO tft_worker';
     END IF;
     IF to_regclass('tft.review_context_snapshots') IS NOT NULL THEN
         EXECUTE 'GRANT SELECT ON tft.review_context_snapshots TO tft_worker';
@@ -82,6 +84,8 @@ BEGIN
     IF to_regclass('tft.deviations') IS NOT NULL THEN
         EXECUTE 'GRANT SELECT ON tft.requirement_decisions, tft.deviations, tft.question_withdrawals TO tft_worker';
     END IF;
+    -- KAN-232: 다시 채점이 AI 판단의 새 판본(system_record)을 쓰고 최신 판본 번호를 올린다.
+    EXECUTE 'GRANT UPDATE (latest_version) ON tft.requirements TO tft_worker';
     -- KAN-224: 회신 값 AI 읽기 작업은 요청을 읽고 결과를 더한다.
     IF to_regclass('tft.reply_value_reads') IS NOT NULL THEN
         EXECUTE 'GRANT SELECT, INSERT ON tft.reply_value_reads TO tft_worker';
