@@ -14,10 +14,10 @@ from typing import Literal, get_args
 Stage = Literal[
     "classification", "draft", "reply", "improvement_reply", "improvement_draft", "verification"
 ]
-# 제품 경로 기본 판본. 분류는 v3 채택(2026-10-29 사용자 결정, KAN-105 7차). 초안·회신·개선요청 네 단계는 v2(KAN-193
+# 제품 경로 기본 판본. 분류는 v4 채택(2026-11-05, KAN-161 제공 정보 코드 칸 이름. 이전 v3는 2026-10-29 채택). 초안·회신·개선요청 네 단계는 v2(KAN-193
 # 확정 금지 지시 추가), 검증은 v1이다. 초안은 v4(KAN-200, 문서 사실만 EVIDENCE·미확인 구분 유지)다. 분류와 초안만 채택됐다.
 DEFAULT_VERSIONS: dict[Stage, str] = {
-    "classification": "v3",
+    "classification": "v4",
     "draft": "v4",
     "verification": "v1",
     "reply": "v2",

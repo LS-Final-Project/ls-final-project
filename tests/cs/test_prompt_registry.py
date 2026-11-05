@@ -179,7 +179,7 @@ def test_classification_v2_adds_only_the_urgency_guide():
 
 
 def test_product_defaults_are_pinned():
-    """제품 경로 기본 판본은 분류 v3·검증 v1·나머지 v2이고, 공급자·실행기·초안·회신 모듈의 기본값이 DEFAULT_VERSIONS와 같다.
+    """제품 경로 기본 판본은 분류 v4·검증 v1·나머지 v2이고, 공급자·실행기·초안·회신 모듈의 기본값이 DEFAULT_VERSIONS와 같다.
 
     Args:
         없음.
@@ -191,7 +191,7 @@ def test_product_defaults_are_pinned():
     from backend.engine.cs import providers
 
     assert DEFAULT_VERSIONS == {
-        "classification": "v3",
+        "classification": "v4",
         "draft": "v4",
         "verification": "v1",
         "reply": "v2",

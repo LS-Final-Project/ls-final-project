@@ -99,8 +99,8 @@ def test_classification_prompt_has_version_schema_codes_and_input(sdk_http, clie
     generation = provider(PAYLOAD)
     [request] = requests
     text = sent_text(request)
-    # 기본 판본은 채택한 v3다(KAN-105 7차).
-    assert text.startswith(get_prompt("classification", "v3"))
+    # 기본 판본은 채택한 v4다(KAN-161).
+    assert text.startswith(get_prompt("classification", "v4"))
     assert '"category_code"' in text
     assert "허용 정보 코드: " + json.dumps(sorted(CODES)) in text
     assert text.endswith("입력:\n" + PAYLOAD.model_dump_json())

@@ -132,7 +132,7 @@ def gemini_classification_provider(
         settings: 기본 AI 설정.
         model: 호출할 모델 ID.
         allowed_info_codes: 프롬프트에 보여줄 허용 정보 코드(정렬해 넣는다).
-        prompt_version: 프롬프트 레지스트리의 classification 판본. 기본은 DEFAULT_VERSIONS(채택 판본 v3)다.
+        prompt_version: 프롬프트 레지스트리의 classification 판본. 기본은 DEFAULT_VERSIONS(채택 판본 v4)다.
         generation: thinking 예산·수준·출력 상한(thinking 포함). 분류 출력도 thinking을 포함한 상한이라 1024는
             부족할 수 있다.
 
