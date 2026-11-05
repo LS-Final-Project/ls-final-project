@@ -184,9 +184,10 @@ describe('역할별 메뉴', () => {
 
   it.each([
     [['cs_agent'], ['메일', 'C/S 관리']],
-    [['dept_staff'], ['메일', '부서 검토']],
-    [['manager'], ['메일', '통계/보고서']],
-    [['cs_agent', 'manager'], ['메일', 'C/S 관리', '통계/보고서']],
+    [['dept_staff'], ['메일', '부서 검토', '제안 지원']],
+    [['manager'], ['메일', '제안 지원', '통계/보고서']],
+    [['cs_agent', 'manager'], ['메일', 'C/S 관리', '제안 지원', '통계/보고서']],
+    [['sales'], ['메일', '제안 지원']],
   ])('%j 역할은 자기 업무 메뉴와 메일만 본다', async (roles, expected) => {
     as(roles, roles.includes('dept_staff') ? 'TS_TRF' : null);
     const { container } = show('/account');

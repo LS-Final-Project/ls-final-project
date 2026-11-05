@@ -30,7 +30,7 @@ const MENU: Group[] = [
   },
   { key: 'dept', label: '부서 검토', roles: ['dept_staff'], leaves: [{ label: '문의 검토', to: '/dept/inbox' }, { label: '개선 요청', to: '/dept/improvements' }] },
   {
-    key: 'rfp', label: '제안 지원', roles: ['sales'], leaves: [
+    key: 'rfp', label: '제안 지원', roles: ['sales', 'manager', 'dept_staff'], leaves: [
       { label: '업무 홈', to: '/tft', end: true },
       { label: 'RFP 검토', to: '/tft/projects', end: true, inProject: '', also: /\/(requirements\/|table(?:\/approvals)?$|supplement$|settings$)/ },
       { label: '초안 및 검토 이력', inProject: 'draft' },
