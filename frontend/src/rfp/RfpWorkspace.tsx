@@ -568,6 +568,23 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
   const [more, setMore] = useState(false);
   const split = useSplit();
   return <div className="ws-panel" ref={split.box}>
+    <div className="ws-bottom">
+    <div className="ws-srcbar">
+      <span className="ws-seg2" role="group" aria-label="원문 보기 방식">
+        <button className={mode2 === 'doc' ? 'on' : ''} onClick={() => setMode2('doc')}>원문 전체</button>
+        <button className={mode2 === 'quote' ? 'on' : ''} onClick={() => setMode2('quote')}>해당 조항만</button>
+      </span>
+      <span className="sp" />
+      {pickedClause && !adding && <button className="kb primary" onClick={() => setAdding({ quote: picked, clause: pickedClause })}>요구 추가</button>}
+      <button className="kb" disabled={idx <= 0} onClick={() => onMove(order[idx - 1].requirement_id)}>이전</button>
+      <button className="kb" disabled={idx < 0 || idx >= order.length - 1} onClick={() => onMove(order[idx + 1].requirement_id)}>다음</button>
+    </div>
+    <div className="ws-source">
+      {mode2 === 'quote' || !doc ? <p className="ws-quote"><span className="muted">{d?.origin?.clause_no ? clauseLabel(d.origin.clause_no, d.origin.page) : codeLabel(row.code)}</span> {d?.origin?.quote ?? '조항 원문은 서버에서 읽습니다.'}</p>
+        : <OriginalDocument document={doc} origin={d?.origin} selectionRevision={d ? 1 : 0} onQuoteClick={() => undefined} onSelectText={setPicked} />}
+    </div>
+    </div>
+    <div className="ws-split" role="separator" aria-orientation="horizontal" aria-label="원문과 결정 높이 조절" tabIndex={0} aria-valuenow={Math.round(split.pct)} onPointerDown={split.drag} onKeyDown={split.key} />
     <div className="ws-top" style={{ flexBasis: `${split.pct}%` }}>
     {adding ? <AddRequirement projectId={projectId} quote={adding.quote} clause={adding.clause} equipment={row.equipment} onCancel={() => setAdding(undefined)} onDone={id => { setAdding(undefined); setPicked(''); onMove(id); }} />
     : <div className="ws-pick">
@@ -647,28 +664,11 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
     {more && <RequirementHistory id={row.requirement_id} />}
     <button className="ws-link muted ws-more" aria-expanded={more} onClick={() => setMore(!more)}>{more ? '접기' : '더보기'}</button>
     </div>
-    <div className="ws-split" role="separator" aria-orientation="horizontal" aria-label="결정과 원문 높이 조절" tabIndex={0} aria-valuenow={Math.round(split.pct)} onPointerDown={split.drag} onKeyDown={split.key} />
-    <div className="ws-bottom">
-    <div className="ws-srcbar">
-      <span className="ws-seg2" role="group" aria-label="원문 보기 방식">
-        <button className={mode2 === 'doc' ? 'on' : ''} onClick={() => setMode2('doc')}>원문 전체</button>
-        <button className={mode2 === 'quote' ? 'on' : ''} onClick={() => setMode2('quote')}>해당 조항만</button>
-      </span>
-      <span className="sp" />
-      {pickedClause && !adding && <button className="kb primary" onClick={() => setAdding({ quote: picked, clause: pickedClause })}>요구 추가</button>}
-      <button className="kb" disabled={idx <= 0} onClick={() => onMove(order[idx - 1].requirement_id)}>이전</button>
-      <button className="kb" disabled={idx < 0 || idx >= order.length - 1} onClick={() => onMove(order[idx + 1].requirement_id)}>다음</button>
-    </div>
-    <div className="ws-source">
-      {mode2 === 'quote' || !doc ? <p className="ws-quote"><span className="muted">{d?.origin?.clause_no ? clauseLabel(d.origin.clause_no, d.origin.page) : codeLabel(row.code)}</span> {d?.origin?.quote ?? '조항 원문은 서버에서 읽습니다.'}</p>
-        : <OriginalDocument document={doc} origin={d?.origin} selectionRevision={d ? 1 : 0} onQuoteClick={() => undefined} onSelectText={setPicked} />}
-    </div>
-    </div>
   </div>;
 }
 
-// 오른쪽 칸 위(결정)·아래(원문) 높이 비율. 경계선을 끌어 바꾸고 이 브라우저에 기억한다(저장 실패는 무시).
-const SPLIT_KEY = 'rfp-ws-split';
+// 오른쪽 칸 위(원문)·아래(결정) 높이 비율(pct는 아래 결정 칸 몫, 기본 40%). 경계선을 끌어 바꾸고 이 브라우저에 기억한다(저장 실패는 무시).
+const SPLIT_KEY = 'rfp-ws-split-v2';
 const readSplit = () => { try { const v = Number(localStorage.getItem(SPLIT_KEY)); return v >= 10 && v <= 90 ? v : 40; } catch { return 40; } };
 const saveSplit = (v: number) => { try { localStorage.setItem(SPLIT_KEY, String(Math.round(v))); } catch { /* 저장 못 해도 화면은 그대로 */ } };
 function useSplit() {
@@ -679,13 +679,13 @@ function useSplit() {
     const handle = event.currentTarget; const rect = box.current?.getBoundingClientRect(); if (!rect) return;
     handle.setPointerCapture(event.pointerId);
     let last = pct;
-    const move = (e: PointerEvent) => { last = clamp((e.clientY - rect.top) / rect.height * 100); setPct(last); };
+    const move = (e: PointerEvent) => { last = clamp(100 - (e.clientY - rect.top) / rect.height * 100); setPct(last); };
     const up = () => { handle.removeEventListener('pointermove', move); handle.removeEventListener('pointerup', up); saveSplit(last); };
     handle.addEventListener('pointermove', move); handle.addEventListener('pointerup', up);
   };
   const key = (event: { key: string; preventDefault: () => void }) => {
     if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
-    event.preventDefault(); const next = clamp(pct + (event.key === 'ArrowDown' ? 5 : -5)); setPct(next); saveSplit(next);
+    event.preventDefault(); const next = clamp(pct + (event.key === 'ArrowDown' ? -5 : 5)); setPct(next); saveSplit(next);
   };
   return { box, pct, drag, key };
 }
