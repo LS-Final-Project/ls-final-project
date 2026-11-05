@@ -90,7 +90,9 @@ class ProcessorSettings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(env_prefix="TFT_", env_file=".env", extra="ignore")
-    extraction_concurrency: int = Field(default=3, ge=1, le=3)
+    extraction_concurrency: int = Field(default=6, ge=1, le=6)
+    # 요구 추출 호출의 thinking 수준. None이면 모델 기본(설정을 보내지 않음). 측정: 2026-11-06 rfp-timing 보고서.
+    extraction_thinking_level: Literal["LOW", "MEDIUM", "HIGH"] | None = None
     extraction_provider: Literal["gemini", "fake"] = "gemini"
     extraction_model: str = Field(default="gemini-3.6-flash", pattern=r"^[a-zA-Z0-9._-]+$")
     extraction_max_output_tokens: int = Field(default=16384, ge=1, le=65536)
@@ -134,11 +136,12 @@ def extraction_settings(config: ProcessorSettings) -> AISettings:
     )
 
 
-def gemini_provider(ai: AISettings) -> Provider:
+def gemini_provider(ai: AISettings, thinking_level: str | None = None) -> Provider:
     """Gemini 구조화 출력 호출(평가 스크립트와 같은 방식).
 
     Args:
         ai: 추출 호출 설정(extraction_settings).
+        thinking_level: thinking 수준(TFT_EXTRACTION_THINKING_LEVEL). None이면 보내지 않는다.
 
     Returns:
         Provider: 지시문 → Generation.
@@ -146,7 +149,11 @@ def gemini_provider(ai: AISettings) -> Provider:
     from backend.shared.ai import create_client, generate
 
     client = create_client(ai)
-    return lambda text: generate(client, ai, text, response_schema=ResponseSchema)
+    if thinking_level is None:
+        return lambda text: generate(client, ai, text, response_schema=ResponseSchema)
+    return lambda text: generate(
+        client, ai, text, response_schema=ResponseSchema, thinking_level=thinking_level
+    )
 
 
 def rewrite_provider(config: ProcessorSettings) -> Provider:
@@ -221,7 +228,7 @@ def build(settings: Settings) -> Processor:
         ai = extraction_settings(config)
         # 잘못된 조합이면 모델을 부르기 전에 멈춘다(worker는 처리 함수 load 실패로 작업을 FAILED로 남긴다).
         check_lease(ai, TftWorkerSettings().lease_seconds)
-        provider = gemini_provider(ai)
+        provider = gemini_provider(ai, config.extraction_thinking_level)
     context_provider: ContextProvider | None = fake_context_provider
     if config.extraction_provider == "gemini":
         # SDK creation is lazy; exports and previously completed jobs do not create a model client.
@@ -260,7 +267,7 @@ def make_processor(
     today: Callable[[], date] = date.today,
     draft_provider: Provider | None = None,
     rewrite_model: str = "gemini-3.6-flash",
-    extraction_concurrency: int = 3,
+    extraction_concurrency: int = 6,
     image_provider: Callable[[vision.ImageInput], Generation] | None = None,
     context_provider: ContextProvider | None = None,
     reply_provider: Provider | None = None,
@@ -704,14 +711,14 @@ def lease_keeping(
 
 
 def extract_sections(
-    inputs: Sequence[ExtractionInput], provider: Provider, emit: Emit, *, concurrency: int = 3
+    inputs: Sequence[ExtractionInput], provider: Provider, emit: Emit, *, concurrency: int = 6
 ) -> list[SectionResult]:
-    """At most three sections in flight; drain started calls before returning/raising.
+    """At most six sections in flight; drain started calls before returning/raising.
 
     Each section keeps its existing sequential splitting/coverage rules. Only the
     independent sections overlap. Storage order is input order, never completion order.
     """
-    if type(concurrency) is not int or not 1 <= concurrency <= 3:
+    if type(concurrency) is not int or not 1 <= concurrency <= 6:
         raise ValueError("INVALID_EXTRACTION_CONCURRENCY")
     lock = RLock()
 
@@ -1218,7 +1225,7 @@ async def process(
     store: DocumentStore | None,
     products: Sequence[comparison.Product],
     today: date,
-    extraction_concurrency: int = 3,
+    extraction_concurrency: int = 6,
     image_provider: Callable[[vision.ImageInput], Generation] | None = None,
 ) -> dict[str, Any]:
     """rfp.process 한 번(단계 7개).

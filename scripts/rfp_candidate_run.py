@@ -232,8 +232,13 @@ def git_sha() -> str:
     return sha + ("+dirty" if status else "")
 
 
-def gemini(env_file: Path) -> tuple[str, Callable[[str], Generation]]:
-    """평가 스크립트(rfp_requirements_eval)와 같은 설정의 Gemini 구조화 출력 호출."""
+def gemini(
+    env_file: Path, thinking_level: str | None = None
+) -> tuple[str, Callable[[str], Generation]]:
+    """평가 스크립트(rfp_requirements_eval)와 같은 설정의 Gemini 구조화 출력 호출.
+
+    thinking_level은 처리 함수의 TFT_EXTRACTION_THINKING_LEVEL과 같은 뜻이다(None이면 보내지 않음).
+    """
     from dotenv import dotenv_values
     from pydantic import SecretStr
 
@@ -250,8 +255,12 @@ def gemini(env_file: Path) -> tuple[str, Callable[[str], Generation]]:
         gemini_timeout_ms=180000,
     )
     client = create_client(settings)
+    if thinking_level is None:
+        return settings.gemini_model, lambda text: generate(
+            client, settings, text, response_schema=ResponseSchema
+        )
     return settings.gemini_model, lambda text: generate(
-        client, settings, text, response_schema=ResponseSchema
+        client, settings, text, response_schema=ResponseSchema, thinking_level=thinking_level
     )
 
 
@@ -318,6 +327,7 @@ def main(argv: list[str] | None = None) -> int:
         help="저장소 밖 요구별 예측 JSON(조항·속성·상태·사유). 사유 표본 확인 입력. 결과 파일처럼 새 파일로만 쓴다",
     )
     parser.add_argument("--provider", choices=["gemini", "fake"], default="gemini")
+    parser.add_argument("--thinking-level", choices=["LOW", "MEDIUM", "HIGH"], default=None)
     parser.add_argument("--candidate-name", help="결과 후보 이름(기본 rfp-<모델>)")
     parser.add_argument("--env-file", type=Path, default=ROOT / ".env.integrations")
     parser.add_argument("--today", type=date.fromisoformat, help="인증 유효기한 기준일(기본 오늘)")
@@ -373,7 +383,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.provider == "fake":
         model, provider = "fake", fake_provider
     else:
-        model, provider = gemini(args.env_file)
+        model, provider = gemini(args.env_file, args.thinking_level)
     products, profiles = load_own_products(), load_profiles()
     by_number = {d.document_number: d for d in gold.documents}
     today = args.today or date.today()

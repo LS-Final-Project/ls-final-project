@@ -390,7 +390,9 @@ def evaluation_run(tmp_path, monkeypatch, *extra, provider="gemini", patch_gemin
     (tmp_path / "gold.json").write_text(json.dumps(gold))
     if patch_gemini:
         monkeypatch.setattr(
-            rfp_candidate_run, "gemini", lambda _env: ("model-x", rfp_candidate_run.fake_provider)
+            rfp_candidate_run,
+            "gemini",
+            lambda _env, _thinking=None: ("model-x", rfp_candidate_run.fake_provider),
         )
     monkeypatch.setattr(rfp_candidate_run, "extract", lambda *_a, **_k: None)
     monkeypatch.setattr(rfp_candidate_run, "build_clause_tree", lambda _doc: tree())
@@ -446,7 +448,9 @@ def test_predictions_out_lists_each_requirement_without_quotes_or_values(tmp_pat
     out, predictions = tmp_path / "r.json", tmp_path / "p.json"
     args = ["--run-label", "FIRST", "--out", str(out), "--official-ledger", str(ledger)]
     # 기본 가짜 공급자는 요구를 뽑지 않으므로, 요구 2건을 내는 합성 공급자로 바꿔 끼운다(실제 호출 없음).
-    monkeypatch.setattr(rfp_candidate_run, "gemini", lambda _env: ("model-x", provider))
+    monkeypatch.setattr(
+        rfp_candidate_run, "gemini", lambda _env, _thinking=None: ("model-x", provider)
+    )
     assert (
         evaluation_run(
             tmp_path, monkeypatch, *args, "--predictions-out", str(predictions), patch_gemini=False
@@ -504,7 +508,7 @@ def test_a_setup_failure_does_not_use_up_the_official_slot(tmp_path, monkeypatch
     """모델 설정이 깨져 첫 호출 전에 실패하면 공식 기록을 남기지 않는다(#322 리뷰 P2)."""
     ledger = tmp_path / "official.jsonl"
 
-    def broken(_env_file):
+    def broken(_env_file, _thinking=None):
         raise KeyError("GEMINI_API_KEY")
 
     monkeypatch.setattr(rfp_candidate_run, "gemini", broken)
@@ -554,7 +558,7 @@ def test_gold_errors_stop_the_run_before_any_model_call_or_ledger_write(
     monkeypatch.setattr(
         rfp_candidate_run,
         "gemini",
-        lambda _env: called.append(1) or ("m", rfp_candidate_run.fake_provider),
+        lambda _env, _thinking=None: called.append(1) or ("m", rfp_candidate_run.fake_provider),
     )
     ledger = tmp_path / "official.jsonl"
     args = [

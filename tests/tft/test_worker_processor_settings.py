@@ -14,8 +14,10 @@ def test_extraction_defaults_reach_generate(monkeypatch):
     seen = {}
     monkeypatch.setattr(ai, "create_client", lambda settings: "client")
 
-    def generate(client, settings, text, *, response_schema):
-        seen.update(client=client, settings=settings, schema=response_schema)
+    def generate(client, settings, text, *, response_schema, thinking_level=None):
+        seen.update(
+            client=client, settings=settings, schema=response_schema, thinking=thinking_level
+        )
         return "generation"
 
     monkeypatch.setattr(ai, "generate", generate)
@@ -34,6 +36,12 @@ def test_extraction_defaults_reach_generate(monkeypatch):
         120000,
     )
     assert seen["client"] == "client" and seen["schema"] is ResponseSchema
+    # 기본은 thinking 설정을 보내지 않는다. 설정하면 그대로 전달한다.
+    assert seen["thinking"] is None
+    worker_processor.gemini_provider(extraction_settings(ProcessorSettings(_env_file=None)), "LOW")(
+        "prompt"
+    )
+    assert seen["thinking"] == "LOW"
 
 
 @pytest.mark.parametrize(("lease", "refused"), [("200", True), ("300", False)])
