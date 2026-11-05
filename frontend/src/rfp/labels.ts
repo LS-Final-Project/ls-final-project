@@ -88,8 +88,13 @@ export function clauseLabel(clauseNo?: string | null, page?: number | null) {
   const ocr = clauseNo?.match(OCR_CLAUSE);
   return !ocr ? clauseNo ?? '' : ocr[1] === 'DOCX-' ? `본문 이미지 ${Number(ocr[2])}` : `PDF ${page ?? Number(ocr[2])}쪽`;
 }
-/** 요구 코드(문서 판본 앞 8자:조항 번호:순번)를 조항 표시로 바꾼다. 형식이 다르면 그대로 둔다. */
-export const codeLabel = (code?: string | null) => clauseLabel(code?.match(/^[0-9a-f]{8}:(.+):\d+$/)?.[1] ?? code);
+/** 요구 코드(문서 판본 앞 8자:조항 번호:순번, 직접 추가는 m순번)를 조항 표시로 바꾼다. 형식이 다르면 그대로 둔다.
+ * 직접 추가는 백엔드 bid_outputs.requirement_label과 같게 "제3조.2 직접 추가 1". */
+export function codeLabel(code?: string | null) {
+  const m = code?.match(/^[0-9a-f]{8}:(.+):(m?)(\d+)$/);
+  if (!m) return clauseLabel(code);
+  return m[2] ? `${clauseLabel(m[1])} 직접 추가 ${m[3]}` : clauseLabel(m[1]);
+}
 const VERDICT_WORD: Record<string, string> = {
   '값 다름': '값이 다릅니다', 미달: '요구에 못 미칩니다', 초과: '요구를 넘습니다', '범위 밖': '범위를 벗어납니다', 충족: '충족합니다',
 };

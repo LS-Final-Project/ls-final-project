@@ -254,7 +254,10 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
   const numbersOf = (pick: (row: Sentence) => boolean) => (sentences ?? []).filter(pick).map(row => sentenceNumbers.get(row.sentence_id)!);
   const missingNumbers = numbersOf(row => row.evidence_missing);
   const rereviewNumbers = numbersOf(row => row.needs_rereview);
-  const unresolved = project.data?.unresolved_mandatory_count;
+  // 저장 조건은 서버 decision_gate(남은 결정·편차 미기재·회신 대기·확인 대기)와 같은 기준으로 센다. 근거만 세는 unresolved_mandatory_count는 결정과 어긋난다.
+  const gate = project.data?.decision_gate;
+  const gateParts = gate ? ([['결정', gate.undecided], ['편차 미기재', gate.deviation_missing], ['회신 대기', gate.open_queries], ['확인 대기', gate.review_pending]] as const).filter(([, n]) => n > 0) : [];
+  const unresolved = gate ? gateParts.reduce((sum, [, n]) => sum + n, 0) : project.data?.unresolved_mandatory_count;
   const todo = [missingNumbers.length > 0 && `${sentenceList(missingNumbers)} 근거 추가`, rereviewNumbers.length > 0 && `${sentenceList(rereviewNumbers)} 재검토`].filter(Boolean).join(', ')
     || (unresolved ? 'RFP 검토에서 필수 요구 처리' : '검토본 저장');
   const lastReview = review?.review_version ?? project.data?.review_version;
@@ -307,7 +310,7 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
     <KvNext>{data ? <>
       <b>{project.data?.external_id}</b> 초안 {data.version}판, 문장 {sentences?.length}, 검토본 {reviewText}
       {' '}<b className="sep" aria-hidden="true">|</b>{' '}다음: {todo}
-      {unresolved !== undefined && <>{' '}<b className="sep" aria-hidden="true">|</b>{' '}필수 요구 미해결 {unresolved}건</>}
+      {unresolved !== undefined && <>{' '}<b className="sep" aria-hidden="true">|</b>{' '}저장 전 남은 일 {unresolved}건</>}
     </> : '초안을 불러오면 다음 할 일을 표시합니다.'}</KvNext>
     <ol className="draft-workflow" aria-label="초안 작성 순서">
       <li><b>1. 검토 결과 반영</b><span><Link to={`/tft/projects/${projectId}`}>RFP 검토</Link>에서 대응·질문을 기록한 뒤 초안을 다시 만듭니다. 모델 호출은 없습니다.</span></li>
@@ -377,7 +380,7 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
     </div></div><aside className="draft-actions" aria-label="검토본과 내보내기">
     <KvBox title="검토본 저장 조건">
       <dl className="draft-checks">
-        <div><dt>필수 요구, 상태와 근거 또는 다음 행동</dt><dd className={unresolved ? 'draft-attention' : ''}>{unresolved === undefined ? '서버 확인' : unresolved > 0 ? <Link to={`/tft/projects/${projectId}`}>미해결 {unresolved}건 검토</Link> : '미해결 0'}</dd></div>
+        <div><dt>결정·편차·회신·책임자 확인</dt><dd className={unresolved ? 'draft-attention' : ''}>{unresolved === undefined ? '서버 확인' : unresolved > 0 ? <Link to={`/tft/projects/${projectId}`}>{gateParts.length ? gateParts.map(([k, n]) => `${k} ${n}`).join(', ') : `남은 일 ${unresolved}건`}</Link> : '남은 일 없음'}</dd></div>
         {project.data?.integration_responsibility?.required && project.data.integration_responsibility.holder === 'UNRESOLVED' && <div><dt>통합 책임</dt><dd className="draft-attention">미확보, <Link to={`/tft/projects/${projectId}/supplement`}>보완 화면에서 지정</Link></dd></div>}
         <div><dt>근거 없는 문장</dt><dd className={data?.evidence_missing_count ? 'draft-attention' : ''}>{data ? missingNumbers.length ? <button type="button" className="draft-more" onClick={() => { setSection('all'); setView('evidence'); }}>{sentenceList(missingNumbers)} 확인</button> : '0문장' : '조회 전'}</dd></div>
         <div><dt>재검토 필요 문장</dt><dd className={needsReview ? 'draft-attention' : ''}>{needsReview === undefined ? '조회 전' : rereviewNumbers.length ? <button type="button" className="draft-more" onClick={() => { setSection('all'); setView('review'); }}>{sentenceList(rereviewNumbers)} 확인</button> : '0문장'}</dd></div>

@@ -344,3 +344,4 @@ button.ws-gateitem{color:#24518a;cursor:pointer}
 
 .ws-ello{display:inline-flex;flex:0 0 auto}
 .ws-aimark{display:inline-flex;margin-left:4px}
+.ws-tools .ws-err{display:block;flex-basis:100%;color:#b42318;font-size:12px}

@@ -21,3 +21,21 @@ def test_manage_project_inserts_for_the_demo_manager(monkeypatch, tmp_path):
     sql = calls[0][-1]
     assert calls[0][1] == "ns-pg"
     assert cli.DEMO_MANAGER in sql and "external_id = 'P26-0002'" in sql
+
+
+def test_grant_new_projects_registers_every_unmanaged_project_for_the_demo_manager(
+    monkeypatch, tmp_path
+):
+    from scripts.local_business import stack
+
+    calls = []
+    monkeypatch.setattr(
+        stack,
+        "docker",
+        lambda *args: calls.append(args) or b"ea12bdd8-ea9c-4651-a4bf-9cd026685dc3\nINSERT 0 1\n",
+    )
+    granted = stack.grant_new_projects(tmp_path / "ns")
+    sql = calls[0][-1]
+    assert calls[0][1] == "ns-pg"
+    assert granted == ["ea12bdd8-ea9c-4651-a4bf-9cd026685dc3"]
+    assert stack.DEMO_MANAGER in sql and "NOT EXISTS" in sql and "ON CONFLICT DO NOTHING" in sql
