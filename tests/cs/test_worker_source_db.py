@@ -305,7 +305,7 @@ def test_verification_is_linked_to_the_draft_visible_in_analysis_and_append_only
         row = conn.execute(
             "SELECT * FROM cs.ticket_draft_verifications WHERE draft_id=%s", (draft_id,)
         ).fetchone()
-    assert row["outcome"] == "VALID" and row["prompt_version"] == "v1"
+    assert row["outcome"] == "VALID" and row["prompt_version"] == "v2"
     assert row["input_tokens"] == 10 and row["call_attempts"] == 1
     assert len(row["sentences"]) == 3
     for role in ("cs_worker", "cs_app"):

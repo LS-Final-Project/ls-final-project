@@ -135,6 +135,11 @@ def deployed_config() -> dict[str, dict[str, Any]]:
             "prompt_fingerprint": prompt_fingerprint("draft", draft_version),
             "max_output_tokens": DRAFT_DEFAULTS["max_output_tokens"],
             "verification_max_output_tokens": VERIFICATION_DEFAULTS["max_output_tokens"],
+            # 검증 판본은 그래프가 run_verification_attempt 기본값(DEFAULT_VERSIONS)으로 쓴다(KAN-161).
+            "verification_prompt_version": DEFAULT_VERSIONS["verification"],
+            "verification_prompt_fingerprint": prompt_fingerprint(
+                "verification", DEFAULT_VERSIONS["verification"]
+            ),
             "evidence_limit": DRAFT_DEFAULTS["evidence_limit"],
         },
         "embedding": {

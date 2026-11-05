@@ -123,9 +123,10 @@
 채택 측정은 `scripts/cs_draft_run.py --verify`가 같은 순서로 돈다(분류는 입력 파일을 쓴다). 호출·비용·판정 분포와 재작성을 반영한 초안 지표를 기록하고 합격 판정은 하지 않는다. 합격선은 사람이 정한다. 검증 출력 상한은 후보의 `verification_max_output_tokens`(없으면 `max_output_tokens`)다.
 
 - `verify`는 선택지의 `EVIDENCE` 문장과 그 문장이 인용한 근거만 `verification_call.run_verification_attempt`로
-  한 번 보낸다. 레지스트리 `verification/v1`, 출력은 `SUPPORTED`·`UNSUPPORTED`·`UNVERIFIABLE`과 이유·근거 ID다.
+  한 번 보낸다. 레지스트리 기본 `verification/v2`(KAN-161), 출력은 `SUPPORTED`·`UNSUPPORTED`·`UNVERIFIABLE`과 이유·근거 ID다.
   `EVIDENCE` 문장 전수 1:1 대응과 입력 인용 범위를 검사한다. 문의 원문·정답을 새 입력으로 추가하지 않는다.
-- 검증 대상은 `EVIDENCE` 문장뿐이다(입력 판본 `cs-verification-input-v2`). `CONDITION`·`UNCONFIRMED` 문장은 근거를 달지 않아 입력에서 뺀다. 참조·차단어 검사는 모든 문장에 그대로 한다. `EVIDENCE` 문장이 없으면 호출 없이 `NOT_VERIFIED`, 사유 `CS_NO_EVIDENCE_SENTENCES`다.
+- 근거 판정 대상은 `EVIDENCE` 문장뿐이다. v1(입력 판본 `cs-verification-input-v2`)은 `CONDITION`·`UNCONFIRMED` 문장을 입력에서 뺀다. 참조·차단어 검사는 모든 문장에 그대로 한다. `EVIDENCE` 문장이 없으면 호출 없이 `NOT_VERIFIED`, 사유 `CS_NO_EVIDENCE_SENTENCES`다.
+- 확정 약속 표시(v2, 입력 판본 `cs-verification-input-v3`): 비근거 문장도 입력에 넣고 원답은 문장마다 `firm_commitment`를 쓴다. 언어와 관계없이 RMA·반품 승인·번호 발급, 보증 승인·무상 처리, 교체·환불 확정, 방문·파견 확정, 불량·책임·과실 확정을 단정한 문장이다. `verification.normalize`가 표시된 문장을 `UNSUPPORTED`·`FORBIDDEN_REASON`(`CS_FORBIDDEN_COMMITMENT: …`) 판정으로 바꾸고 비근거 문장은 표시된 것만 남긴다. 그래서 그 초안은 `VERIFIED`가 될 수 없고 아래 재작성 1회·재검증을 그대로 탄다. 저장(`cs.ticket_draft_verifications.sentences`)·조회 상태 계산·화면은 v1과 같은 판정 모양이다. 저장 재검사는 비근거 문장 판정으로 이 표시 줄만 허용한다. 금지 약속 정규식(`drafting.find_forbidden_commitment`, 영어·한국어)은 보조 차단으로 그대로 둔다.
 - 사례 상태: `EVIDENCE` 문장이 모두 `SUPPORTED`면 `VERIFIED`, 하나라도 아니면 `NEEDS_REVIEW`다. `UNVERIFIABLE`은 재작성하지 않고 표시만 한다. 기본 출력 상한은 초안 6000, 검증 8192다(채택 `draft-20261101-flash36-v4`, 측정은 검증 6000이고 8192로 측정한 적 없음). 잘림 재시도는 없다. 두 호출의 시간 제한은 60초이고 전용 클라이언트(`draft_ai_settings`)를 쓴다. 공용 `gemini_timeout_ms`(30초)와 분류는 그대로다. 일시 오류 재시도 1회면 호출 하나의 최악은 121초다. lease는 노드마다 연장하고 노드 안에 형식 재호출이 있어 노드 최악은 242초다. `CS_WORKER_LEASE_SECONDS` 기본은 300이고, `main`이 시작할 때 `check_lease(calls=2)`로 더 짧은 설정을 `INVALID_WORKER_CONFIGURATION`으로 막는다.
 - 정상 검증에서 `UNSUPPORTED`가 있으면 `rewrite`로 간다. 기존 초안과 실패 문장 이유를
   정제 초안 입력에 붙여 **공급자 호출 한 번만** 재작성한다. 재작성에는 기존 형식 재시도를 적용하지 않는다.

@@ -77,6 +77,10 @@ ASSEMBLY_WORDS = (
     "분전반",
     "제어반",
     "차단기반",
+    # 단선도·설비 표의 개폐반 태그(MV-SWG-01). 태그를 못 읽으면 차단기 25.8 kV가 11 kV·24 kV 개폐반 요구를 채웠다(KAN-217).
+    # ponytail: 개폐반 약어만 넣었다. 배전반 태그(SWB)는 "LV-SWB-01 인입 ACB"처럼 차단기 요구에 붙어 와서 장비 이름 정리 뒤에 넣는다.
+    "swg",
+    "swgr",
 )
 # 조립품 이름과 같이 써도 부품 요구다(예: "switchgear circuit breaker", 인출형 차단기).
 DEVICE_WORDS = ("circuit breaker", "breaker", "vcb", "acb", "mccb")
