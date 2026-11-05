@@ -469,19 +469,57 @@ def mail_on(state, args):
     config = owned(state)
     if args.allow and not args.send:
         raise ValueError("LOCAL_MAIL_ALLOW_NEEDS_SEND")
+    if args.demo and args.secret_file:
+        raise ValueError("LOCAL_MAIL_DEMO_NEEDS_NO_APP")
     value = mail.write(
         state,
-        app=mail.client_app(args.secret_file, os.environ),
+        app=mail.DEMO_APP if args.demo else mail.client_app(args.secret_file, os.environ),
         sync=args.receive,
         send=args.send,
-        allow=args.allow or mail.DEFAULT_ALLOW,
+        allow=args.allow or (mail.DEMO_ALLOW if args.demo else mail.DEFAULT_ALLOW),
         interval=args.interval,
+        demo=args.demo,
     )
+    if value["demo"]:
+        print("Demo mailbox: synthetic consent and local Graph, nothing leaves this machine.")
     print("Mail mode on:", "receive" if value["sync"] else "", "send" if value["send"] else "")
     if value["send"]:
         print("Send allow list:", ", ".join(value["allow"]))
-    print("Entra Web redirect URI:", config["web_origin"] + mail.MAILBOX_CALLBACK)
+    if not value["demo"]:
+        print("Entra Web redirect URI:", config["web_origin"] + mail.MAILBOX_CALLBACK)
     print("Run restart to apply.")
+
+
+def mail_demo_receive(state, args):
+    from scripts.local_business import demo_mail, mail
+
+    owned(state)
+    current = mail.load(state)
+    if not current or not current.get("demo"):
+        raise ValueError("LOCAL_MAIL_DEMO_OFF")
+    if current.get("send") and not mail.allowed(args.sender.strip(), current["allow"]):
+        print(
+            "Warning: replies to this address are blocked by the send allow list:",
+            ", ".join(current["allow"]),
+        )
+    path = demo_mail.store_path(state / "files")
+    if not path.exists():
+        # The platform creates it at start-up in its document root (the bind of state/files).
+        raise ValueError("LOCAL_MAIL_DEMO_STORE_MISSING_RESTART_FIRST")
+    stored = demo_mail.receive(
+        demo_mail.DemoStore(path),
+        sender=args.sender,
+        subject=args.subject,
+        body=args.body,
+        reply=args.reply,
+    )
+    print(
+        json.dumps(
+            {k: stored[k] for k in ("id", "subject", "from", "receivedDateTime")},
+            ensure_ascii=False,
+        )
+    )
+    print("The next sync (every", current["interval_seconds"], "seconds) brings it in.")
 
 
 def main():
@@ -501,6 +539,7 @@ def main():
         "settle-unknown",
         "mail-on",
         "mail-off",
+        "mail-demo-receive",
     ):
         p = sub.add_parser(command)
         p.add_argument("--namespace", required=True)
@@ -558,6 +597,18 @@ def main():
             )
             p.add_argument("--secret-file", help="0600 JSON with client_id and client_secret")
             p.add_argument("--interval", type=int, default=60, help="Seconds between sync runs")
+            p.add_argument(
+                "--demo",
+                action="store_true",
+                help="Local demo mailbox: no Microsoft app, synthetic mail only",
+            )
+        if command == "mail-demo-receive":
+            p.add_argument("--from", dest="sender", required=True, help="Customer address")
+            p.add_argument("--subject", help="Default with --reply: Re: <answered subject>")
+            p.add_argument("--body", required=True)
+            p.add_argument(
+                "--reply", action="store_true", help="Answer the latest mail sent to this address"
+            )
     args = parser.parse_args()
     if args.command in {"enable-real", "set-concurrency"}:
         try:
@@ -620,9 +671,12 @@ def main():
         print(json.dumps(record, ensure_ascii=False))
     elif args.command == "mail-on":
         mail_on(state, args)
+    elif args.command == "mail-demo-receive":
+        mail_demo_receive(state, args)
     elif args.command == "mail-off":
         owned(state)
         (state / "auth" / "mail.json").unlink(missing_ok=True)
+        (state / "auth" / "mail-demo").unlink(missing_ok=True)
         print("Mail mode off. Run restart to apply.")
     elif args.command == "disable-real":
         config = owned(state)
