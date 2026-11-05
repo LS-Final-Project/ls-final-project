@@ -150,8 +150,15 @@ class AttemptStore:
 
 
 def verification_provider(prompt):
-    """입력 문장마다 지원 판정을 내는 흐름 검사 fake. 실제 근거 품질의 증거가 아니다."""
+    """입력 문장마다 지원 판정을 내는 흐름 검사 fake(기본 판본 v2 모양). 실제 근거 품질의 증거가 아니다."""
     payload = json.loads(prompt.split("\n\n입력:\n", 1)[1])
+
+    def evidence(s):
+        return s["kind"] == "EVIDENCE" and s["evidence_chunk_ids"]
+
+    # 지시문의 출력 스키마를 따른다. v1 지시문이나 지시문 없는 입력에는 firm_commitment를 쓰지 않는다.
+    flag = {"firm_commitment": False} if "firm_commitment" in prompt else {}
+
     return Generation(
         json.dumps(
             {
@@ -159,9 +166,10 @@ def verification_provider(prompt):
                     {
                         "label": s["label"],
                         "sentence_index": s["sentence_index"],
-                        "verdict": "SUPPORTED" if s["evidence_chunk_ids"] else "UNVERIFIABLE",
+                        "verdict": "SUPPORTED" if evidence(s) else "UNVERIFIABLE",
                         "reason": "Synthetic verification only.",
-                        "evidence_chunk_ids": s["evidence_chunk_ids"],
+                        "evidence_chunk_ids": s["evidence_chunk_ids"] if evidence(s) else [],
+                        **flag,
                     }
                     for s in payload["sentences"]
                 ]

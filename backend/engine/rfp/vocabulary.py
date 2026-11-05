@@ -133,6 +133,53 @@ def read_canonical(attribute_key: str, text: str) -> str | None:
     return compact if is_canonical(attribute_key, compact) else None
 
 
+# 같은 뜻의 다른 표기(KAN-217). 비교 전에 표준 표기로 맞춘다. 표에 없거나 읽지 못한 표기는 맞추지 않는다.
+# 냉각 부호: IEC 60076-2 유입(첫 글자 O·K·L 절연유, N·F·D 유동, A·W 냉각 매체, N·F 유동)과 IEC 60076-11 건식(AN·AF).
+# 값 전체가 부호이거나 부호 하나가 괄호에 있을 때만 읽는다("자냉(AN)", "AN(자냉)"). 한글만 있는 자냉·풍냉은 건식(AN)인지
+# 유입(ONAN)인지 몰라 맞추지 않는다. 유입자냉·유입풍냉은 ONAN·ONAF로 정해진 말이다.
+COOLING_CODE = r"[OKL][NFD][AW][NF]|A[NF]"
+COOLING = re.compile(
+    rf"[^()]*\(\s*({COOLING_CODE})\s*\)\s*|\s*({COOLING_CODE})\s*(?:\([^()]*\))?\s*", re.I
+)
+COOLING_WORDS = {"유입자냉": "ONAN", "유입풍냉": "ONAF"}
+# 탭 절환 방식: IEC 60076-1 off-circuit(무전압) / on-load(부하 시), IEEE C57.12.80 de-energized(DETC) / load tap
+# changer(LTC). no-load(NLTC)·off-load도 무전압 절환을 말한다. 무부하가 '부하'를 담고 있어 무전압 쪽을 먼저 지운 뒤 본다.
+OFF_CIRCUIT = re.compile(
+    r"off[\s-]*circuit|off[\s-]*load|no[\s-]*load|de[\s-]*energi[sz]ed|\b(?:detc|octc|nltc)\b|무부하|무전압"
+)
+ON_LOAD = re.compile(r"on[\s-]*load|\b(?:oltc|ltc)\b|load[\s-]*tap|부하\s*시")
+# 절연 등급: IEC 60085 내열 등급 글자. 'F종'·'F급'·'Class F'·'F class'는 모두 F다.
+INSULATION_CLASS = re.compile(r"\s*(?:class\s*)?([YAEBFHNR])\s*(?:종|급|class)?\s*", re.I)
+
+
+def standard_term(name: str, value: str | None) -> str | None:
+    """냉각 방식·탭 절환 방식·절연 등급 값의 표준 표기(KAN-217). 비교하는 양쪽에 같이 쓴다.
+
+    Args:
+        name: 조건 이름(cooling·tap_type) 또는 속성 어휘(insulation_class).
+        value: 원문 값.
+
+    Returns:
+        str | None: AN·ONAN·off-circuit·on-load·F 같은 표준 표기. 다른 이름이거나 읽지 못하면 None(호출자는 원래
+            비교를 쓴다).
+    """
+    text = " ".join((value or "").split())
+    if name == "cooling":
+        code = COOLING.fullmatch(text)
+        if code:
+            return (code.group(1) or code.group(2)).upper()
+        return COOLING_WORDS.get(text.replace(" ", ""))
+    if name == "tap_type":
+        plain = text.casefold()
+        off = OFF_CIRCUIT.search(plain) is not None
+        on = ON_LOAD.search(OFF_CIRCUIT.sub(" ", plain)) is not None
+        return "off-circuit" if off and not on else "on-load" if on and not off else None
+    if name == "insulation_class":
+        letter = INSULATION_CLASS.fullmatch(text)
+        return letter.group(1).upper() if letter else None
+    return None
+
+
 def has_placeholder(text: str | None) -> bool:
     """문장 안에 미정 항목이 있는지. 조항에 물어볼 것이 있는지를 판단한다.
 

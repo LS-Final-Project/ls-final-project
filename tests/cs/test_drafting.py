@@ -712,8 +712,11 @@ def test_fake_provider_gets_the_rule_and_a_greeting_stays_out_of_verification():
     result = attempt(provider)
     assert EVIDENCE_RULE_V4 in provider.call_args.args[0]
     assert result.outcome == "VALID" and result.prediction is not None
-    payload = build_verification_input(result.prediction, EVIDENCE)
+    payload = build_verification_input(result.prediction, EVIDENCE, prompt_version="v1")
     assert payload.sentences and all(s.text != greeting for s in payload.sentences)
+    # 검증 v2(KAN-161)는 확정 약속을 보려고 인사·조건 문장도 넣는다. 판정 대상은 여전히 EVIDENCE뿐이다.
+    every = build_verification_input(result.prediction, EVIDENCE, prompt_version="v2")
+    assert any(s.text == greeting and s.kind == "CONDITION" for s in every.sentences)
 
 
 @pytest.mark.parametrize(

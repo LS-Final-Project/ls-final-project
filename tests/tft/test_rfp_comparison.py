@@ -2009,3 +2009,68 @@ def test_dry_transformer_requirement_never_uses_oil_product():
         and chosen.product_code == "TRF-OIL-1000"
         and chosen.note == "형식 미확인"
     )
+
+
+def rfp91_transformer(**fields):
+    """RFP-91 제7조 건식 변압기 요구(40444 저장 추출과 같은 칸, 합성 문서)."""
+    return compare_in_family(
+        Requirement(clause_no="제7조", item="건식 변압기 (TR-01)", **fields),
+        "TRANSFORMER",
+        load_own_products(),
+    )
+
+
+@pytest.mark.parametrize(
+    ("fields", "status"),
+    [
+        # R-09: 요구 cooling '자냉(AN)', 자사 AN. 표기만 다르다.
+        (
+            {
+                "attribute": "rated_power",
+                "value": "630",
+                "unit": "kVA",
+                "conditions": [Condition(name="cooling", value="자냉(AN)")],
+            },
+            "EVIDENCE_FOUND",
+        ),
+        # R-13: 요구 tap_type '무부하 탭', 자사 off-circuit.
+        (
+            {
+                "attribute": "tap",
+                "value": "±2×2.5",
+                "unit": "%",
+                "canonical_value": "±2x2.5%",
+                "conditions": [Condition(name="tap_type", value="무부하 탭")],
+            },
+            "EVIDENCE_FOUND",
+        ),
+        # R-14: 'F종 이상'과 자사 Class F.
+        ({"attribute": "insulation_class", "value": "F종", "operator": "GTE"}, "EVIDENCE_FOUND"),
+        # 뜻이 다른 값은 그대로 조건 차이·확인 필요다.
+        (
+            {
+                "attribute": "rated_power",
+                "value": "630",
+                "unit": "kVA",
+                "conditions": [Condition(name="cooling", value="풍냉(AF)")],
+            },
+            "CONDITIONAL",
+        ),
+        (
+            {
+                "attribute": "tap",
+                "value": "±2×2.5",
+                "unit": "%",
+                "canonical_value": "±2x2.5%",
+                "conditions": [Condition(name="tap_type", value="부하시 탭 절환기")],
+            },
+            "CONDITIONAL",
+        ),
+        ({"attribute": "insulation_class", "value": "H종", "operator": "GTE"}, "CONDITIONAL"),
+    ],
+)
+def test_rfp91_same_meaning_notations_compare_equal(fields, status):
+    """KAN-217: RFP-91 R-09·R-13·R-14는 표기 차이라 충족, 뜻이 다른 값은 그대로 조건부다."""
+    outcome = rfp91_transformer(**fields)
+    assert outcome.status == status
+    assert [c.product_code for c in outcome.candidates] == ["TRF-DRY-630"]

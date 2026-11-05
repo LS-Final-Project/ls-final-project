@@ -52,7 +52,7 @@ C/S·TFT·공통 플랫폼 API의 공통 HTTP·작업 설계 규약이다. 세�
 
 API의 DB 트랜잭션에 작업과 outbox를 함께 저장한다. 큐 등록 실패 시 outbox dispatcher가 재시도한다. dispatcher 자체도 Cloud Scheduler의 인증된 호출 등 요청이 보장되는 실행으로 돌린다. API 인스턴스의 상주 스레드에만 의존하지 않는다.
 
-Cloud Tasks는 `(job_id, step, input_version)` 유일 키와 lease를 검사한다. 성공 결과가 이미 있으면 2xx로 종료한다. 실행 중이거나 일시 장애면 큐 재시도 정책을 적용한다. 영구 오류는 실패 상태와 이벤트를 먼저 저장한 뒤 큐 재시도를 멈춘다. lease 만료 및 큐 소진 후에도 RUNNING에 남는 작업을 재조정하는 처리가 필요하다. 같은 단계의 LLM 호출이 실제로 두 번 실행됐다면 두 사용량을 모두 기록한다.
+C/S·RFP 작업은 Cloud Tasks가 아니라 Cloud Run Jobs worker가 실행한다(접수 직후 전송과 Cloud Scheduler 매분 전송, `backend/api/platform/jobs/sweep.py`). worker는 QUEUED이거나 lease가 끊긴 RUNNING 작업만 인수하고, 인수할 때 세대 번호를 올리고 lease를 건다(`backend/agent/job_runtime.py` `claim`). 이미 끝났거나 살아 있는 lease가 있는 작업은 인수하지 않는다. Job 자체는 다시 시도하지 않는다(`--max-retries=0`). lease가 끊긴 뒤 이벤트 없이 남은 작업은 주기 정리가 FAILED로 닫는다(실패 코드는 [RFP 작업 계약](../contracts/tft/rfp-jobs.md)의 정리 절). 메일 수집·발송만 Cloud Tasks를 쓰며 그 재시도는 큐 정책을 따른다. 같은 단계의 LLM 호출이 실제로 두 번 실행됐다면 두 사용량을 모두 기록한다.
 
 ## 작업과 SSE
 

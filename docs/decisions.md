@@ -68,7 +68,7 @@ flowchart TD
     T --> D
     P --> M[Microsoft 로그인과 메일]
     P --> F[Cloud Storage]
-    T --> Q[Cloud Tasks 문서 처리]
+    P --> Q[Cloud Run Jobs C/S·RFP worker]
     P --> J[Cloud Run Jobs 평가 실행]
     Q --> D
     J --> D
@@ -95,16 +95,16 @@ flowchart TD
 | 실행 환경 | GCP Cloud Run, 서울 리전 | 세 FastAPI 앱을 컨테이너 단위로 독립 배포하는 요구에 맞춘다. 최소 인스턴스 1은 시연 응답성을 우선한 설정이며 유휴 비용을 감수한다. 초기값은 CPU 1, 메모리 512MiB, 최소 1·최대 2 인스턴스이며 부하 평가로 조정한다. |
 | LLM | Gemini | 교육장 키로 시작하는 진입 부담이 낮다. 가장 정확하거나 저렴하다는 결론은 아니며 지원 목록, 품질, 지연과 비용 평가로 모델 ID를 고른다. |
 | 임베딩 | Gemini 다국어 임베딩 | 다국어 원문을 직접 검색 대상으로 삼아 번역 단계를 추가하지 않는다. 언어별 검색 품질은 평가가 필요하며 모델 ID와 차원은 미정이다. |
-| 검색 | PostgreSQL FTS와 pgvector | 제품 코드 및 규격 같은 키워드와 의미가 유사한 표현을 함께 찾기 위한 구성이다. 권한 필터 후 후보를 RRF로 결합하고 재정렬한다. 결합과 재정렬의 품질 이득 및 지연은 실측해야 한다. |
+| 검색 | PostgreSQL FTS와 pgvector | 제품 코드 및 규격 같은 키워드와 의미가 유사한 표현을 함께 찾기 위한 구성이다. 권한 필터 후 FTS·벡터 후보를 RRF로 결합하고 제품 코드가 그대로 맞는 후보를 앞에 둔다. 재정렬(리랭커)은 `backend/engine/search/hybrid.py`에 연결 자리(`Reranker` Protocol)만 있고 구현과 호출이 없다. C/S 벡터 검색은 기본값이 꺼짐(`CsVectorSettings.vector_search_enabled=False`)이며 운영에서 손으로 켠다([출시 승인](release-approval.md)). 결합의 품질 차이는 [발표 전 추가 측정](evaluation.md#발표-전-추가-측정-2026-11-05)에 있고, 재정렬의 이득은 측정하지 않았다. |
 | DB | Cloud SQL PostgreSQL | 업무 데이터, 검색과 실행 상태를 PostgreSQL 중심으로 관리해 별도 저장소 수를 줄인다. 한 DB 안에서 서비스별 스키마와 접속 계정을 분리하며 실제 부하에서 경합을 확인해야 한다. |
 | 파일 | Cloud Storage | 원문 및 첨부를 DB 행과 분리해 보관하고 인용 위치와 연결한다. 원문 판본과 파생 파일의 연결 및 변경 정책은 앱에서 구현해야 한다. |
 | 인증 | Microsoft OAuth, MSAL, PKCE | 실제 메일 연동에 쓰는 Microsoft 로그인과 서비스 접근을 연결한다. 조직의 로그인 성공과 앱의 업무 권한은 별개로 검사한다. |
 | 에이전트 | LangChain, LangGraph | 분류, 근거 검색, 초안과 사람의 확인을 단계 및 상태로 표현한다. 모든 단계를 별도 에이전트로 늘리는 근거는 아니며 상태 전이 검증이 필요하다. |
 | 실행 상태 | langgraph-checkpoint-postgres | 실행 상태를 서비스 프로세스 밖에 보관하고 PostgreSQL 운영 구성을 재사용한다. 중단 후 재개 시 외부 작업이 중복되지 않도록 별도 검증해야 한다. |
 | 추적 | LangSmith | 단계별 입력과 출력 및 실패 위치를 평가 결과와 연결하기 위한 선택이다. 전송 정책(2026-10-29 확정, KAN-89): `ENVIRONMENT=local`에서 `AI_TRACING_ALLOWED=true`일 때만 전송하고 test·production은 Settings 시작 검증이 거부한다. 보내는 것은 LangGraph 상태 전체이며, record는 `build_input`이 민감값을 표식으로 바꾼 마스킹 입력이고 원시 모델 응답·프롬프트 전문은 상태에 없다. MVP에서는 합성 데이터만 쓰므로 입출력을 추가로 가리지 않는다. 실제 데이터를 쓰게 되면 `hide_inputs`·`hide_outputs`로 텍스트 필드를 가리는 결정을 다시 한다. 계정은 개인 PAT, 프로젝트 `ls-final-cs-local`, Developer 티어(trace 보관 14일), 발표 후 키 폐기. 로컬 JSON·감사 파일 보존은 하네스가 계속 맡는다. |
-| 문서 비동기 처리 | Cloud Tasks | RFP OCR 및 임베딩을 API 요청 수명과 분리하고 작업 단위로 재시도하도록 설계한다. 중복 실행에도 결과가 중복 반영되지 않게 구현해야 한다. |
+| C/S·RFP 작업 실행 | Cloud Scheduler와 Cloud Run Jobs | C/S 분석과 RFP 문서 처리를 API 요청 수명과 분리한다. 접수 때 작업과 전송 장부를 DB에 저장하고 한 건을 바로 보낸다(`dispatch_soon`). Cloud Scheduler 작업 `jobs-dispatch`가 1분마다(`* * * * *`) 플랫폼 `POST /internal/v1/platform/jobs/dispatch`를 불러 남은 건을 한 번에 최대 5건씩 Cloud Run Jobs(`cs-worker`·`tft-worker`)로 보내고, 시작하지 못했거나 멈춘 작업을 실패로 닫는다(`backend/api/platform/jobs/sweep.py`, `infra/setup_worker_jobs.py`). 메일 수집·발송은 Cloud Tasks를 쓴다(`backend/api/platform/mail/worker.py`, `send_worker.py`). Job은 재시도하지 않으므로(`--max-retries=0`) worker가 죽으면 마지막 이벤트 뒤 기본 600초(`JOBS_SWEEP_STALE_SECONDS`)가 지나야 실패로 닫힌다. 중복 실행에도 결과가 중복 반영되지 않게 구현해야 한다. |
 | 평가 및 초기화 | Cloud Run Jobs | 끝이 있는 평가 및 초기화 실행을 업무 API 프로세스와 분리한다. 실행 시작 지연과 자원 상한은 확인이 필요하다. |
-| 주기 작업 | Cloud Scheduler | 메일 동기화의 주기 호출을 웹 앱 내부 타이머와 분리한다. 중복 호출과 동기화 체크포인트를 처리해야 한다. |
+| 주기 작업 | Cloud Scheduler | 메일 동기화와 C/S·RFP 작업 전송의 주기 호출을 웹 앱 내부 타이머와 분리한다. 중복 호출과 동기화 체크포인트를 처리해야 한다. |
 | CI/CD | GitHub Actions, Cloud Build, Artifact Registry | 변경 서비스의 CI와 이미지·배포를 분리한다. main의 동일 커밋 CI 성공 뒤 OIDC로 배포하며 빌드·배포 계정을 분리한다. |
 | 비밀값 | Secret Manager | 키와 접속 비밀값을 코드 및 문서에 넣지 않고 실행 계정별로 제공한다. 접근 권한과 키 교체 절차는 별도 설정해야 한다. |
 | 화면 진행 상황 | SSE | 서버에서 브라우저로 작업 진행 상태를 보내는 요구에 맞춘다. 재연결, 누락 이벤트 조회와 플랫폼 중계 경로의 타임아웃은 검증해야 한다. |
