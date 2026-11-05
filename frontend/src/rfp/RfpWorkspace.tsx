@@ -127,7 +127,7 @@ export default function RfpWorkspace() {
         <section className="ws-sec ws-left">
           {phase === 'empty' && <DropZone onFile={() => undefined} projectId={projectId} />}
           {phase === 'ready' && <StartAnalysis projectId={projectId} documents={docs} />}
-          {(phase === 'running' || phase === 'failed') && <Skeleton count={live?.progress?.counts?.requirements} />}
+          {(phase === 'running' || phase === 'failed') && <SectionProgress activity={live?.activity ?? []} count={live?.progress?.counts?.requirements} running={phase === 'running'} />}
           {phase === 'none' && <div className="ws-center"><p className="ws-strong">요구를 찾지 못했습니다</p><p className="muted">목차만 있는 문서이거나 스캔 이미지일 수 있습니다.</p></div>}
         </section>
         <section className="ws-sec ws-right">
@@ -270,7 +270,8 @@ function AnalysisStrip({ projectId, documents, live, failed }: { projectId: stri
     onSettled: () => client.invalidateQueries({ queryKey: ['projects'] }),
   });
   const latest = bySequence(activity).filter(a => a.focus).at(-1);
-  const line = latest ? lineOf(latest) : STEP_NOW[step ?? 'parse'];
+  const inFlight = step === 'extract' ? sectionStates(activity).filter(r => r.n === undefined).length : 0;
+  const line = inFlight > 1 ? `조항 ${inFlight}개를 동시에 읽는 중` : latest ? lineOf(latest) : STEP_NOW[step ?? 'parse'];
   return <>
     <div className="ws-strip" aria-label="AI 분석 상태">
       <span className="ws-ello" role="img" aria-label={failed ? 'AI 분석 멈춤' : 'AI 분석 중'}><ElloWorking size={28} still={failed} /></span>
@@ -289,10 +290,38 @@ function AnalysisStrip({ projectId, documents, live, failed }: { projectId: stri
   </>;
 }
 
-function Skeleton({ count }: { count?: number }) {
-  return <div className="ws-skel" aria-busy="true">
-    <p className="muted">{count ? `요구 ${count}건을 찾았습니다.` : '요구를 찾는 중입니다.'}</p>
-    {[70, 110, 90, 130, 80, 100].map((w, i) => <span key={i} className="sk" style={{ width: `${w * 2}px` }} />)}
+// 분석 중 조항 진행(2026-11-05 사용자 확정 목업): 서버가 보내는 조항 이름(section: 그 조항 호출 하나가 끝남)과
+// 조항 건수(found)만으로 그린다. 이름은 왔는데 건수가 없으면 읽는 중이다. 꾸며 낸 진행은 없다.
+export function sectionStates(activity: RfpProgress[]) {
+  const order: string[] = [];
+  const found = new Map<string, number>();
+  for (const a of bySequence(activity)) {
+    const f = a.focus;
+    if (!f || (f.kind !== 'section' && f.kind !== 'found')) continue;
+    if (!order.includes(f.label)) order.push(f.label);
+    if (f.kind === 'found') found.set(f.label, f.n ?? 0);
+  }
+  return order.map(label => ({ label, n: found.get(label) }));
+}
+
+function SectionProgress({ activity, count, running }: { activity: RfpProgress[]; count?: number; running: boolean }) {
+  const rows = sectionStates(activity);
+  const done = rows.filter(r => r.n !== undefined);
+  const reading = rows.length - done.length;
+  const max = Math.max(1, ...done.map(r => r.n ?? 0));
+  const total = count ?? done.reduce((sum, r) => sum + (r.n ?? 0), 0);
+  return <div className="ws-sp" aria-busy={running}>
+    <div className="ws-sp-head"><span className="muted">찾은 요구</span><b>{total}</b><span className="muted">건</span>
+      <span className="r">다 읽은 조항 {done.length}{reading > 0 ? `, 읽는 중 ${reading}` : ''}</span></div>
+    {rows.length === 0 && <p className="muted ws-sp-wait">문서를 조항으로 나누는 중입니다.</p>}
+    <ul className="ws-sp-list">
+      {rows.map(r => <li key={r.label} className={r.n === undefined ? (running ? 'run' : '') : 'done'}>
+        <i className="mk" /><span className="tx">{r.label}</span>
+        <span className="trk"><b style={{ width: r.n === undefined ? 0 : `${(r.n / max) * 100}%` }} /></span>
+        <span className="n">{r.n === undefined ? '' : `요구 ${r.n}`}</span>
+      </li>)}
+      {running && [0, 1, 2].map(i => <li key={`w${i}`} className="wait"><i className="mk" /><span className="sk" /></li>)}
+    </ul>
   </div>;
 }
 
