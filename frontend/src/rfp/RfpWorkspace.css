@@ -350,3 +350,7 @@ button.ws-gateitem{color:#24518a;cursor:pointer}
 .ws-decided{flex-wrap:wrap}
 .ls-root .ws .ws-panel span.ws-tools{display:flex}
 .ls-root .ws .ws-panel .ws-tools>*+*{margin-left:0}
+/* 분석 표 박스 높이는 오른쪽 작업 박스(원문+결정 카드)를 따른다: 표는 줄 높이를 정하지 않고(height:0) 늘어난 칸을 채운다. 최소 560px. */
+.ws-grid{align-items:stretch}
+.ws-grid>.ws-left{display:flex;flex-direction:column;min-height:560px}
+.ws-grid>.ws-left>.ws-tbox{flex:1 1 0;height:0;min-height:0}
