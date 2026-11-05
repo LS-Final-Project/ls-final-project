@@ -48,6 +48,9 @@ def state(admin, *requirements):
     return versions, decisions
 
 
+RESPONSIBLE_P = Principal(user_id=RESPONSIBLE, roles=frozenset({"sales"}))
+
+
 def bulk(client, chain, items, key=None, who=OWNER):
     return call(
         client,
@@ -109,6 +112,39 @@ def test_bulk_follows_single_decision_permissions_and_actions(client, admin, cha
     undo = bulk(client, chain, [item(other, action="undo", decision_id=str(uuid4()))])
     assert undo.status_code == 422
     assert state(admin, chain["requirement"], other) == ([(1, "SPEC_GAP"), (1, "SPEC_GAP")], 0)
+
+
+def test_responsible_confirms_all_in_one_call_and_it_rolls_back_together(client, admin, chain):
+    # 2026-11-05 흐름 점검: "모두 확인"이 요구마다 한 번씩 불러 65건에 4초가 걸렸다.
+    other = second(admin, chain)
+    decided = bulk(client, chain, [item(chain["requirement"]), item(other)]).json()["data"]
+    responsible = Principal(user_id=RESPONSIBLE, roles=frozenset({"sales"}))
+    reviews = [
+        item(
+            d["requirement_id"],
+            d["requirement_version"],
+            "review_confirm",
+            decision_id=d["decision_id"],
+        )
+        for d in decided["items"]
+    ]
+    owner = bulk(client, chain, reviews)
+    assert owner.status_code == 403
+    assert owner.json()["error"]["code"] == "TFT_DECISION_RESPONSIBLE_ONLY"
+    broken = [*reviews[:1], {**reviews[1], "decision_id": str(uuid4())}]
+    failed = bulk(client, chain, broken, who=responsible)
+    assert failed.status_code == 404 and failed.json()["error"]["details"][0]["index"] == "1"
+    with psycopg.connect(admin) as conn:
+        count = "SELECT count(*) FROM tft.requirement_decisions WHERE project_id=%s AND action=%s"
+        assert conn.execute(count, (chain["project"], "review_confirm")).fetchone()[0] == 0
+    done = bulk(client, chain, reviews, who=responsible)
+    assert done.status_code == 200, done.text
+    assert [i["action"] for i in done.json()["data"]["items"]] == ["review_confirm"] * 2
+    with psycopg.connect(admin) as conn:
+        assert conn.execute(count, (chain["project"], "review_confirm")).fetchone()[0] == 2
+    # 확인 묶음은 되돌릴 판단이 없다.
+    url = f"/projects/{chain['project']}/decisions/bulk/{done.json()['data']['batch_id']}/undo"
+    assert call(client, "POST", url, RESPONSIBLE_P, None, uuid4().hex).status_code == 404
 
 
 def test_batch_undo_reverts_every_decision_once(client, admin, chain):
