@@ -174,3 +174,15 @@ test('운영 빌드(개발 모드 아님)에서도 발송 기록을 읽어 보�
   expect(await screen.findByText('운영 빌드 건')).toBeTruthy();
   expect(screen.queryByText(/운영 인증 중계와 권한 검증 후 제공됩니다/)).toBeNull();
 });
+
+test('쪽을 넘기면 고른 발송을 비워 보이지 않는 행에 버튼이 걸리지 않는다', async () => {
+  const many = Array.from({ length: 21 }, (_, i) => unknown({ intent_id: `${String(i).padStart(8, '0')}-aaaa-4aaa-8aaa-aaaaaaaaaaaa`, subject: `발송 ${i}`, created_at: `2026-10-29T00:${String(59 - i).padStart(2, '0')}:00Z` }));
+  vi.stubGlobal('fetch', serveActions(many, () => jsonResponse(200, {})));
+  show();
+  await screen.findByText('발송 0');
+  fireEvent.click(screen.getByLabelText('발송 0 선택'));
+  expect(button('보낸 편지함 확인').disabled).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: '2쪽' }));
+  expect(await screen.findByText('발송 20')).toBeTruthy();
+  expect(button('보낸 편지함 확인').disabled).toBe(true);
+});

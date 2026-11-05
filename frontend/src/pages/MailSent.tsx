@@ -73,7 +73,9 @@ function SentView() {
 
   // 한 쪽 20건. 조건이 바뀌면 첫 쪽으로 간다. No는 쪽을 넘겨도 이어진다.
   const { pages, at, shown } = paged(invalid ? [] : rows, page, PAGE);
-  useEffect(() => { setPage(0); }, [status, from, to]);
+  // 조건이나 쪽이 바뀌면 고른 발송을 비운다(보이지 않는 행에 버튼이 걸리지 않게).
+  useEffect(() => { setPage(0); setPickedId(''); }, [status, from, to]);
+  const turn = (next: number) => { setPage(next); setPickedId(''); };
 
   const columns: LogColumn<SendIntent>[] = [
     { key: 'pick', header: '', width: 34, className: 'c', cell: row => <input type="radio" name="intent" aria-label={`${row.subject} 선택`} checked={row.intent_id === pickedId} onChange={() => setPickedId(row.intent_id)} /> },
@@ -135,7 +137,7 @@ function SentView() {
         </div>
         <LogTable label="발송 상태" columns={columns} rows={shown} rowKey={row => row.intent_id} selectedKey={pickedId}
           fallback={<div className="ml-empty"><b>조건에 맞는 발송 기록이 없습니다.</b></div>} />
-        <Pager label="발송 쪽" page={at} pages={pages} onPage={setPage} />
+        <Pager label="발송 쪽" page={at} pages={pages} onPage={turn} />
       </section>}
     {dialog && picked && <KvModal title={`다시 보내기, ${picked.subject}`} onClose={() => !busy && setDialog(false)}>
       <form onSubmit={event => { event.preventDefault(); void resend(String(new FormData(event.currentTarget).get('reason') ?? '').trim()); }}>
