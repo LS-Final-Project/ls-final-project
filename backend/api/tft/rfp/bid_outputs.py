@@ -158,8 +158,7 @@ def readable_text(text: str) -> str:
     text = _OCR_TITLE.sub("", text)
     text = _OCR_ANY.sub(
         lambda m: (
-            clause_label(f"OCR-{m.group(1)}{m.group(2)}")
-            + (f"-{m.group(3)}" if m.group(3) else "")
+            clause_label(f"OCR-{m.group(1)}{m.group(2)}") + (f"-{m.group(3)}" if m.group(3) else "")
         ),
         text,
     )
