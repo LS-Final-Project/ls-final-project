@@ -149,6 +149,56 @@
         "title": "Candidate",
         "type": "object"
       },
+      "CandidateAttachment": {
+        "properties": {
+          "content_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Type"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "content_type",
+          "size"
+        ],
+        "title": "CandidateAttachment",
+        "type": "object"
+      },
       "CandidateTicket": {
         "properties": {
           "customer_external_id": {
@@ -1734,6 +1784,46 @@
         "title": "LinkDecision",
         "type": "object"
       },
+      "LinkProject": {
+        "additionalProperties": false,
+        "properties": {
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "title": "LinkProject",
+        "type": "object"
+      },
+      "LinkedProject": {
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          },
+          "message_id": {
+            "format": "uuid",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message_id",
+          "project_id",
+          "created"
+        ],
+        "title": "LinkedProject",
+        "type": "object"
+      },
       "LockedMetric": {
         "additionalProperties": false,
         "description": "KAN-95 \uc7a0\uae08 \uc815\ub2f5\uc73c\ub85c \uc800\uc7a5\ud55c \ud55c \uc9c0\ud45c\uc758 \ucd5c\uc2e0 \ucc44\uc810 \ud310\ubcf8. \ud569\uaca9 \ud310\uc815\uc774 \uc544\ub2c8\ub2e4.",
@@ -3011,6 +3101,90 @@
         "title": "ReviewCandidates",
         "type": "object"
       },
+      "RfpCandidate": {
+        "description": "RFP\ub85c \ubcf4\uc774\ub294 \uba54\uc77c \ud55c \ud1b5. \ubcf8\ubb38\uc740 \ub2f4\uc9c0 \uc54a\ub294\ub2e4.",
+        "properties": {
+          "attachments": {
+            "items": {
+              "$ref": "#/components/schemas/CandidateAttachment"
+            },
+            "title": "Attachments",
+            "type": "array"
+          },
+          "basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basis"
+          },
+          "from_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Address"
+          },
+          "message_id": {
+            "format": "uuid",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "received_at": {
+            "title": "Received At"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          },
+          "triage_version": {
+            "title": "Triage Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "message_id",
+          "triage_version",
+          "subject",
+          "from_address",
+          "received_at",
+          "attachments",
+          "basis"
+        ],
+        "title": "RfpCandidate",
+        "type": "object"
+      },
+      "RfpCandidateList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RfpCandidate"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "RfpCandidateList",
+        "type": "object"
+      },
       "SendIntentList": {
         "properties": {
           "items": {
@@ -3545,6 +3719,22 @@
         "title": "SuccessResponse[Identity]",
         "type": "object"
       },
+      "SuccessResponse_LinkedProject_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/LinkedProject"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[LinkedProject]",
+        "type": "object"
+      },
       "SuccessResponse_MailTriage_": {
         "properties": {
           "data": {
@@ -3703,6 +3893,22 @@
           "meta"
         ],
         "title": "SuccessResponse[ReviewCandidates]",
+        "type": "object"
+      },
+      "SuccessResponse_RfpCandidateList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RfpCandidateList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[RfpCandidateList]",
         "type": "object"
       },
       "SuccessResponse_SendIntentList_": {
@@ -6339,6 +6545,109 @@
         ]
       }
     },
+    "/api/v1/platform/mail/messages/{message_id}/attachments/{attachment_id}": {
+      "get": {
+        "description": "\ub0b4 \ubc1b\uc740 \uba54\uc77c\uc758 DOCX\u00b7PDF \ucca8\ubd80\ub97c \ub0b4\ub824\uc900\ub2e4(RFP \ub4f1\ub85d \ud654\uba74\uc774 \ud504\ub85c\uc81d\ud2b8 \ubb38\uc11c\ub85c \uc62c\ub9b4 \ub54c \uc4f4\ub2e4).\n\n\ub2e4\ub978 \uc0ac\ub78c \uba54\uc77c\ud568\u00b7\uc5c6\ub294 \ucca8\ubd80\u00b7DOCX\u00b7PDF\uac00 \uc544\ub2cc \ucca8\ubd80\ub294 404\ub2e4.\n\nArgs:\n    message_id: \uba54\uc77c ID.\n    attachment_id: \ucca8\ubd80 ID.\n    request: \uc6b4\uc601 \uc138\uc158 \uc694\uccad.\n    response: CSRF \ud5e4\ub354\ub97c \ubc1b\uc744 \uc751\ub2f5.\n    provider: \uc0ac\uc11c\ud568 \uae30\ub2a5 \ube44\ud65c\uc131\uc774\uba74 404\ub85c \ub2eb\ub294 \uc758\uc874\uc131.\n\nReturns:\n    RawResponse: \ucca8\ubd80 \ubc14\uc774\ud2b8(Content-Disposition attachment).",
+        "operationId": "platform_get_mail_attachment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Message Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "attachment_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Attachment Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/pdf": {},
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {}
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Attachment",
+        "tags": [
+          "mail-rfp-intake"
+        ],
+        "x-activation": "MAILBOX_AUTH_ENABLED",
+        "x-implementation-status": "partial"
+      }
+    },
     "/api/v1/platform/mail/messages/{message_id}/register-ticket": {
       "post": {
         "description": "\uba54\uc77c\ud568 \uc8fc\uc778\uc778 cs_agent\uac00 \ubc1b\uc740 \uba54\uc77c \ud55c \ud1b5\uc744 C/S \ubb38\uc758\ub85c \uc811\uc218\ud55c\ub2e4.\n\n\ub2e4\ub978 \uc0ac\ub78c \uba54\uc77c\ud568\u00b7\ubcf4\ub0b8\ud3b8\uc9c0\ud568\u00b7\uc9c0\uc6cc\uc9c4 \uba54\uc77c\uc740 404, \uc774\ubbf8 \uc774 \uba54\uc77c\ub85c \uc811\uc218\ud55c \ubb38\uc758\uac00 \uc788\uc73c\uba74 \uadf8 \ubb38\uc758\uc5d0\n\ub2e4\uc2dc \uc5f0\uacb0\ud558\uace0 200\uc744 \ub3cc\ub824\uc900\ub2e4(\ub450 \ubc88 \uc811\uc218\ud558\uc9c0 \uc54a\uc74c). \uc5c5\ubb34 \uc911\uacc4\uac00 \uaebc\uc838 \uc788\uc73c\uba74 404\ub2e4.",
@@ -6440,6 +6749,112 @@
         "summary": "Register Ticket",
         "tags": [
           "mail-intake"
+        ],
+        "x-activation": "MAILBOX_AUTH_ENABLED",
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/platform/mail/messages/{message_id}/rfp-project": {
+      "post": {
+        "description": "\ub2f4\ub2f9 \uc601\uc5c5\uc774 \uc774 \uba54\uc77c\ub85c \ub9cc\ub4e0 RFP \ud504\ub85c\uc81d\ud2b8\ub97c \uba54\uc77c\uc5d0 \uc5f0\uacb0\ud55c\ub2e4(\uc774\ud6c4 \ud68c\uc2e0\uc774 \uc774 \ud504\ub85c\uc81d\ud2b8\ub85c \ubb36\uc778\ub2e4).\n\n\uac19\uc740 \ud504\ub85c\uc81d\ud2b8\ub85c \ub2e4\uc2dc \ubd80\ub974\uba74 200(\ub450 \ubc88 \uae30\ub85d\ud558\uc9c0 \uc54a\uc74c), \uc774\ubbf8 \ub2e4\ub978 \ud504\ub85c\uc81d\ud2b8\ub85c \ub4f1\ub85d\ud55c \uba54\uc77c\uc740 409\nMAIL_RFP_ALREADY_REGISTERED(details\uc5d0 \uadf8 \ud504\ub85c\uc81d\ud2b8 ID). \ub2e4\ub978 \uc0ac\ub78c \uba54\uc77c\ud568\u00b7\ubcf4\ub0b8\ud3b8\uc9c0\ud568\uc740 404.\n\nArgs:\n    message_id: \ubc1b\uc740 \uba54\uc77c ID.\n    payload: \ud654\uba74\uc774 \ubc29\uae08 \ub9cc\ub4e0 TFT \ud504\ub85c\uc81d\ud2b8 ID.\n    request: \ub3d9\uc77c \ucd9c\ucc98\u00b7\uc138\uc158 CSRF\ub97c \ud655\uc778\ud560 \uc694\uccad.\n    response: \uc0c1\ud0dc \ucf54\ub4dc\ub97c \ubc14\uafc0 \uc751\ub2f5.\n    provider: \uc0ac\uc11c\ud568 \uae30\ub2a5 \ube44\ud65c\uc131\uc774\uba74 404\ub85c \ub2eb\ub294 \uc758\uc874\uc131.\n\nReturns:\n    SuccessResponse[LinkedProject]: \uc5f0\uacb0 \uacb0\uacfc.",
+        "operationId": "platform_link_mail_rfp_project",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Message Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinkProject"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_LinkedProject_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Link Project",
+        "tags": [
+          "mail-rfp-intake"
         ],
         "x-activation": "MAILBOX_AUTH_ENABLED",
         "x-implementation-status": "partial"
@@ -7009,6 +7424,90 @@
         "summary": "Link Reply",
         "tags": [
           "mail-links"
+        ],
+        "x-activation": "MAILBOX_AUTH_ENABLED",
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/platform/mail/rfp-candidates": {
+      "get": {
+        "description": "\ub0b4 \uba54\uc77c\ud568\uc5d0\uc11c \ucd5c\uc2e0 \ubd84\ub958\uac00 NEW_RFP\uc774\uace0 \uc544\uc9c1 \ud504\ub85c\uc81d\ud2b8\uc5d0 \uc5f0\uacb0\ud558\uc9c0 \uc54a\uc740 \ubc1b\uc740 \uba54\uc77c(\ucd5c\uadfc 50\ud1b5).\n\nArgs:\n    request: \uc6b4\uc601 \uc138\uc158 \uc694\uccad.\n    response: CSRF \ud5e4\ub354\ub97c \ubc1b\uc744 \uc751\ub2f5.\n    provider: \uc0ac\uc11c\ud568 \uae30\ub2a5 \ube44\ud65c\uc131\uc774\uba74 404\ub85c \ub2eb\ub294 \uc758\uc874\uc131.\n\nReturns:\n    SuccessResponse[RfpCandidateList]: \ucd5c\uadfc \ubc1b\uc740 \uc21c.",
+        "operationId": "platform_list_mail_rfp_candidates",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RfpCandidateList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "List Candidates",
+        "tags": [
+          "mail-rfp-intake"
         ],
         "x-activation": "MAILBOX_AUTH_ENABLED",
         "x-implementation-status": "partial"
