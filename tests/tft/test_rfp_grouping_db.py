@@ -146,3 +146,36 @@ def test_duplicates_follow_the_representative_until_it_is_excluded_or_changed(cl
     assert changed["R-2"]["context_stale"] is True
     assert (changed["R-1"]["duplicate"], changed["R-2"]["duplicate"]) == (None, None)
     assert changed["R-2"]["decision"]["needed"] is True
+
+
+def test_a_member_of_a_met_representative_is_settled(client, chain, admin):
+    """40444 P26-0003: 대표가 결정이 필요 없는 충족이면, 결정할 수 없는 구성원(같은 값의 도면 OCR 요구)의
+    '검토 필요' 표시가 초안 저장을 막지 않는다."""
+    import asyncio
+
+    from psycopg.rows import dict_row
+
+    from backend.api.tft.rfp.drafts import settled_requirements
+
+    twin_id = twin(admin, chain)
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.requirement_versions SET status='EVIDENCE_FOUND', operator='GTE' "
+            "WHERE requirement_id=%s",
+            (chain["requirement"],),
+        )
+        conn.execute(
+            "UPDATE tft.requirement_versions SET status='CONDITIONAL', needs_review=true "
+            "WHERE requirement_id=%s",
+            (twin_id,),
+        )
+    context(admin, chain, twin_id)
+    found = items(client, chain)
+    assert (found["R-1"]["bid_verdict"], found["R-1"]["decision"]["needed"]) == ("MET", False)
+    assert found["R-2"]["decision"]["follows"] == str(chain["requirement"])
+
+    async def settled():
+        async with await psycopg.AsyncConnection.connect(admin, row_factory=dict_row) as conn:
+            return await settled_requirements(conn, chain["project"])
+
+    assert twin_id in asyncio.run(settled())

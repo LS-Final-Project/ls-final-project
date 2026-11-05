@@ -915,6 +915,7 @@ async def states(
                 decision_id=current["id"] if current else None,
                 action=current["action"] if current else None,
                 summary=current["summary"] if current else None,
+                note=current["detail"].get("deviation_text") if current else None,
                 decided_at=current["created_at"] if current else None,
                 reviewed=current is not None and str(current["id"]) in confirmed,
                 manually_added=row["manually_added"],

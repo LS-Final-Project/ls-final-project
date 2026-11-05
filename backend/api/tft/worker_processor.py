@@ -433,8 +433,12 @@ MINIMUM_RATINGS = frozenset(
 
 
 def rating_operator(item: ExtractedRequirement) -> Operator:
-    """비교 연산자. 하한 정격(MINIMUM_RATINGS)의 LTE는 GTE로 바로잡는다. 원문·저장 값은 그대로다(KAN-208)."""
-    if item.operator == "LTE" and item.attribute_key in MINIMUM_RATINGS:
+    """비교 연산자. 하한 정격(MINIMUM_RATINGS)의 LTE·EQ는 GTE로 바로잡는다. 원문·저장 값은 그대로다(KAN-208).
+
+    정격은 높을수록 만족하므로 "정격 전압 11 kV"(계통 11 kV)도 12 kV·25.8 kV 제품이 충족이다. EQ로 비교하면
+    값이 다르다고 사양 차이가 났다(40444 P26-0003). 허용 오차가 붙은 EQ는 tolerance_range가 범위로 바꾼다.
+    """
+    if item.operator in ("LTE", "EQ") and item.attribute_key in MINIMUM_RATINGS:
         return "GTE"
     return item.operator
 

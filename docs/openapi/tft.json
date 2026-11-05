@@ -1980,6 +1980,17 @@
             "title": "Needed",
             "type": "boolean"
           },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
           "reviewed": {
             "default": false,
             "title": "Reviewed",
