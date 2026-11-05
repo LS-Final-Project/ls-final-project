@@ -17,7 +17,7 @@ import { KvTitle } from '../ls-shell/kv';
 import { MOCK_WORKSPACE_REQUIREMENTS } from '../mocks/rfp-workspace';
 import { fileProblem, latestVersions } from './IntakeForms';
 import { OriginalDocument } from './OriginalDocument';
-import { clauseLabel, codeLabel, ISSUE_LABEL, partnerNote, PARTNER_GRADE_LABEL, reasonText, label, NECESSITY_LABEL, OPERATOR_LABEL, PATH_LABEL, STATUS_LABEL } from './labels';
+import { clauseLabel, codeLabel, ISSUE_LABEL, partnerNote, PARTNER_GRADE_LABEL, reasonText, label, NECESSITY_LABEL, OPERATOR_LABEL, PATH_LABEL, STATUS_LABEL, exportFileName } from './labels';
 import { useNames } from './names';
 import { focusText } from './RfpReasoning';
 import { ReplyForm } from './QuestionForms';
@@ -327,6 +327,8 @@ export function Decide({ project, documents, rows, role, actorId, log }: { proje
   const [logOpen, setLogOpen] = useState(false);
   const client = useQueryClient();
   const responsible = role === 'responsible';
+  // 담당 영업만 결정한다(결정 API와 같은 기준). 책임자·아직 책임자가 아닌 관리자는 읽기만.
+  const readOnly = role !== 'sales';
   const [tab, setTab] = useState<'review' | 'output'>(responsible ? 'output' : 'review');
   const [filter, setFilter] = useState<'todo' | 'all' | Kind>('todo');
   const [showMet, setShowMet] = useState(false);
@@ -352,10 +354,9 @@ export function Decide({ project, documents, rows, role, actorId, log }: { proje
     && (!text || [r.code, r.attribute, r.value_text, r.equipment].some(v => v?.toLowerCase().includes(text))));
   const count = (v: Kind) => visible.filter(r => groupOf(r) === v).length;
   const groups = filter === 'todo' && !byEq
-    ? [...DECIDE_ORDER, ...(showMet ? ['MET' as const] : [])].map(v => ({ title: VERDICT[v], verdict: v, rows: visible.filter(r => groupOf(r) === v && (v === 'MET' || open(r))) })).filter(g => g.rows.length)
+    ? DECIDE_ORDER.map(v => ({ title: VERDICT[v], verdict: v, rows: visible.filter(r => groupOf(r) === v && open(r)) })).filter(g => g.rows.length)
     : equipments.map(e => ({ title: e, verdict: filter !== 'all' && filter !== 'todo' ? filter : undefined, rows: visible.filter(r => eqKey(r) === e && (filter === 'all' || (filter === 'todo' ? open(r) : groupOf(r) === filter))) })).filter(g => g.rows.length);
   const lines: Line[] = groups.flatMap(g => [{ kind: 'group' as const, ...g }, ...g.rows.flatMap(row => [{ kind: 'row' as const, row }, ...(unfold.has(row.requirement_id) ? membersOf(row.requirement_id).map(m => ({ kind: 'row' as const, row: m })) : [])])]);
-  if (filter === 'todo' && !byEq && !showMet && count('MET') > 0) lines.push({ kind: 'fold', n: count('MET') });
   // 펼친 중복 구성원도 고를 수 있게 화면 줄 순서를 쓴다(구성원 패널은 대표로 보낸다).
   const order = lines.flatMap(l => l.kind === 'row' ? [l.row] : []);
   const current = order.find(r => r.requirement_id === sel) ?? order[0];
@@ -405,14 +406,14 @@ export function Decide({ project, documents, rows, role, actorId, log }: { proje
       <span className="ws-strong">결정 {total - todo}/{total}</span>
       <span className="ws-track" role="progressbar" aria-label="결정 진행" aria-valuemin={0} aria-valuemax={total} aria-valuenow={total - todo}><span style={{ width: `${total ? Math.round((total - todo) / total * 100) : 0}%` }} /></span>
       <span className="muted ws-remain" title={remainText}>{remainText}</span>
-      {!responsible && <Rerun projectId={project.id} documents={documents} busy={!!log?.job && activeRfpJob(log.job.status)} />}
+      {!readOnly && <Rerun projectId={project.id} documents={documents} busy={!!log?.job && activeRfpJob(log.job.status)} />}
       <button className="ws-link" aria-expanded={logOpen} onClick={() => setLogOpen(!logOpen)}>AI 분석 과정</button>
     </div>
     </div>
     {logOpen && <AnalysisLog projectId={project.id} actorId={actorId} documents={documents} live={log} />}
     {stale && <p className="muted ws-note ws-stale">맥락 정리 뒤 바뀐 요구가 있습니다. 설비 묶음과 중복을 맞추려면 맥락 정리를 다시 하세요.</p>}
     {tab === 'output'
-      ? <Output project={project} rows={verdictRows} excluded={excluded} responsible={responsible} actorId={actorId} onJump={f => { setFilter(f); setTab('review'); }} onPick={id => { setFilter('all'); setSel(id); setTab('review'); }} />
+      ? <Output project={project} rows={verdictRows} excluded={excluded} responsible={responsible} readOnly={readOnly} actorId={actorId} onJump={f => { setFilter(f); setTab('review'); }} onPick={id => { setFilter('all'); setSel(id); setTab('review'); }} />
       : <>
         <div className="ws-filters" role="toolbar" aria-label="판정 필터">
           <Chip on={filter === 'all'} onClick={() => setFilter('all')}>전체 {verdictRows.length}</Chip>
@@ -430,7 +431,7 @@ export function Decide({ project, documents, rows, role, actorId, log }: { proje
         {undoBulkMutation.isError && <p role="alert" className="ws-alert">{failureText(undoBulkMutation.error)} 되돌리지 않았습니다.</p>}
         <div className="ws-grid">
           <section className="ws-sec ws-left">
-            {!responsible && assignChecked.length > 0 && <div className="ws-bulkbar">
+            {!readOnly && assignChecked.length > 0 && <div className="ws-bulkbar">
               <span>선택 {assignChecked.length}건</span>
               <label className="ws-field inline">담당<select value={bulkOwner} onChange={event => setBulkOwner(event.target.value)}>{Object.keys(OWNER).map(k => <option key={k}>{k}</option>)}</select></label>
               <button className="kb primary" disabled={bulk.isPending} onClick={() => bulk.mutate({ targets: assignChecked, body: { action: 'assign', holder: 'OWN', owner: OWNER[bulkOwner] } })}>자사 수행으로 일괄 배정</button>
@@ -442,25 +443,25 @@ export function Decide({ project, documents, rows, role, actorId, log }: { proje
                 {lines.slice(win.first, win.last).map((line, i) => line.kind === 'group'
                   ? <tr key={`g:${line.title}`} className="g"><td colSpan={6}>
                     {line.title} <span className="muted">{line.rows.length}</span>
-                    {!responsible && line.verdict && BULK_ACTION[line.verdict] && line.rows.some(r => open(r) && kindOf(r) === line.verdict) && (asking === line.verdict
+                    {!readOnly && line.verdict && BULK_ACTION[line.verdict] && line.rows.some(r => open(r) && kindOf(r) === line.verdict) && (asking === line.verdict
                       ? <span className="ws-confirm">{line.rows.filter(r => open(r) && kindOf(r) === line.verdict).length}건을 {BULK_ACTION[line.verdict]!.label.replace('모두 ', '')}합니다. <button className="kb primary" disabled={bulk.isPending} onClick={() => bulk.mutate({ targets: line.rows.filter(r => open(r) && kindOf(r) === line.verdict), body: BULK_ACTION[line.verdict!]!.body })}>확인</button> <button className="ws-link" onClick={() => setAsking(undefined)}>취소</button></span>
                       : <button className="ws-link ws-bulk" onClick={() => setAsking(line.verdict)}>{BULK_ACTION[line.verdict]?.label}</button>)}
                   </td></tr>
                   : line.kind === 'fold'
                     ? <tr key="fold" className="fold"><td colSpan={6}><button className="ws-link" onClick={() => setShowMet(true)}>충족 {line.n}건 펼치기</button></td></tr>
-                    : <RowLine key={`${line.row.requirement_id}:${i}`} r={line.row} sel={current?.requirement_id} onPick={setSel} responsible={responsible} replied={arrived.has(line.row.requirement_id)} queryText={tqOf.get(line.row.requirement_id)}
+                    : <RowLine key={`${line.row.requirement_id}:${i}`} r={line.row} sel={current?.requirement_id} onPick={setSel} responsible={readOnly} replied={arrived.has(line.row.requirement_id)} queryText={tqOf.get(line.row.requirement_id)}
                       unfolded={unfold.has(line.row.requirement_id)} onUnfold={() => { const s = new Set(unfold); if (s.has(line.row.requirement_id)) s.delete(line.row.requirement_id); else s.add(line.row.requirement_id); setUnfold(s); }}
-                      checkable={!responsible && line.row.bid_verdict === 'ASSIGN' && open(line.row)} checked={checked.has(line.row.requirement_id)}
+                      checkable={!readOnly && line.row.bid_verdict === 'ASSIGN' && open(line.row)} checked={checked.has(line.row.requirement_id)}
                       onCheck={on => { const nextSet = new Set(checked); if (on) nextSet.add(line.row.requirement_id); else nextSet.delete(line.row.requirement_id); setChecked(nextSet); }} />)}
                 {win.last < lines.length && <tr style={{ height: (lines.length - win.last) * ROW_H }} aria-hidden="true" />}
               </tbody>
             </table></div>
             {excluded.length > 0 && <p className="ws-note"><button className="ws-link" aria-expanded={showExcluded} onClick={() => setShowExcluded(!showExcluded)}>제외한 요구 {excluded.length}건 {showExcluded ? '접기' : '보기'}</button></p>}
-            {showExcluded && <ExcludedTable rows={excluded} responsible={responsible} />}
+            {showExcluded && <ExcludedTable rows={excluded} responsible={readOnly} />}
           </section>
           <section className="ws-sec ws-right" aria-label="선택한 요구와 원문">
-            {similar && !responsible && <p className="ws-similar">비슷한 {similar.rows.length}건에도 같은 결정 적용 <button className="kb" disabled={bulk.isPending} onClick={() => bulk.mutate({ targets: similar.rows, body: similar.body })}>적용</button> <button className="ws-link" onClick={() => setSimilar(undefined)}>닫기</button></p>}
-            {current && <Panel key={current.requirement_id} row={current} projectId={project.id} responsible={responsible} documents={documents} onDecided={body => onDecided(current, body)} order={order} onMove={setSel} />}
+            {similar && !readOnly && <p className="ws-similar">비슷한 {similar.rows.length}건에도 같은 결정 적용 <button className="kb" disabled={bulk.isPending} onClick={() => bulk.mutate({ targets: similar.rows, body: similar.body })}>적용</button> <button className="ws-link" onClick={() => setSimilar(undefined)}>닫기</button></p>}
+            {current && <Panel key={current.requirement_id} row={current} projectId={project.id} responsible={readOnly} documents={documents} onDecided={body => onDecided(current, body)} order={order} onMove={setSel} />}
           </section>
         </div>
       </>}
@@ -609,10 +610,10 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
       <div className="hd"><span className="name">{row.attribute ?? codeLabel(row.code)}</span><span className="muted">{codeLabel(row.code)} {row.equipment}</span><span className="sp" /><span>{decided ? '결정 완료' : VERDICT[kindOf(row)]}</span>{!decided && <span className="ws-aimark" title="AI가 정한 판정입니다" role="img" aria-label="AI 판정"><ElloMark size={14} /></span>}</div>
       <div className="ws-cmp"><span className="k">요구</span><span className={row.value_text ? 'v' : 'v empty'}>{row.value_text ?? '빈 칸'}</span><span className="k">자사</span><span className="v">{ownText}{(row.own_value ?? own) && <small className="muted"> {row.own_value?.product_code ?? own?.product_code}{row.own_value?.note ? ` ${row.own_value.note}` : ''}</small>}</span>{reason && <><span className="k">판정 이유</span><span className="v why" title={reason}>{reasonText(reason)}</span></>}</div>
       {followsOf(row) ? <div className="ws-decided"><span>원문 {row.duplicate?.member_count ?? 2}곳에 같은 요구가 있어 대표 요구에서 결정합니다.</span><span className="sp" /><button className="ws-link" onClick={() => onMove(followsOf(row) as string)}>대표로 이동</button>{tools}</div>
-      : replied && d && !responsible ? <>
+      : replied && d && !responsible && row.decision?.action !== 'confirm_met' ? <>
         <div className="ws-decided"><span>회신 도착</span><span className="sp" />{row.decision?.decision_id && <button className="ws-link" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'undo', decision_id: row.decision?.decision_id })}>되돌리기</button>}{tools}</div>
         <ReplyFlow projectId={projectId} detail={d} question={replied} onDone={() => onDecided({ action: 'confirm_met' })} /></>
-        : decided ? <><div className="ws-decided"><span>{row.decision?.summary ?? '결정 완료'}</span><span className="sp" />
+        : decided ? <>{replied && row.decision?.action === 'confirm_met' && <ReplySummary question={replied} decidedAt={row.decision?.decided_at} />}<div className="ws-decided"><span>{row.decision?.summary ?? '결정 완료'}</span><span className="sp" />
         {!responsible && waiting && !replying && <button className="ws-link" onClick={() => setReplying(true)}>회신 기록</button>}
         {!responsible && row.decision?.decision_id && <button className="ws-link" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'undo', decision_id: row.decision?.decision_id })}>되돌리기</button>}{tools}</div>
         {replying && waiting && <ReplyForm question={waiting} onCancel={() => setReplying(false)} onReload={() => client.invalidateQueries({ queryKey: ['questions'] })}
@@ -681,7 +682,7 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
 }
 
 
-function Output({ project, rows, excluded = [], responsible, actorId, onJump, onPick }: { project: ProjectDetail; rows: Row[]; excluded?: Row[]; responsible: boolean; actorId?: string; onJump: (filter: 'todo' | Kind) => void; onPick: (id: string) => void }) {
+function Output({ project, rows, excluded = [], responsible, readOnly = responsible, actorId, onJump, onPick }: { project: ProjectDetail; rows: Row[]; excluded?: Row[]; responsible: boolean; readOnly?: boolean; actorId?: string; onJump: (filter: 'todo' | Kind) => void; onPick: (id: string) => void }) {
   const client = useQueryClient();
   const mode = getApiMode();
   const [doc, setDoc] = useState<'dev' | 'tq' | 'eq' | 'sum' | 'hist'>('dev');
@@ -740,7 +741,7 @@ function Output({ project, rows, excluded = [], responsible, actorId, onJump, on
       }
       const file = await downloadExportFile(project.id, done.export_id, format);
       const url = URL.createObjectURL(file.blob); const link = document.createElement('a');
-      link.href = url; link.download = file.name ?? done.file_name ?? `${project.external_id ?? 'RFP'}.${format.toLowerCase()}`; link.click();
+      link.href = url; link.download = exportFileName(project.external_id, format, file.name ?? done.file_name); link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       return format;
     },
@@ -772,7 +773,7 @@ function Output({ project, rows, excluded = [], responsible, actorId, onJump, on
       <GateItem n={gate.review_pending} label="책임자 확인 대기" />
       {integrationOpen && <GateItem n={1} label="통합 책임 미지정" />}
       <span className="sp" />
-      {!responsible && <button className="kb primary" disabled={!ready || save.isPending} onClick={() => save.mutate()}>검토본 저장</button>}
+      {!readOnly && <button className="kb primary" disabled={!ready || save.isPending} onClick={() => save.mutate()}>검토본 저장</button>}
       <button className="kb" disabled={!latestReview || fileOut.isPending} title={latestReview ? `검토본 ${latestReview}판` : '검토본을 먼저 저장하세요'} onClick={() => fileOut.mutate('XLSX')}>대응 현황표 XLSX</button>
       <button className="kb" disabled={!latestReview || fileOut.isPending} title={latestReview ? `검토본 ${latestReview}판` : '검토본을 먼저 저장하세요'} onClick={() => fileOut.mutate('DOCX')}>요약서 DOCX</button>
     </div>
@@ -781,7 +782,7 @@ function Output({ project, rows, excluded = [], responsible, actorId, onJump, on
     {fileOut.isError && <p role="alert" className="ws-alert">{failureText(fileOut.error)}</p>}
     {save.isError && <p role="alert" className="ws-alert">{failureText(save.error)}</p>}
     {save.isSuccess && <p className="ws-alert">검토본을 저장했습니다.</p>}
-    {integrationOpen && <section className="ws-sec ws-review" aria-label="통합 책임"><IntegrationPanel projectId={project.id} canEdit={!responsible} /></section>}
+    {integrationOpen && <section className="ws-sec ws-review" aria-label="통합 책임"><IntegrationPanel projectId={project.id} canEdit={!readOnly} /></section>}
     {reviewBlock}
     <div className="ws-dtabs" role="tablist" aria-label="출력 문서">
       {([['dev', '편차표', deviations.length], ['tq', '질의서', tq.length], ['eq', '현황표', byEq.length], ['sum', '요약서', ''], ['hist', '변경 이력', '']] as const).map(([k, l, n]) =>
@@ -791,7 +792,7 @@ function Output({ project, rows, excluded = [], responsible, actorId, onJump, on
       {doc === 'dev' && <table className="ws-table ws-otbl two"><colgroup><col style={{ width: 150 }} /><col style={{ width: 200 }} /><col style={{ width: 160 }} /><col /></colgroup><thead><tr><th>조항</th><th>항목</th><th>요구</th><th>편차 내용</th></tr></thead>
         <tbody>{deviations.map(r => <tr key={r.requirement_id}><td title={codeLabel(r.code)}>{codeLabel(r.code)}</td><td title={`${r.equipment ?? ''} ${r.attribute ?? ''}`}>{r.equipment} {r.attribute}</td><td title={r.value_text ?? undefined}>{r.value_text}</td><td className="wrap"><Clamp text={r.decision?.note ?? ''} /></td></tr>)}
           {deviations.length === 0 && <tr><td colSpan={4} className="muted">편차로 결정한 요구가 없습니다.</td></tr>}</tbody></table>}
-      {doc === 'tq' && !responsible && unsent.length > 0 && <div className="ws-go ws-tqbar"><span className="muted">메일 화면에서 질의서를 보냈으면 보낸 것으로 기록하세요. 회신 기다림 날수가 그날부터 셉니다.</span>
+      {doc === 'tq' && !readOnly && unsent.length > 0 && <div className="ws-go ws-tqbar"><span className="muted">메일 화면에서 질의서를 보냈으면 보낸 것으로 기록하세요. 회신 기다림 날수가 그날부터 셉니다.</span>
         <button className="kb" disabled={sent.isPending} onClick={() => sent.mutate()}>보낸 것으로 기록 {unsent.length}건</button>{sent.isError && <span role="alert">{failureText(sent.error)}</span>}</div>}
       {doc === 'tq' && <table className="ws-table ws-otbl two"><colgroup><col style={{ width: 80 }} /><col /><col style={{ width: 160 }} /></colgroup><thead><tr><th>No</th><th>질의</th><th>상태</th></tr></thead>
         <tbody>{tqNumbers(tq).map(({ q, no }) => <tr key={q.question_id}><td>{no}</td><td className="wrap"><Clamp text={q.question_text} /></td><td>{queryState(q)}</td></tr>)}
@@ -839,13 +840,20 @@ export function tqNumbers(items: Question[]) {
 }
 
 // 고객 회신 반영: 읽은 값 확인 → 값 반영하고 다시 비교 → 결과대로 확정(한 번 더 누름). 자동 반영은 하지 않는다.
+// 회신 값으로 다시 판정해 확정한 뒤에는 입력칸 없이 결과만 보인다.
+function ReplySummary({ question, decidedAt }: { question: Question; decidedAt?: string | null }) {
+  const read = question.value_candidate && question.value_candidate.method !== 'none' ? question.value_candidate : undefined;
+  const value = read ? [amount(read.value, read.unit), ...(read.conditions ?? []).map(c => amount(c.value, c.unit))].filter(Boolean).join(', ') : question.reply?.reply_text;
+  return <p className="ws-note">회신 반영: {value}. 다시 판정 결과 충족으로 확정{decidedAt ? `, ${when(decidedAt)}` : ''}.</p>;
+}
+
 function ReplyFlow({ projectId, detail, question, onDone }: { projectId: string; detail: RequirementDetail; question: Question; onDone: () => void }) {
   const client = useQueryClient();
   const found = question.value_candidate ?? undefined;
   const read = found && found.method !== 'none' ? found : undefined;
   const [value, setValue] = useState(read?.value ?? '');
   const [unit, setUnit] = useState(read?.unit ?? detail.spec?.unit ?? '');
-  const [cond, setCond] = useState(read?.conditions?.map(c => [c.value, c.unit].filter(Boolean).join(' ')).join(', ') ?? '');
+  const [cond, setCond] = useState(read?.conditions?.map(c => amount(c.value, c.unit)).join(', ') ?? '');
   const refresh = () => afterDecision(client);
   // KAN-224: AI 읽기는 worker 작업이다. 기다리는 동안 질문 목록을 다시 읽고, 값이 오면 빈 칸을 채운다.
   const waiting = found?.ai === 'QUEUED';
