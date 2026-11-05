@@ -1,21 +1,22 @@
-import { useMemo, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMemo, useRef, useState, type MouseEvent } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { ApiError, getApiMode } from '../api/client';
-import { dismissReply, getReplyCandidates, linkReply, listReplyReviews, type ReplyReview, type ReviewCandidate } from '../api/mail';
+import { dismissReply, getMailContent, getReplyCandidates, linkReply, listMailMessages, listReplyReviews, type InboxMessage, type ReplyReview, type ReviewCandidate } from '../api/mail';
 import { listTicketsBy, type TicketItem } from '../api/cs';
 import { ErrorState, Loading } from '../components/states';
-import { useHotkey } from '../ls-shell/kv';
+import { KvGrid, KvModal, useHotkey, type KvColumn } from '../ls-shell/kv';
 import { STATE_LABEL, formatStamp } from '../ls-shell/cs-labels';
 import MailGate from './MailGate';
 import './ticket-detail-v3.css';
 import './mailbox-v3.css';
 
-// 메일함 MB0100. 기획서 4.1 ⑦: 메일은 고객에게 회신하고 답장을 같은 문의에 다시 넣는 데 쓴다. 새 문의 접수는 이 화면의 범위가 아니다.
+// 메일함 MB0100. 위: 내 메일함의 받은 메일 전체와 연결 상태(KAN-238, 행을 누르면 원문에서 꺼낸 본문을 본다).
+// 아래: 기획서 4.1 ⑦ 회신 검토. 새 문의·RFP 접수는 업무 홈의 후보 표(KAN-237·KAN-73)에서 한다.
 // 시스템이 어느 문의의 답장인지 정하지 못한 메일(플랫폼 회신 검토 API)만 사람이 연결하거나 업무 아님으로 닫는다.
 // 후보는 답장 헤더·대화 묶음·주고받은 주소·고객 연락처에서 오고 후보마다 근거가 붙는다(KAN-235). 후보 밖 문의도 번호로 찾아
 // 연결할 수 있으며 서버가 누가 무엇을 근거로 골랐는지 남긴다. 후보와 근거로 자동 연결하지 않는다.
-// 받은 메일 전체 목록·본문·읽음 상태는 아직 API가 없어 보이지 않는다(본문은 플랫폼에 저장하지 않는다).
+// 읽음 상태는 보이지 않는다(본문은 플랫폼에 저장하지 않는다).
 
 type Review = ReplyReview;
 type Evidence = NonNullable<ReviewCandidate['evidence']>[number];
@@ -40,6 +41,51 @@ const stamp = (iso: string) => formatStamp(iso).slice(5);
 const initials = (r: Review) => (r.from_address ?? '?').replace(/^[^A-Za-z0-9가-힣]+/, '').slice(0, 2).toUpperCase() || '?';
 const numberOf = (t: { external_id: string | null; id: string }) => t.external_id ?? t.id.slice(0, 8);
 
+const TYPE_LABEL: Record<NonNullable<InboxMessage['mail_type']>, string> = {
+  NEW_RFP: 'RFP로 보임', CS: '문의로 보임', CANDIDATE_REPLY: '회신으로 보임', EXISTING_CHANGE: '변경 요청으로 보임', OTHER: '업무 아님',
+};
+const stop = (event: MouseEvent) => event.stopPropagation();
+// 연결 > 열린 회신 검토 > 최신 분류 > 미연결 순으로 하나만 보인다.
+function linkState(m: InboxMessage) {
+  const hit = m.link && /^(cs_ticket|rfp_project):([0-9a-fA-F-]{36})$/.exec(m.link.business_ref);
+  if (hit?.[1] === 'cs_ticket') return <Link to={`/cs/tickets/${hit[2]}`} onClick={stop}>문의 {hit[2].slice(0, 8)}</Link>;
+  if (hit?.[1] === 'rfp_project') return <Link to={`/tft/projects/${hit[2]}`} onClick={stop}>RFP 프로젝트</Link>;
+  if (m.link) return '업무 연결됨';
+  if (m.reply_review_open) return '회신 검토 중';
+  return m.mail_type ? TYPE_LABEL[m.mail_type] : '미연결';
+}
+
+function Inbox() {
+  const mode = getApiMode();
+  const list = useQuery({ queryKey: ['mail-messages', mode], queryFn: ({ signal }) => listMailMessages(signal), retry: false, staleTime: 0 });
+  const [open, setOpen] = useState<InboxMessage | null>(null);
+  const items = list.data ?? [];
+  const columns: KvColumn<InboxMessage>[] = [
+    { key: 'received', header: '받은 시각', width: 130, className: 'c', cell: row => formatStamp(row.received_at) },
+    { key: 'from', header: '보낸 사람', width: 220, cell: row => row.from_address ?? '보낸 사람 미확인' },
+    { key: 'subject', header: '제목', className: 't', cell: row => <>{row.subject || '(제목 없음)'}{row.has_attachments && <span className="chip">첨부</span>}</> },
+    { key: 'link', header: '연결 상태', width: 150, cell: linkState },
+    { key: 'act', header: '', width: 70, className: 'c', cell: row => <button className="kb3" onClick={event => { stop(event); setOpen(row); }}>본문</button> },
+  ];
+  return <div className="pane" aria-label="받은 메일 전체" style={{ marginBottom: 12 }}>
+    <div className="ph"><h2>받은 메일 {items.length}통</h2><div className="r"><span className="meta">최근 100통 · 행을 누르면 본문</span></div></div>
+    {list.isPending ? <Loading /> : list.isError ? <p className="meta" role="status" style={{ padding: 12 }}>받은 메일 목록을 읽지 못했습니다. 조회로 다시 읽으세요.</p>
+      : <KvGrid label="받은 메일 전체" columns={columns} rows={items} rowKey={row => row.message_id} onRow={setOpen} scroll fallback="받은 메일이 없습니다." />}
+    {open && <Body item={open} onClose={() => setOpen(null)} />}
+  </div>;
+}
+
+function Body({ item, onClose }: { item: InboxMessage; onClose: () => void }) {
+  const content = useQuery({ queryKey: ['mail-content', item.message_id], queryFn: ({ signal }) => getMailContent(item.message_id, signal), retry: false });
+  return <KvModal title={content.data?.subject ?? item.subject ?? '(제목 없음)'} onClose={onClose}>
+    <div className="kv-sub" style={{ margin: '0 0 8px' }}>{item.from_address ?? '보낸 사람 미확인'} · {formatStamp(item.received_at)} · {linkState(item)}</div>
+    {content.isPending ? <div>본문을 읽는 중</div> : content.isError ? <div role="alert">{content.error instanceof ApiError ? content.error.message : '본문을 읽지 못했습니다.'}</div>
+      : <pre style={{ whiteSpace: 'pre-wrap', maxHeight: 400, overflow: 'auto', margin: 0, font: 'inherit' }}>{content.data.body || '(본문 없음)'}</pre>}
+    {content.data?.truncated && <p className="meta">본문이 길어 앞부분 50,000자만 보입니다.</p>}
+    <div className="kv-actions"><button type="button" className="kb" onClick={onClose}>닫기</button></div>
+  </KvModal>;
+}
+
 export default function MailBox() {
   return <MailGate title="메일함"><BoxView /></MailGate>;
 }
@@ -61,7 +107,8 @@ function BoxView() {
   const [formFor, setFormFor] = useState<string | undefined>(undefined);
 
   const list = useQuery({ queryKey: ['reply-reviews', mode], queryFn: ({ signal }) => listReplyReviews(signal), retry: false, staleTime: 0 });
-  const fetchAgain = () => { void list.refetch(); };
+  const client = useQueryClient();
+  const fetchAgain = () => { void list.refetch(); void client.invalidateQueries({ queryKey: ['mail-messages'] }); };
   useHotkey('F8', fetchAgain, !list.isFetching);
 
   const all = useMemo(() => [...(list.data ?? [])].sort((a, b) => b.received_at.localeCompare(a.received_at)), [list.data]);
@@ -143,7 +190,7 @@ function BoxView() {
   return <main className="td3 bx3">
     <div className="title">
       <span className="path">메일 ›</span><h1>메일함</h1><code className="kv-code">MB0100</code>
-      <span className="bx-lead">시스템이 문의에 붙이지 못한 고객 답장을 어느 문의에 넣을지 정합니다.</span>
+      <span className="bx-lead">받은 메일과 연결 상태를 보고, 시스템이 문의에 붙이지 못한 고객 답장을 어느 문의에 넣을지 정합니다.</span>
       <label className="bx-search">
         <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
         <input type="text" aria-label="메일 검색" placeholder="제목 · 보낸 사람 검색" value={search} onChange={event => setSearch(event.target.value)} />
@@ -156,7 +203,8 @@ function BoxView() {
 
     <div className="body">
       {mode === 'mock' && <div className="tier-note" role="status">모의 응답 모드 — 합성 예시이며 실제 메일이 아닙니다.</div>}
-      <p className="meta bx-scope" role="note">연결이 필요한 고객 답장만 보입니다. 받은 메일 전체 목록과 본문은 아직 API가 없어 메일 계정(Outlook)에서 읽습니다.</p>
+      <Inbox />
+      <p className="meta bx-scope" role="note">아래는 연결이 필요한 고객 답장만 보입니다. 새 문의·RFP 메일은 업무 홈에서 확인 후 등록합니다.</p>
       {notice && <div className={notice.kind === 'error' ? 'note err' : 'note'} role={notice.kind === 'error' ? 'alert' : 'status'}>{notice.text}</div>}
       {list.isFetching && !list.data && <Loading />}
       {!list.isFetching && list.isError && <ErrorState error={list.error} onRetry={fetchAgain} />}
@@ -231,7 +279,7 @@ function BoxView() {
                   <button className="kb3 pri" disabled={busy || !chosen} title={chosen ? undefined : '후보를 고르거나 문의 번호로 찾은 뒤 누르세요'} onClick={link}>이 문의에 연결</button>
                 </div>
               </div>
-              <div className="bx-orig"><small>본문</small><p className="meta">본문은 플랫폼에 저장하지 않습니다. 메일 계정(Outlook)에서 읽고, 여기서는 어느 문의에 붙일지만 정합니다.</p></div>
+              <div className="bx-orig"><small>본문</small><p className="meta">본문은 위 받은 메일 표의 [본문]으로 봅니다(플랫폼에 저장하지 않음). 여기서는 어느 문의에 붙일지만 정합니다.</p></div>
             </div>
             <aside className="bx-ctx" aria-label="메일 맥락">
               <h3>메일</h3>

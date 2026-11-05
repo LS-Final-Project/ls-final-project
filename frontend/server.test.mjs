@@ -808,6 +808,7 @@ test('mail relay forwards only the reads and writes the mail screens use', async
       '/api/v1/platform/mail/rfp-candidates',
       '/api/v1/platform/mail/cs-candidates',
       `/api/v1/platform/mail/messages/${id}/content`,
+      '/api/v1/platform/mail/messages',
     ]) {
       const response = await fetch(origin + path, { headers: { ...cookie, 'X-User-ID': 'forged' } });
       assert.equal(response.status, 200, path);
@@ -846,6 +847,7 @@ test('mail relay forwards only the reads and writes the mail screens use', async
       `/api/v1/platform/mail/messages/${id}/attachments/${id}`,
       `/api/v1/platform/mail/messages/${id}/content`,
       '/api/v1/platform/mail/cs-candidates',
+      '/api/v1/platform/mail/messages',
     ]) {
       const response = await fetch(origin + path, { method: 'POST', headers: write, body: '{}' });
       assert.ok([400, 404, 405].includes(response.status), path);
@@ -873,8 +875,8 @@ test('mail relay forwards only the reads and writes the mail screens use', async
     }
     return Response.json({ data: {} });
   });
-  assert.equal(calls.length, 14);
-  assert.deepEqual(calls.slice(10).map(url => new URL(url).pathname), [
+  assert.equal(calls.length, 15);
+  assert.deepEqual(calls.slice(11).map(url => new URL(url).pathname), [
     `/api/v1/platform/mail/reply-reviews/${id}/link`,
     `/api/v1/platform/mail/reply-reviews/${id}/dismiss`,
     `/api/v1/platform/mail/messages/${id}/register-ticket`,
