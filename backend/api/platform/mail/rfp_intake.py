@@ -390,6 +390,19 @@ async def link_project(
                 "ON CONFLICT (message_id, owner_service, business_ref) DO NOTHING",
                 (uuid4(), message_id, ref),
             )
+            # 새 RFP로 정했으니 열린 회신 검토(주고받은 주소 등)는 닫는다. [무시]와 같은 기록이다.
+            cursor = await conn.execute(
+                "UPDATE integration.mail_reply_reviews SET status='DISMISSED', decided_by=%s, "
+                "decided_at=now(), note='새 RFP로 등록' WHERE message_id=%s AND status='OPEN' "
+                "RETURNING 1",
+                (user.id, message_id),
+            )
+            if await cursor.fetchone() is not None:
+                await conn.execute(
+                    "UPDATE integration.mail_reply_checks SET outcome='NONE', checked_at=now() "
+                    "WHERE message_id=%s",
+                    (message_id,),
+                )
     response.status_code = 201 if existing is None else 200
     return SuccessResponse(
         data=LinkedProject(

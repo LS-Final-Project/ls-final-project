@@ -140,10 +140,23 @@ def test_sales_sees_the_candidate_downloads_the_file_and_links_a_project_once(
         == 404
     )
 
+    # 같은 주소와 주고받은 적이 있어 회신 검토(ADDRESS_MATCH)에도 열려 있던 메일이다.
+    with psycopg.connect(notify["dsn"]) as conn:
+        conn.execute(
+            "INSERT INTO integration.mail_reply_reviews (message_id, reason, candidates) "
+            "VALUES (%s, 'ADDRESS_MATCH', '[]'::jsonb)",
+            (message,),
+        )
     project = uuid4()
     path = f"/api/v1/platform/mail/messages/{message}/rfp-project"
     first = client.post(path, json={"project_id": str(project)}, headers=headers)
     assert first.status_code == 201, first.text
+    # RFP로 등록하면 열린 회신 검토는 닫힌다(메일함 연결 필요 목록에서 빠진다).
+    with psycopg.connect(notify["dsn"]) as conn:
+        assert conn.execute(
+            "SELECT status, note FROM integration.mail_reply_reviews WHERE message_id=%s",
+            (message,),
+        ).fetchall() == [("DISMISSED", "새 RFP로 등록")]
     again = client.post(path, json={"project_id": str(project)}, headers=headers)
     assert again.status_code == 200 and again.json()["data"]["created"] is False
     clash = client.post(path, json={"project_id": str(uuid4())}, headers=headers)
