@@ -357,6 +357,8 @@ uv run --frozen --python 3.12 python -m scripts.local_business manage-project \
   --namespace "$NS" --project P26-0002
 ```
 
+로컬 시연 편의로 `tunnel`이 떠 있는 동안 5초마다 아직 등록되지 않은 프로젝트를 local-4에게 자동 등록한다(같은 SQL, 로컬 하네스만, 운영 정책·코드는 그대로). 등록하면 `logs/tunnel.log`에 `{"auto_manage": "granted", ...}` 줄이 남는다. 끄려면 상태 폴더 `settings.json`에 `"auto_manage_projects": false`를 넣고 `tunnel`을 다시 띄운다. 운영의 책임자 지정 방식은 KAN-236에서 정한다.
+
 새 작업은 활성화 시각 이후의 정상 접수만 선택한다. SDK 호출 전 SQLite 트랜잭션에서 공통 슬롯을 예약하고 응답을 정산한 뒤 반환한다. 정상 진행 중인 다른 작업의 예약은 오류로 취급하지 않는다. UNKNOWN/worker 실패를 발견하면 새 접수·호출을 막고 다른 진행 중 호출은 정산하도록 기다린다. 각 worker의 기존 총수명은 유지하며, 명시적인 `disable-real`은 실행 중 worker도 종료하므로 미정산이 남을 수 있다. 프로세스 중단·lease 상실 후 자동 재처리나 비용 삭제는 하지 않는다.
 
 ### 각 PC의 한국어 요약 QA (KAN-159)

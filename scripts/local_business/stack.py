@@ -227,6 +227,57 @@ def stop(state: Path):
     # DB and volume remain running/preserved. No docker down -v, reset or deletion.
 
 
+DEMO_MANAGER = "00000000-0000-4000-8000-000000000004"  # seed_demo.sql local-4
+AUTO_MANAGE_SECONDS = 5
+
+
+def grant_new_projects(state: Path) -> list[str]:
+    """로컬 시연 전용: 아직 시연 관리자(local-4)에게 등록되지 않은 RFP 프로젝트를 등록한다.
+
+    운영에서는 관리 대상을 서버 밖 등록 스크립트로만 준다(contracts/platform/permissions.md 1.2, manage-project와 같은 SQL).
+    로컬 하네스만 새 프로젝트를 만들 때마다 손으로 등록하지 않게 tunnel이 주기적으로 부른다(사용자 결정 2026-11-05, KAN-236은 운영 방식).
+    """
+    sql = (
+        "INSERT INTO identity.manager_projects(user_id, project_id) "
+        f"SELECT '{DEMO_MANAGER}', p.id FROM tft.projects p WHERE NOT EXISTS ("
+        f"SELECT 1 FROM identity.manager_projects m WHERE m.user_id = '{DEMO_MANAGER}' AND m.project_id = p.id) "
+        "ON CONFLICT DO NOTHING RETURNING project_id"
+    )
+    out = docker(
+        "exec",
+        state.name + "-pg",
+        "psql",
+        "-X",
+        "-U",
+        "postgres",
+        "-d",
+        "team4",
+        "-At",
+        "-v",
+        "ON_ERROR_STOP=1",
+        "-c",
+        sql,
+    ).decode()
+    return [line for line in out.splitlines() if re.fullmatch(r"[0-9a-f-]{36}", line)]
+
+
+def auto_manage(state: Path, stop: threading.Event) -> None:
+    """tunnel이 떠 있는 동안 grant_new_projects를 주기적으로 부른다. 실패는 기록만 하고 다음 주기에 다시 한다."""
+    while not stop.wait(AUTO_MANAGE_SECONDS):
+        try:
+            granted = grant_new_projects(state)
+        except Exception as error:  # noqa: BLE001 — 로컬 보조 작업이라 tunnel을 멈추지 않는다
+            print(json.dumps({"auto_manage": "failed", "error": type(error).__name__}), flush=True)
+            continue
+        if granted:
+            print(
+                json.dumps(
+                    {"auto_manage": "granted", "manager": DEMO_MANAGER, "projects": granted}
+                ),
+                flush=True,
+            )
+
+
 def tunnel(state: Path):
     config = owned(state)
     name = config["namespace"] + "-platform"
@@ -286,5 +337,7 @@ def tunnel(state: Path):
         allow_reuse_address = True
         daemon_threads = True
 
+    if config.get("auto_manage_projects", True):
+        threading.Thread(target=auto_manage, args=(state, threading.Event()), daemon=True).start()
     with Server(("127.0.0.1", port), Connection) as server:
         server.serve_forever()

@@ -23,7 +23,7 @@ from scripts.local_business.permit import (
     validate_limits,
 )
 from scripts.local_business.setup import docker, fresh, inspect, owned
-from scripts.local_business.stack import running_drivers, start, stop, tunnel
+from scripts.local_business.stack import DEMO_MANAGER, running_drivers, start, stop, tunnel
 
 
 def process_identity(pid):
@@ -427,9 +427,6 @@ def set_concurrency(state, args):
             }
         )
     )
-
-
-DEMO_MANAGER = "00000000-0000-4000-8000-000000000004"  # seed_demo.sql local-4
 
 
 def manage_project(state, number):
