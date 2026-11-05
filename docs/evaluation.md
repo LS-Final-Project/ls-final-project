@@ -236,7 +236,8 @@ COMMISSION은 시운전·고객 인도 일정 차질. DEADLINE은 입찰·제출
 | --- | --- | --- |
 | v1 | `ec6fefc1c1ba9e79` | 첫 지시문(2026-10-29까지 기본) |
 | v2 | `143d7655ee22fed7` | v1 + 긴급도 신호 지침 한 줄(위 긴급도 정답 잠금의 신호 설명) |
-| v3 | `f299989ca90bcf99` | v2의 return_subtype 줄만 교체: category_code나 secondary_category가 RETURN일 때만 DEFECT·NON_DEFECT, 둘 다 아니면 불량 내용이 있어도 null(예 WARRANTY·보조 DEFECT → null). valid 603 재측정의 형식 위반 1건 대응. **채택 2026-10-29, 기본 판본** |
+| v3 | `f299989ca90bcf99` | v2의 return_subtype 줄만 교체: category_code나 secondary_category가 RETURN일 때만 DEFECT·NON_DEFECT, 둘 다 아니면 불량 내용이 있어도 null(예 WARRANTY·보조 DEFECT → null). valid 603 재측정의 형식 위반 1건 대응. 채택 2026-10-29~2026-11-04 |
+| v4 | `08619d15b472d41c` | v3의 provided_info 줄 뒤에 헷갈린 정보 코드 네 개의 코드북 칸 이름 한 줄만 추가('PO or invoice number'=purchase_doc, po_number는 'PO number'만, 'Error code or symptom displayed'=error_code(값 '-'도 제공), failure_description='Failure description and occurrence time'). 모델은 코드 이름만 보므로 칸 이름을 잘못 짝지어 이미 준 정보를 다시 요청했다. valid 603(같은 표본, 입력 v4, gemini-3.6-flash, 출력 상한 4096)에서 재요청 문의 71/561 → 4/561, 제공 정보 FULL F1 .819 → .919, 게이트 5개 PASS(주분류 macro-F1 .962 → .957, 긴급도 .984 → .989, 비NONE 176/179 → 178/179, CRITICAL 누락 0/27). 이 표본으로 조정했으므로 독립 성능이 아니다. **채택 2026-11-05(`classification-20261105-flash36-v4-out4096`), 기본 판본** |
 
 ## 초안·회신·개선요청 프롬프트 판본 (KAN-193)
 

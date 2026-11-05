@@ -182,7 +182,7 @@ def build_cs_runner(
         checkpointer: make_checkpointer가 연 체크포인터.
         model: 호출할 모델 ID.
         allowed_info_codes: 검수된 정보 코드 집합.
-        prompt_version: 분류 프롬프트 판본. 기본은 prompt_registry.DEFAULT_VERSIONS(채택 판본 v3)다.
+        prompt_version: 분류 프롬프트 판본. 기본은 prompt_registry.DEFAULT_VERSIONS(채택 판본 v4)다.
         allow_tracing: 호출자가 넘기는 Settings.ai_tracing_allowed(KAN-89).
         invalid_output_retries: 형식 위반(CS_INVALID_OUTPUT) 시도 2 재호출 횟수(0|1). build_graph에 넘긴다.
         classification_model: 분류 전용 모델 ID. None이면 model을 쓴다.
