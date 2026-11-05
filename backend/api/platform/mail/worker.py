@@ -26,6 +26,7 @@ from starlette.responses import JSONResponse
 
 from backend.api.platform.mail.business import cs_caller
 from backend.api.platform.mail.links import judge_new_replies, notify_cs_replies
+from backend.api.platform.mail.rfp_intake import triage_new_rfp_mails
 from backend.api.platform.mail.storage import BUCKET_NAME, GcsObjectStore, GoogleAccessToken
 from backend.api.platform.mail.sync import SyncResult, sync_mailbox
 from backend.shared.database import connection
@@ -77,6 +78,8 @@ class MailSyncSettings(BaseSettings):
     invoker_email: str = ""
     interval_seconds: int = Field(default=300, ge=60, le=3600)
     object_bucket: str = Field(default="", validation_alias="MAIL_OBJECT_BUCKET")
+    # 수집 뒤 RFP로 보이는 메일에 규칙 분류를 남긴다(KAN-73, 모델 호출 없음). 끄려면 MAIL_SYNC_RFP_TRIAGE=false.
+    rfp_triage: bool = True
 
     @model_validator(mode="after")
     def validate_enabled(self) -> Self:
@@ -129,6 +132,9 @@ class SyncData(BaseModel):
     replies_notify_failed: int = 0
     # KAN-230: 원문을 읽지 못해 회신 본문 없이 알린 수. 0이 아니면 원문 저장소를 확인한다.
     replies_notified_without_text: int = 0
+    # KAN-73: 수집 뒤 RFP로 보이는 메일에 남긴 규칙 분류 수와 실패 수.
+    rfp_classified: int = 0
+    rfp_failed: int = 0
 
 
 def dispatch_unavailable() -> ApplicationError:
@@ -320,6 +326,7 @@ async def sync(request: Request) -> JSONResponse:
             storage_client, value.object_bucket, request.app.state.mail_sync_storage_token
         )
         judged = {"LINKED": 0, "REVIEW": 0, "failed": 0}
+        rfp = {"classified": 0, "failed": 0}
         notified = {"notified": 0, "failed": 0}
         try:
             result: SyncResult | None = await sync_mailbox(
@@ -344,6 +351,13 @@ async def sync(request: Request) -> JSONResponse:
             except (psycopg.Error, ApplicationError, HTTPException):
                 # 공용 DB 연결은 DB 오류를 HTTP 503 예외로 바꾼다. 그것도 수집 결과로 번지지 않게 한다.
                 judged["failed"] += 1
+            if value.rfp_triage:
+                try:
+                    rfp = await triage_new_rfp_mails(
+                        request.app.state.settings, payload.mailbox_id, store
+                    )
+                except (psycopg.Error, ApplicationError, HTTPException):
+                    rfp = {"classified": 0, "failed": 1}
             caller = cs_caller(request)
             if caller is not None:
                 try:
@@ -372,6 +386,8 @@ async def sync(request: Request) -> JSONResponse:
             replies_notified=notified["notified"],
             replies_notify_failed=notified["failed"],
             replies_notified_without_text=notified.get("without_text", 0),
+            rfp_classified=rfp.get("classified", 0),
+            rfp_failed=rfp.get("failed", 0),
         )
         status = 503 if result.error_code in TRANSIENT else 200
     body = SuccessResponse[SyncData](
