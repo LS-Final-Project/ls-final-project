@@ -174,7 +174,6 @@ describe('변경 이력', () => {
   it('요구 이력은 이력 링크로 열고 더 보기로 다음 쪽을 부른다', async () => {
     const f = serve();
     show('sales');
-    fireEvent.click(await screen.findByRole('button', { name: '더보기' }));
     fireEvent.click(await screen.findByRole('button', { name: '변경 이력 1+건' }));
     expect((await screen.findAllByText(/판단 .+ → .+/)).length).toBe(1);
     fireEvent.click(screen.getByRole('button', { name: '더 보기' }));
@@ -276,7 +275,6 @@ describe('원문에서 요구 추가와 빼기 (KAN-225)', () => {
   it('요구에서 빼기는 사유가 있어야 보내고, 책임자에게는 추가·빼기가 없다', async () => {
     const f = serve();
     showDoc('sales');
-    fireEvent.click(await screen.findByRole('button', { name: '더보기' }));
     fireEvent.click(await screen.findByRole('button', { name: '검토 대상에서 제외' }));
     const send = screen.getAllByRole('button', { name: '검토 대상에서 제외' }).at(-1) as HTMLButtonElement;
     expect(send.disabled).toBe(true);
