@@ -169,7 +169,7 @@ async def integration_state(
         project_id: 프로젝트 ID.
 
     Returns:
-        tuple[Row, list[Row]] | None: (사람 입력 칸, 요구별 clause_id·clause_no·task·assembly_clause). 스키마가
+        tuple[Row, list[Row]] | None: (사람 입력 칸, 요구별 clause_id·clause_no·task·assembly_clause·clause_text). 스키마가
             없으면 None이다(required를 거짓으로 꾸미지 않는다).
     """
     try:
@@ -179,7 +179,8 @@ async def integration_state(
             )
             holder = await cursor.fetchone()
             cursor = await conn.execute(
-                "SELECT v.clause_id, c.clause_no, v.task, v.assembly_clause FROM tft.requirements r "
+                "SELECT v.clause_id, c.clause_no, v.task, v.assembly_clause, c.text AS clause_text "
+                "FROM tft.requirements r "
                 "JOIN tft.requirement_versions v "
                 "ON v.requirement_id = r.id AND v.version = r.latest_version "
                 "JOIN tft.clauses c ON c.id = v.clause_id WHERE r.project_id = %s",

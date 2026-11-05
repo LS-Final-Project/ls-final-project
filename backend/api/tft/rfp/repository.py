@@ -1728,7 +1728,7 @@ async def project_constraints(conn: AsyncConnection[Row], project_id: UUID) -> R
 async def stored_grading_requirements(conn: AsyncConnection[Row], project_id: UUID) -> list[Row]:
     """페이지 제한 없이 현행 판본과 그 판본의 실제 저장 조건을 읽는다."""
     cursor = await conn.execute(
-        "SELECT v.*, c.clause_no, d.title AS document_title, coalesce((SELECT jsonb_agg(jsonb_build_object("
+        "SELECT v.*, c.clause_no, c.text AS clause_text, d.title AS document_title, coalesce((SELECT jsonb_agg(jsonb_build_object("
         "'name',rc.name,'value',rc.value,'unit',rc.unit) ORDER BY rc.ordinal) "
         "FROM tft.requirement_conditions rc WHERE rc.requirement_id=v.requirement_id "
         "AND rc.version=v.version),'[]'::jsonb) AS conditions "
