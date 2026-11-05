@@ -301,6 +301,16 @@ type Row = RequirementSummary & { bid_verdict: BidVerdict };
 const BUCKET_LABEL = { MV: 'MV', TR: 'TR', LV: 'LV', OTHER: '기타', COMMON: '공통' } as const;
 export const eqKey = (r: Pick<RequirementSummary, 'group' | 'bucket' | 'equipment'>) =>
   r.group?.tag ?? (r.bucket ? BUCKET_LABEL[r.bucket] : r.equipment ?? '공통');
+// 설비 태그가 없는 요구는, 같은 계열(bucket)에 태그가 하나뿐이면 그 태그로 묶는다(현황표에 "MV-SWG-01"과 "MV"가 따로 나오지 않게).
+export const makeEqKey = (rows: Pick<RequirementSummary, 'group' | 'bucket' | 'equipment'>[]) => {
+  const tags = new Map<string, Set<string>>();
+  for (const r of rows) if (r.group?.tag && r.bucket) (tags.get(r.bucket) ?? tags.set(r.bucket, new Set()).get(r.bucket)!).add(r.group.tag);
+  return (r: Pick<RequirementSummary, 'group' | 'bucket' | 'equipment'>) => {
+    if (r.group?.tag) return r.group.tag;
+    const only = r.bucket ? tags.get(r.bucket) : undefined;
+    return only && only.size === 1 ? [...only][0] : eqKey(r);
+  };
+};
 const EQ_RANK = (k: string) => { const i = ['MV', 'TR', 'LV', '기타', '공통'].indexOf(k); return i < 0 ? -1 : i; };
 const eqOrder = (keys: string[]) => [...new Set(keys)].sort((a, b) => EQ_RANK(a) - EQ_RANK(b) || a.localeCompare(b, 'ko'));
 // 중복 구성원(대표 아님)은 대표 행 아래로 접는다. 결정은 대표만 한다.
@@ -345,17 +355,18 @@ export function Decide({ project, documents, rows, role, actorId, log }: { proje
   const todo = verdictRows.filter(open).length;
   const total = verdictRows.filter(needed).length;
   const gate = project.decision_gate ?? { undecided: todo, deviation_missing: 0, open_queries: 0, review_pending: 0 };
-  const equipments = eqOrder(verdictRows.map(eqKey));
+  const keyOf = useMemo(() => makeEqKey(verdictRows), [verdictRows]);
+  const equipments = eqOrder(verdictRows.map(keyOf));
   const [unfold, setUnfold] = useState<ReadonlySet<string>>(new Set());
   const membersOf = (id: string) => verdictRows.filter(r => followsOf(r) === id);
   const stale = rows.some(r => r.context_stale);
   const text = q.trim().toLowerCase();
-  const visible = verdictRows.filter(r => !followsOf(r) && (!eq || eqKey(r) === eq)
+  const visible = verdictRows.filter(r => !followsOf(r) && (!eq || keyOf(r) === eq)
     && (!text || [r.code, r.attribute, r.value_text, r.equipment].some(v => v?.toLowerCase().includes(text))));
   const count = (v: Kind) => visible.filter(r => groupOf(r) === v).length;
   const groups = filter === 'todo' && !byEq
     ? DECIDE_ORDER.map(v => ({ title: VERDICT[v], verdict: v, rows: visible.filter(r => groupOf(r) === v && open(r)) })).filter(g => g.rows.length)
-    : equipments.map(e => ({ title: e, verdict: filter !== 'all' && filter !== 'todo' ? filter : undefined, rows: visible.filter(r => eqKey(r) === e && (filter === 'all' || (filter === 'todo' ? open(r) : groupOf(r) === filter))) })).filter(g => g.rows.length);
+    : equipments.map(e => ({ title: e, verdict: filter !== 'all' && filter !== 'todo' ? filter : undefined, rows: visible.filter(r => keyOf(r) === e && (filter === 'all' || (filter === 'todo' ? open(r) : groupOf(r) === filter))) })).filter(g => g.rows.length);
   const lines: Line[] = groups.flatMap(g => [{ kind: 'group' as const, ...g }, ...g.rows.flatMap(row => [{ kind: 'row' as const, row }, ...(unfold.has(row.requirement_id) ? membersOf(row.requirement_id).map(m => ({ kind: 'row' as const, row: m })) : [])])]);
   // 펼친 중복 구성원도 고를 수 있게 화면 줄 순서를 쓴다(구성원 패널은 대표로 보낸다).
   const order = lines.flatMap(l => l.kind === 'row' ? [l.row] : []);
@@ -379,7 +390,7 @@ export function Decide({ project, documents, rows, role, actorId, log }: { proje
   // 배정·보완 결정 뒤 같은 설비의 같은 판정 미결이 있으면 같은 결정을 권한다(편차·질의는 문장이 달라 제외).
   const onDecided = (row: Row, body: Omit<DecisionRequest, 'version'>) => {
     const same = row.bid_verdict === 'ASSIGN' || row.bid_verdict === 'SUPPLEMENT'
-      ? verdictRows.filter(r => r.requirement_id !== row.requirement_id && open(r) && r.bid_verdict === row.bid_verdict && eqKey(r) === eqKey(row)) : [];
+      ? verdictRows.filter(r => r.requirement_id !== row.requirement_id && open(r) && r.bid_verdict === row.bid_verdict && keyOf(r) === keyOf(row)) : [];
     setSimilar(same.length ? { body, rows: same } : undefined);
     next(row.requirement_id);
   };
@@ -393,7 +404,7 @@ export function Decide({ project, documents, rows, role, actorId, log }: { proje
   const arrived = new Set(customerTq.filter(q => q.status === 'REPLIED' && q.requirement_id).map(q => q.requirement_id as string));
   // 질의 행의 다음 행동 자리에는 질의 상태(질의서에 넣음, 회신 기다림 n일째, 회신 받음)를 보인다.
   const tqOf = new Map(customerTq.filter(q => q.requirement_id).map(q => [q.requirement_id as string, queryState(q)]));
-  const remainByEq = equipments.map(e => [e, verdictRows.filter(r => eqKey(r) === e && open(r)).length] as const).filter(([, n]) => n);
+  const remainByEq = equipments.map(e => [e, verdictRows.filter(r => keyOf(r) === e && open(r)).length] as const).filter(([, n]) => n);
   const remainText = remainByEq.map(([e, n]) => `${e} ${n}`).join(', ');
   return <>
     <div className="ws-tabrow">
@@ -752,8 +763,9 @@ function Output({ project, rows, excluded = [], responsible, readOnly = responsi
   const integrationOpen = !!integration?.required && (integration.holder ?? 'UNRESOLVED') === 'UNRESOLVED';
   const ready = !gate.undecided && !gate.deviation_missing && !gate.open_queries && !gate.review_pending && !integrationOpen;
   const deviations = rows.filter(r => r.decision?.action === 'record_deviation');
-  const byEq = useMemo(() => eqOrder(rows.filter(r => !followsOf(r)).map(eqKey)).map(eq => {
-    const items = rows.filter(r => !followsOf(r) && eqKey(r) === eq);
+  const keyOf = useMemo(() => makeEqKey(rows), [rows]);
+  const byEq = useMemo(() => eqOrder(rows.filter(r => !followsOf(r)).map(keyOf)).map(eq => {
+    const items = rows.filter(r => !followsOf(r) && keyOf(r) === eq);
     return { eq, items, open: items.filter(r => needed(r) && !r.decision?.decided).length };
   }), [rows]);
   const tq = questions.data?.data.items.filter(q => q.target === 'CUSTOMER') ?? [];
@@ -781,7 +793,7 @@ function Output({ project, rows, excluded = [], responsible, readOnly = responsi
     {fileOut.isPending && <p className="muted ws-note ws-outnote" role="status">{fileOut.variables} 출력을 만들고 있습니다.</p>}
     {fileOut.isError && <p role="alert" className="ws-alert">{failureText(fileOut.error)}</p>}
     {save.isError && <p role="alert" className="ws-alert">{failureText(save.error)}</p>}
-    {save.isSuccess && <p className="ws-alert">검토본을 저장했습니다.</p>}
+    {save.isSuccess && <p className="ws-ok" role="status">검토본을 저장했습니다.</p>}
     {integrationOpen && <section className="ws-sec ws-review" aria-label="통합 책임"><IntegrationPanel projectId={project.id} canEdit={!readOnly} /></section>}
     {reviewBlock}
     <div className="ws-dtabs" role="tablist" aria-label="출력 문서">

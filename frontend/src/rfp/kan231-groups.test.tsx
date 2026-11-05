@@ -5,7 +5,7 @@ import type { RequirementSummary } from '../api/rfp';
 import type { ProjectDetail } from '../api/tft';
 import { MOCK_WORKSPACE_REQUIREMENTS } from '../mocks/rfp-workspace';
 import { renderAt } from '../test/render';
-import { Decide, eqKey } from './RfpWorkspace';
+import { Decide, eqKey, makeEqKey } from './RfpWorkspace';
 
 vi.mock('./OriginalDocument', () => ({ OriginalDocument: () => null }));
 afterEach(() => { cleanup(); });
@@ -38,4 +38,14 @@ it('설비별 남은 건수는 계열 몇 묶음, 중복 구성원은 대표 아
   expect(await screen.findByText(/대표 요구에서 결정합니다/)).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: '대표로 이동' }));
   expect(screen.queryByText(/대표 요구에서 결정합니다/)).toBeNull();
+});
+
+it('태그 없는 요구는 같은 계열의 태그가 하나뿐이면 그 태그로 묶는다', () => {
+  const rows = [
+    { group: { group_id: 'g', tag: 'MV-SWG-01', name: '중전압 개폐반' }, bucket: 'MV' as const, equipment: null },
+    { group: null, bucket: 'MV' as const, equipment: '개폐반' },
+    { group: null, bucket: 'COMMON' as const, equipment: null },
+  ];
+  const key = makeEqKey(rows);
+  expect(rows.map(key)).toEqual(['MV-SWG-01', 'MV-SWG-01', '공통']);
 });
