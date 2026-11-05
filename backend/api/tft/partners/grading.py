@@ -54,6 +54,7 @@ THOUSANDS = re.compile(r"[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?")
 # SI 접두(k·M)만 다른 전기 단위. 단위 대소문자가 크기를 가르므로(mV·MV) 이 표기만 환산한다(KAN-217).
 SI_UNIT = re.compile(r"(k|M)?(VA|var|V|A|W|Hz)")
 SI_SCALE = {"": Decimal(1), "k": Decimal(1000), "M": Decimal(1000000)}
+KILO_UPPER = re.compile(r"^K(?=(?:VA|V|A|W)$)")
 
 
 class Requirement(BaseModel):
@@ -392,7 +393,8 @@ def _unit_key(unit: str | None) -> str:
     """비교용 단위. 원문 단위는 그대로 두고 비교할 때만 뜻이 같은 표기를 맞춘다.
 
     양을 바꾸지 않는 수식어(SYM, RMS, AC)를 떼고 한글 시간 단위와 긴 초 표기를 영문으로 맞춘다. peak·crest·asym은 다른 양이라 떼지 않는다.
-    값 단위의 대소문자는 크기를 가르므로(mV·MV) 그대로 둔다. 조건 단위(Hz·°C)는 호출자가 _norm으로 함께 접는다.
+    값 단위의 대소문자는 크기를 가르므로(mV·MV) 그대로 둔다. 다만 대문자 K는 SI 접두가 아니므로 원문의 KV·KA·KVA·KW는
+    kV·kA·kVA·kW로 읽는다(K를 켈빈으로 쓰는 단위는 이 비교 대상이 아니다). 조건 단위(Hz·°C)는 호출자가 _norm으로 함께 접는다.
 
     Args:
         unit: 원문 단위.
@@ -402,7 +404,7 @@ def _unit_key(unit: str | None) -> str:
     """
     words = [w for w in re.split(r"[\s,()]+", unit or "") if w]
     kept = [w for w in words if w.casefold().strip(".") not in UNIT_QUALIFIERS]
-    key = " ".join(kept)
+    key = KILO_UPPER.sub("k", " ".join(kept))
     return TIME_UNITS.get(key.casefold(), key)
 
 
