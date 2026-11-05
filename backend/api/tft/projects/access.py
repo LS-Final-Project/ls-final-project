@@ -20,13 +20,13 @@ def sees_project(
     responsible_user_id: object,
     sales_user_id: object,
 ) -> bool:
-    """A manager sees managed projects; anyone sees projects they are responsible for or
-    assigned to as the sales user (KAN-122, `tft.projects.sales_user_id`).
+    """A manager sees every RFP project (KAN-236); anyone sees projects they are responsible
+    for or assigned to as the sales user (KAN-122, `tft.projects.sales_user_id`).
 
     The dept_staff scope through staffing requests was removed with them in KAN-181.
     """
     return (
-        project_id in principal.managed_projects
+        principal.has("manager")
         or responsible_user_id == principal.user_id
         or sales_user_id == principal.user_id
     )
@@ -165,7 +165,9 @@ def can_edit_project(principal: Principal, project: Mapping[str, Any]) -> bool:
 
 
 def manages_project(principal: Principal, project_id: object) -> bool:
-    """담당·책임자 지정(경로 5): 그 프로젝트를 관리 대상으로 가진 manager만(permissions.md 3.3).
+    """담당·책임자 지정(경로 5): manager는 모든 RFP 프로젝트를 관리한다(KAN-236, permissions.md 3.3).
+
+    `managed_projects`는 남아 있지만 RFP 접근에는 쓰지 않는다.
 
     Args:
         principal: 요청 사용자.
@@ -174,7 +176,7 @@ def manages_project(principal: Principal, project_id: object) -> bool:
     Returns:
         bool: 지정할 수 있으면 True.
     """
-    return principal.has("manager") and project_id in principal.managed_projects
+    return principal.has("manager")
 
 
 def can_run_annotations(principal: Principal, project: Mapping[str, Any]) -> bool:

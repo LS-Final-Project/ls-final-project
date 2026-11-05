@@ -308,28 +308,34 @@ def test_real_cs_create_update_audit_and_user_header_replacement(system, manual_
 
 
 def test_tft_scope_is_enforced_and_revoked_on_next_request(system, business_database):
-    """프로젝트 관리 범위를 업무 API에서 다시 검사하고 같은 세션의 범위 회수를 반영한다.
+    """manager는 관리 대상 등록과 무관하게 모든 RFP를 보고(KAN-236), 역할 회수는 다음 요청에 반영된다.
 
     Args:
-        system: 실제 세션과 프로젝트 두 개가 있는 업무 앱.
-        business_database: 합성 관리 범위를 회수할 전용 DB.
+        system: 실제 세션과 프로젝트 두 개(하나만 manager_projects 등록)가 있는 업무 앱.
+        business_database: 합성 역할을 회수할 전용 DB.
 
     Returns:
-        None: 허용 프로젝트만 보이고 범위 회수 직후 404가 됨을 확인한다.
+        None: 두 프로젝트가 모두 보이고 manager 역할 회수 직후 404가 됨을 확인한다.
     """
     client = system["client"]
-    visible, hidden = system["projects"]
-    listing = client.get("/api/v1/tft/projects?limit=10")
+    registered, unregistered = system["projects"]
+    listing = client.get("/api/v1/tft/projects?limit=100")
     assert listing.status_code == 200
-    assert [p["id"] for p in listing.json()["data"]["items"]] == [str(visible)]
-    detail = client.get(f"/api/v1/tft/projects/{visible}")
+    ids = {p["id"] for p in listing.json()["data"]["items"]}
+    assert {str(registered), str(unregistered)} <= ids
+    detail = client.get(f"/api/v1/tft/projects/{registered}")
     assert detail.status_code == 200
     # 값은 DB에 적용된 마이그레이션에 따라 다르다. 스키마가 없을 때의 동작은 test_rfp_write_routes_db가 맡는다.
     assert "integration_responsibility" in detail.json()["data"]
-    assert client.get(f"/api/v1/tft/projects/{hidden}").status_code == 404
+    assert client.get(f"/api/v1/tft/projects/{unregistered}").status_code == 200
     with psycopg.connect(business_database) as conn:
+        conn.execute(
+            "DELETE FROM identity.manager_departments WHERE user_id=%s", (system["user_id"],)
+        )
         conn.execute("DELETE FROM identity.manager_projects WHERE user_id=%s", (system["user_id"],))
-    assert client.get(f"/api/v1/tft/projects/{visible}").status_code == 404
+        conn.execute("DELETE FROM identity.user_roles WHERE user_id=%s", (system["user_id"],))
+        conn.execute("INSERT INTO identity.user_roles VALUES (%s,'sales')", (system["user_id"],))
+    assert client.get(f"/api/v1/tft/projects/{registered}").status_code == 404
     assert client.get("/api/v1/tft/projects").json()["data"]["items"] == []
 
 
