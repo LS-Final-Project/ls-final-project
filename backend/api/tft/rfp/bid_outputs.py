@@ -139,6 +139,33 @@ def requirement_label(code: str) -> str:
     return f"{clause_label(match.group(1))}-{match.group(2)}" if match else code
 
 
+_OCR_ANY = re.compile(r"(?:[0-9a-f]{8}:)?OCR-(DOCX-|PDF-P)(\d+)(?:\.[\d.]+)?(?:-(\d+))?")
+_OCR_TITLE = re.compile(r"(?:[0-9a-f]{8}:)?OCR-(?:DOCX-|PDF-P)\d+\s+(?=본문 이미지|PDF )")
+_CONDITION_HEAD = re.compile(
+    r"^(" + "|".join(sorted(_CONDITION, key=len, reverse=True)) + r")(?=\s)"
+)
+
+
+def readable_text(text: str) -> str:
+    """검토서 글에 남은 이미지 전사 조항 코드와 줄 머리의 영문 조건 이름을 사람이 읽는 말로 바꾼다.
+
+    Args:
+        text: 문서에 쓸 글(사람·모델·양식 글 모두).
+
+    Returns:
+        str: OCR-DOCX-0001.7 → 본문 이미지 1(요구 번호의 -n은 남김), "cooling AN" → "냉각 방식 AN".
+    """
+    text = _OCR_TITLE.sub("", text)
+    text = _OCR_ANY.sub(
+        lambda m: (
+            clause_label(f"OCR-{m.group(1)}{m.group(2)}")
+            + (f"-{m.group(3)}" if m.group(3) else "")
+        ),
+        text,
+    )
+    return _CONDITION_HEAD.sub(lambda m: _CONDITION[m.group(1)], text)
+
+
 def reason_text(reason: str | None) -> str:
     """비교 판단 문장에서 근거 ID·조항 코드·영문 조건 이름을 빼고 판정 말을 문장으로(화면 labels.reasonText와 같음)."""
     if not reason:

@@ -186,7 +186,7 @@ def render_docx(
     append_context_report(body, context)
     table_sections = {"OUR_RESPONSE", "DEVIATIONS", "PARTNER_SUPPLEMENT"}
     widths = (650, 3500, 2600, 2730)
-    numbered: list[tuple[int, s.Sentence]] = []
+    numbered: list[tuple[int, s.Sentence, bool]] = []
     for section in draft.sections:
         paragraph(SECTION_TITLES[section.section], "Heading1")
         if not section.sentences:
@@ -199,7 +199,7 @@ def render_docx(
         )
         for row in section.sentences:
             number = len(numbered) + 1
-            numbered.append((number, row))
+            numbered.append((number, row, table is not None))
             flag_text = sentence_flags(row)
             if table is not None:
                 cells = layout.table_row(table, widths)
@@ -219,22 +219,31 @@ def render_docx(
         if table is not None:
             paragraph("", "Meta")
     paragraph("부록 · 문장별 근거와 검토 기록", "Heading1")
-    paragraph("본문과 같은 S번호의 모든 조건·근거·검토 표시입니다.", "Meta")
+    # 2026-11-05 분량 정리: 본문에 있는 문장·조건과 표에 이미 쓴 근거는 되풀이하지 않는다.
+    # 검토 표시는 하나라도 '예'인 문장만, 작성 유형은 AI 초안이 아닌 문장만 적는다.
+    paragraph(
+        "본문과 같은 S번호의 근거와 검토 표시입니다. 표에 근거를 쓴 문장은 번호만 있고, "
+        "검토 표시가 없는 문장은 미확약·재검토·근거 누락이 모두 ‘아니오’입니다.",
+        "Meta",
+    )
     provenance = {
         "ai_draft": "AI 작성 초안",
         "human_input": "담당자 입력",
         "system_record": "양식·시스템 기록",
     }
-    for number, row in numbered:
+    for number, row, in_table in numbered:
         layout.sentence_heading(body, number)
-        paragraph(row.text)
-        for condition in row.conditions:
-            paragraph(f"조건·미확인: {condition}", "Meta")
-        for line in evidence_lines(row, labels or {}) or ["연결 근거 없음"]:
-            paragraph(line, "Meta")
-        paragraph(sentence_flags(row), "Meta")
-        paragraph(f"작성 유형: {provenance[row.provenance_kind]}", "Meta")
+        if not in_table:
+            for line in evidence_lines(row, labels or {}) or ["연결 근거 없음"]:
+                paragraph(line, "Meta")
+        if row.unconfirmed or row.needs_rereview or row.evidence_missing:
+            paragraph(sentence_flags(row), "Meta")
+        if row.provenance_kind != "ai_draft":
+            paragraph(f"작성 유형: {provenance[row.provenance_kind]}", "Meta")
     paragraph(DISCLAIMER, "Notice")
+    for node in root.iter(W + "t"):
+        if node.text:
+            node.text = bid_outputs.readable_text(node.text)
     entries = layout.package_parts(root, body, ORIGIN_TEXT[draft.data_origin])
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w") as archive:
