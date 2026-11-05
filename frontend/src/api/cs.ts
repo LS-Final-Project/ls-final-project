@@ -41,3 +41,6 @@ export const getTicketSummary = (id: string, signal?: AbortSignal) => request<Ti
 export type TicketTranslationResponse = paths['/api/v1/cs/tickets/{ticket_id}/translation']['get']['responses'][200]['content']['application/json'];
 // 저장된 한국어 번역(제목·본문 전체)을 읽는다. 모델을 부르지 않는다. 번역 기능이 꺼진 배포는 404를 돌려준다.
 export const getTicketTranslation = (id: string, signal?: AbortSignal) => request<TicketTranslationResponse>(`/api/v1/cs/tickets/${encodeURIComponent(id)}/translation`, { signal, mockFallback: () => ({ data: { ticket_id: id, provenance: 'ai_draft', translation: null, latest_attempt: null } }) });
+// 고객 회신 반영 분석(KAN-230). 저장된 해석만 읽고 모델은 부르지 않는다. 꺼진 배포는 404다.
+export type ReplyAnalysisResponse = paths['/api/v1/cs/tickets/{ticket_id}/reply-analysis']['get']['responses'][200]['content']['application/json'];
+export const getReplyAnalysis = (id: string, signal?: AbortSignal) => request<ReplyAnalysisResponse>(`/api/v1/cs/tickets/${encodeURIComponent(id)}/reply-analysis`, { signal, mockFallback: () => ({ data: { ticket_id: id, provenance: 'ai_draft', message_id: null, analysis: null, latest_attempt: null } }) });

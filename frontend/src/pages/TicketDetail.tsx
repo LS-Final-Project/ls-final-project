@@ -15,6 +15,7 @@ import { ErrorState, Loading } from '../components/states';
 import CustomerThread, { isUnsettledSend, latestUnansweredReply } from '../components/CustomerThread';
 import AiDraftDialog, { OPTION_LABEL, optionsOf, pickDraft, textOf, type SendOptions } from '../components/AiDraftDialog';
 import AnalysisCorrection from '../components/AnalysisCorrection';
+import ReplyAnalysisCard from '../components/ReplyAnalysisCard';
 import { KvGrid, KvModal, useHotkey, type KvColumn } from '../ls-shell/kv';
 import { CATEGORY_LABEL, CHANNEL_LABEL, LANGUAGE_LABEL, RETURN_STATED_LABEL, STATE_LABEL, assignmentText, formatStamp, infoName } from '../ls-shell/cs-labels';
 import './ticket-detail-v3.css';
@@ -502,6 +503,14 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
             </div>}
             {/* 메일처럼 보이는 원문 카드: 보낸 사람·경로·시각, 제목, 본문, 고객이 적은 오류 코드·FW. 항상 보인다. */}
             <div className="orig-always"><div className="meta">원문</div>{mailCard(data.subject || '(제목 없음)', data.body)}</div>
+            {wf && (wf.customer_replies ?? []).some(item => item.body) && <ReplyAnalysisCard ticketId={ticketId} replies={wf.customer_replies ?? []} provided={provided}
+              canCreate={canWrite && !!analysisUser?.roles?.includes('cs_agent')}
+              apply={!canWrite ? MOCK_BLOCKED : !analysisData ? 'AI 분류를 읽은 뒤에 반영할 수 있습니다' : !correctable ? '검토중인 문의에서만 반영할 수 있습니다'
+                : async (codes, reason) => {
+                  try { await correctAnalysis(ticketId, { version: analysisData.version, analysis_id: analysisData.latest_valid_run_id ?? null, reason, provided_info: codes }, new AbortController().signal); setNotice({ kind: 'ok', text: '답한 정보를 제공 정보에 반영했습니다.' }); }
+                  finally { await Promise.allSettled([analysis.refetch(), audit.refetch()]); }
+                }}
+              onNote={(kind, text) => setNotice({ kind, text })} />}
             {wf && ((wf.customer_sends ?? []).length > 0 || (wf.customer_replies ?? []).length > 0) && <div className="thread">
               <div className="meta" style={{ marginBottom: 4 }}>이후 대화</div>
               <CustomerThread original={data} workflow={wf} actions={sendActions} />
