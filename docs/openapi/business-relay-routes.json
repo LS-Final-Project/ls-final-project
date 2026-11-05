@@ -1,0 +1,1729 @@
+{
+  "_note": "OpenAPI\uac00 \uc544\ub2c8\ub77c KAN-178 \uc911\uacc4 \ud5c8\uc6a9\ud45c \ud14c\uc2a4\ud2b8 \ud53d\uc2a4\ucc98\uc774\uba70 backend.openapi --check \ub300\uc0c1\uc774 \uc544\ub2c8\ub2e4. \ud14c\uc2a4\ud2b8 \uc804\uc6a9\uc774\uace0 \uc11c\ubc84\ub294 \uc77d\uc9c0 \uc54a\ub294\ub2e4. frontend/server.mjs businessRoutes\uc640 backend/api/platform/relay.py BUSINESS_ROUTES\uac00 routes\uc640 \uac19\uc544\uc57c \ud55c\ub2e4. cases\uc758 path\ub294 \ud37c\uc13c\ud2b8 \uc778\ucf54\ub529 \uc6d0\ubb38\uc774\ub2e4. \uc6f9\u00b7\ubc31\uc5d4\ub4dc \ud14c\uc2a4\ud2b8 \uc774\ubbf8\uc9c0 \ube4c\ub4dc \ucee8\ud14d\uc2a4\ud2b8\uc5d0 \ubaa8\ub450 \ub4e4\uc5b4\uac00\ub3c4\ub85d \uc774 \uc704\uce58\uc5d0 \ub454\ub2e4. customer_pattern\uc740 \uace0\uac1d ID \uaddc\uc57d\uc73c\ub85c backend/shared/models.py CUSTOMER_ID\uc640 server.mjs placeholders\uc758 {customer}\uac00 \uac19\uc544\uc57c \ud55c\ub2e4. evidence_pattern\uc740 \uc870\uac74 \ube44\uad50 \uadfc\uac70 ID\ub85c relay.py EVIDENCE_PATH\uc640 server.mjs placeholders\uc758 {evidence}\uac00 \uac19\uc544\uc57c \ud55c\ub2e4. dept_pattern\uc740 \ubd80\uc11c \ucf54\ub4dc(KAN-116 \uac1c\uc120\uc694\uccad \ubd80\uc11c \ub3d9\uc791)\ub85c relay.py DEPT_PATH\uc640 server.mjs placeholders\uc758 {dept}\uac00 \uac19\uc544\uc57c \ud55c\ub2e4.",
+  "customer_pattern": "[A-Za-z0-9][A-Za-z0-9._-]{0,63}",
+  "evidence_pattern": "[A-Za-z0-9][A-Za-z0-9._-]{0,63}",
+  "dept_pattern": "[A-Z][A-Z0-9_]{0,63}",
+  "routes": [
+    {
+      "path": "/api/v1/cs/tickets",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "query": [
+        "limit",
+        "cursor",
+        "state",
+        "channel",
+        "product_code",
+        "customer",
+        "owner",
+        "received_from",
+        "received_to",
+        "q",
+        "sort",
+        "dept",
+        "transfer_status"
+      ]
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}",
+      "methods": [
+        "GET",
+        "PATCH"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/audit",
+      "methods": [
+        "GET"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/analysis",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/analysis/corrections",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/summary",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/translation",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/reply-analysis",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "query": [
+        "message_id"
+      ]
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/units",
+      "methods": [
+        "GET"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/unit-history",
+      "methods": [
+        "GET"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/units/{uuid}",
+      "methods": [
+        "PUT"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/resolution-case",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/workflow",
+      "methods": [
+        "GET"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/workflow/start-review",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/workflow/transfer",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/workflow/recall",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/workflow/return",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/workflow/dept-result",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/workflow/dept-results/{uuid}/review",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/workflow/close",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/workflow/owner",
+      "methods": [
+        "PUT"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/workflow/return-subtype",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/workflow/send",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/workflow/sends/{uuid}/refresh",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/workflow/sends/{uuid}/retry",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/stats/overview",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "start",
+        "end",
+        "dept",
+        "customer"
+      ]
+    },
+    {
+      "path": "/api/v1/cs/stats/owners",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "start",
+        "end",
+        "dept"
+      ]
+    },
+    {
+      "path": "/api/v1/cs/stats/customers/{customer}",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "start",
+        "end"
+      ]
+    },
+    {
+      "path": "/api/v1/cs/improvement-candidates",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "as_of",
+        "outcome"
+      ]
+    },
+    {
+      "path": "/api/v1/cs/improvement-candidates/collect",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "query": [
+        "status",
+        "request_type",
+        "dept",
+        "origin",
+        "owner"
+      ]
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}",
+      "methods": [
+        "GET",
+        "PATCH"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/versions",
+      "methods": [
+        "GET"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/ai-draft",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/case-comparison",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "include_candidates"
+      ]
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/evidence",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/evidence/{uuid}/remove",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/owner",
+      "methods": [
+        "PUT"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/review",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/send",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/acknowledge",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/reply",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/action",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/resend",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/departments/{dept}/review-rejection",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/followup-plan",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/complete",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/followup-signals",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "as_of"
+      ]
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/rounds",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/condition-comparison",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "query": [
+        "version"
+      ]
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/condition-comparison/judgements",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/condition-comparison/evidence/{evidence}/remove",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/condition-comparisons",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "product_code",
+        "fault_id",
+        "version"
+      ]
+    },
+    {
+      "path": "/api/v1/cs/faults",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "product_code"
+      ]
+    },
+    {
+      "path": "/api/v1/cs/assignments/agents",
+      "methods": [
+        "GET"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/assignments/preview",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/assignments/apply",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/assignments/improvements/preview",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/assignments/improvements/apply",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "query": [
+        "cursor",
+        "judgement_status",
+        "limit",
+        "output_status",
+        "q",
+        "page",
+        "search_field"
+      ]
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}",
+      "methods": [
+        "GET",
+        "PATCH"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/assignment",
+      "methods": [
+        "PATCH"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/documents",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/documents/{uuid}",
+      "methods": [
+        "GET"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/documents/{uuid}/file",
+      "methods": [
+        "GET"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/documents/{uuid}/diagrams",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "document_version_id"
+      ]
+    },
+    {
+      "path": "/api/v1/tft/documents/{uuid}/diagrams/{evidence}/image",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "document_version_id"
+      ]
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/draft",
+      "methods": [
+        "GET",
+        "PATCH"
+      ],
+      "query": [
+        "version"
+      ]
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/draft/rewrite",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/draft/rewrites/{uuid}",
+      "methods": [
+        "GET"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/draft/regenerate",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/draft/review-versions",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/draft/exports",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/draft/exports/{uuid}/file",
+      "methods": [
+        "GET"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/documents/{uuid}/clauses",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "parent",
+        "limit",
+        "cursor"
+      ]
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/process",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/requirements",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "query": [
+        "limit",
+        "cursor",
+        "document_version_id",
+        "equipment",
+        "task",
+        "necessity",
+        "status",
+        "needs_rereview",
+        "needs_review",
+        "has_open_question",
+        "next_owner_field",
+        "unresolved_mandatory",
+        "excluded"
+      ]
+    },
+    {
+      "path": "/api/v1/tft/requirements/{uuid}",
+      "methods": [
+        "GET"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/requirements/{uuid}/comparison",
+      "methods": [
+        "GET"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/requirements/{uuid}/recompare",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/requirements/{uuid}/decision",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/requirements/{uuid}/history",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "kind",
+        "actor",
+        "limit",
+        "cursor"
+      ]
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/history",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "kind",
+        "actor",
+        "limit",
+        "cursor"
+      ]
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/equipment",
+      "methods": [
+        "GET"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/analysis",
+      "methods": [
+        "GET"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/decisions/bulk",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/decisions/bulk/{uuid}/undo",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/requirements/{uuid}/supplement-options",
+      "methods": [
+        "GET"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/requirements/{uuid}/supplement-selection",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/supplement-selections/batch",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/partner-candidates",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "requirement_id"
+      ]
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/questions",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "query": [
+        "status",
+        "requirement_id",
+        "target",
+        "target_dept"
+      ]
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/questions/batch",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/questions/sent",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/questions/{uuid}/confirm",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/questions/{uuid}/reply",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/questions/{uuid}/reply/read",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/proposals",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "query": [
+        "origin",
+        "requirement_id",
+        "status"
+      ]
+    },
+    {
+      "path": "/api/v1/tft/proposals/{uuid}/approve",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/proposals/{uuid}/reject",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/context",
+      "methods": [
+        "GET",
+        "PATCH"
+      ],
+      "query": [
+        "version"
+      ]
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/context/process",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    }
+  ],
+  "cases": [
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects?output_status=INTAKE&q=abc",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/proposals?status=PENDING",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/proposals/11111111-1111-4111-8111-111111111111/approve",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/proposals/11111111-1111-4111-8111-111111111111/reject",
+      "forward": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/assignment",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/tickets?limit=1",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/tickets?state=IN_REVIEW,TRANSFERRED&channel=EMAIL&q=leak&sort=received_at_asc",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/tickets?state=IN_REVIEW&state=CLOSED",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/tickets?foo=bar",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/tickets?dept=TS_LV&transfer_status=OPEN",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/tickets?dept=TS_LV&dept=TS_MV",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-candidates?as_of=2026-10-01T00%3A00%3A00Z&outcome=ELIGIBLE",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-candidates?product_code=X",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/summary",
+      "forward": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/summary",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/translation",
+      "forward": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/translation",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/reply-analysis",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/reply-analysis?message_id=22222222-2222-4222-8222-222222222222",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/reply-analysis?ticket_id=x",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-candidates",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-candidates/collect",
+      "forward": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/cs/improvement-candidates/collect",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests?origin=SYSTEM_CANDIDATE",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/case-comparison",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/case-comparison?include_candidates=true",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/case-comparison?include_candidates=true&include_candidates=false",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/case-comparison",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests?status=DRAFT,SENT&request_type=FAULT&dept=TS_TRF",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests?status=DRAFT&status=SENT",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-requests?status=DRAFT",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/units",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/unit-history",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/stats/overview?start=2026-10-01T00%3A00%3A00Z&end=2026-10-28T00%3A00%3A00Z&dept=TS_LV&customer=CUST-0001",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/stats/owners?dept=TS_LV",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/stats/customers/CUST-0001?start=2026-10-01T00%3A00%3A00Z",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/workflow",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/workflow/start-review",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/workflow/dept-results/22222222-2222-4222-8222-222222222222/review",
+      "forward": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/workflow/owner",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/resolution-case",
+      "forward": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/units/22222222-2222-4222-8222-222222222222",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-requests",
+      "forward": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/versions",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/evidence/22222222-2222-4222-8222-222222222222/remove",
+      "forward": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/owner",
+      "forward": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/units",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/stats/owners?customer=CUST-0001",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/stats/overview?dept=TS_LV&dept=TS_MV",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/units?limit=1",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests?limit=1",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/stats/overview?start=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/stats/customers/CUST%3Fdept%3DTS_LV",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/stats/customers/A%2FB",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/stats/customers/A%23B",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/stats/customers/CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/stats/customers/.",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/stats/customers/%2E%2E",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/stats/customers/..%2Fowners",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/stats/customers/-CUST",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/workflow",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/workflow/owner",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/workflow/unknown",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/workflow/dept-results/x/review",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/workflow/owner?version=1",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/workflow/close?force=1",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/condition-comparisons?product_code=SYN-PRD-01&fault_id=FLT-902",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/condition-comparisons?product_code=SYN-PRD-01&fault_id=FLT-900&version=3",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison?version=2",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/condition-comparisons",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/condition-comparisons?product_code=SYN-PRD-01&limit=1",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/condition-comparisons?fault_id=FLT-902&fault_id=FLT-901",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/faults",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/faults?product_code=PLC-XGI-CPUU",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/faults?fault_id=FLT-020",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/assignments/agents",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/assignments/agents?limit=5",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/assignments/preview",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/assignments/preview",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/assignments/apply",
+      "forward": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/cs/assignments/apply",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/assignments/improvements/preview",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/assignments/improvements/apply",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/assignments/improvements/apply",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests?owner=11111111-1111-4111-8111-111111111111",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison?product_code=X",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/not-a-uuid/condition-comparison",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison/judgements",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison?version=1",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison/judgements?version=1",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison/judgements",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison/judgements",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison/evidence/ev-1/remove",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison/evidence/ev-1/remove?version=1",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison/evidence/ev-1/remove",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison/evidence/../remove",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison/evidence/%2E%2E/remove",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison/evidence/.ev/remove",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison/evidence/ev%2F1/remove",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison/evidence/ev%3F1/remove",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/condition-comparison/evidence/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/remove",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/departments/TS_LV/acknowledge",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/departments/TS_LV/reply",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/departments/TS_LV/action",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/departments/TS_LV/resend",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/departments/TS_LV/review-rejection",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/departments/ts_lv/reply",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests/11111111-1111-4111-8111-111111111111/departments/TS%2FLV/reply",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/documents",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/documents/11111111-1111-4111-8111-111111111111",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/documents/11111111-1111-4111-8111-111111111111/clauses?limit=20&parent=22222222-2222-4222-8222-222222222222",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/process",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/requirements?status=SPEC_GAP&needs_rereview=true",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/requirements/11111111-1111-4111-8111-111111111111/comparison",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/requirements/11111111-1111-4111-8111-111111111111/supplement-options",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/requirements/11111111-1111-4111-8111-111111111111/supplement-selection",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/supplement-selections/batch",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/partner-candidates?requirement_id=22222222-2222-4222-8222-222222222222",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/questions",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/questions/batch",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/questions/22222222-2222-4222-8222-222222222222/confirm",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/questions/11111111-1111-4111-8111-111111111111/reply",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/questions/11111111-1111-4111-8111-111111111111/reply/read",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/documents/11111111-1111-4111-8111-111111111111/file",
+      "forward": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/questions",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/requirements/11111111-1111-4111-8111-111111111111?secret=1",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/not-a-uuid/documents",
+      "forward": false,
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft?version=1",
+      "forward": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/rewrite",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/rewrites/22222222-2222-4222-8222-222222222222",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/regenerate",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/review-versions",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/exports",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/regenerate",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/review-versions",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/exports",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/exports/22222222-2222-4222-8222-222222222222/file",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/exports?version=1",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft?secret=1",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "path": "/api/v1/tft/projects?limit=10&page=3&search_field=external_id&q=P26-0023",
+      "method": "GET",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/requirements/11111111-1111-4111-8111-111111111111/recompare",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/requirements/11111111-1111-4111-8111-111111111111/recompare",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/history?kind=decision,recompared&limit=2&cursor=abc",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/requirements/11111111-1111-4111-8111-111111111111/history?kind=decision&kind=recompared",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/requirements/11111111-1111-4111-8111-111111111111/history",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/equipment",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/equipment",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/analysis",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/analysis",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/decisions/bulk",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/decisions/bulk/11111111-1111-4111-8111-111111111111/undo",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/decisions/bulk",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/questions/sent",
+      "forward": true
+    }
+  ]
+}

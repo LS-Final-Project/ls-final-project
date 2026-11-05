@@ -1,0 +1,632 @@
+"""Improvement requests (C/S proposal 4.4, 6.1; permissions.md 2.2).
+
+A request is written and versioned here. State transitions, delivery, department replies
+and actions are recorded by KAN-116 through the same tables.
+"""
+
+from datetime import date, datetime
+from typing import Annotated, Any, Literal, Self
+from uuid import UUID
+
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+
+from backend.engine.cs.improvement_candidates import EvidenceRef, FaultCandidate, parse_version
+from backend.engine.cs.improvement_followups import ScopeKind
+from backend.shared.departments import TransferDepartment
+
+Text = Annotated[str, Field(min_length=1, max_length=10_000)]
+Short = Annotated[str, Field(min_length=1, max_length=200)]
+Reason = Annotated[str, Field(min_length=1, max_length=2_000)]
+RequestType = Literal["FAULT", "DOCUMENT"]
+RequestOrigin = Literal["SYSTEM_CANDIDATE", "MANUAL"]
+DocSignal = Literal["NOT_FOUND", "VALUE_CONFLICT", "BROKEN_LINK", "REPEATED_SPEC"]
+RequestStatus = Literal[
+    "DRAFT",
+    "REVIEWED",
+    "SENT",
+    "ACKNOWLEDGED",
+    "ADOPTED",
+    "INFO_REQUESTED",
+    "REJECTED",
+    "ACTION_TAKEN",
+    "FOLLOW_UP",
+    "COMPLETED",
+]
+DeptStatus = Literal[
+    "SENT", "ACKNOWLEDGED", "ADOPTED", "INFO_REQUESTED", "REJECTED", "ACTION_TAKEN"
+]
+ConditionStatus = Literal["CONFIRMED", "UNKNOWN"]
+
+# Content a person writes and versions. Group keys (type, product, fault, signal) are fixed
+# once created; a different group is a different request.
+CONTENT_FIELDS = (
+    "problem_statement",
+    "confirmed_facts",
+    "inconsistencies",
+    "missing_info",
+    "not_claimed",
+    "review_task",
+    "proposed_depts",
+    "condition_status",
+    "condition_summary",
+    "fw_fixed_version",
+    "fw_released_on",
+    "doc_id",
+)
+
+
+class Content(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    problem_statement: Text = Field(
+        description="What to investigate, in one sentence. It does not declare a cause."
+    )
+    confirmed_facts: Text | None = None
+    inconsistencies: Text | None = None
+    missing_info: Text | None = None
+    not_claimed: Text | None = Field(default=None, description="Conclusions not to draw.")
+    review_task: Text | None = None
+    proposed_depts: list[TransferDepartment] = Field(default_factory=list, max_length=12)
+    condition_status: ConditionStatus = "UNKNOWN"
+    condition_summary: Text | None = None
+    fw_fixed_version: Short | None = None
+    fw_released_on: date | None = None
+    doc_id: Short | None = None
+
+    @model_validator(mode="after")
+    def check_departments(self) -> Self:
+        if len(set(self.proposed_depts)) != len(self.proposed_depts):
+            raise ValueError("A department is proposed twice.")
+        return self
+
+
+class EvidenceInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ticket_id: UUID
+    case_id: UUID | None = Field(
+        default=None, description="The ticket's resolution case. Required for a fault request."
+    )
+
+
+class RequestCreate(Content):
+    """A request written by a C/S agent. System candidates come from KAN-113."""
+
+    request_type: RequestType
+    product_code: Short
+    fault_id: str | None = Field(default=None, pattern=r"^FLT-[0-9]{3}$")
+    doc_signal: DocSignal | None = None
+    evidence: list[EvidenceInput] = Field(default_factory=list, max_length=200)
+
+    @model_validator(mode="after")
+    def check_group(self) -> Self:
+        if self.request_type == "FAULT":
+            if self.fault_id is None or self.doc_signal is not None:
+                raise ValueError("A fault request needs fault_id and no doc_signal.")
+            if not self.proposed_depts:
+                raise ValueError("A fault request needs at least one proposed department.")
+        elif self.doc_signal is None or self.fault_id is not None:
+            raise ValueError("A document request needs doc_signal and no fault_id.")
+        tickets = [e.ticket_id for e in self.evidence]
+        if len(set(tickets)) != len(tickets):
+            raise ValueError("A ticket is listed twice as evidence.")
+        return self
+
+
+class RequestUpdate(BaseModel):
+    """Changes to the content. `version` must match; each change makes a new version."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: int = Field(ge=1)
+    problem_statement: Text | None = None
+    confirmed_facts: Text | None = None
+    inconsistencies: Text | None = None
+    missing_info: Text | None = None
+    not_claimed: Text | None = None
+    review_task: Text | None = None
+    proposed_depts: list[TransferDepartment] | None = Field(default=None, max_length=12)
+    condition_status: ConditionStatus | None = None
+    condition_summary: Text | None = None
+    fw_fixed_version: Short | None = None
+    fw_released_on: date | None = None
+    doc_id: Short | None = None
+
+    @model_validator(mode="after")
+    def check_fields(self) -> Self:
+        sent = self.model_fields_set & set(CONTENT_FIELDS)
+        if not sent:
+            raise ValueError("At least one content field is required.")
+        for name in ("problem_statement", "proposed_depts", "condition_status"):
+            if name in sent and getattr(self, name) is None:
+                raise ValueError(f"{name} cannot be null.")
+        if self.proposed_depts and len(set(self.proposed_depts)) != len(self.proposed_depts):
+            raise ValueError("A department is proposed twice.")
+        return self
+
+    def changed_values(self) -> dict[str, Any]:
+        return {
+            name: getattr(self, name) for name in CONTENT_FIELDS if name in self.model_fields_set
+        }
+
+
+class EvidenceAdd(EvidenceInput):
+    version: int = Field(ge=1)
+
+
+class EvidenceRemove(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: int = Field(ge=1)
+    reason: Reason
+
+
+class OwnerUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: int = Field(ge=1)
+    owner_user_id: UUID
+
+
+class ImprovementRequest(BaseModel):
+    id: UUID
+    request_type: RequestType
+    origin: RequestOrigin
+    data_origin: Literal["synthetic", "demo", "real"]
+    derivation_kind: Literal["PROVIDED", "DERIVED", "SYSTEM", "ASSUMED"]
+    product_code: str
+    fault_id: str | None
+    doc_signal: DocSignal | None
+    doc_id: str | None
+    condition_status: ConditionStatus
+    condition_summary: str | None
+    fw_fixed_version: str | None
+    fw_released_on: date | None
+    status: RequestStatus
+    version: int
+    current_round: int
+    cs_owner: UUID | None
+    problem_statement: str
+    confirmed_facts: str | None
+    inconsistencies: str | None
+    missing_info: str | None
+    not_claimed: str | None
+    review_task: str | None
+    proposed_depts: list[str]
+    receiver_unconfirmed: bool = Field(
+        description="No receiving department yet. A document request's receiver needs "
+        "confirmation with the business before it can be sent."
+    )
+    candidate_reason_code: str | None = Field(
+        default=None, description="Why the system raised this candidate. Null on a manual request."
+    )
+    candidate_reached_at: datetime | None = None
+    candidate_rules_version: str | None = None
+    candidate_as_of: datetime | None = None
+    reviewed_by: UUID | None
+    reviewed_at: datetime | None
+    sent_at: datetime | None
+    followup_plan: str | None
+    followup_result: str | None
+    completed_by: UUID | None
+    completed_at: datetime | None
+    created_by: UUID | None
+    created_at: datetime
+
+
+class RequestSummary(BaseModel):
+    id: UUID
+    request_type: RequestType
+    origin: RequestOrigin
+    product_code: str
+    fault_id: str | None
+    doc_signal: DocSignal | None
+    status: RequestStatus
+    version: int
+    cs_owner: UUID | None
+    problem_statement: str
+    evidence_count: int
+    created_at: datetime
+
+
+class RequestList(BaseModel):
+    items: list[RequestSummary]
+
+
+class Evidence(BaseModel):
+    id: UUID
+    ticket_id: UUID
+    ticket_external_id: str | None
+    case_id: UUID | None
+    case_external_id: str | None
+    ticket_subject: str | None = Field(
+        default=None,
+        description="The ticket's subject. Null without one (chat) or outside the viewer's scope.",
+    )
+    ticket_received_at: datetime | None = Field(
+        default=None, description="When the ticket was received. Null outside the viewer's scope."
+    )
+    customer_external_id: str | None = Field(
+        default=None, description="The ticket's customer. Null outside the viewer's scope."
+    )
+    added_by: UUID | None
+    added_at: datetime
+    removed_by: UUID | None
+    removed_at: datetime | None
+    removal_reason: str | None
+
+
+class RequestDepartment(BaseModel):
+    round: int
+    dept_code: str
+    status: DeptStatus
+    carried_over: bool
+    sent_version: int | None
+    reply_due_at: datetime | None
+    rejection_reviewed_by: UUID | None
+    rejection_reviewed_at: datetime | None
+
+
+class DeptReply(BaseModel):
+    id: UUID
+    round: int
+    dept_code: str
+    request_version: int
+    reply_type: Literal["ACKNOWLEDGED", "ADOPTED", "INFO_REQUESTED", "REJECTED"]
+    reason: str | None
+    replied_by: UUID
+    replied_at: datetime
+
+
+class RequestAction(BaseModel):
+    id: UUID
+    round: int
+    dept_code: str
+    action: str
+    action_scope: str
+    # Which units the action applies to (KAN-117); OTHER means a person judges.
+    scope_kind: ScopeKind = "OTHER"
+    scope_value: str | None = None
+    action_date: date
+    action_evidence: str
+    recorded_by: UUID
+    recorded_at: datetime
+
+
+NextTask = Literal[
+    "REVIEW",
+    "CONFIRM_RECEIVER",
+    "SEND",
+    "ACKNOWLEDGE",
+    "REPLY",
+    "RECORD_ACTION",
+    "SUPPLEMENT",
+    "REVIEW_REJECTION",
+    "PLAN_FOLLOWUP",
+    "RECORD_FOLLOWUP",
+]
+
+
+class NextOwner(BaseModel):
+    """Who acts next and on what. The C/S owner may still be unassigned (null)."""
+
+    actor: Literal["CS_OWNER", "DEPARTMENT"]
+    user_id: UUID | None
+    dept_code: str | None
+    task: NextTask
+
+
+class RequestDetail(BaseModel):
+    request: ImprovementRequest
+    evidence: list[Evidence] = Field(description="Active links first, then removed ones.")
+    departments: list[RequestDepartment] = Field(description="Departments of the current round.")
+    replies: list[DeptReply]
+    actions: list[RequestAction]
+    rounds: list["RequestRound"] = Field(
+        default_factory=list, description="Delivery rounds, oldest first (KAN-117)."
+    )
+    next_owners: list[NextOwner]
+
+
+class RequestVersion(BaseModel):
+    version: int
+    content: dict[str, Any]
+    changed_by: UUID | None
+    changed_at: datetime
+
+
+class RequestVersionList(BaseModel):
+    items: list[RequestVersion]
+
+
+# --- KAN-116: review, delivery, department replies, actions, follow-up -------------------
+
+
+class Versioned(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: int = Field(ge=1, description="The request version the user decided on.")
+
+
+class ImprovementReviewRequest(Versioned):
+    """DRAFT → REVIEWED. The agent may fix the proposed departments while reviewing."""
+
+    proposed_depts: list[TransferDepartment] | None = None
+
+
+class SendRequest(Versioned):
+    """REVIEWED → first round. Target departments default to the proposed ones."""
+
+    dept_codes: list[TransferDepartment] | None = None
+    reply_due_days: int = Field(default=7, ge=1, le=90)
+
+
+class DeptReplyRequest(Versioned):
+    reply_type: Literal["ADOPTED", "INFO_REQUESTED", "REJECTED"]
+    reason: Reason | None = None
+
+    @model_validator(mode="after")
+    def check_reason(self) -> Self:
+        if self.reply_type == "REJECTED" and self.reason is None:
+            raise ValueError("A rejection needs a reason.")
+        return self
+
+
+class DeptActionRequest(Versioned):
+    """A department's improvement action, kept apart from any one customer's repair.
+
+    `scope_kind`·`scope_value` say which units the action applies to, so a recurrence on an
+    applied unit can be told apart from units that never got the fix (KAN-117). Omitted, the
+    scope is OTHER and recurrence stays "unknown" for a person to judge.
+    """
+
+    action: Text
+    action_scope: Text
+    action_date: date
+    action_evidence: Text
+    scope_kind: ScopeKind = "OTHER"
+    scope_value: Annotated[str, Field(min_length=1, max_length=500)] | None = None
+
+    @model_validator(mode="after")
+    def check_scope(self) -> Self:
+        value = self.scope_value
+        if (self.scope_kind == "OTHER") != (value is None):
+            raise ValueError(
+                "scope_value is required for a structured scope and not allowed for OTHER"
+            )
+        if self.scope_kind == "FIRMWARE_VERSION" and parse_version(value) is None:
+            raise ValueError("scope_value must be a firmware version such as 1.72")
+        if self.scope_kind == "SHIPPED_FROM":
+            date.fromisoformat(value or "")
+        return self
+
+
+class ResendRequest(Versioned):
+    """Calls one department again inside the current round (supplement, re-request after a
+    rejection with new evidence, or a reminder after the reply deadline)."""
+
+    reason: Reason
+    reply_due_days: int = Field(default=7, ge=1, le=90)
+
+
+class FollowupPlanRequest(Versioned):
+    followup_plan: Text
+
+
+class CompleteRequest(Versioned):
+    followup_result: Text
+
+
+# --- KAN-117: re-request and recurrence rounds -------------------------------------------
+
+
+class NewEvidence(BaseModel):
+    """A person's new evidence, different from the rejection reason (rejection-closed only)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ticket_ids: list[UUID] = Field(min_length=1, max_length=50)
+    note: Reason
+
+
+class RoundRequest(Versioned):
+    """Opens the next round: a re-request before action or a recurrence reopening after it."""
+
+    kind: Literal["REQUEST_AGAIN", "RECURRENCE"]
+    as_of: datetime = Field(description="The as_of of the signal the person read.")
+    dept_codes: list[TransferDepartment] | None = None
+    new_evidence: NewEvidence | None = None
+    reply_due_days: int = Field(default=7, ge=1, le=90)
+
+    @model_validator(mode="after")
+    def check(self) -> Self:
+        if self.as_of.tzinfo is None:
+            raise ValueError("as_of needs a time zone")
+        if self.new_evidence is not None and self.kind != "REQUEST_AGAIN":
+            raise ValueError("new_evidence only opens a re-request")
+        return self
+
+
+class RequestRound(BaseModel):
+    round: int
+    kind: Literal["FIRST", "REQUEST_AGAIN", "RECURRENCE"]
+    opened_at: datetime
+    opened_by: UUID
+    candidate_index: int | None
+    as_of: datetime | None
+    new_evidence_note: str | None
+    previous_completion: dict[str, Any] | None
+
+
+RequestDetail.model_rebuild()
+
+
+# Only CONFIRMED_CANDIDATE reads as settled. The others must not be shown as a confirmed result.
+DisplayState = Literal[
+    "CONFIRMED_CANDIDATE", "CONDITION_UNCONFIRMED", "INSUFFICIENT_EVIDENCE", "NOT_ELIGIBLE"
+]
+# Document signals have no source table yet (condition-comparison.md).
+DocumentCandidates = Literal["NOT_CONNECTED"]
+
+
+class CandidateEvidence(EvidenceRef):
+    """One record of a candidate with the ticket and record values the board shows."""
+
+    ticket_external_id: str | None = Field(default=None, description="The ticket number.")
+    case_external_id: str | None = Field(default=None, description="The resolution record number.")
+    ticket_subject: str | None = Field(
+        default=None, description="The ticket's subject. Null without one (chat)."
+    )
+    ticket_received_at: datetime | None = None
+
+
+class CandidateItem(FaultCandidate):
+    # Narrows the engine's EvidenceRef to its subclass with display values.
+    evidence: list[CandidateEvidence] = Field(  # type: ignore[assignment]
+        description="Every record known by as_of, oldest first."
+    )
+    data_origin: Literal["synthetic", "demo", "real"]
+    display_state: DisplayState
+    request_id: UUID | None = Field(description="The fault request of this group, if any.")
+    request_status: RequestStatus | None
+
+
+class CandidateList(BaseModel):
+    as_of: datetime
+    rules_version: str
+    document_candidates: DocumentCandidates = "NOT_CONNECTED"
+    items: list[CandidateItem]
+
+
+class CandidateCollect(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    as_of: AwareDatetime | None = Field(
+        default=None, description="Judge as of this time. Defaults to now; a future time is a 422."
+    )
+
+
+class CandidateSkipped(BaseModel):
+    data_origin: Literal["synthetic", "demo", "real"]
+    product_code: str
+    fault_id: str
+    reason_code: Literal["NO_PROPOSED_DEPARTMENT"]
+
+
+class CandidateCollected(BaseModel):
+    run_id: UUID
+    as_of: datetime
+    rules_version: str
+    document_candidates: DocumentCandidates = "NOT_CONNECTED"
+    eligible: int = Field(description="Eligible groups, saved or not.")
+    created: int
+    already_requested: int
+    skipped: list[CandidateSkipped] = Field(
+        description="Eligible groups not saved. A fault request needs a proposed department."
+    )
+    request_ids: list[UUID]
+
+
+class CaseRow(BaseModel):
+    """요청의 근거 문의 한 건과 그 해결 기록. 사례가 없으면 해결 칸은 null이다."""
+
+    row_kind: Literal["EVIDENCE", "CANDIDATE"] = Field(
+        default="EVIDENCE",
+        description="EVIDENCE is active evidence. CANDIDATE is a record of the same group that "
+        "is not evidence yet (include_candidates).",
+    )
+    ticket_id: UUID
+    ticket_external_id: str | None
+    ticket_subject: str | None = Field(description="The ticket's subject. Null without one (chat).")
+    ticket_received_at: datetime
+    customer_external_id: str | None = Field(
+        description="Null on a limited row (the viewer may not read that ticket)."
+    )
+    product_code: str
+    case_id: UUID | None
+    case_external_id: str | None
+    symptom: str | None
+    root_cause_type: str | None
+    root_cause: str | None
+    action_taken: str | None
+    resolved_by_dept: str | None
+    known_at: datetime | None
+    fw_version_at_issue: str | None = Field(
+        default=None, description="Firmware version when the fault happened, as recorded."
+    )
+    onsite_visit: bool | None = Field(default=None, description="Whether an engineer visited.")
+    limited: bool = Field(
+        default=False,
+        description="Evidence of a request sent to the viewer's department whose ticket the "
+        "viewer may not read: the resolution record is shown, the customer and the ticket "
+        "subject are not.",
+    )
+
+
+class CaseComparison(BaseModel):
+    request_id: UUID
+    items: list[CaseRow]
+    hidden_case_count: int = Field(
+        description="Active evidence outside the viewer's scope and not shown. Limited rows and "
+        "candidate rows never count."
+    )
+
+
+# KAN-115 AI 작성 초안(backend/api/cs/improvements/ai_draft.py). 요청서를 바꾸지 않는 AI 작성물이다.
+AiDraftOutcome = Literal["VALID", "INVALID_OUTPUT", "PROVIDER_ERROR"]
+
+
+class AiDraftFact(BaseModel):
+    text: str
+    evidence_refs: list[str] = Field(
+        description="Evidence refs (see evidence) this sentence rests on."
+    )
+
+
+class AiDraftQuestion(BaseModel):
+    dept_code: str
+    question: str = Field(description="One question for that department. Not sent anywhere.")
+
+
+class AiDraftEvidence(BaseModel):
+    ref: str = Field(description="The ref the model saw: the ticket or case external ID.")
+    ticket_id: UUID
+    case_id: UUID | None
+
+
+class AiDraftRecord(BaseModel):
+    id: UUID
+    request_version: int = Field(description="Request version the input was read from.")
+    created_at: datetime = Field(description="AI 작성 시각.")
+    requested_model: str
+    model_version: str | None
+    prompt_version: str
+    input_version: str
+    stale: bool = Field(
+        description="True면 초안 뒤 근거가 바뀌었거나 프롬프트 판본이 바뀌었다. 다시 만들 수 있다."
+    )
+    problem_statement: str
+    confirmed_facts: list[AiDraftFact]
+    inconsistencies: list[AiDraftFact]
+    missing_info: list[str]
+    not_claimed: list[str]
+    review_task: str
+    proposed_depts: list[str]
+    dept_questions: list[AiDraftQuestion]
+    evidence: list[AiDraftEvidence] = Field(description="Refs in the input and what they point to.")
+
+
+class AiDraftAttempt(BaseModel):
+    id: UUID
+    outcome: AiDraftOutcome
+    error_code: str | None
+    created_at: datetime
+
+
+class ImprovementAiDraftView(BaseModel):
+    request_id: UUID
+    draft: AiDraftRecord | None = Field(description="가장 최근의 성공한 초안. 없으면 null.")
+    latest_attempt: AiDraftAttempt | None = Field(
+        description="가장 최근 시도(실패 포함). 실패했으면 화면이 다시 만들기를 보여 줄 수 있다."
+    )
+    provenance: Literal["ai_draft"] = "ai_draft"

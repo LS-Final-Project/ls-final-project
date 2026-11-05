@@ -8,6 +8,14 @@ from pathlib import Path
 
 BACKENDS = ("cs", "tft", "platform")
 SERVICES = ("web", *BACKENDS)
+# 평가 검사(tests/eval·eval/)가 직접 import하는 api 경로(2026-10-30 grep). 여기가 바뀌면 평가 검사도 돈다.
+# 예: KAN-199 #329가 rfp 비교 입력을 바꿨지만 evaluation이 꺼져 tests/eval 실패를 못 잡았다.
+EVALUATION_API = (
+    "backend/api/tft/rfp/",
+    "backend/api/tft/partners/",
+    "backend/api/tft/worker_processor.py",
+    "backend/api/platform/evaluations/cs_smoke.py",
+)
 
 
 def classify(paths: list[str]) -> dict:
@@ -25,6 +33,20 @@ def classify(paths: list[str]) -> dict:
     for path in paths:
         if path.startswith(("data/", ".env")):
             continue
+        # 협업 도구와 워크플로는 문서 확장자라도 자동화 회귀를 실행한다.
+        if path.startswith(("scripts/", ".github/")):
+            infrastructure = True
+        # 두 표를 대조하는 scripts/tests/test_rfp_display_labels.py가 인프라 작업에 있다.
+        if path in {"backend/engine/rfp/vocabulary.py", "frontend/src/rfp/labels.ts"}:
+            infrastructure = True
+        if path.startswith("backend/engine/cs/"):
+            release.update(("cs", "platform"))
+            evaluation = True
+            continue
+        if path == "docs/evaluation.md":
+            # 정답 묶음 표는 eval 상수와 대조하므로 문서만 바뀌어도 평가 검사를 돈다.
+            evaluation = True
+            continue
         if path.startswith("docs/openapi/"):
             service = Path(path).stem
             if service in BACKENDS:
@@ -33,7 +55,7 @@ def classify(paths: list[str]) -> dict:
                 frontend = True
             continue
         if path.startswith(("backend/agent/", "backend/engine/")):
-            release.update(("cs", "tft"))
+            release.update(("cs", "tft", "platform"))
             evaluation = True
             continue
         if path.endswith(".md") or path.startswith("contracts/"):
@@ -51,6 +73,8 @@ def classify(paths: list[str]) -> dict:
             release.add(service)
             contracts.add(service)
             frontend = True
+            if path.startswith(EVALUATION_API):
+                evaluation = True
         elif any(path.startswith(f"tests/{service}/") for service in BACKENDS):
             contracts.add(path.split("/")[1])
         elif path.startswith("backend/") or path in {"Dockerfile", "pyproject.toml", "uv.lock"}:
@@ -58,6 +82,8 @@ def classify(paths: list[str]) -> dict:
             contracts.update(BACKENDS)
             frontend = True
             evaluation = True
+            if path in {"pyproject.toml", "uv.lock"}:
+                infrastructure = True
         elif path.startswith(("eval/", "tests/eval/")) or path == "tests/test_eval_smoke.py":
             evaluation = True
         elif path.startswith("tests/"):
@@ -67,7 +93,12 @@ def classify(paths: list[str]) -> dict:
             infrastructure = True
         elif path.startswith(("infra/", "scripts/")):
             infrastructure = True
-            if path.startswith("infra/migrations/platform/"):
+            # 운영 모델 설정은 승격 차단 검사(eval/promotion.py, KAN-147)가 읽는다.
+            if path == "infra/deploy_private.py":
+                evaluation = True
+            if path.startswith("scripts/local_business/"):
+                contracts.add("platform")
+            elif path.startswith("infra/migrations/platform/"):
                 contracts.add("platform")
             elif path in {"scripts/changes.py", "scripts/check_backend.py"}:
                 release.update(SERVICES)

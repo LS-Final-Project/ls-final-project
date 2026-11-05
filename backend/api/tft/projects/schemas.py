@@ -1,9 +1,8 @@
 """TFT project read models (KAN-119).
 
-The six stages of the KAN-57 workflow are separate records, each with its own status:
-initial review (requirements, required roles, staffing requests), department
-recommendation, experience evidence, availability checks, composition versions and the
-responsible-user decision (assignment history, final confirmation).
+Only the project and its RFP requirements remain. The staffing stages (required roles,
+staffing requests, recommendations, checks, compositions, responsible decisions) were
+removed from the API in KAN-181; their tables stay in the database.
 """
 
 from datetime import date, datetime
@@ -12,30 +11,31 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from backend.api.tft.rfp.schemas import (
+    DecisionGate,
+    IntegrationResponsibility,
+    IntegrationSummary,
+    JobRef,
+    JudgementStatus,
+    OffListPermission,
+    OutputStatus,
+    PendingByOrigin,
+    Purpose,
+    RequirementCounts,
+)
+
 DataOrigin = Literal["synthetic", "demo", "real"]
 DerivationKind = Literal["PROVIDED", "DERIVED", "SYSTEM", "ASSUMED"]
 FieldTag = Literal[
     "DESIGN", "CIVIL_STRUCTURE", "CONSTRUCTION_TRANSPORT", "QUALITY_TEST", "PROJECT_MANAGEMENT"
 ]
 ProjectStatus = Literal["INITIAL_REVIEW", "STAFFING", "COMPOSING", "CONFIRMED"]
-RoleStatus = Literal[
-    "DRAFTING",
-    "ISSUED",
-    "RECOMMENDATIONS_RECEIVED",
-    "DEPT_VERIFIED",
-    "COMPARING",
-    "IN_COMPOSITION",
-    "CONFIRMED",
-]
-RequestStatus = Literal["DRAFT", "ISSUED", "ANSWERED", "CLOSED"]
-RecommendationStatus = Literal["RECOMMENDED", "WITHDRAWN"]
-# UNSPECIFIED: nothing recorded. NEEDS_CHECK: not confirmed yet (never "lacking").
-# CONFIRMED / UNMET: checked by a department user at a time with a basis.
-CheckStatus = Literal["UNSPECIFIED", "NEEDS_CHECK", "CONFIRMED", "UNMET"]
-MemberStatus = Literal["PROPOSED", "NEEDS_REINFORCEMENT", "CONFIRMED"]
 
 
 class ProjectSummary(BaseModel):
+    supply_region: str | None = None
+    customer_manufacturer_list: list[str] | None = None
+    off_list_permission: OffListPermission = "UNSTATED"
     id: UUID
     external_id: str | None
     name: str
@@ -44,13 +44,32 @@ class ProjectSummary(BaseModel):
     data_origin: DataOrigin
     derivation_kind: DerivationKind
     responsible_user_id: UUID | None = Field(description="Login user ID, never a candidate ID.")
-    current_composition_version: int | None
+    sales_user_id: UUID | None = Field(
+        default=None, description="Responsible sales user (login user ID) who issues requests."
+    )
     created_at: datetime
+    # RFP API spec §4.1. The fields above stay until the old screens are replaced.
+    version: int
+    known_at: datetime
+    client_name: str | None
+    output_status: OutputStatus
+    judgement_status: JudgementStatus
+    requirements_count: int
+    unresolved_mandatory_count: int
+    pending_proposals_count: int
+    open_questions_count: int
+    strategic_customer: bool | None = None
+    integration_responsibility: IntegrationSummary
+    # KAN-228: 목록의 마감과 남은 일. 남은 수는 상세의 decision_gate와 같은 계산이다.
+    submission_due_at: date | None = None
+    decisions_remaining: int = 0
+    review_pending: int = 0
 
 
 class ProjectList(BaseModel):
     items: list[ProjectSummary]
     next_cursor: str | None
+    total: int | None = None
 
 
 class RfpRequirement(BaseModel):
@@ -69,157 +88,10 @@ class RfpRequirement(BaseModel):
     derivation_kind: DerivationKind
 
 
-class RoleRequirementLink(BaseModel):
-    requirement_id: UUID
-    rationale: str | None
-
-
-class RoleCompetency(BaseModel):
-    id: UUID
-    kind: Literal["REQUIRED", "PREFERRED"]
-    description: str
-
-
-class RequiredRole(BaseModel):
-    id: UUID
-    role_code: str
-    title: str
-    field_tag: FieldTag | None
-    tasks: str | None
-    experience_condition: str | None
-    is_core: bool
-    headcount: int | None = Field(description="Null means not decided yet.")
-    period_start: date | None
-    period_end: date | None
-    allocation_rate: float | None
-    status: RoleStatus
-    reviewed_by_user_id: UUID | None
-    reviewed_at: datetime | None
-    next_action: str | None
-    next_action_organization_id: UUID | None
-    reply_due_at: datetime | None
-    requirements: list[RoleRequirementLink]
-    competencies: list[RoleCompetency]
-    data_origin: DataOrigin
-    derivation_kind: DerivationKind
-
-
-class StaffingRequest(BaseModel):
-    id: UUID
-    required_role_id: UUID
-    organization_id: UUID
-    organization_name: str
-    participation: Literal["LEAD", "SUPPORT"]
-    status: RequestStatus
-    issued_by_user_id: UUID | None
-    issued_at: datetime | None
-    due_at: datetime | None
-    message: str | None
-    data_origin: DataOrigin
-    derivation_kind: DerivationKind
-
-
-class ExperienceEvidence(BaseModel):
-    id: UUID
-    summary: str
-    project_name: str | None
-    role_title: str | None
-    period_start: date | None
-    period_end: date | None
-    evidence_source: str | None
-    status: CheckStatus
-    verified_by_user_id: UUID | None
-    verified_at: datetime | None
-    basis: str | None
-    data_origin: DataOrigin
-    derivation_kind: DerivationKind
-
-
-class CompetencyCheck(BaseModel):
-    id: UUID
-    competency_id: UUID
-    status: CheckStatus
-    checked_by_user_id: UUID | None
-    checked_at: datetime | None
-    basis: str | None
-    data_origin: DataOrigin
-    derivation_kind: DerivationKind
-
-
-class AvailabilityCheck(BaseModel):
-    id: UUID
-    period_start: date | None
-    period_end: date | None
-    allocation_rate: float | None = Field(description="Percent of working time, 0 to 100.")
-    constraints_note: str | None
-    checked_by_user_id: UUID | None
-    checked_at: datetime | None
-    basis: str | None
-    status: CheckStatus
-    data_origin: DataOrigin
-    derivation_kind: DerivationKind
-
-
-class CandidateRecommendation(BaseModel):
-    id: UUID
-    staffing_request_id: UUID
-    required_role_id: UUID
-    candidate_id: UUID = Field(description="Candidate personnel ID, never a login user ID.")
-    candidate_name: str
-    organization_id: UUID
-    recommended_by_user_id: UUID
-    recommended_at: datetime
-    rationale: str | None
-    status: RecommendationStatus
-    experience_evidence: list[ExperienceEvidence]
-    competency_checks: list[CompetencyCheck]
-    availability_checks: list[AvailabilityCheck]
-    data_origin: DataOrigin
-    derivation_kind: DerivationKind
-
-
-class CompositionMember(BaseModel):
-    id: UUID
-    required_role_id: UUID
-    recommendation_id: UUID | None = Field(description="Null records the role as an open gap.")
-    status: MemberStatus
-    rationale: str | None
-    remaining_conditions: str | None
-    gap_note: str | None
-    next_action_organization_id: UUID | None
-    follow_up_due_at: datetime | None
-
-
-class CompositionVersion(BaseModel):
-    id: UUID
-    version: int
-    created_by_user_id: UUID
-    created_at: datetime
-    note: str | None
-    members: list[CompositionMember]
-    data_origin: DataOrigin
-    derivation_kind: DerivationKind
-
-
-class ResponsibleSummary(BaseModel):
-    """Latest assignment of the responsible user, from the change history."""
-
-    user_id: UUID
-    assigned_by_user_id: UUID
-    assigned_at: datetime
-    reason: str
-
-
-class FinalConfirmation(BaseModel):
-    id: UUID
-    composition_version_id: UUID
-    composition_version: int
-    confirmed_by_user_id: UUID
-    confirmed_at: datetime
-    note: str | None
-
-
 class ProjectDetail(BaseModel):
+    supply_region: str | None = None
+    customer_manufacturer_list: list[str] | None = None
+    off_list_permission: OffListPermission = "UNSTATED"
     id: UUID
     external_id: str | None
     version: int
@@ -232,10 +104,37 @@ class ProjectDetail(BaseModel):
     client_name: str | None
     status: ProjectStatus
     responsible_user_id: UUID | None
-    responsible: ResponsibleSummary | None
+    sales_user_id: UUID | None = Field(
+        default=None, description="Responsible sales user (login user ID) who issues requests."
+    )
     rfp_requirements: list[RfpRequirement]
-    required_roles: list[RequiredRole]
-    staffing_requests: list[StaffingRequest]
-    recommendations: list[CandidateRecommendation]
-    current_composition: CompositionVersion | None
-    final_confirmation: FinalConfirmation | None
+    # RFP API spec §4.1. status, external_id and rfp_requirements stay until the old screens go.
+    output_status: OutputStatus
+    judgement_status: JudgementStatus
+    purpose: Purpose
+    customer_goal: str | None
+    review_departments: list[str]
+    requirements_count: int
+    unresolved_mandatory_count: int
+    pending_proposals_count: int
+    open_questions_count: int
+    requirement_counts: RequirementCounts
+    pending_proposals_by_origin: PendingByOrigin
+    latest_job: JobRef | None
+    draft_version: int | None
+    review_version: int | None
+    documents_count: int
+    strategic_customer: bool | None = None
+    strategic_customer_note: str | None = None
+    strategic_customer_set_by: UUID | None = None
+    integration_responsibility: IntegrationResponsibility | None = Field(
+        default=None,
+        description=(
+            "Assembly integration responsibility (RFP API spec v1.3 §7), computed on read. "
+            "Null when migration T12 is not applied yet, which is not the same as not required."
+        ),
+    )
+    decision_gate: DecisionGate = Field(
+        default_factory=DecisionGate,
+        description="Save conditions and owner-review backlog of the decision panel (KAN-220).",
+    )

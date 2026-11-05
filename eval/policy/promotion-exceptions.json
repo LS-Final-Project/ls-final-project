@@ -1,0 +1,19 @@
+{
+  "_note": "eval/promotion.py가 읽는 알려진 승격 문제 목록(KAN-147). 줄마다 사유·티켓이 있어야 하고, MISMATCH는 운영값(deployed)·채택값(adopted)이, NO_ADOPTION은 그 단계의 설정 전체(deployed)가 그대로일 때만 허용되며, 해소되면 이 줄을 지워야 검사가 통과한다. blocker 불합격은 여기에 둘 수 없고 채택 기록의 waivers로만 승인한다.",
+  "exceptions": [
+    {
+      "stage": "rfp_extraction",
+      "kind": "NO_ADOPTION",
+      "field": null,
+      "reason": "RFP 요구 추출 채택 기록이 없다. 개발 문서 14번 실측(rfp-requirements-v1, gemini-3.6-flash)은 있으나 채택 도구로 기록하지 않았다. 평가 문서 첫 실행(KAN-191) 전에 개발 문서 기준으로 채택한다. v6 의미 칸(KAN-185, assembly_clause·approval_procedure_missing·연산자 기준·조건 이름 어휘·basis_of_design·canonical_value 포함), 채택 전. 2026-11-01 추출 v10을 운영값으로 올린다. 14번 1건과 검증 세트 실측은 관측값이고 정식 채택이 아니며 게이트를 계산하지 않았다",
+      "ticket": "KAN-147",
+      "recorded_on": "2026-11-01",
+      "deployed": {
+        "model": "gemini-3.6-flash",
+        "extraction_version": "rfp-requirements-v10",
+        "prompt_fingerprint": "b1b1d974dfc6976c",
+        "max_output_tokens": 16384
+      }
+    }
+  ]
+}

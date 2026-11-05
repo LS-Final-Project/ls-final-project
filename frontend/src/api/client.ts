@@ -1,5 +1,10 @@
 import csExamples from '../mocks/generated/cs.json';
 import tftExamples from '../mocks/generated/tft.json';
+import { errorText } from './error-text';
+
+let csrfToken: string | null = null;
+export const sessionCsrfToken = () => csrfToken;
+export const clearSessionCsrfToken = () => { csrfToken = null; };
 
 export type ApiMode = 'mock' | 'live';
 let mode: ApiMode = import.meta.env.DEV ? 'mock' : 'live';
@@ -9,20 +14,33 @@ export function setApiMode(value: ApiMode) {
   mode = value;
 }
 
+// message는 화면에 보일 문구다. 업무 코드는 한국어로 바꾸고(error-text.ts), 서버 원문은 serverMessage에 남긴다.
 export class ApiError extends Error {
-  constructor(public status: number, message: string, public requestId?: string) { super(message); }
+  public serverMessage: string;
+  // details: 서버 error.details 그대로. 묶음 쓰기의 건별 사유(index·code·message)가 여기 온다.
+  constructor(public status: number, message: string, public requestId?: string, public code?: string, public details?: unknown) {
+    super(errorText(code, message));
+    this.serverMessage = message;
+  }
 }
 
-export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const method = (options.method || 'GET').toUpperCase();
+// mockFallback: 모의 응답 모드에서 생성된 예시가 없는 경로가 돌려줄 값. 실제 API 모드와 production 빌드에서는 쓰이지 않는다.
+export type RequestOptions = RequestInit & { mockFallback?: () => unknown };
+
+export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const { mockFallback, ...init } = options;
+  const method = (init.method || 'GET').toUpperCase();
   if (import.meta.env.DEV && mode === 'mock') {
     const example = [...csExamples, ...tftExamples].find(item => item.path === path && item.method === method);
     if (example) return structuredClone(example.body) as T;
+    if (mockFallback) return mockFallback() as T;
   }
-  const response = await fetch(path, { ...options, credentials: 'same-origin', headers: { 'Content-Type': 'application/json', ...options.headers } });
+  const response = await fetch(path, { ...init, credentials: 'same-origin', headers: { 'Content-Type': 'application/json', ...init.headers } });
+  if (path === '/api/v1/platform/me') csrfToken = response.ok ? response.headers.get('X-CSRF-Token') : null;
+  if (response.status === 401) csrfToken = null;
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new ApiError(response.status, body.error?.message || `HTTP ${response.status}`, body.meta?.request_id);
+    throw new ApiError(response.status, body.error?.message || `HTTP ${response.status}`, body.meta?.request_id, body.error?.code, body.error?.details);
   }
   return response.status === 204 ? undefined as T : response.json() as Promise<T>;
 }

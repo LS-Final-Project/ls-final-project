@@ -1,9 +1,11 @@
 """실제 PostgreSQL·세 서비스 앱·RSA 검증으로 운영 업무 중계와 우회 차단을 확인한다."""
 
 import asyncio
+import json
+import re
 from pathlib import Path
 from unittest.mock import Mock
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, unquote, urlsplit
 from uuid import UUID, uuid4
 
 import psycopg
@@ -15,14 +17,17 @@ from psycopg.sql import SQL, Identifier
 from pydantic import SecretStr
 
 from backend.api.cs.main import create_app as create_cs
+from backend.api.platform import relay
 from backend.api.platform.auth.http import CSRF_HEADER, SESSION_COOKIE, csrf_token
 from backend.api.platform.auth.sessions import issue_session, revoke_session
 from backend.api.platform.auth.settings import CALLBACK_PATH, MicrosoftAuthSettings
 from backend.api.platform.main import create_app
 from backend.api.tft.main import create_app as create_tft
 from backend.shared.access import PRINCIPAL_HEADER, Principal, principal_header
+from backend.shared.models import CUSTOMER_ID, EVIDENCE_ID
 from backend.shared.service_auth import CALLER_HEADER
 from backend.shared.settings import Settings
+from tests.tft.test_rfp_schema_db import MIGRATIONS as SCHEMA_MIGRATIONS
 
 ORIGIN = "https://app.example.invalid"
 CS = "https://cs.example.invalid"
@@ -34,6 +39,14 @@ OPTIONS = {
     "business_tft_url": TFT,
     "business_platform_email": "platform-runtime@synthetic-project.iam.gserviceaccount.com",
 }
+
+
+# 추천 명령 표(KAN-123)는 스키마 시험이 다루지 않지만 업무 앱이 읽는다. 프로젝트 표 뒤에 둔다.
+TFT_MIGRATIONS = (
+    *SCHEMA_MIGRATIONS[:2],
+    "20261025_KAN-123_recommendation_commands.sql",
+    *SCHEMA_MIGRATIONS[2:],
+)
 
 
 @pytest.fixture
@@ -73,7 +86,28 @@ def business_database(auth_database):
         for filename in (
             "cs/20261022_KAN-102_tickets.sql",
             "cs/20261023_KAN-102_ticket_audit.sql",
-            "tft/20261023_KAN-119_projects.sql",
+            "cs/20261027_KAN-102_installed_units.sql",
+            "cs/20261027_KAN-108_ticket_workflow.sql",
+            "cs/20261030_KAN-193_return_subtype_confirmed.sql",
+            "cs/20261028_KAN-108_resolution_cases.sql",
+            "cs/20261028_KAN-112_improvement_requests.sql",
+            "cs/20261031_KAN-117_followup_rounds.sql",
+            "cs/20261031_KAN-193_return_responsibility.sql",
+            # After the migrations that rebuild the audit entity list (README order C14 > C8).
+            "cs/20261030_KAN-107_ticket_analysis.sql",
+            "cs/20261030_KAN-110_customer_mail.sql",
+            "cs/20261030_KAN-110_send_draft_link.sql",
+            # The worker grants (KAN-107) name the search and checkpoint tables.
+            "cs/20261029_KAN-99_search_chunks.sql",
+            "cs/20261029_KAN-194_checkpoint_schema.sql",
+            "cs/20261101_KAN-107_worker_source.sql",
+            # 접수 경로가 등급 칸에 쓴다(C23). 역할을 만드는 worker_source 뒤다.
+            "cs/20261106_KAN-107_ticket_customer_tier.sql",
+            # 개선요청 조회가 후보 칸을 읽는다(C26).
+            "cs/20261108_KAN-202_improvement_candidates.sql",
+            # TFT는 스키마 시험의 적용 순서 목록 하나를 따른다. 손으로 고른 목록은 프로젝트 목록·상세가 새로 읽는 표
+            # (결정·발송 기록 등)가 빠져 단독 실행에서 503이 났고, 앞 시험이 같은 DB에 적용했을 때만 통과했다.
+            *(f"tft/{name}" for name in TFT_MIGRATIONS),
         ):
             migration = Path("infra/migrations", filename).read_text()
             conn.execute(
@@ -194,6 +228,12 @@ def system(settings, business_database, registered_user, google_tokens, monkeypa
                 )
             ]
             conn.execute("DELETE FROM cs.audit_events WHERE actor_user_id=%s", (user_id,))
+            conn.execute("DELETE FROM cs.ticket_workflows WHERE ticket_id=ANY(%s)", (ticket_ids,))
+            # KAN-214 자동 배정은 표가 있을 때만 행을 남긴다(앞 시험이 같은 DB에 적용한 경우).
+            if conn.execute("SELECT to_regclass('cs.ticket_assignments')").fetchone()[0]:
+                conn.execute(
+                    "DELETE FROM cs.ticket_assignments WHERE ticket_id=ANY(%s)", (ticket_ids,)
+                )
             conn.execute("DELETE FROM cs.tickets WHERE id=ANY(%s)", (ticket_ids,))
             conn.execute("DELETE FROM tft.projects WHERE id=ANY(%s)", (list(projects),))
 
@@ -282,7 +322,10 @@ def test_tft_scope_is_enforced_and_revoked_on_next_request(system, business_data
     listing = client.get("/api/v1/tft/projects?limit=10")
     assert listing.status_code == 200
     assert [p["id"] for p in listing.json()["data"]["items"]] == [str(visible)]
-    assert client.get(f"/api/v1/tft/projects/{visible}").status_code == 200
+    detail = client.get(f"/api/v1/tft/projects/{visible}")
+    assert detail.status_code == 200
+    # 값은 DB에 적용된 마이그레이션에 따라 다르다. 스키마가 없을 때의 동작은 test_rfp_write_routes_db가 맡는다.
+    assert "integration_responsibility" in detail.json()["data"]
     assert client.get(f"/api/v1/tft/projects/{hidden}").status_code == 404
     with psycopg.connect(business_database) as conn:
         conn.execute("DELETE FROM identity.manager_projects WHERE user_id=%s", (system["user_id"],))
@@ -467,3 +510,474 @@ def test_verified_caller_still_requires_valid_user_context(system, google_tokens
     if context == "duplicate":
         headers.append((PRINCIPAL_HEADER, raw))
     assert system["services"][CS].get("/api/v1/cs/tickets", headers=headers).status_code == 401
+
+
+def test_staffing_migration_preserves_legacy_missing_due_and_enforces_new_writes(business_database):
+    """Upgrade is repeatable without inventing a legacy sales decision."""
+    project, role, org, request, actor = [uuid4() for _ in range(5)]
+    source = Path("infra/migrations/tft/20261023_KAN-122_staffing_requests.sql").read_text()
+    migration = "\n".join(
+        line
+        for line in source.splitlines()
+        if not line.startswith("\\") and line not in {"BEGIN;", "COMMIT;"}
+    )
+    with psycopg.connect(business_database, autocommit=True) as conn:
+        with conn.transaction(force_rollback=True):
+            conn.execute(
+                "ALTER TABLE tft.staffing_requests DROP CONSTRAINT staffing_requests_issued_due"
+            )
+            conn.execute(
+                "INSERT INTO tft.projects(id,source,source_instance,data_origin,derivation_kind,known_at,company_code,name) VALUES (%s,'test','test','synthetic','ASSUMED',now(),'TEST','Migration fixture')",
+                (project,),
+            )
+            conn.execute(
+                "INSERT INTO tft.organizations(id,source,source_instance,data_origin,derivation_kind,company_code,name) VALUES (%s,'test','test','synthetic','ASSUMED','TEST','Migration fixture')",
+                (org,),
+            )
+            conn.execute(
+                "INSERT INTO tft.required_roles(id,project_id,data_origin,derivation_kind,role_code,title) VALUES (%s,%s,'synthetic','ASSUMED','TEST','Migration fixture')",
+                (role, project),
+            )
+            conn.execute(
+                "INSERT INTO tft.staffing_requests(id,project_id,required_role_id,organization_id,data_origin,derivation_kind,status,issued_by_user_id,issued_at) VALUES (%s,%s,%s,%s,'synthetic','ASSUMED','ISSUED',%s,now())",
+                (request, project, role, org, actor),
+            )
+            for _ in range(2):
+                conn.execute(migration)
+            assert conn.execute(
+                "SELECT due_at,due_undecided FROM tft.staffing_requests WHERE id=%s", (request,)
+            ).fetchone() == (None, False)
+            assert conn.execute(
+                "SELECT convalidated FROM pg_constraint WHERE conrelid='tft.staffing_requests'::regclass AND conname='staffing_requests_issued_due'"
+            ).fetchone() == (False,)
+            with pytest.raises(psycopg.errors.CheckViolation):
+                with conn.transaction():
+                    conn.execute(
+                        "UPDATE tft.staffing_requests SET message='still missing due' WHERE id=%s",
+                        (request,),
+                    )
+            conn.execute(
+                "UPDATE tft.staffing_requests SET due_at='2026-11-01T00:00:00Z' WHERE id=%s",
+                (request,),
+            )
+            conn.execute(migration)
+            assert conn.execute(
+                "SELECT convalidated FROM pg_constraint WHERE conrelid='tft.staffing_requests'::regclass AND conname='staffing_requests_issued_due'"
+            ).fetchone() == (True,)
+
+
+# 웹 frontend/server.test.mjs와 같은 허용표·사례 파일. 실행 위치와 무관하게 이 파일 기준으로 찾는다.
+RELAY_ROUTES = json.loads(
+    (Path(__file__).resolve().parents[2] / "docs/openapi/business-relay-routes.json").read_text()
+)
+
+
+def test_platform_business_relay_table_matches_shared_fixture():
+    """플랫폼 허용표와 고객 ID 규약이 공유 픽스처와 누락·초과 없이 같다.
+
+    Args:
+        없음.
+
+    Returns:
+        None: 경로 틀·메서드·query 키 집합과 고객 ID 정규식의 완전 일치를 확인한다.
+    """
+
+    def rows(items):
+        """정렬한 비교용 행을 만든다.
+
+        Args:
+            items: (경로 틀, 메서드, query 키) 묶음.
+
+        Returns:
+            list[tuple]: 순서와 무관한 비교용 행.
+        """
+        return sorted(
+            (path, tuple(sorted(methods)), tuple(sorted(query))) for path, methods, query in items
+        )
+
+    shared = [(route["path"], route["methods"], route["query"]) for route in RELAY_ROUTES["routes"]]
+    assert rows(relay.BUSINESS_ROUTES) == rows(shared)
+    assert CUSTOMER_ID == relay.CUSTOMER_PATH == RELAY_ROUTES["customer_pattern"]
+    assert EVIDENCE_ID == relay.EVIDENCE_PATH == RELAY_ROUTES["evidence_pattern"]
+    assert relay.DEPT_PATH == RELAY_ROUTES["dept_pattern"]
+
+
+def test_every_route_placeholder_is_compiled_not_matched_literally():
+    """허용표의 모든 {...} 자리표시자가 _PLACEHOLDERS와 분리 정규식에 있다(KAN-116 {dept} 누락 재발 방지).
+
+    Returns:
+        None: 자리표시자 집합이 같고, 컴파일한 정규식에 글자 그대로의 중괄호가 남지 않는지 확인한다.
+    """
+    used = {
+        name
+        for template, _methods, _query in relay.BUSINESS_ROUTES
+        for name in re.findall(r"\{[^}]+\}", template)
+    }
+    assert used <= set(relay._PLACEHOLDERS)
+    assert set(relay._SPLIT.pattern[1:-1].replace("\\", "").split("|")) == set(relay._PLACEHOLDERS)
+    for pattern, _methods, _query in relay._COMPILED:
+        assert "\\{" not in pattern.pattern, pattern.pattern
+
+
+@pytest.mark.parametrize(
+    "case", RELAY_ROUTES["cases"], ids=lambda case: case["method"] + " " + case["path"][:80]
+)
+def test_shared_cases_match_the_platform_table_without_client_normalization(case):
+    """공유 사례를 HTTP 클라이언트 없이 디코드한 경로로 허용표에 직접 대조한다.
+
+    클라이언트가 .·%2E%2E 세그먼트를 먼저 줄여도 정규식 자체가 막는지 확인한다.
+
+    Args:
+        case: 퍼센트 인코딩 원문 경로와 기대 결과.
+
+    Returns:
+        None: 404 사례는 빈 메서드, 그 밖은 메서드·query 키 판정을 확인한다.
+    """
+    parts = urlsplit(case["path"])
+    path, keys = unquote(parts.path), {key for key, _ in parse_qsl(parts.query)}
+    methods = relay.allowed_methods(path)
+    if case["forward"]:
+        assert case["method"] in methods and keys <= relay.allowed_query(path)
+    elif case["status"] == 404:
+        assert methods == set()
+    elif case["status"] == 405:
+        assert methods and case["method"] not in methods
+    else:
+        assert case["method"] in methods
+
+
+@pytest.mark.parametrize(
+    "case", RELAY_ROUTES["cases"], ids=lambda case: case["method"] + " " + case["path"][:80]
+)
+def test_shared_cases_forward_or_reject_before_business_service(system, case):
+    """공유 사례를 실제 플랫폼 중계로 보내 전달 또는 업무 호출 전 거부를 확인한다.
+
+    Args:
+        system: 실제 세션과 중계 호출 기록.
+        case: 퍼센트 인코딩 원문 경로와 기대 결과.
+
+    Returns:
+        None: 전달 시 고정 C/S 주소·경로·query 일치, 거부 시 상태와 업무 미호출을 확인한다.
+    """
+    write = case["method"] != "GET"
+    headers = system["write"] | ({"Content-Type": "application/json"} if write else {})
+    body = b"{}" if write else None
+    if case["method"] == "PUT" and case["path"].endswith("/owner"):
+        body = json.dumps({"version": 1, "owner_user_id": str(system["user_id"])}).encode()
+    if (
+        case["method"] == "POST"
+        and "/assignments/" in case["path"]
+        and case["path"].endswith("/apply")
+    ):
+        # KAN-214: the relay checks the proposed owners before forwarding, like /owner.
+        items = [{"ticket_id": str(system["user_id"]), "user_id": str(system["user_id"])}]
+        body = json.dumps({"rule_version": "cs-assign-v1", "items": items}).encode()
+    result = system["client"].request(case["method"], case["path"], headers=headers, content=body)
+    if case["forward"]:
+        [(method, url, *_)] = system["calls"]
+        sent, asked = urlsplit(url), urlsplit(case["path"])
+        service = TFT if asked.path.startswith("/api/v1/tft/") else CS
+        assert method == case["method"] and sent.scheme + "://" + sent.netloc == service
+        assert unquote(sent.path) == unquote(asked.path)
+        assert parse_qsl(sent.query) == parse_qsl(asked.query)
+    else:
+        assert result.status_code == case["status"], result.text
+        assert not system["calls"]
+
+
+def test_real_cs_read_routes_replace_the_browser_user_header(system):
+    """장비·통계·개선요청 조회가 실제 C/S로 전달되고 세션 사용자만 사용한다.
+
+    Args:
+        system: 실제 DB·세 서비스 앱과 합성 네트워크 경계.
+
+    Returns:
+        None: 각 조회 200과 위조 사용자·호출자 헤더 미전달을 확인한다.
+    """
+    client = system["client"]
+    created = client.post(
+        "/api/v1/cs/tickets",
+        headers=system["write"] | {"Content-Type": "application/json"},
+        json={
+            "channel": "WEB_FORM",
+            "body_language": "ko",
+            "customer_external_id": "CUST-0001",
+            "product_code": "TEST",
+            "body": "합성 문의",
+        },
+    )
+    assert created.status_code == 201, created.text
+    ticket = "/api/v1/cs/tickets/" + created.json()["data"]["id"]
+    forged = principal_header(Principal(user_id=uuid4(), roles={"sales"})) | {
+        CALLER_HEADER: "forged"
+    }
+    for path in (
+        ticket + "/units",
+        ticket + "/unit-history",
+        "/api/v1/cs/stats/overview?customer=CUST-0001",
+        "/api/v1/cs/stats/owners",
+        "/api/v1/cs/stats/customers/CUST-0001",
+        "/api/v1/cs/improvement-requests",
+    ):
+        result = client.get(path, headers=forged)
+        assert result.status_code == 200, (path, result.text)
+        outgoing = system["calls"][-1][2]
+        assert (
+            Principal.model_validate_json(outgoing[PRINCIPAL_HEADER]).user_id == system["user_id"]
+        )
+        assert outgoing[CALLER_HEADER] != "forged"
+        assert result.headers["cache-control"] == "no-store"
+
+
+def test_real_cs_write_routes_relay_post_and_put_with_the_session_user(system):
+    """업무 흐름 POST·PUT이 실제 C/S로 전달돼 상태가 바뀌고 세션 사용자만 사용한다.
+
+    Args:
+        system: 실제 DB·세 서비스 앱과 합성 네트워크 경계.
+
+    Returns:
+        None: 검토 시작(POST)·담당자 재배정(PUT) 200, 판본 증가, 위조 헤더 미전달을 확인한다.
+    """
+    client = system["client"]
+    write = system["write"] | {"Content-Type": "application/json"}
+    created = client.post(
+        "/api/v1/cs/tickets",
+        headers=write,
+        json={
+            "channel": "WEB_FORM",
+            "body_language": "ko",
+            "customer_external_id": "CUST-0001",
+            "product_code": "TEST",
+            "body": "합성 문의",
+        },
+    )
+    assert created.status_code == 201, created.text
+    workflow = "/api/v1/cs/tickets/" + created.json()["data"]["id"] + "/workflow"
+    forged = principal_header(Principal(user_id=uuid4(), roles={"sales"})) | {
+        CALLER_HEADER: "forged"
+    }
+    version = client.get(workflow).json()["data"]["version"]
+    started = client.post(
+        workflow + "/start-review", headers=write | forged, json={"version": version}
+    )
+    assert started.status_code == 200, started.text
+    assert started.json()["data"]["state"] == "IN_REVIEW"
+    owner = system["user_id"]
+    moved = client.put(
+        workflow + "/owner",
+        headers=write | forged,
+        json={"version": started.json()["data"]["version"], "owner_user_id": str(owner)},
+    )
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["data"]["owner_user_id"] == str(owner)
+    for method, _, outgoing, *_ in system["calls"][-2:]:
+        assert method in ("POST", "PUT")
+        assert (
+            Principal.model_validate_json(outgoing[PRINCIPAL_HEADER]).user_id == system["user_id"]
+        )
+        assert outgoing[CALLER_HEADER] != "forged"
+
+
+def test_assignee_database_filter_and_owner_rejection(system, business_database):
+    """실제 DB에서 비활성·비상담원 제외와 두 owner 경로의 전달 전 검증을 확인한다."""
+    client = system["client"]
+    user_id = system["user_id"]
+    result = client.get("/api/v1/platform/assignees?role=cs_agent")
+    assert result.status_code == 200, result.text
+    assert str(user_id) in {row["user_id"] for row in result.json()["data"]["items"]}
+    inactive = uuid4()
+    with psycopg.connect(business_database) as conn:
+        conn.execute(
+            "INSERT INTO identity.users(id,tid,oid,email,display_name,is_active) "
+            "VALUES (%s,%s,%s,'inactive@example.invalid','합성 비활성 상담원',false)",
+            (inactive, uuid4(), uuid4()),
+        )
+        conn.execute("INSERT INTO identity.user_roles VALUES (%s,'cs_agent')", (inactive,))
+    try:
+        result = client.get("/api/v1/platform/assignees")
+        assert str(inactive) not in {row["user_id"] for row in result.json()["data"]["items"]}
+        response = client.put(
+            f"/api/v1/cs/tickets/{uuid4()}/workflow/owner",
+            headers=system["write"],
+            json={"version": 0, "owner_user_id": str(inactive)},
+        )
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "CS_INVALID_OWNER"
+    finally:
+        with psycopg.connect(business_database) as conn:
+            conn.execute("DELETE FROM identity.user_roles WHERE user_id=%s", (inactive,))
+            conn.execute("DELETE FROM identity.users WHERE id=%s", (inactive,))
+    with psycopg.connect(business_database) as conn:
+        conn.execute(
+            "DELETE FROM identity.user_roles WHERE user_id=%s AND role='cs_agent'", (user_id,)
+        )
+    try:
+        result = client.get("/api/v1/platform/assignees")
+        assert result.status_code == 200
+        assert str(user_id) not in {row["user_id"] for row in result.json()["data"]["items"]}
+        for path in (
+            f"/api/v1/cs/tickets/{uuid4()}/workflow/owner",
+            f"/api/v1/cs/improvement-requests/{uuid4()}/owner",
+        ):
+            system["calls"].clear()
+            response = client.put(
+                path, headers=system["write"], json={"version": 1, "owner_user_id": str(user_id)}
+            )
+            assert response.status_code == 422
+            assert response.json()["error"]["code"] == "CS_INVALID_OWNER"
+            assert system["calls"] == []
+    finally:
+        with psycopg.connect(business_database) as conn:
+            conn.execute("INSERT INTO identity.user_roles VALUES (%s,'cs_agent')", (user_id,))
+
+
+FILE_URL = "/api/v1/tft/documents/11111111-1111-4111-8111-111111111111/file"
+UPLOAD_URL = "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/documents"
+
+
+def fake_upstream(monkeypatch, *, status=200, kind="application/pdf", body=b"%PDF", headers=None):
+    """플랫폼 뒤 업무 서비스 응답을 고정하고 받은 호출을 기록한다.
+
+    Args:
+        monkeypatch: 대체 도구.
+        status: 응답 상태.
+        kind: 응답 Content-Type.
+        body: 응답 본문.
+        headers: 추가 응답 헤더.
+
+    Returns:
+        list: (method, url, headers, data) 호출 기록.
+    """
+    calls = []
+
+    def fake(method, url, *, headers: dict, data, **options):
+        calls.append((method, url, headers, data))
+        upstream = Mock(status_code=status, headers={"Content-Type": kind, **extra})
+        upstream.__enter__ = Mock(return_value=upstream)
+        upstream.__exit__ = Mock(return_value=False)
+        upstream.iter_content = Mock(return_value=iter([body]))
+        return upstream
+
+    extra = headers or {}
+    monkeypatch.setattr(requests, "request", fake)
+    return calls
+
+
+def test_download_relay_forces_attachment_and_keeps_the_user_scope(system, monkeypatch):
+    """원문 응답만 JSON 예외다. 파일명은 attachment일 때만 넘기고, 범위 판단은 tft에 사용자로 맡긴다."""
+    named = {"Content-Disposition": "attachment; filename*=UTF-8''a.pdf"}
+    calls = fake_upstream(monkeypatch, body=b"x" * (9 * 1024 * 1024), headers=named)
+    done = system["client"].get(FILE_URL)
+    assert done.status_code == 200 and len(done.content) == 9 * 1024 * 1024
+    assert done.headers["content-type"] == "application/pdf"
+    assert done.headers["content-disposition"] == named["Content-Disposition"]
+    assert done.headers["x-content-type-options"] == "nosniff"
+    assert done.headers["cache-control"] == "no-store"
+    [(_, _, sent, _)] = calls
+    principal = json.loads(sent[PRINCIPAL_HEADER])
+    assert principal["user_id"] == str(system["user_id"])
+    assert principal["managed_projects"] == [str(system["projects"][0])]
+    fake_upstream(monkeypatch, headers={"Content-Disposition": "inline"})
+    assert system["client"].get(FILE_URL).headers["content-disposition"] == "attachment"
+
+
+def test_download_relay_passes_a_scope_refusal_without_a_file(system, monkeypatch):
+    """manager가 관리 대상 밖이면 tft의 404 JSON이 그대로 간다(permissions.md 1.1·4.2)."""
+    body = b'{"error":{"code":"TFT_DOCUMENT_NOT_FOUND"}}'
+    fake_upstream(monkeypatch, status=404, kind="application/json", body=body)
+    refused = system["client"].get(FILE_URL)
+    assert refused.status_code == 404 and refused.content == body
+    assert "content-disposition" not in refused.headers
+
+
+@pytest.mark.parametrize(
+    ("kind", "body", "path"),
+    [
+        ("text/html", b"<html>", FILE_URL),
+        ("application/pdf", b"x" * (relay.FILE_LIMIT + 1), FILE_URL),
+        ("application/pdf", b"%PDF", "/api/v1/tft/documents/11111111-1111-4111-8111-111111111111"),
+    ],
+    ids=["html", "too-large", "other-path"],
+)
+def test_download_relay_refuses_anything_but_a_bounded_document(
+    system, monkeypatch, kind, body, path
+):
+    """허용 형식·크기·경로가 아니면 본문을 넘기지 않는다."""
+    fake_upstream(monkeypatch, kind=kind, body=body)
+    refused = system["client"].get(path)
+    assert refused.status_code == 503 and b"%PDF" not in refused.content
+
+
+def test_upload_relay_passes_multipart_only_on_its_path(system, monkeypatch):
+    """업로드만 multipart·26 MiB다. CSRF·Origin 검사는 같고 경계값은 그대로 넘긴다."""
+    calls = fake_upstream(monkeypatch, status=201, kind="application/json", body=b"{}")
+    client, write = system["client"], system["write"]
+    multipart = {
+        "Content-Type": "multipart/form-data; boundary=synthetic",
+        "Idempotency-Key": "k" * 8,
+    }
+    body = b"x" * (2 * 1024 * 1024)
+    done = client.post(UPLOAD_URL, headers=write | multipart, content=body)
+    assert done.status_code == 201
+    [(_, _, sent, data)] = calls
+    assert sent["Content-Type"] == multipart["Content-Type"] and data == body
+    assert sent["Idempotency-Key"] == "k" * 8
+    calls.clear()
+    json_body = {"Content-Type": "application/json"}
+    assert client.post(UPLOAD_URL, headers=write | json_body, content=b"{}").status_code == 415
+    other = "/api/v1/tft/projects"
+    assert client.post(other, headers=write | multipart, content=b"x").status_code == 415
+    # 파일 예외는 업로드 경로 밖으로 번지지 않는다.
+    assert client.post(other, headers=write | json_body, content=body).status_code == 413
+    large = b"x" * (relay.FILE_LIMIT + 1)
+    assert client.post(UPLOAD_URL, headers=write | multipart, content=large).status_code == 413
+    wrong_origin = write | multipart | {"Origin": "https://evil.example.invalid"}
+    assert client.post(UPLOAD_URL, headers=wrong_origin, content=b"x").status_code == 403
+    no_csrf = {"Origin": write["Origin"]} | multipart
+    assert client.post(UPLOAD_URL, headers=no_csrf, content=b"x").status_code == 403
+    assert not calls
+
+
+@pytest.mark.parametrize(
+    "mime",
+    [
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ],
+)
+def test_export_file_relay_allows_docx_only_on_the_exact_file_path(monkeypatch, mime):
+    """새 export 첨부 경로만 바이너리(DOCX, KAN-221 XLSX)를 허용하고 일반 draft JSON 경로에는 허용하지 않는다."""
+    from fastapi import HTTPException
+
+    from backend.api.platform import relay
+
+    path = "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/exports/22222222-2222-4222-8222-222222222222/file"
+    fake_upstream(
+        monkeypatch,
+        kind=mime,
+        body=b"PK\x03\x04docx",
+        headers={"Content-Disposition": 'attachment; filename="review.docx"'},
+    )
+    result = relay.forward("GET", "https://tft.example.invalid" + path, {}, b"")
+    assert result.body == b"PK\x03\x04docx" and result.headers["content-type"] == mime
+    assert result.headers["content-disposition"] == 'attachment; filename="review.docx"'
+    assert result.headers["cache-control"] == "no-store"
+    with pytest.raises(HTTPException):
+        relay.forward("GET", "https://tft.example.invalid" + path.split("/exports/")[0], {}, b"")
+
+
+@pytest.mark.parametrize("mime", ["image/png", "image/jpeg", "image/webp", "application/pdf"])
+def test_diagram_binary_is_limited_to_exact_diagram_route(monkeypatch, mime):
+    from fastapi import HTTPException
+
+    from backend.api.platform import relay
+
+    path = "/api/v1/tft/documents/11111111-1111-4111-8111-111111111111/diagrams/OCR-DOCX-0001/image"
+    fake_upstream(monkeypatch, kind=mime, body=b"original", headers={})
+    assert relay.forward("GET", "https://tft.example.invalid" + path, {}, b"").body == b"original"
+    for refused in [path.replace("OCR-DOCX-0001", "unknown"), path.rsplit("/", 1)[0]]:
+        with pytest.raises(HTTPException):
+            relay.forward("GET", "https://tft.example.invalid" + refused, {}, b"")
+    if mime.startswith("image/"):
+        with pytest.raises(HTTPException):
+            relay.forward("GET", "https://tft.example.invalid" + FILE_URL, {}, b"")

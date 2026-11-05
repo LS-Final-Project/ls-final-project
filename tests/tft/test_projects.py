@@ -3,7 +3,7 @@
 import base64
 import json
 from contextlib import asynccontextmanager
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -11,13 +11,15 @@ from fastapi.testclient import TestClient
 
 from backend.api.tft.main import create_app
 from backend.api.tft.projects import repository, routes
+from backend.api.tft.rfp import routes_write
+from backend.api.tft.rfp import schemas as rfp_schemas
 from backend.shared.access import Principal, principal_header
 from backend.shared.settings import Settings
 
 BASE = datetime(2026, 10, 1, tzinfo=UTC)
 SALES = UUID(int=0x3)
-MANAGER = UUID(int=0x4)
-DEPT = UUID(int=0x2)
+# Assigned as the sales user of the second project without being its responsible user.
+ASSIGNED_SALES = UUID(int=0x6)
 
 
 def project_row(index: int) -> dict:
@@ -34,7 +36,28 @@ def project_row(index: int) -> dict:
         "created_at": BASE + timedelta(hours=index),
         "client_name": None,
         "responsible_user_id": SALES if index == 0 else None,
-        "current_composition_version": 1 if index == 0 else None,
+        "sales_user_id": {0: SALES, 1: ASSIGNED_SALES}.get(index),
+        "output_status": "INTAKE",
+        "judgement_status": "NEEDS_REVIEW",
+        "purpose": "INITIAL_PROPOSAL",
+        "customer_goal": None,
+        "supply_region": None,
+        "customer_manufacturer_list": None,
+        "off_list_permission": "UNSTATED",
+        "review_departments": [],
+        "requirements_count": 0,
+        "unresolved_mandatory_count": 0,
+        "pending_proposals_count": 0,
+        "open_questions_count": 0,
+        "documents_count": 0,
+        "draft_version": None,
+        "review_version": None,
+        "strategic_customer": None,
+        "strategic_customer_note": None,
+        "strategic_customer_set_by": None,
+        "submission_due_at": None,
+        "integration_holder": "UNRESOLVED",
+        "latest_job_id": None,
     }
 
 
@@ -43,7 +66,7 @@ PROJECT = ROWS[0]
 PROJECTS_MANAGER = Principal(
     user_id=uuid4(), roles={"manager"}, managed_projects={r["id"] for r in ROWS}
 )
-ROLE_ID, REQ_ID, REQUEST_ID, RECOMMEND_ID, VERSION_ID = (UUID(int=100 + i) for i in range(5))
+REQ_ID = UUID(int=100)
 ORIGIN = {"data_origin": "synthetic", "derivation_kind": "SYSTEM"}
 
 REQUIREMENTS = [
@@ -62,133 +85,20 @@ REQUIREMENTS = [
         **ORIGIN,
     }
 ]
-ROLES = [
-    {
-        "id": ROLE_ID,
-        "role_code": "ROLE-CONSTRUCTION",
-        "title": "marine construction",
-        "field_tag": "CONSTRUCTION_TRANSPORT",
-        "tasks": None,
-        "experience_condition": None,
-        "is_core": True,
-        "headcount": None,
-        "period_start": date(2027, 3, 1),
-        "period_end": date(2027, 9, 30),
-        "allocation_rate": None,
-        "status": "DEPT_VERIFIED",
-        "reviewed_by_user_id": SALES,
-        "reviewed_at": BASE,
-        "next_action": None,
-        "next_action_organization_id": None,
-        "reply_due_at": None,
-        **ORIGIN,
-    }
-]
-LINKS = [{"required_role_id": ROLE_ID, "requirement_id": REQ_ID, "rationale": "3.5.2"}]
-COMPETENCIES = [
-    {"id": UUID(int=200), "required_role_id": ROLE_ID, "kind": "REQUIRED", "description": "marine"}
-]
-REQUESTS = [
-    {
-        "id": REQUEST_ID,
-        "required_role_id": ROLE_ID,
-        "organization_id": UUID(int=300),
-        "organization_name": "construction",
-        "participation": "LEAD",
-        "status": "ANSWERED",
-        "issued_by_user_id": SALES,
-        "issued_at": BASE,
-        "due_at": None,
-        "message": None,
-        **ORIGIN,
-    }
-]
-RECOMMENDATIONS = [
-    {
-        "id": RECOMMEND_ID,
-        "staffing_request_id": REQUEST_ID,
-        "required_role_id": ROLE_ID,
-        "candidate_id": UUID(int=400),
-        "candidate_name": "candidate D",
-        "organization_id": UUID(int=300),
-        "recommended_by_user_id": DEPT,
-        "recommended_at": BASE,
-        "rationale": None,
-        "status": "RECOMMENDED",
-        **ORIGIN,
-    }
-]
-EVIDENCE = [
-    {
-        "id": UUID(int=500),
-        "recommendation_id": RECOMMEND_ID,
-        "summary": "onshore only",
-        "project_name": None,
-        "role_title": None,
-        "period_start": None,
-        "period_end": None,
-        "evidence_source": None,
-        "status": "NEEDS_CHECK",
-        "verified_by_user_id": None,
-        "verified_at": None,
-        "basis": None,
-        **ORIGIN,
-    }
-]
-COMPETENCY_CHECKS = [
-    {
-        "id": UUID(int=600),
-        "recommendation_id": RECOMMEND_ID,
-        "competency_id": UUID(int=200),
-        "status": "NEEDS_CHECK",
-        "checked_by_user_id": None,
-        "checked_at": None,
-        "basis": None,
-        **ORIGIN,
-    }
-]
-AVAILABILITY = [
-    {
-        "id": UUID(int=700),
-        "recommendation_id": RECOMMEND_ID,
-        "period_start": None,
-        "period_end": None,
-        "allocation_rate": None,
-        "constraints_note": None,
-        "checked_by_user_id": None,
-        "checked_at": None,
-        "basis": None,
-        "status": "UNSPECIFIED",
-        **ORIGIN,
-    }
-]
-VERSION = {
-    "id": VERSION_ID,
-    "version": 1,
-    "created_by_user_id": SALES,
-    "created_at": BASE,
-    "note": None,
-    **ORIGIN,
+
+
+HOLDER = {
+    "integration_holder": "UNRESOLVED",
+    "integration_holder_candidates": [],
+    "integration_note": None,
+    "integration_set_by": None,
+    "integration_set_at": None,
 }
-MEMBERS = [
-    {
-        "id": UUID(int=800),
-        "required_role_id": ROLE_ID,
-        "recommendation_id": RECOMMEND_ID,
-        "status": "NEEDS_REINFORCEMENT",
-        "rationale": None,
-        "remaining_conditions": "marine competency",
-        "gap_note": None,
-        "next_action_organization_id": None,
-        "follow_up_due_at": None,
-    }
+CLAUSE_ID = UUID(int=200)
+INTEGRATION_ROWS = [
+    {"clause_id": CLAUSE_ID, "clause_no": "2.3.A", "task": None, "assembly_clause": True},
+    {"clause_id": UUID(int=201), "clause_no": "2.5.K", "task": None, "assembly_clause": False},
 ]
-RESPONSIBLE = {
-    "new_user_id": SALES,
-    "changed_by_user_id": MANAGER,
-    "reason": "assigned",
-    "occurred_at": BASE,
-}
 
 
 def only_for(project_id: UUID, rows: list) -> list:
@@ -197,62 +107,59 @@ def only_for(project_id: UUID, rows: list) -> list:
 
 @pytest.fixture
 def fakes(monkeypatch):
-    state = {"responsible": RESPONSIBLE, "confirmation": None}
-
     @asynccontextmanager
     async def fake_connection(settings):
         yield object()
 
-    async def list_projects(conn, limit, after, managed_projects, user_id):
+    async def list_projects(
+        conn, limit, after, managed_projects, user_id, department=None, **filters
+    ):
         rows = [
-            r for r in ROWS if r["id"] in managed_projects or r["responsible_user_id"] == user_id
+            r
+            for r in ROWS
+            if r["id"] in managed_projects
+            or r["responsible_user_id"] == user_id
+            or r["sales_user_id"] == user_id
         ]
         rows = sorted(rows, key=lambda r: (r["created_at"], r["id"]), reverse=True)
         if after:
             rows = [r for r in rows if (r["created_at"], r["id"]) < after]
-        return rows[: limit + 1]
+        return rows[filters.get("offset", 0) : filters.get("offset", 0) + limit + 1]
+
+    async def count_projects(conn, managed_projects, user_id, department=None, **filters):
+        return len(
+            await list_projects(conn, 100, None, managed_projects, user_id, department, **filters)
+        )
 
     async def get_project(conn, project_id):
         return next((dict(r) for r in ROWS if r["id"] == project_id), None)
 
-    def scoped(rows):
-        async def fake(conn, project_id):
-            return only_for(project_id, rows)
+    async def integration_state(conn, project_id):
+        return HOLDER, only_for(project_id, INTEGRATION_ROWS)
 
-        return fake
+    async def list_rfp_requirements(conn, project_id):
+        return only_for(project_id, REQUIREMENTS)
 
-    async def current_composition(conn, project_id):
-        return VERSION if project_id == PROJECT["id"] else None
+    async def review_departments(conn, project_id):
+        return []
 
-    async def members(conn, version_id):
-        return MEMBERS if version_id == VERSION_ID else []
+    async def project_detail_parts(conn, project_id):
+        return next(r for r in ROWS if r["id"] == project_id), [], {}
 
-    async def responsible(conn, project_id):
-        return state["responsible"] if project_id == PROJECT["id"] else None
+    monkeypatch.setattr(routes_write.repository, "project_detail_parts", project_detail_parts)
+    monkeypatch.setattr(routes_write, "integration_state", integration_state)
 
-    async def confirmation(conn, project_id):
-        return state["confirmation"] if project_id == PROJECT["id"] else None
+    async def decision_gate(conn, project_id):
+        return rfp_schemas.DecisionGate()
 
+    monkeypatch.setattr(routes_write, "decision_gate", decision_gate)
+    monkeypatch.setattr(repository, "review_departments", review_departments)
     monkeypatch.setattr(routes, "connection", fake_connection)
-    for name, fake in {
-        "list_projects": list_projects,
-        "get_project": get_project,
-        "list_rfp_requirements": scoped(REQUIREMENTS),
-        "list_required_roles": scoped(ROLES),
-        "list_role_requirement_links": scoped(LINKS),
-        "list_role_competencies": scoped(COMPETENCIES),
-        "list_staffing_requests": scoped(REQUESTS),
-        "list_recommendations": scoped(RECOMMENDATIONS),
-        "list_experience_evidence": scoped(EVIDENCE),
-        "list_competency_checks": scoped(COMPETENCY_CHECKS),
-        "list_availability_checks": scoped(AVAILABILITY),
-        "get_current_composition": current_composition,
-        "list_composition_members": members,
-        "get_latest_responsible_change": responsible,
-        "get_final_confirmation": confirmation,
-    }.items():
-        monkeypatch.setattr(repository, name, fake)
-    return state
+    monkeypatch.setattr(repository, "list_projects", list_projects)
+    monkeypatch.setattr(repository, "count_projects", count_projects)
+    monkeypatch.setattr(repository, "get_project", get_project)
+    monkeypatch.setattr(repository, "list_rfp_requirements", list_rfp_requirements)
+    monkeypatch.setattr(repository, "integration_state", integration_state)
 
 
 @pytest.fixture
@@ -275,14 +182,15 @@ def test_list_pages_newest_first_without_gaps_or_duplicates(client):
     assert seen == [f"RFP-{i:04d}" for i in reversed(range(5))]
 
 
-def test_list_summary_carries_stage_pointers(client):
+def test_list_summary_carries_owners_without_composition_pointer(client):
     items = client.get("/api/v1/tft/projects").json()["data"]["items"]
     first = next(item for item in items if item["external_id"] == "RFP-0000")
     assert first["responsible_user_id"] == str(SALES)
-    assert first["current_composition_version"] == 1
+    assert first["sales_user_id"] == str(SALES)
+    # KAN-181 removed the composition stage, so the summary no longer points at it.
+    assert "current_composition_version" not in first
     other = next(item for item in items if item["external_id"] == "RFP-0001")
     assert other["responsible_user_id"] is None
-    assert other["current_composition_version"] is None
 
 
 def b64(value) -> str:
@@ -316,57 +224,100 @@ def test_limit_is_bounded(client, limit):
     assert client.get("/api/v1/tft/projects", params={"limit": limit}).status_code == 422
 
 
-def test_detail_keeps_the_six_stages_as_separate_records(client):
-    body = client.get(f"/api/v1/tft/projects/{PROJECT['id']}").json()["data"]
-    # Initial review: requirement -> role link, review by sales, required competency.
-    role = body["required_roles"][0]
-    assert role["status"] == "DEPT_VERIFIED"
-    assert role["reviewed_by_user_id"] == str(SALES)
-    assert role["requirements"] == [{"requirement_id": str(REQ_ID), "rationale": "3.5.2"}]
-    assert role["competencies"][0]["kind"] == "REQUIRED"
-    assert body["staffing_requests"][0]["issued_by_user_id"] == str(SALES)
-    # Department recommendation is a record of its own, apart from the checks.
-    recommendation = body["recommendations"][0]
-    assert recommendation["recommended_by_user_id"] == str(DEPT)
-    assert recommendation["candidate_id"] == str(UUID(int=400))
-    # Experience, competency and availability: unconfirmed states are distinguishable.
-    assert recommendation["experience_evidence"][0]["status"] == "NEEDS_CHECK"
-    assert recommendation["competency_checks"][0]["status"] == "NEEDS_CHECK"
-    assert recommendation["availability_checks"][0]["status"] == "UNSPECIFIED"
-    # Composition version and the responsible decision.
-    assert body["current_composition"]["version"] == 1
-    assert body["current_composition"]["members"][0]["status"] == "NEEDS_REINFORCEMENT"
-    assert body["responsible"]["user_id"] == str(SALES)
-    assert body["responsible"]["assigned_by_user_id"] == str(MANAGER)
-    assert body["final_confirmation"] is None
+REMOVED_STAGES = {
+    "required_roles",
+    "staffing_requests",
+    "recommendations",
+    "current_composition",
+    "responsible",
+    "final_confirmation",
+}
 
 
-def test_detail_of_project_without_stage_records_has_empty_sections(client):
-    body = client.get(f"/api/v1/tft/projects/{ROWS[1]['id']}").json()["data"]
-    assert body["required_roles"] == [] and body["recommendations"] == []
-    assert body["current_composition"] is None
-    assert body["responsible"] is None and body["responsible_user_id"] is None
+def test_repository_detail_selects_saved_constraint_values():
+    import asyncio
+    from unittest.mock import AsyncMock
 
-
-def test_responsible_summary_requires_matching_history(client, fakes):
-    fakes["responsible"] = {**RESPONSIBLE, "new_user_id": MANAGER}
-    body = client.get(f"/api/v1/tft/projects/{PROJECT['id']}").json()["data"]
-    assert body["responsible_user_id"] == str(SALES)
-    assert body["responsible"] is None
-
-
-def test_final_confirmation_names_the_confirmer_and_version(client, fakes):
-    fakes["confirmation"] = {
-        "id": UUID(int=900),
-        "composition_version_id": VERSION_ID,
-        "composition_version": 1,
-        "confirmed_by_user_id": SALES,
-        "confirmed_at": BASE,
-        "note": None,
+    stored = {
+        **PROJECT,
+        "supply_region": "한국",
+        "customer_manufacturer_list": ["제조사 A", "제조사 B"],
+        "off_list_permission": "FORBIDDEN",
     }
+
+    async def execute(query, params):
+        assert params == (PROJECT["id"],)
+        # GET 조립 단계의 다른 조회로 누락을 가리지 않고 이 SELECT의 실제 투영을 확인한다.
+        columns = query.removeprefix("SELECT ").split(" FROM ", 1)[0].split(", ")
+        cursor = AsyncMock()
+        cursor.fetchone.return_value = {column: stored[column] for column in columns}
+        return cursor
+
+    conn = AsyncMock()
+    conn.execute.side_effect = execute
+    row = asyncio.run(repository.get_project(conn, PROJECT["id"]))
+    assert row["supply_region"] == "한국"
+    assert row["customer_manufacturer_list"] == ["제조사 A", "제조사 B"]
+    assert row["off_list_permission"] == "FORBIDDEN"
+
+
+def test_detail_response_preserves_saved_constraint_values(client, monkeypatch):
+    expected = {
+        "supply_region": "한국",
+        "customer_manufacturer_list": ["제조사 A", "제조사 B"],
+        "off_list_permission": "FORBIDDEN",
+    }
+    for name, value in expected.items():
+        monkeypatch.setitem(PROJECT, name, value)
+    response = client.get(f"/api/v1/tft/projects/{PROJECT['id']}")
+    assert response.status_code == 200, response.text
+    detail = response.json()["data"]
+    assert {name: detail[name] for name in expected} == expected
+
+
+def test_detail_is_the_project_with_its_rfp_requirements_only(client):
     body = client.get(f"/api/v1/tft/projects/{PROJECT['id']}").json()["data"]
-    assert body["final_confirmation"]["confirmed_by_user_id"] == str(SALES)
-    assert body["final_confirmation"]["composition_version"] == 1
+    assert body["sales_user_id"] == str(SALES)
+    assert body["responsible_user_id"] == str(SALES)
+    assert [r["id"] for r in body["rfp_requirements"]] == [str(REQ_ID)]
+    assert body["rfp_requirements"][0]["clause"] == "3.5.2"
+    assert not REMOVED_STAGES & set(body)
+
+
+def test_detail_of_project_without_requirements_has_an_empty_list(client):
+    body = client.get(f"/api/v1/tft/projects/{ROWS[1]['id']}").json()["data"]
+    assert body["rfp_requirements"] == []
+    assert body["responsible_user_id"] is None
+    assert body["integration_responsibility"]["required"] is False
+    assert body["integration_responsibility"]["basis_clause_ids"] == []
+
+
+def test_detail_shows_the_integration_responsibility_with_its_basis_clause(client):
+    """명세 v1.3 §7(KAN-199): required·근거 조항은 읽을 때 계산하고, 사람이 볼 수 있게 조항 ID와 번호를 함께 낸다."""
+    body = client.get(f"/api/v1/tft/projects/{PROJECT['id']}").json()["data"]
+    integration = body["integration_responsibility"]
+    assert (integration["required"], integration["holder"]) == (True, "UNRESOLVED")
+    assert integration["basis_clause_ids"] == [str(CLAUSE_ID)]
+    assert integration["basis_clause_nos"] == ["2.3.A"]
+    assert [p["holder"] for p in integration["fallback_paths"]] == [
+        "OWN",
+        "SINGLE_PARTNER",
+        "JOINT",
+        "HOLD",
+    ]
+    assert integration["unresolved"]
+
+
+def test_detail_survives_a_database_without_the_t12_migration(client, monkeypatch):
+    """T12 전 DB에서도 프로젝트 조회는 200이고, 통합 책임은 '불필요'가 아니라 null이다(#340)."""
+
+    async def missing(conn, project_id):
+        return None
+
+    monkeypatch.setattr(routes_write, "integration_state", missing)
+    result = client.get(f"/api/v1/tft/projects/{PROJECT['id']}")
+    assert result.status_code == 200
+    assert result.json()["data"]["integration_responsibility"] is None
 
 
 def test_unknown_project_returns_feature_error(client):
@@ -409,6 +360,14 @@ def test_responsible_user_sees_own_project(client):
     assert client.get(f"/api/v1/tft/projects/{PROJECT['id']}", headers=headers).status_code == 200
 
 
+def test_assigned_sales_user_sees_the_project_without_being_responsible(client):
+    headers = principal_header(Principal(user_id=ASSIGNED_SALES, roles={"sales"}))
+    items = client.get("/api/v1/tft/projects", headers=headers).json()["data"]["items"]
+    assert [i["id"] for i in items] == [str(ROWS[1]["id"])]
+    assert client.get(f"/api/v1/tft/projects/{ROWS[1]['id']}", headers=headers).status_code == 200
+    assert client.get(f"/api/v1/tft/projects/{PROJECT['id']}", headers=headers).status_code == 404
+
+
 @pytest.mark.parametrize(
     "user", [{"roles": {"sales"}}, {"roles": {"dept_staff"}, "dept": "TS_TRF"}]
 )
@@ -422,3 +381,49 @@ def test_c_s_agent_has_no_tft_scope(client):
     headers = as_user(roles={"cs_agent"})
     assert client.get("/api/v1/tft/projects", headers=headers).status_code == 403
     assert client.get(f"/api/v1/tft/projects/{PROJECT['id']}", headers=headers).status_code == 403
+
+
+def test_numbered_pages_keep_authorized_total_and_legacy_cursor(client):
+    first = client.get("/api/v1/tft/projects?page=1&limit=2").json()["data"]
+    third = client.get("/api/v1/tft/projects?page=3&limit=2").json()["data"]
+    assert first["total"] == third["total"] == 5
+    assert len(first["items"]) == 2 and len(third["items"]) == 1
+    assert first["items"][0]["external_id"] == "RFP-0004"
+    assert third["items"][0]["external_id"] == "RFP-0000"
+    assert client.get("/api/v1/tft/projects?page=99&limit=2").json()["data"] == {
+        "items": [],
+        "next_cursor": None,
+        "total": 5,
+    }
+    assert client.get("/api/v1/tft/projects").json()["data"]["total"] is None
+    assert (
+        client.get(
+            "/api/v1/tft/projects", params={"page": 1, "cursor": first["next_cursor"]}
+        ).status_code
+        == 400
+    )
+
+
+@pytest.mark.parametrize("query", ["page=0", "page=1000001", "search_field=sql", "page=1.5"])
+def test_numbered_page_and_search_field_validation(client, query):
+    assert client.get("/api/v1/tft/projects?" + query).status_code == 422
+
+
+def test_list_and_count_share_authorization_and_literal_search_scope():
+    for field, columns in [
+        ("all", ("external_id", "name", "client_name")),
+        ("external_id", ("external_id",)),
+        ("name", ("name",)),
+    ]:
+        scope, params = repository.project_scope(
+            [UUID(int=1)], SALES, "TS_TRF", "INTAKE", "NEEDS_REVIEW", "a_%", field
+        )
+        assert (
+            "p.id = ANY(%s) OR p.responsible_user_id = %s OR p.sales_user_id = %s OR %s = ANY(p.review_departments)"
+            in scope
+        )
+        assert "p.output_status = %s" in scope and "p.judgement_status = %s" in scope
+        assert params[:6] == [[UUID(int=1)], SALES, SALES, "TS_TRF", "INTAKE", "NEEDS_REVIEW"]
+        assert params[6:] == [r"%a\_\%%"] * len(columns)
+        assert all(f"p.{column} ILIKE %s" in scope for column in columns)
+        assert scope.count("ILIKE") == len(columns)

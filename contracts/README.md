@@ -7,7 +7,14 @@
 | 변경 대상 | 직접 수정 | 명령으로 생성 |
 | --- | --- | --- |
 | C/S 문의 | backend/api/cs/tickets/schemas.py, routes.py, backend/api/cs/examples.py | docs/openapi/cs.json, frontend/src/mocks/generated/cs.json |
+| C/S 담당자 자동 배정 | backend/engine/cs/assignment.py, backend/api/cs/assignments/ ([자동 배정](cs/assignment.md)) | docs/openapi/cs.json, frontend/src/mocks/generated/cs.json |
+| C/S 회신 반영 분석 | backend/api/cs/reply_analysis/, backend/engine/cs/reply.py ([회신 반영 분석](cs/reply-analysis.md)) | docs/openapi/cs.json, frontend/src/mocks/generated/cs.json |
+| C/S 개선요청 후보 규칙 | backend/engine/cs/improvement_candidates.py ([후보 규칙](cs/improvement-candidates.md)) | 없음(엔진, HTTP 계약 아님) |
 | TFT 프로젝트 | backend/api/tft/projects/schemas.py, routes.py, backend/api/tft/examples.py | docs/openapi/tft.json, frontend/src/mocks/generated/tft.json |
+| TFT RFP 자사 대응 | backend/api/tft/rfp/schemas.py, routes.py ([데이터 구조](tft/rfp-data.md)) | docs/openapi/tft.json |
+| TFT RFP 조항 트리·편집 흔적 | backend/engine/rfp/clauses.py, edits.py ([조항 트리](tft/rfp-clauses.md)) | 없음(엔진, HTTP 계약 아님) |
+| TFT RFP 요구 추출 | backend/engine/rfp/requirements.py, scoring.py ([요구 추출](tft/rfp-requirements.md)) | 없음(엔진, HTTP 계약 아님) |
+| TFT RFP 작업 접수 | backend/api/platform/jobs/tft.py, infra/migrations/platform/20261029_KAN-182_tft_jobs.sql ([작업 접수](tft/rfp-jobs.md)) | 없음(내부 경로, OpenAPI 제외) |
 | 플랫폼 사용자 | backend/api/platform/auth/schemas.py, routes.py | docs/openapi/platform.json |
 | 프론트 연결 | frontend/src/api/cs.ts, tft.ts, platform.ts 중 해당 서비스 | frontend/src/api/generated/ 아래 해당 TypeScript 파일 |
 | HTTP 공통 형식 | backend/shared/models.py, errors.py, backend/api/common/ | 공통 변경은 3개 서비스 산출물에 영향 |
@@ -46,7 +53,7 @@ python3 scripts/workspace.py contracts cs --check
 - 생성 JSON이 충돌하면 어느 한쪽 파일을 고르는 대신 schemas.py와 routes.py의 변경을 합친 뒤 자기 서비스만 다시 생성한다.
 - 공통 HTTP 형식 변경은 3개 서비스 생성과 프론트 컴파일을 함께 확인한다. 공통 패키지에 업무별 모델을 넣거나 서비스끼리 직접 DTO를 import하지 않는다.
 
-기존 [API와 작업 계약](../docs/api-contract.md)은 공통 규칙의 설명이다. 매번 업무 필드를 추가할 때 이 문서를 함께 고칠 필요는 없다. [공통 규칙](common/http.md), [C/S 문의](cs/tickets.md), [TFT 프로젝트](tft/projects.md), [플랫폼 인증](platform/auth.md), [플랫폼 평가 저장](platform/evaluations.md), [플랫폼 작업 접수](platform/jobs.md)을 참고한다. 역할·범위별 권한 행렬, C/S·TFT 업무 상태 전이와 화면별 행동은 [화면·상태·권한](platform/permissions.md)(KAN-57 설계 문서)을 참고한다. 제안이 포함돼 있으므로 확정·제안·미확정 구분은 해당 문서의 표기를 확인한다.
+기존 [API와 작업 계약](../docs/api-contract.md)은 공통 규칙의 설명이다. 매번 업무 필드를 추가할 때 이 문서를 함께 고칠 필요는 없다. [공통 규칙](common/http.md), [C/S 문의](cs/tickets.md), [C/S 개선요청](cs/improvements.md), [C/S 조건 비교(제안, 미구현)](cs/condition-comparison.md), [C/S 집계](cs/stats.md), [TFT 프로젝트](tft/projects.md), [플랫폼 인증](platform/auth.md), [플랫폼 평가 저장](platform/evaluations.md), [플랫폼 작업 접수](platform/jobs.md)을 참고한다. 역할·범위별 권한 행렬, C/S·TFT 업무 상태 전이와 화면별 행동은 [화면·상태·권한](platform/permissions.md)(KAN-57 설계 문서)을 참고한다. 제안이 포함돼 있으므로 확정·제안·미확정 구분은 해당 문서의 표기를 확인한다.
 
 ## 실제 API와 모의 응답
 

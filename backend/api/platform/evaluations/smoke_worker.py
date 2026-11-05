@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import hashlib
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -17,10 +18,31 @@ from backend.api.platform.evaluations.admission import (
     check_actor,
     validate_smoke_experiment,
 )
+from backend.api.platform.evaluations.cs_smoke import run_case
+from backend.engine.cs.classification_call import ClassificationAttempt
+from backend.shared.ai import load_price_table, usage_cost
 from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
-from eval.smoke import FakeProvider, Prediction
+
+
+def attempt_cost(attempt: ClassificationAttempt) -> tuple[Decimal | None, str | None]:
+    """시도 사용량을 저장소 단가표로 계산해 cost_usd·pricing_version 값을 만든다.
+
+    Args:
+        attempt: 요청 모델과 사용량을 가진 분류 시도.
+
+    Returns:
+        tuple[Decimal | None, str | None]: 청구 입력·답변 금액이 모두 계산되고 통화가 USD일 때만
+            (total, '모델@as_of'). 입력·답변 토큰 중 하나라도 미보고면 부분 합계를 확정 비용으로
+            저장하지 않고 (None, None)이다. 캐시·추론 토큰은 쓰지 않은 호출에서 공급자가 생략하므로
+            없어도 0으로 본다. 단가가 없거나 USD가 아니어도 (None, None)이다. 금액은 DB
+            numeric(14,6)에 저장되며 소수 6자리로 반올림된다.
+    """
+    # C/S worker(backend/api/cs/worker_source.py)와 같은 규칙을 쓴다(KAN-107).
+    if attempt.requested_model is None:
+        return None, None
+    return usage_cost(attempt.usage, attempt.requested_model, load_price_table())
 
 
 @dataclass(frozen=True)
@@ -51,14 +73,18 @@ async def locked_run(
     """
     await conn.execute("SET LOCAL lock_timeout='2s'")
     await conn.execute("SET LOCAL statement_timeout='5s'")
+    # 제어 행 잠금을 먼저 얻고 새 명령에서 실행 상태를 읽어 동시 취소의 최신 상태를 본다.
+    await conn.execute(
+        "SELECT run_id FROM evaluation.run_control WHERE run_id=%s FOR UPDATE", (run_id,)
+    )
     cursor = await conn.execute(
-        "SELECT c.*,r.status,r.job_id,r.requested_count,r.requested_by_user_id,r.provider,"
+        "SELECT c.*,r.status,r.needs_review,r.job_id,r.requested_count,r.requested_by_user_id,r.provider,"
         "r.experiment_id,e.created_by_user_id,u.is_active,"
         "(c.lease_expires_at > clock_timestamp()) AS lease_live "
         "FROM evaluation.run_control c JOIN evaluation.runs r ON r.id=c.run_id "
         "JOIN evaluation.experiments e ON e.id=r.experiment_id "
         "JOIN identity.users u ON u.id=r.requested_by_user_id "
-        "JOIN evaluation.admission_receipts a ON a.run_id=r.id "
+        "JOIN evaluation.admission_receipts a ON a.run_id=r.id AND a.origin='ACCEPT' "
         "WHERE c.run_id=%s FOR UPDATE OF c",
         (run_id,),
     )
@@ -93,6 +119,7 @@ async def locked_run(
         or hashlib.sha256("\n".join(refs).encode()).hexdigest() != experiment["target_set_hash"]
     ):
         raise ApplicationError(409, "TARGET_SET_MISMATCH", "Target snapshot differs.")
+    row["cs_profile"] = experiment["configuration"] != {}
     return row
 
 
@@ -140,7 +167,11 @@ async def claim_run(
     async with connection(settings) as conn:
         async with conn.transaction():
             row = await locked_run(conn, settings, access, run_id)
-            if row["status"] not in {"QUEUED", "RUNNING"} or row["lease_live"]:
+            if (
+                row["status"] not in {"QUEUED", "RUNNING"}
+                or row["lease_live"]
+                or row["needs_review"]
+            ):
                 return None
             holder = uuid4()
             cursor = await conn.execute(
@@ -192,21 +223,32 @@ async def advance_run(
             row = await locked_run(conn, settings, access, lease.run_id)
             if (
                 row["status"] != "RUNNING"
+                or row["needs_review"]
                 or not row["lease_live"]
                 or row["holder_id"] != lease.holder_id
                 or row["generation"] != lease.generation
             ):
                 raise ApplicationError(409, "STALE_WORKER", "Worker ownership has expired.")
             cursor = await conn.execute(
-                "SELECT id FROM evaluation.cases WHERE run_id=%s AND status='PENDING' "
+                "SELECT id,target_ref FROM evaluation.cases WHERE run_id=%s AND status='PENDING' "
                 "ORDER BY id LIMIT 1 FOR UPDATE",
                 (lease.run_id,),
             )
             case = await cursor.fetchone()
             if case is not None:
-                prompt = 'Return JSON {"result":"ready"}.'
-                raw, _ = FakeProvider().generate(prompt)
-                parsed = Prediction.model_validate_json(raw).model_dump()
+                attempt = None
+                if row["cs_profile"]:
+                    attempt = run_case(case["target_ref"])
+                    # 원시 검사 후 응답 존재만 보존한다. 임의 원문을 저장하지 않는다.
+                    raw = "[REDACTED]" if attempt.raw_response is not None else None
+                    parsed = attempt.prediction.model_dump() if attempt.prediction else None
+                else:
+                    # 운영 API 이미지는 eval 패키지를 포함하지 않는다.
+                    from eval.smoke import FakeProvider, Prediction
+
+                    prompt = 'Return JSON {"result":"ready"}.'
+                    raw, _ = FakeProvider().generate(prompt)
+                    parsed = Prediction.model_validate_json(raw).model_dump()
                 cursor = await conn.execute(
                     "SELECT lease_expires_at>clock_timestamp() AS live "
                     "FROM evaluation.run_control WHERE run_id=%s",
@@ -215,27 +257,77 @@ async def advance_run(
                 current = await cursor.fetchone()
                 if current is None or not current["live"]:
                     raise ApplicationError(409, "STALE_WORKER", "Worker ownership has expired.")
+                if attempt is None:
+                    await conn.execute(
+                        "INSERT INTO evaluation.case_attempts "
+                        "(id,case_id,step,attempt,is_final,outcome,provider,model_id,input_sha256,"
+                        "raw_output,parsed_output,started_at,finished_at) "
+                        "VALUES (%s,%s,'smoke',1,true,'VALID','fake','fake',%s,%s,%s,now(),now())",
+                        (
+                            uuid4(),
+                            case["id"],
+                            hashlib.sha256(prompt.encode()).hexdigest(),
+                            raw,
+                            Jsonb(parsed),
+                        ),
+                    )
+                    case_status = "VALID"
+                else:
+                    cost_usd, pricing_version = attempt_cost(attempt)
+                    await conn.execute(
+                        "INSERT INTO evaluation.case_attempts "
+                        "(id,case_id,step,attempt,is_final,outcome,provider,model_id,input_sha256,"
+                        "raw_output,parsed_output,started_at,finished_at,model_version,finish_reasons,"
+                        "error_code,http_status,latency_ms,input_tokens,output_tokens,thought_tokens,"
+                        "cached_input_tokens,total_tokens,usage_raw,requested_model,call_attempts,"
+                        "cost_usd,pricing_version) "
+                        "VALUES (%s,%s,'classify',1,true,%s,'fake','fake',%s,%s,%s,now(),now(),"
+                        "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                        (
+                            uuid4(),
+                            case["id"],
+                            attempt.outcome,
+                            attempt.input_sha256,
+                            raw,
+                            Jsonb(parsed) if parsed is not None else None,
+                            attempt.model_version,
+                            list(attempt.finish_reasons),
+                            attempt.error_code,
+                            attempt.http_status,
+                            round(attempt.latency_ms) if attempt.latency_ms is not None else None,
+                            attempt.usage.input_tokens,
+                            attempt.usage.output_tokens,
+                            attempt.usage.thought_tokens,
+                            attempt.usage.cached_input_tokens,
+                            attempt.usage.total_tokens,
+                            Jsonb(attempt.usage.raw) if attempt.usage.raw is not None else None,
+                            attempt.requested_model,
+                            attempt.call_attempts,
+                            cost_usd,
+                            pricing_version,
+                        ),
+                    )
+                    case_status = {
+                        "VALID": "VALID",
+                        "SCHEMA_VIOLATION": "INVALID_OUTPUT",
+                        "TIMEOUT": "FAILED",
+                        "TRANSPORT_FAILURE": "FAILED",
+                        "HELD": "HELD",
+                    }[attempt.outcome]
                 await conn.execute(
-                    "INSERT INTO evaluation.case_attempts "
-                    "(id,case_id,step,attempt,is_final,outcome,provider,model_id,input_sha256,"
-                    "raw_output,parsed_output,started_at,finished_at) "
-                    "VALUES (%s,%s,'smoke',1,true,'VALID','fake','fake',%s,%s,%s,now(),now())",
-                    (
-                        uuid4(),
-                        case["id"],
-                        hashlib.sha256(prompt.encode()).hexdigest(),
-                        raw,
-                        Jsonb(parsed),
-                    ),
-                )
-                await conn.execute(
-                    "UPDATE evaluation.cases SET status='VALID',final_output=%s,completed_at=now() "
+                    "UPDATE evaluation.cases SET status=%s,final_output=%s,completed_at=now() "
                     "WHERE id=%s",
-                    (Jsonb(parsed), case["id"]),
+                    (case_status, Jsonb(parsed) if parsed is not None else None, case["id"]),
                 )
                 await conn.execute(
-                    "UPDATE evaluation.runs SET valid_output_count=valid_output_count+1 WHERE id=%s",
-                    (lease.run_id,),
+                    "UPDATE evaluation.runs SET valid_output_count=valid_output_count+%s,"
+                    "held_count=held_count+%s,failed_count=failed_count+%s WHERE id=%s",
+                    (
+                        int(case_status == "VALID"),
+                        int(case_status == "HELD"),
+                        int(case_status in {"INVALID_OUTPUT", "FAILED"}),
+                        lease.run_id,
+                    ),
                 )
                 await append_event(conn, row["job_id"], "job.progress", {"step": "smoke"})
                 await conn.execute(
@@ -253,15 +345,22 @@ async def advance_run(
             if (
                 counts is None
                 or counts["total"] != row["requested_count"]
-                or counts["valid"] != counts["total"]
+                or (not row["cs_profile"] and counts["valid"] != counts["total"])
             ):
                 raise ApplicationError(409, "SMOKE_INCOMPLETE", "Smoke cases are incomplete.")
-            await conn.execute(
-                "UPDATE evaluation.runs SET status='SUCCEEDED',finished_at=now() WHERE id=%s",
-                (lease.run_id,),
+            state = (
+                "SUCCEEDED"
+                if counts["valid"] == counts["total"]
+                else "PARTIAL"
+                if counts["valid"]
+                else "FAILED"
             )
             await conn.execute(
-                "UPDATE runtime.jobs SET status='SUCCEEDED' WHERE id=%s", (row["job_id"],)
+                "UPDATE evaluation.runs SET status=%s,finished_at=now() WHERE id=%s",
+                (state, lease.run_id),
+            )
+            await conn.execute(
+                "UPDATE runtime.jobs SET status=%s WHERE id=%s", (state, row["job_id"])
             )
             await conn.execute(
                 "UPDATE evaluation.run_control SET holder_id=NULL,lease_expires_at=NULL,version=version+1 "
@@ -269,9 +368,84 @@ async def advance_run(
                 (lease.run_id,),
             )
             await append_event(
-                conn, row["job_id"], "job.completed", {"state": "SUCCEEDED", "synthetic": True}
+                conn,
+                row["job_id"],
+                "job.failed" if state == "FAILED" else "job.completed",
+                {"state": state, "synthetic": True},
             )
             return True
+
+
+REVIEW_CODES = frozenset(
+    {
+        "FORBIDDEN",
+        "SMOKE_ACCESS_DENIED",
+        "FINAL_TEST_LOCKED",
+        "EXPERIMENT_NOT_APPROVED",
+        "LOCAL_SMOKE_ONLY",
+        "EXPERIMENT_HASH_MISMATCH",
+        "TARGET_SET_MISMATCH",
+        "SMOKE_INCOMPLETE",
+    }
+)
+
+
+async def park_run(
+    settings: Settings,
+    access: EvaluationAccessSettings,
+    run_id: UUID,
+    code: str,
+    lease: SmokeLease | None,
+) -> None:
+    """검증 위반 실행을 자동 재시도에서 제외하고 안전한 코드로 검토 필요를 기록한다.
+
+    Args:
+        settings: 로컬 DB 설정.
+        access: worker 활성 환경 설정.
+        run_id: 대상 실행 UUID.
+        code: 명시 허용한 안전한 오류 코드.
+        lease: 오류가 난 실행자의 소유권. 인수 전 실패면 None.
+
+    Returns:
+        None: 최신 소유권을 침범하지 않는 경우에만 보류를 commit한다.
+    """
+    if not admission_available(settings, access) or code not in REVIEW_CODES:
+        return
+    async with connection(settings) as conn:
+        async with conn.transaction():
+            await conn.execute("SET LOCAL lock_timeout='2s'")
+            await conn.execute("SET LOCAL statement_timeout='5s'")
+            await conn.execute(
+                "SELECT run_id FROM evaluation.run_control WHERE run_id=%s FOR UPDATE", (run_id,)
+            )
+            cursor = await conn.execute(
+                "SELECT c.*,r.status,r.job_id,r.needs_review,"
+                "c.lease_expires_at>clock_timestamp() AS lease_live "
+                "FROM evaluation.run_control c JOIN evaluation.runs r ON r.id=c.run_id "
+                "JOIN evaluation.admission_receipts a ON a.run_id=r.id AND a.origin='ACCEPT' "
+                "WHERE c.run_id=%s FOR UPDATE OF c",
+                (run_id,),
+            )
+            row = await cursor.fetchone()
+            if row is None or row["status"] not in {"QUEUED", "RUNNING"} or row["needs_review"]:
+                return
+            if lease is None:
+                if row["lease_live"]:
+                    return
+            elif row["generation"] != lease.generation or row["holder_id"] != lease.holder_id:
+                return
+            await conn.execute(
+                "UPDATE evaluation.runs SET needs_review=true,failure_code=%s WHERE id=%s",
+                (code, run_id),
+            )
+            await conn.execute(
+                "UPDATE evaluation.run_control SET generation=generation+1,holder_id=NULL,"
+                "lease_expires_at=NULL,version=version+1 WHERE run_id=%s",
+                (run_id,),
+            )
+            await append_event(
+                conn, row["job_id"], "job.progress", {"needs_review": True, "code": code}
+            )
 
 
 async def dispatch_one(settings: Settings, access: EvaluationAccessSettings) -> UUID | None:
@@ -291,21 +465,25 @@ async def dispatch_one(settings: Settings, access: EvaluationAccessSettings) -> 
             "SELECT r.id FROM runtime.dispatch_outbox o JOIN evaluation.runs r ON r.job_id=o.job_id "
             "JOIN evaluation.run_control c ON c.run_id=r.id "
             "JOIN evaluation.experiments e ON e.id=r.experiment_id "
-            "WHERE r.status IN ('QUEUED','RUNNING') AND "
+            "WHERE r.status IN ('QUEUED','RUNNING') AND NOT r.needs_review AND "
             "(c.holder_id IS NULL OR c.lease_expires_at<=clock_timestamp()) "
-            "AND r.requested_by_user_id=ANY(%s) AND e.config_hash=ANY(%s) "
             "ORDER BY o.created_at,o.job_id LIMIT 1",
-            (list(access.evaluator_user_ids), list(access.approved_config_hashes)),
         )
         row = await cursor.fetchone()
     if row is None:
         return None
-    lease = await claim_run(settings, access, row["id"])
-    if lease is None:
-        return None
-    while not await advance_run(settings, access, lease):
-        pass
-    return lease.run_id
+    lease = None
+    try:
+        lease = await claim_run(settings, access, row["id"])
+        if lease is None:
+            return None
+        while not await advance_run(settings, access, lease):
+            pass
+        return lease.run_id
+    except ApplicationError as error:
+        if error.code in REVIEW_CODES:
+            await park_run(settings, access, row["id"], error.code, lease)
+        raise
 
 
 def main() -> None:

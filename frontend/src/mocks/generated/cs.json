@@ -9,22 +9,30 @@
           {
             "id": "22222222-2222-4222-8222-222222222223",
             "subject": "Problem with Oil-immersed Transformer 1000kVA",
+            "subject_ko": null,
             "data_origin": "synthetic",
             "external_id": "CSV1-000120",
             "derivation_kind": "PROVIDED",
             "received_at": "2025-10-14T08:18:51Z",
             "channel": "PHONE",
-            "product_code": "TRF-OIL-1000"
+            "product_code": "TRF-OIL-1000",
+            "workflow_state": "IN_REVIEW",
+            "owner_user_id": null,
+            "transfer": null
           },
           {
             "id": "22222222-2222-4222-8222-222222222222",
             "subject": "Kurulum sorusu TRF-OIL-1000",
+            "subject_ko": null,
             "data_origin": "synthetic",
             "external_id": "CSV1-000044",
             "derivation_kind": "PROVIDED",
             "received_at": "2025-10-05T16:42:59Z",
             "channel": "PARTNER_PORTAL",
-            "product_code": "TRF-OIL-1000"
+            "product_code": "TRF-OIL-1000",
+            "workflow_state": "CLOSED",
+            "owner_user_id": null,
+            "transfer": null
           }
         ],
         "next_cursor": null
@@ -55,6 +63,7 @@
         "body": "Oil-immersed Transformer 1000kVA için doğru kurulum prosedürü nedir? Bu model ile ilk projemiz.\n\nAyrıntılar:\n- Ürün modeli / sipariş kodu: TRF-OIL-1000\n- Seri numarası (etiket üzerindeki): **MASKED**\n- Saha koşulları (ortam sıcaklığı, rakım, nem): 50 °C, 300 m\n- Bağlantı / tek hat şeması: [attachment: SLD.pdf]",
         "fw_version_reported": null,
         "error_code_reported": null,
+        "workflow_state": "CLOSED",
         "resolution_case": {
           "id": "44444444-4444-4444-8444-444444444444",
           "external_id": "RC-0007",
@@ -73,7 +82,11 @@
           "rma_no": null,
           "fw_fixed_version": null,
           "resolved_by_dept": "FIELD_SVC",
-          "recurrence_prevention": "Quality feedback sent to factory for lot analysis."
+          "recurrence_prevention": "Quality feedback sent to factory for lot analysis.",
+          "dept_result_id": null,
+          "responsibility": null,
+          "non_manufacturing_reason": null,
+          "improvement_candidate": null
         }
       },
       "meta": {
@@ -102,6 +115,7 @@
         "body": "Oil leakage at the gasket was found during installation.",
         "fw_version_reported": null,
         "error_code_reported": null,
+        "workflow_state": "RECEIVED",
         "resolution_case": null
       },
       "meta": {
@@ -130,6 +144,7 @@
         "body": "Oil leakage at the gasket was found during installation.",
         "fw_version_reported": null,
         "error_code_reported": null,
+        "workflow_state": "RECEIVED",
         "resolution_case": null
       },
       "meta": {
@@ -191,6 +206,738 @@
       },
       "meta": {
         "request_id": "11111111-1111-4111-8111-111111111111"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/cs/tickets/66666666-6666-4666-8666-666666666661/units",
+    "status": 200,
+    "body": {
+      "data": {
+        "items": [
+          {
+            "unit": {
+              "id": "77777777-7777-4777-8777-777777777771",
+              "external_id": null,
+              "data_origin": "demo",
+              "derivation_kind": "ASSUMED",
+              "serial_no": "VSN-MTR-1301",
+              "customer_external_id": "CUST-0130",
+              "product_code": "METER-LP3500-3P4W",
+              "site_code": null,
+              "commissioning_date": "2024-05-01",
+              "commissioning_status": "CONFIRMED",
+              "ship_date": null,
+              "lot_no": null,
+              "fw_version_last": null,
+              "unit_status": "ACTIVE",
+              "replaced_by_unit_id": null
+            },
+            "matches_ticket": true,
+            "link": {
+              "id": "99999999-9999-4999-8999-999999999991",
+              "version": 1,
+              "link_status": "REJECTED",
+              "link_basis": "AGENT_REVIEW",
+              "repeat_type": "DIFFERENT_UNIT",
+              "decided_by": "88888888-8888-4888-8888-888888888881",
+              "decided_at": "2026-09-11T03:00:00Z"
+            }
+          },
+          {
+            "unit": {
+              "id": "77777777-7777-4777-8777-777777777772",
+              "external_id": null,
+              "data_origin": "demo",
+              "derivation_kind": "ASSUMED",
+              "serial_no": "VSN-MTR-1302",
+              "customer_external_id": "CUST-0130",
+              "product_code": "METER-LP3500-3P4W",
+              "site_code": null,
+              "commissioning_date": null,
+              "commissioning_status": "UNKNOWN",
+              "ship_date": null,
+              "lot_no": null,
+              "fw_version_last": null,
+              "unit_status": "ACTIVE",
+              "replaced_by_unit_id": null
+            },
+            "matches_ticket": true,
+            "link": {
+              "id": "99999999-9999-4999-8999-999999999992",
+              "version": 1,
+              "link_status": "CONFIRMED",
+              "link_basis": "SERIAL_PROVIDED",
+              "repeat_type": null,
+              "decided_by": "88888888-8888-4888-8888-888888888881",
+              "decided_at": "2026-09-11T03:00:00Z"
+            }
+          }
+        ]
+      },
+      "meta": {
+        "request_id": "11111111-1111-4111-8111-111111111111"
+      }
+    }
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/cs/tickets/66666666-6666-4666-8666-666666666661/units/77777777-7777-4777-8777-777777777772",
+    "status": 200,
+    "body": {
+      "data": {
+        "unit": {
+          "id": "77777777-7777-4777-8777-777777777772",
+          "external_id": null,
+          "data_origin": "demo",
+          "derivation_kind": "ASSUMED",
+          "serial_no": "VSN-MTR-1302",
+          "customer_external_id": "CUST-0130",
+          "product_code": "METER-LP3500-3P4W",
+          "site_code": null,
+          "commissioning_date": null,
+          "commissioning_status": "UNKNOWN",
+          "ship_date": null,
+          "lot_no": null,
+          "fw_version_last": null,
+          "unit_status": "ACTIVE",
+          "replaced_by_unit_id": null
+        },
+        "matches_ticket": true,
+        "link": {
+          "id": "99999999-9999-4999-8999-999999999992",
+          "version": 1,
+          "link_status": "CONFIRMED",
+          "link_basis": "SERIAL_PROVIDED",
+          "repeat_type": null,
+          "decided_by": "88888888-8888-4888-8888-888888888881",
+          "decided_at": "2026-09-11T03:00:00Z"
+        }
+      },
+      "meta": {
+        "request_id": "11111111-1111-4111-8111-111111111111"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/cs/tickets/66666666-6666-4666-8666-666666666661/unit-history",
+    "status": 200,
+    "body": {
+      "data": {
+        "status": "CONFIRMED",
+        "unit": {
+          "id": "77777777-7777-4777-8777-777777777772",
+          "external_id": null,
+          "data_origin": "demo",
+          "derivation_kind": "ASSUMED",
+          "serial_no": "VSN-MTR-1302",
+          "customer_external_id": "CUST-0130",
+          "product_code": "METER-LP3500-3P4W",
+          "site_code": null,
+          "commissioning_date": null,
+          "commissioning_status": "UNKNOWN",
+          "ship_date": null,
+          "lot_no": null,
+          "fw_version_last": null,
+          "unit_status": "ACTIVE",
+          "replaced_by_unit_id": null
+        },
+        "items": []
+      },
+      "meta": {
+        "request_id": "11111111-1111-4111-8111-111111111111"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/cs/tickets/22222222-2222-4222-8222-222222222223/workflow",
+    "status": 200,
+    "body": {
+      "data": {
+        "ticket_id": "22222222-2222-4222-8222-222222222223",
+        "state": "IN_REVIEW",
+        "version": 4,
+        "owner_user_id": "88888888-8888-4888-8888-888888888881",
+        "customer_sent_at": null,
+        "closed_at": null,
+        "closed_by": null,
+        "return_responsibility": null,
+        "return_cause_type": null,
+        "return_non_manufacturing_reason": null,
+        "return_response_note": null,
+        "return_subtype_confirmed": null,
+        "return_subtype_confirmed_by": null,
+        "return_subtype_confirmed_at": null,
+        "transfers": [
+          {
+            "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+            "round": 1,
+            "dept_code": "TS_TRF",
+            "status": "RESULT_SUBMITTED",
+            "reason": "Oil leakage needs a transformer engineer.",
+            "transferred_by": "88888888-8888-4888-8888-888888888881",
+            "transferred_at": "2025-10-05T18:00:00Z",
+            "ended_by": "88888888-8888-4888-8888-888888888882",
+            "ended_at": "2025-10-06T15:00:00Z",
+            "end_reason": null
+          }
+        ],
+        "dept_results": [
+          {
+            "id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1",
+            "transfer_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+            "dept_code": "TS_TRF",
+            "version": 2,
+            "result": "Gasket damaged in transport. Field service replaces it on site.",
+            "reply_content": "An engineer will replace the gasket and top up the oil.",
+            "submitted_by": "88888888-8888-4888-8888-888888888882",
+            "submitted_at": "2025-10-06T15:00:00Z",
+            "review_status": "ACCEPTED",
+            "reviewed_by": "88888888-8888-4888-8888-888888888881",
+            "reviewed_at": "2025-10-06T16:00:00Z",
+            "review_note": null
+          }
+        ],
+        "mail_origin": null,
+        "customer_sends": [],
+        "customer_replies": [],
+        "assignment": {
+          "id": "dddddddd-dddd-4ddd-8ddd-ddddddddddd1",
+          "user_id": "88888888-8888-4888-8888-888888888881",
+          "rule_version": "cs-assign-v1",
+          "reason_code": "LANGUAGE_AND_FAMILY",
+          "matched_language": "tr",
+          "matched_family": "TRANSFORMER",
+          "candidate_count": 2,
+          "chosen_open_count": 3,
+          "trigger": "INTAKE",
+          "decided_by": null,
+          "created_at": "2025-10-05T16:43:00Z"
+        }
+      },
+      "meta": {
+        "request_id": "11111111-1111-4111-8111-111111111111"
+      }
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/cs/tickets/22222222-2222-4222-8222-222222222223/resolution-case",
+    "status": 201,
+    "body": {
+      "data": {
+        "id": "cccccccc-cccc-4ccc-8ccc-ccccccccccc1",
+        "external_id": null,
+        "data_origin": "synthetic",
+        "derivation_kind": "SYSTEM",
+        "resolved_at": "2025-10-07T08:30:00Z",
+        "known_at": "2025-10-07T09:00:00Z",
+        "product_code": "TRF-OIL-1000",
+        "fault_id": "FLT-067",
+        "fw_version_at_issue": null,
+        "symptom": "Oil leakage at gasket",
+        "root_cause": "Gasket damaged in transport",
+        "root_cause_type": "WEAR_PART",
+        "action_taken": "Replace gasket and top up oil",
+        "onsite_visit": true,
+        "rma_no": null,
+        "fw_fixed_version": null,
+        "resolved_by_dept": "FIELD_SVC",
+        "recurrence_prevention": null,
+        "dept_result_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1",
+        "responsibility": null,
+        "non_manufacturing_reason": null,
+        "improvement_candidate": null
+      },
+      "meta": {
+        "request_id": "11111111-1111-4111-8111-111111111111"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/cs/improvement-requests/dddddddd-dddd-4ddd-8ddd-ddddddddddd1",
+    "status": 200,
+    "body": {
+      "data": {
+        "request": {
+          "id": "dddddddd-dddd-4ddd-8ddd-ddddddddddd1",
+          "request_type": "FAULT",
+          "origin": "MANUAL",
+          "data_origin": "synthetic",
+          "derivation_kind": "SYSTEM",
+          "product_code": "TRF-OIL-1000",
+          "fault_id": "FLT-067",
+          "doc_signal": null,
+          "doc_id": null,
+          "condition_status": "UNKNOWN",
+          "condition_summary": null,
+          "fw_fixed_version": null,
+          "fw_released_on": null,
+          "status": "DRAFT",
+          "version": 1,
+          "current_round": 0,
+          "cs_owner": "88888888-8888-4888-8888-888888888881",
+          "problem_statement": "Gasket leaks on the 1000 kVA oil transformer were reported by three customers (Turkey, USA, Thailand) within 40 days. Investigate common packing, transport or handling factors.",
+          "confirmed_facts": "All three were fixed on site by replacing the gasket and topping up oil.",
+          "inconsistencies": "The recorded cause is transport damage, but the cause type is WEAR_PART and the prevention note asks for factory lot analysis.",
+          "missing_info": "Shipping dates, transport route and receiving photos.",
+          "not_claimed": "That the factory lot is defective.",
+          "review_task": null,
+          "proposed_depts": [
+            "QA_CLAIM"
+          ],
+          "receiver_unconfirmed": false,
+          "candidate_reason_code": null,
+          "candidate_reached_at": null,
+          "candidate_rules_version": null,
+          "candidate_as_of": null,
+          "reviewed_by": null,
+          "reviewed_at": null,
+          "sent_at": null,
+          "followup_plan": null,
+          "followup_result": null,
+          "completed_by": null,
+          "completed_at": null,
+          "created_by": "88888888-8888-4888-8888-888888888881",
+          "created_at": "2025-11-15T09:00:00Z"
+        },
+        "evidence": [
+          {
+            "id": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1",
+            "ticket_id": "22222222-2222-4222-8222-222222222222",
+            "ticket_external_id": "CSV1-000044",
+            "case_id": "44444444-4444-4444-8444-444444444444",
+            "case_external_id": "RC-0007",
+            "ticket_subject": null,
+            "ticket_received_at": null,
+            "customer_external_id": null,
+            "added_by": "88888888-8888-4888-8888-888888888881",
+            "added_at": "2025-11-15T09:00:00Z",
+            "removed_by": null,
+            "removed_at": null,
+            "removal_reason": null
+          },
+          {
+            "id": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee2",
+            "ticket_id": "22222222-2222-4222-8222-222222222223",
+            "ticket_external_id": "CSV1-000120",
+            "case_id": "44444444-4444-4444-8444-444444444445",
+            "case_external_id": "RC-0022",
+            "ticket_subject": null,
+            "ticket_received_at": null,
+            "customer_external_id": null,
+            "added_by": "88888888-8888-4888-8888-888888888881",
+            "added_at": "2025-11-15T09:00:00Z",
+            "removed_by": null,
+            "removed_at": null,
+            "removal_reason": null
+          },
+          {
+            "id": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee3",
+            "ticket_id": "22222222-2222-4222-8222-222222222225",
+            "ticket_external_id": "CSV1-000445",
+            "case_id": "44444444-4444-4444-8444-444444444446",
+            "case_external_id": "RC-0102",
+            "ticket_subject": null,
+            "ticket_received_at": null,
+            "customer_external_id": null,
+            "added_by": "88888888-8888-4888-8888-888888888881",
+            "added_at": "2025-11-15T09:00:00Z",
+            "removed_by": null,
+            "removed_at": null,
+            "removal_reason": null
+          }
+        ],
+        "departments": [],
+        "replies": [],
+        "actions": [],
+        "rounds": [],
+        "next_owners": [
+          {
+            "actor": "CS_OWNER",
+            "user_id": "88888888-8888-4888-8888-888888888881",
+            "dept_code": null,
+            "task": "REVIEW"
+          }
+        ]
+      },
+      "meta": {
+        "request_id": "11111111-1111-4111-8111-111111111111"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/cs/stats/overview",
+    "status": 200,
+    "body": {
+      "data": {
+        "scope": "ALL",
+        "period": {
+          "start": "2026-09-01T00:00:00Z",
+          "end": "2026-10-01T00:00:00Z"
+        },
+        "dept_code": null,
+        "customer_external_id": null,
+        "data_range": {
+          "first_received_at": "2025-10-01T04:10:51Z",
+          "last_received_at": "2026-09-30T21:05:00Z"
+        },
+        "tickets": {
+          "received": 42,
+          "closed": 35,
+          "open": 9,
+          "by_state": {
+            "RECEIVED": 2,
+            "IN_REVIEW": 4,
+            "WAITING_CUSTOMER": 1,
+            "ANSWERED": 1,
+            "TRANSFERRED": 1,
+            "CLOSED": 33
+          },
+          "by_origin": {
+            "synthetic": 40,
+            "demo": 2,
+            "real": 0
+          },
+          "open_age": {
+            "under_1_day": 3,
+            "from_1_to_3_days": 2,
+            "from_3_to_7_days": 3,
+            "over_7_days": 1
+          }
+        },
+        "departments": [
+          {
+            "dept_code": "TS_TRF",
+            "transferred": 4,
+            "results_submitted": 3,
+            "results_accepted": 2,
+            "returned_or_recalled": 1,
+            "waiting": 1,
+            "waiting_over_7_days": 0,
+            "avg_reply_days": 2.4
+          }
+        ],
+        "top_customers": [
+          {
+            "customer_external_id": "CUST-0374",
+            "received": 3,
+            "open": 1
+          }
+        ],
+        "improvements": {
+          "by_status": {
+            "DRAFT": 1,
+            "SENT": 1
+          },
+          "by_type": {
+            "FAULT": 2,
+            "DOCUMENT": 0
+          },
+          "open": 2,
+          "receiver_unconfirmed": 0,
+          "completed_in_period": 0,
+          "info_requested": 0,
+          "rejected": 0,
+          "reply_overdue": 1,
+          "recurrence_after_completion": {
+            "checked": 0,
+            "recurrence": 0,
+            "not_applicable": 0,
+            "limited": false
+          }
+        },
+        "unconfirmed": [
+          "RULE_ASSIGNED_DEPT"
+        ],
+        "sla": {
+          "measured_at": "2026-10-01T00:00:00Z",
+          "first_response": {
+            "met": 36,
+            "breached": 4,
+            "pending": 1,
+            "unrecorded": 1
+          },
+          "resolution": {
+            "met": 31,
+            "breached": 4,
+            "pending": 0,
+            "unrecorded": 0
+          },
+          "at_risk": 2,
+          "overdue": 1,
+          "unknown": 0,
+          "by_priority": [
+            {
+              "priority": "P1",
+              "met": 3,
+              "breached": 1,
+              "at_risk": 1,
+              "overdue": 1
+            },
+            {
+              "priority": "P2",
+              "met": 6,
+              "breached": 1,
+              "at_risk": 0,
+              "overdue": 0
+            },
+            {
+              "priority": "P3",
+              "met": 18,
+              "breached": 2,
+              "at_risk": 1,
+              "overdue": 0
+            },
+            {
+              "priority": "P4",
+              "met": 4,
+              "breached": 0,
+              "at_risk": 0,
+              "overdue": 0
+            }
+          ],
+          "overdue_tickets": [
+            {
+              "ticket_id": "22222222-2222-4222-8222-222222222222",
+              "external_id": "CSV1-000044",
+              "subject": "Oil leakage at gasket",
+              "priority": "P1",
+              "resolution_due": "2026-09-30T09:00:00Z",
+              "overdue_hours": 15.0,
+              "owner_user_id": null
+            }
+          ]
+        }
+      },
+      "meta": {
+        "request_id": "11111111-1111-4111-8111-111111111111"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/cs/assignments/agents",
+    "status": 200,
+    "body": {
+      "data": {
+        "rule_version": "cs-assign-v1",
+        "request_rule_version": "cs-assign-request-v1",
+        "items": [
+          {
+            "user_id": "88888888-8888-4888-8888-888888888881",
+            "languages": [
+              "en",
+              "tr",
+              "ru"
+            ],
+            "families": [
+              "TRANSFORMER",
+              "MV_EQUIP"
+            ],
+            "active": true,
+            "open_count": 3,
+            "open_request_count": 1,
+            "data_origin": "demo",
+            "derivation_kind": "ASSUMED"
+          },
+          {
+            "user_id": "88888888-8888-4888-8888-888888888883",
+            "languages": [
+              "en",
+              "th",
+              "vi"
+            ],
+            "families": [
+              "LV_BREAKER",
+              "DRIVE"
+            ],
+            "active": true,
+            "open_count": 1,
+            "open_request_count": 0,
+            "data_origin": "demo",
+            "derivation_kind": "ASSUMED"
+          }
+        ]
+      },
+      "meta": {
+        "request_id": "11111111-1111-4111-8111-111111111111"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/cs/assignments/unmatched",
+    "status": 200,
+    "body": {
+      "data": {
+        "items": [
+          {
+            "ticket_id": "22222222-2222-4222-8222-222222222234",
+            "external_id": "MAIL-20261105-0007",
+            "subject": "A PLC nem indul újra áramszünet után",
+            "subject_ko": null,
+            "channel": "EMAIL",
+            "product_code": "PLC-NX-32",
+            "body_language": "hu",
+            "received_at": "2026-11-05T09:00:00Z",
+            "reason_code": "NO_MATCH",
+            "language": "hu",
+            "family": null,
+            "trigger": "INTAKE",
+            "decided_at": "2026-11-05T09:00:00Z"
+          }
+        ],
+        "has_more": false
+      },
+      "meta": {
+        "request_id": "11111111-1111-4111-8111-111111111111"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/cs/assignments/improvements/unmatched",
+    "status": 200,
+    "body": {
+      "data": {
+        "items": [
+          {
+            "request_id": "66666666-6666-4666-8666-666666666634",
+            "request_type": "FAULT",
+            "product_code": "PLC-XGI-CPUU",
+            "fault_id": "FLT-031",
+            "status": "DRAFT",
+            "created_at": "2026-11-05T09:00:00Z",
+            "reason_code": "NO_MATCH",
+            "family": "PLC",
+            "trigger": "CANDIDATE",
+            "decided_at": "2026-11-05T09:00:00Z"
+          }
+        ],
+        "has_more": false
+      },
+      "meta": {
+        "request_id": "11111111-1111-4111-8111-111111111111"
+      }
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/cs/condition-comparisons?product_code=SYN-PRD-01&fault_id=FLT-902",
+    "status": 200,
+    "body": {
+      "data": {
+        "comparison_id": "5b0f6a52-3c1e-4c7a-9d10-0b6f2a7e9c02",
+        "product_code": "SYN-PRD-01",
+        "fault_id": "FLT-902",
+        "improvement_request_id": "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e02",
+        "request_version": 5,
+        "version": 1,
+        "latest_version": 1,
+        "is_latest": true,
+        "data_origin": "synthetic",
+        "derivation_kind": "DERIVED",
+        "known_at": "2026-10-28T01:00:00Z",
+        "computed_condition_status": "UNKNOWN",
+        "condition_summary": "정격 상한 근처 운전 사례 위주(합성)",
+        "fw_fixed_version": "SYN-FW-2.1",
+        "fw_released_on": "2026-10-15",
+        "summary": {
+          "confirmed": 0,
+          "suspected": 1,
+          "unconfirmed": 0
+        },
+        "conditions": [
+          {
+            "judgement": "SUSPECTED",
+            "unconfirmed_reason": null,
+            "masked_summary": "정격 상한 근처 운전 사례에서 재발 의심",
+            "summary_missing_reason": null,
+            "provenance_kind": "ai_draft",
+            "decided_by_name": null,
+            "decided_at": "2026-10-27T09:00:00Z",
+            "evidence_ids": [
+              "ev-1"
+            ],
+            "hidden_evidence_count": 0,
+            "item_code": "application",
+            "item_label": "적용 조건(전압·부하·운전 주기)",
+            "finding": "DIFFERS",
+            "baseline": {
+              "masked_value": "정격 부하 운전",
+              "missing_reason": null
+            },
+            "target": {
+              "masked_value": "정격 상한 근처 운전",
+              "missing_reason": null
+            }
+          }
+        ],
+        "causes": [
+          {
+            "judgement": "SUSPECTED",
+            "unconfirmed_reason": null,
+            "masked_summary": "펌웨어 판올림 후 재발 감소",
+            "summary_missing_reason": null,
+            "provenance_kind": "ai_draft",
+            "decided_by_name": null,
+            "decided_at": "2026-10-27T09:00:00Z",
+            "evidence_ids": [
+              "ev-1"
+            ],
+            "hidden_evidence_count": 0,
+            "cause_type": "FIRMWARE"
+          }
+        ],
+        "document_signals": [
+          {
+            "doc_signal": "VALUE_CONFLICT",
+            "provenance_kind": "system_record",
+            "evidence_ids": [
+              "ev-3"
+            ],
+            "hidden_evidence_count": 0
+          }
+        ],
+        "evidence": [
+          {
+            "evidence_id": "ev-1",
+            "case_id": "0f2d7c1e-8a44-4b1a-9e3e-6a1c2b3d4e01",
+            "ticket_id": "7a1e2b3c-4d5e-4f60-8a71-b2c3d4e5f601",
+            "evidence_location": {
+              "source": "resolution_case",
+              "field": "root_cause"
+            },
+            "data_origin": "synthetic",
+            "derivation_kind": "SYSTEM",
+            "known_at": "2026-10-20T00:00:00Z"
+          },
+          {
+            "evidence_id": "ev-3",
+            "case_id": null,
+            "ticket_id": null,
+            "evidence_location": {
+              "doc_id": "doc-syn-manual",
+              "version": "docv-3",
+              "page": 12,
+              "char_start": 340,
+              "char_end": 362
+            },
+            "data_origin": "synthetic",
+            "derivation_kind": "PROVIDED",
+            "known_at": "2026-10-01T00:00:00Z"
+          }
+        ],
+        "hidden_evidence_count": 0
+      },
+      "meta": {
+        "request_id": "11111111-1111-4111-8111-111111111199"
       }
     }
   }

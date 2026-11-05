@@ -1,0 +1,31 @@
+RFP Persona runtime and source notices
+
+Runtime: @rive-app/react-webgl2 4.38.0 (MIT), which depends on
+@rive-app/webgl2 2.48.0 (MIT). The two WASM files in 2.48.0/ are copied
+without modification from that exact npm package. Both the primary and
+architecture fallback runtime are served by this application; no runtime
+WASM CDN fallback is configured. Runtime license notices are included here.
+
+RfpPersona.tsx adapts the state-machine and default-view-model integration
+from Vercel AI Elements Persona (Apache-2.0):
+https://raw.githubusercontent.com/vercel/ai-elements/main/packages/elements/src/persona.tsx
+https://elements.ai-sdk.dev/components/persona
+Copyright 2023 Vercel, Inc. See LICENSE-ai-elements.txt.
+Changes: Halo-only interface, local WASM, lifecycle/failure handling,
+reduced-motion fallback, paused playback, and the app's existing light theme.
+
+The animation itself is loaded directly from the exact official sample URL:
+https://ejiidnob33g9ap1r.public.blob.vercel-storage.com/halo-2.0.riv
+No .riv binary is stored or redistributed in this repository. That request
+contains no application text, documents, model inputs, or API keys. An external
+asset outage produces the static AI fallback and does not affect job status.
+
+The repository's code license does not establish a separate redistribution
+license for the externally hosted animation. Upstream clarification remains
+open at https://github.com/vercel/ai-elements/issues/471 . Do not describe the
+Halo binary as locally licensed Apache-2.0 or copy it into a distributed bundle
+on the strength of the source-code license alone.
+
+Runtime originals:
+https://github.com/rive-app/rive-react
+https://github.com/rive-app/rive-wasm

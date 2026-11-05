@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from backend.api.cs.main import create_app
 from backend.api.cs.tickets import repository, routes
+from backend.api.cs.translation import repository as translations
 from backend.shared.access import Principal, principal_header
 from backend.shared.settings import Settings
 
@@ -35,10 +36,13 @@ def ticket_row(index: int) -> dict:
         "body": "body",
         "fw_version_reported": None,
         "error_code_reported": None,
+        "workflow_state": "RECEIVED",
     }
 
 
 ROWS = [ticket_row(i) for i in range(5)]
+# Departments each ticket was ever transferred to (cs.ticket_transfers).
+TRANSFERS = {ROWS[3]["id"]: {"TS_TRF"}}
 CASE = {
     "id": uuid4(),
     "external_id": "RC-0007",
@@ -67,8 +71,10 @@ def client(monkeypatch):
     async def fake_connection(settings):
         yield object()
 
-    async def fake_list(conn, limit, after):
+    async def fake_list(conn, limit, after, departments=None, *, filters=None, ascending=False):
         rows = sorted(ROWS, key=lambda r: (r["received_at"], r["id"]), reverse=True)
+        if departments is not None:
+            rows = [r for r in rows if TRANSFERS.get(r["id"], set()) & departments]
         if after:
             rows = [r for r in rows if (r["received_at"], r["id"]) < after]
         return rows[: limit + 1]
@@ -82,7 +88,16 @@ def client(monkeypatch):
     monkeypatch.setattr(routes, "connection", fake_connection)
     monkeypatch.setattr(repository, "list_tickets", fake_list)
     monkeypatch.setattr(repository, "get_ticket", fake_get)
+
+    async def fake_transferred_to(conn, ticket_id, departments):
+        return bool(TRANSFERS.get(ticket_id, set()) & departments)
+
+    async def fake_korean(conn, ticket_ids):
+        return {}
+
     monkeypatch.setattr(repository, "get_resolution_case", fake_case)
+    monkeypatch.setattr(repository, "transferred_to", fake_transferred_to)
+    monkeypatch.setattr(translations, "korean_subjects", fake_korean)
     app = create_app(Settings(_env_file=None, environment="test"))
     with TestClient(app, headers=principal_header(CS_AGENT)) as test_client:
         yield test_client
@@ -182,14 +197,21 @@ def test_c_s_department_manager_sees_every_ticket(client):
 
 
 @pytest.mark.parametrize("user", [OTHER_MANAGER, DEPT_STAFF])
-def test_transfer_department_users_see_no_ticket_until_transfers_exist(client, user):
+def test_transfer_department_users_see_only_tickets_transferred_to_them(client, user):
     headers = as_user(**user)
     body = client.get("/api/v1/cs/tickets", headers=headers).json()["data"]
-    assert body == {"items": [], "next_cursor": None}
+    assert [item["id"] for item in body["items"]] == [str(ROWS[3]["id"])]
+    assert client.get(f"/api/v1/cs/tickets/{ROWS[3]['id']}", headers=headers).status_code == 200
     detail = client.get(f"/api/v1/cs/tickets/{ROWS[0]['id']}", headers=headers)
     # Same answer as a missing ticket, so the ticket's existence is not revealed.
     assert detail.status_code == 404
     assert detail.json()["error"]["code"] == "CS_TICKET_NOT_FOUND"
+
+
+def test_department_without_transfers_sees_nothing(client):
+    headers = as_user(roles={"dept_staff"}, dept="TS_LV")
+    body = client.get("/api/v1/cs/tickets", headers=headers).json()["data"]
+    assert body == {"items": [], "next_cursor": None}
 
 
 def test_sales_has_no_c_s_scope(client):
@@ -201,3 +223,42 @@ def test_sales_has_no_c_s_scope(client):
 def test_roles_combine(client):
     headers = as_user(roles={"sales", "cs_agent"})
     assert len(client.get("/api/v1/cs/tickets", headers=headers).json()["data"]["items"]) == 5
+
+
+def test_filters_reach_the_repository_parsed(client, monkeypatch):
+    """쉼표 상태 목록·오프셋 없는 시각(UTC로 읽음)·정렬이 저장소 호출로 그대로 간다."""
+    seen = {}
+
+    async def capture(conn, limit, after, departments=None, *, filters=None, ascending=False):
+        seen.update(filters=filters, ascending=ascending)
+        return []
+
+    monkeypatch.setattr(repository, "list_tickets", capture)
+    response = client.get(
+        "/api/v1/cs/tickets",
+        params={
+            "state": "IN_REVIEW, TRANSFERRED",
+            "received_from": "2026-10-01T00:00:00",
+            "q": "leak",
+            "sort": "received_at_asc",
+        },
+    )
+    assert response.status_code == 200
+    filters = seen["filters"]
+    assert filters.states == {"IN_REVIEW", "TRANSFERRED"} and filters.q == "leak"
+    assert filters.received_from == datetime(2026, 10, 1, tzinfo=UTC)
+    assert seen["ascending"] is True
+
+
+@pytest.mark.parametrize("state", ["", "IN_REVIEW,,CLOSED", "OPEN", "in_review"])
+def test_unknown_states_are_rejected_not_ignored(client, state):
+    response = client.get("/api/v1/cs/tickets", params={"state": state})
+    assert (response.status_code, response.json()["error"]["code"]) == (400, "CS_INVALID_FILTER")
+
+
+def test_a_cursor_cannot_change_direction(client):
+    newest = client.get("/api/v1/cs/tickets", params={"limit": 2}).json()["data"]["next_cursor"]
+    response = client.get(
+        "/api/v1/cs/tickets", params={"cursor": newest, "sort": "received_at_asc"}
+    )
+    assert (response.status_code, response.json()["error"]["code"]) == (400, "CS_INVALID_CURSOR")

@@ -1,0 +1,1343 @@
+{
+ "source": "artifacts/presentation-checks-20261105/C-verifier-regex/forbidden_testset.json (forbidden-commitment-coverage-v1)",
+ "date": "2026-11-05",
+ "note": "문장은 모델(Claude)이 쓴 합성 예문이며 실제 고객 자료가 아니다. 번호·날짜는 지어낸 값이다. kind=forbidden은 발송 전 막아야 할 확정 약속·확정 판정, control은 통과해야 할 조건부 안내다. caught는 335f244b의 find_forbidden_commitment 결과(금지 19/119 적중, 통제 0/68 오탐)다.",
+ "items": [
+  {
+   "language": "en",
+   "kind": "forbidden",
+   "category": "rma_approved",
+   "text": "Your RMA request has been approved. The RMA number is RMA-2026-0415.",
+   "caught": true
+  },
+  {
+   "language": "en",
+   "kind": "forbidden",
+   "category": "warranty_approved",
+   "text": "The warranty claim is approved and the unit is covered under warranty.",
+   "caught": true
+  },
+  {
+   "language": "en",
+   "kind": "forbidden",
+   "category": "replacement_or_refund_confirmed",
+   "text": "A replacement unit will be shipped to you free of charge; we will replace the drive at no cost.",
+   "caught": true
+  },
+  {
+   "language": "en",
+   "kind": "forbidden",
+   "category": "visit_confirmed",
+   "text": "A technician visit is scheduled for 12 November at your site.",
+   "caught": true
+  },
+  {
+   "language": "en",
+   "kind": "forbidden",
+   "category": "defect_confirmed",
+   "text": "The failure is a manufacturing defect, so the return is approved.",
+   "caught": true
+  },
+  {
+   "language": "en",
+   "kind": "forbidden",
+   "category": "fault_confirmed",
+   "text": "The damage was confirmed as customer misuse during our inspection.",
+   "caught": true
+  },
+  {
+   "language": "en",
+   "kind": "forbidden",
+   "category": "rma_approved",
+   "text": "An RMA number (RMA-2026-0416) has been issued for your unit.",
+   "variant": "passive",
+   "caught": false
+  },
+  {
+   "language": "en",
+   "kind": "forbidden",
+   "category": "rma_approved",
+   "text": "Your RMA has been aproved and you may ship the unit now.",
+   "variant": "typo",
+   "caught": false
+  },
+  {
+   "language": "en",
+   "kind": "forbidden",
+   "category": "warranty_approved",
+   "text": "Your warrenty claim is approved.",
+   "variant": "typo",
+   "caught": false
+  },
+  {
+   "language": "en",
+   "kind": "forbidden",
+   "category": "rma_approved",
+   "text": "We have gone ahead and approved your return; please use RMA-2026-0417.",
+   "variant": "paraphrase",
+   "caught": false
+  },
+  {
+   "language": "en",
+   "kind": "forbidden",
+   "category": "replacement_or_refund_confirmed",
+   "text": "Good news: the replacement will be shipped at no cost to you.",
+   "variant": "paraphrase",
+   "caught": false
+  },
+  {
+   "language": "en",
+   "kind": "forbidden",
+   "category": "replacement_or_refund_confirmed",
+   "text": "Your refund has been processed and will arrive within 5 business days.",
+   "variant": "paraphrase",
+   "caught": false
+  },
+  {
+   "language": "en",
+   "kind": "forbidden",
+   "category": "visit_confirmed",
+   "text": "Our engineer will be on site on Monday morning.",
+   "variant": "paraphrase",
+   "caught": false
+  },
+  {
+   "language": "en",
+   "kind": "forbidden",
+   "category": "visit_confirmed",
+   "text": "We will dispatch a field engineer to your site this week.",
+   "variant": "paraphrase",
+   "caught": true
+  },
+  {
+   "language": "en",
+   "kind": "forbidden",
+   "category": "warranty_approved",
+   "text": "Your claim is covered  under  warranty.",
+   "variant": "spacing",
+   "caught": true
+  },
+  {
+   "language": "en",
+   "kind": "forbidden",
+   "category": "rma_approved",
+   "text": "RMA  approved — number RMA-2026-0418.",
+   "variant": "spacing",
+   "caught": true
+  },
+  {
+   "language": "en",
+   "kind": "forbidden",
+   "category": "defect_confirmed",
+   "text": "Our quality team has confirmed this as a production defect.",
+   "variant": "paraphrase",
+   "caught": false
+  },
+  {
+   "language": "en",
+   "kind": "forbidden",
+   "category": "free_repair",
+   "text": "The repair will be done at no charge.",
+   "variant": "paraphrase",
+   "caught": false
+  },
+  {
+   "language": "en",
+   "kind": "control",
+   "category": "control",
+   "text": "We will check whether the warranty applies to your unit.",
+   "caught": false
+  },
+  {
+   "language": "en",
+   "kind": "control",
+   "category": "control",
+   "text": "An RMA number will be issued after the review is complete.",
+   "caught": false
+  },
+  {
+   "language": "en",
+   "kind": "control",
+   "category": "control",
+   "text": "If the claim is approved, we will contact you with the next steps.",
+   "caught": false
+  },
+  {
+   "language": "en",
+   "kind": "control",
+   "category": "control",
+   "text": "It has not yet been determined whether this is a manufacturing defect.",
+   "caught": false
+  },
+  {
+   "language": "en",
+   "kind": "control",
+   "category": "control",
+   "text": "Whether a technician visit is scheduled depends on the inspection result.",
+   "variant": "passive",
+   "caught": false
+  },
+  {
+   "language": "en",
+   "kind": "control",
+   "category": "control",
+   "text": "Replacement eligibility will be confirmed once the photos are reviewed.",
+   "variant": "paraphrase",
+   "caught": false
+  },
+  {
+   "language": "ko",
+   "kind": "forbidden",
+   "category": "rma_approved",
+   "text": "고객님의 RMA가 승인되었습니다. RMA 번호는 RMA-2026-0415입니다.",
+   "caught": true
+  },
+  {
+   "language": "ko",
+   "kind": "forbidden",
+   "category": "warranty_approved",
+   "text": "보증이 적용되어 무상으로 수리해 드리겠습니다.",
+   "caught": true
+  },
+  {
+   "language": "ko",
+   "kind": "forbidden",
+   "category": "replacement_or_refund_confirmed",
+   "text": "교체품을 무상으로 보내드리겠습니다.",
+   "caught": false
+  },
+  {
+   "language": "ko",
+   "kind": "forbidden",
+   "category": "visit_confirmed",
+   "text": "11월 12일에 기술자를 파견하겠습니다.",
+   "caught": true
+  },
+  {
+   "language": "ko",
+   "kind": "forbidden",
+   "category": "defect_confirmed",
+   "text": "검사 결과 제조 불량으로 확인되었습니다.",
+   "caught": true
+  },
+  {
+   "language": "ko",
+   "kind": "forbidden",
+   "category": "fault_confirmed",
+   "text": "이번 고장은 고객 과실로 판정되었습니다.",
+   "caught": true
+  },
+  {
+   "language": "ko",
+   "kind": "forbidden",
+   "category": "rma_approved",
+   "text": "RMA 가 승인 되었습니다.",
+   "variant": "spacing",
+   "caught": true
+  },
+  {
+   "language": "ko",
+   "kind": "forbidden",
+   "category": "rma_approved",
+   "text": "반품승인되었습니다. 번호는 RMA-2026-0419입니다.",
+   "variant": "spacing",
+   "caught": true
+  },
+  {
+   "language": "ko",
+   "kind": "forbidden",
+   "category": "rma_approved",
+   "text": "반품이 승인됬습니다.",
+   "variant": "typo",
+   "caught": false
+  },
+  {
+   "language": "ko",
+   "kind": "forbidden",
+   "category": "rma_approved",
+   "text": "반품 승인 처리되었습니다.",
+   "variant": "passive",
+   "caught": false
+  },
+  {
+   "language": "ko",
+   "kind": "forbidden",
+   "category": "visit_confirmed",
+   "text": "기사님이 11월 7일 오전에 방문 예정입니다.",
+   "variant": "paraphrase",
+   "caught": false
+  },
+  {
+   "language": "ko",
+   "kind": "forbidden",
+   "category": "visit_confirmed",
+   "text": "방문 일정이 확정되었습니다.",
+   "variant": "paraphrase",
+   "caught": true
+  },
+  {
+   "language": "ko",
+   "kind": "forbidden",
+   "category": "replacement_or_refund_confirmed",
+   "text": "환불이 확정되었습니다.",
+   "variant": "paraphrase",
+   "caught": false
+  },
+  {
+   "language": "ko",
+   "kind": "forbidden",
+   "category": "replacement_or_refund_confirmed",
+   "text": "새 제품으로 교환해 드리기로 했습니다.",
+   "variant": "paraphrase",
+   "caught": false
+  },
+  {
+   "language": "ko",
+   "kind": "forbidden",
+   "category": "warranty_approved",
+   "text": "보증 기간 내이므로 무상 수리 대상입니다.",
+   "variant": "paraphrase",
+   "caught": false
+  },
+  {
+   "language": "ko",
+   "kind": "forbidden",
+   "category": "defect_confirmed",
+   "text": "제품 결함이 맞습니다.",
+   "variant": "paraphrase",
+   "caught": true
+  },
+  {
+   "language": "ko",
+   "kind": "forbidden",
+   "category": "fault_confirmed",
+   "text": "이번 파손의 책임은 당사에 있습니다.",
+   "variant": "paraphrase",
+   "caught": true
+  },
+  {
+   "language": "ko",
+   "kind": "control",
+   "category": "control",
+   "text": "보증 적용 여부는 시리얼 번호 확인 후 안내드리겠습니다.",
+   "caught": false
+  },
+  {
+   "language": "ko",
+   "kind": "control",
+   "category": "control",
+   "text": "검토가 끝나면 RMA 번호를 발급해 드립니다.",
+   "caught": false
+  },
+  {
+   "language": "ko",
+   "kind": "control",
+   "category": "control",
+   "text": "반품이 승인되면 배송 주소를 안내드리겠습니다.",
+   "caught": false
+  },
+  {
+   "language": "ko",
+   "kind": "control",
+   "category": "control",
+   "text": "제조 불량인지는 아직 확인되지 않았습니다.",
+   "caught": false
+  },
+  {
+   "language": "ko",
+   "kind": "control",
+   "category": "control",
+   "text": "방문이 필요한지는 점검 결과에 따라 결정됩니다.",
+   "variant": "paraphrase",
+   "caught": false
+  },
+  {
+   "language": "ko",
+   "kind": "control",
+   "category": "control",
+   "text": "무상 처리 가능 여부는 검사 후 알려 드리겠습니다.",
+   "variant": "paraphrase",
+   "caught": false
+  },
+  {
+   "language": "ja",
+   "kind": "forbidden",
+   "category": "rma_approved",
+   "text": "お客様のRMA申請は承認されました。RMA番号はRMA-2026-0415です。",
+   "caught": false
+  },
+  {
+   "language": "ja",
+   "kind": "forbidden",
+   "category": "warranty_approved",
+   "text": "保証が適用されますので、無償で修理いたします。",
+   "caught": false
+  },
+  {
+   "language": "ja",
+   "kind": "forbidden",
+   "category": "replacement_or_refund_confirmed",
+   "text": "交換品を無償でお送りいたします。",
+   "caught": false
+  },
+  {
+   "language": "ja",
+   "kind": "forbidden",
+   "category": "visit_confirmed",
+   "text": "11月12日に技術者がお伺いします。",
+   "caught": false
+  },
+  {
+   "language": "ja",
+   "kind": "forbidden",
+   "category": "defect_confirmed",
+   "text": "検査の結果、製造不良であることが確認されました。",
+   "caught": false
+  },
+  {
+   "language": "ja",
+   "kind": "forbidden",
+   "category": "fault_confirmed",
+   "text": "今回の故障はお客様の誤使用によるものと判定されました。",
+   "caught": false
+  },
+  {
+   "language": "ja",
+   "kind": "control",
+   "category": "control",
+   "text": "保証が適用されるかどうかは、シリアル番号を確認のうえご案内いたします。",
+   "caught": false
+  },
+  {
+   "language": "ja",
+   "kind": "control",
+   "category": "control",
+   "text": "審査完了後にRMA番号を発行いたします。",
+   "caught": false
+  },
+  {
+   "language": "ja",
+   "kind": "control",
+   "category": "control",
+   "text": "返品が承認された場合は、改めてご連絡いたします。",
+   "caught": false
+  },
+  {
+   "language": "ja",
+   "kind": "control",
+   "category": "control",
+   "text": "製造不良かどうかはまだ確認できておりません。",
+   "caught": false
+  },
+  {
+   "language": "zh",
+   "kind": "forbidden",
+   "category": "rma_approved",
+   "text": "您的RMA申请已获批准，RMA编号为RMA-2026-0415。",
+   "caught": false
+  },
+  {
+   "language": "zh",
+   "kind": "forbidden",
+   "category": "warranty_approved",
+   "text": "该产品在保修范围内，我们将免费维修。",
+   "caught": false
+  },
+  {
+   "language": "zh",
+   "kind": "forbidden",
+   "category": "replacement_or_refund_confirmed",
+   "text": "我们将免费为您更换新机。",
+   "caught": false
+  },
+  {
+   "language": "zh",
+   "kind": "forbidden",
+   "category": "visit_confirmed",
+   "text": "技术人员将于11月12日到现场服务。",
+   "caught": false
+  },
+  {
+   "language": "zh",
+   "kind": "forbidden",
+   "category": "defect_confirmed",
+   "text": "经检测确认为制造缺陷。",
+   "caught": false
+  },
+  {
+   "language": "zh",
+   "kind": "forbidden",
+   "category": "fault_confirmed",
+   "text": "此次故障已确认为客户使用不当造成。",
+   "caught": false
+  },
+  {
+   "language": "zh",
+   "kind": "control",
+   "category": "control",
+   "text": "我们将核实该产品是否在保修范围内。",
+   "caught": false
+  },
+  {
+   "language": "zh",
+   "kind": "control",
+   "category": "control",
+   "text": "审核完成后将为您发放RMA编号。",
+   "caught": false
+  },
+  {
+   "language": "zh",
+   "kind": "control",
+   "category": "control",
+   "text": "如果退货获批，我们会再与您联系。",
+   "caught": false
+  },
+  {
+   "language": "zh",
+   "kind": "control",
+   "category": "control",
+   "text": "目前尚未确定是否为制造缺陷。",
+   "caught": false
+  },
+  {
+   "language": "de",
+   "kind": "forbidden",
+   "category": "rma_approved",
+   "text": "Ihr RMA-Antrag wurde genehmigt. Die RMA-Nummer lautet RMA-2026-0415.",
+   "caught": false
+  },
+  {
+   "language": "de",
+   "kind": "forbidden",
+   "category": "warranty_approved",
+   "text": "Der Garantieanspruch ist genehmigt; das Gerät fällt unter die Garantie.",
+   "caught": false
+  },
+  {
+   "language": "de",
+   "kind": "forbidden",
+   "category": "replacement_or_refund_confirmed",
+   "text": "Wir senden Ihnen kostenlos ein Ersatzgerät zu.",
+   "caught": false
+  },
+  {
+   "language": "de",
+   "kind": "forbidden",
+   "category": "visit_confirmed",
+   "text": "Der Technikerbesuch ist für den 12. November bestätigt.",
+   "caught": false
+  },
+  {
+   "language": "de",
+   "kind": "forbidden",
+   "category": "defect_confirmed",
+   "text": "Es handelt sich um einen Herstellungsfehler.",
+   "caught": false
+  },
+  {
+   "language": "de",
+   "kind": "forbidden",
+   "category": "fault_confirmed",
+   "text": "Der Schaden wurde als Bedienfehler des Kunden festgestellt.",
+   "caught": false
+  },
+  {
+   "language": "de",
+   "kind": "control",
+   "category": "control",
+   "text": "Wir prüfen, ob die Garantie für Ihr Gerät gilt.",
+   "caught": false
+  },
+  {
+   "language": "de",
+   "kind": "control",
+   "category": "control",
+   "text": "Nach Abschluss der Prüfung wird eine RMA-Nummer vergeben.",
+   "caught": false
+  },
+  {
+   "language": "de",
+   "kind": "control",
+   "category": "control",
+   "text": "Falls die Rücksendung genehmigt wird, melden wir uns bei Ihnen.",
+   "caught": false
+  },
+  {
+   "language": "de",
+   "kind": "control",
+   "category": "control",
+   "text": "Ob ein Herstellungsfehler vorliegt, ist noch nicht geklärt.",
+   "caught": false
+  },
+  {
+   "language": "fr",
+   "kind": "forbidden",
+   "category": "rma_approved",
+   "text": "Votre demande de RMA est approuvée. Le numéro RMA est RMA-2026-0415.",
+   "caught": false
+  },
+  {
+   "language": "fr",
+   "kind": "forbidden",
+   "category": "warranty_approved",
+   "text": "La réclamation de garantie est acceptée ; l'appareil est couvert par la garantie.",
+   "caught": false
+  },
+  {
+   "language": "fr",
+   "kind": "forbidden",
+   "category": "replacement_or_refund_confirmed",
+   "text": "Nous vous expédierons un appareil de remplacement gratuitement.",
+   "caught": false
+  },
+  {
+   "language": "fr",
+   "kind": "forbidden",
+   "category": "visit_confirmed",
+   "text": "La visite du technicien est confirmée pour le 12 novembre.",
+   "caught": false
+  },
+  {
+   "language": "fr",
+   "kind": "forbidden",
+   "category": "defect_confirmed",
+   "text": "Il s'agit d'un défaut de fabrication.",
+   "caught": false
+  },
+  {
+   "language": "fr",
+   "kind": "forbidden",
+   "category": "fault_confirmed",
+   "text": "La panne a été confirmée comme une mauvaise utilisation par le client.",
+   "caught": false
+  },
+  {
+   "language": "fr",
+   "kind": "control",
+   "category": "control",
+   "text": "Nous vérifierons si la garantie s'applique à votre appareil.",
+   "caught": false
+  },
+  {
+   "language": "fr",
+   "kind": "control",
+   "category": "control",
+   "text": "Un numéro RMA sera émis après examen de la demande.",
+   "caught": false
+  },
+  {
+   "language": "fr",
+   "kind": "control",
+   "category": "control",
+   "text": "Si le retour est approuvé, nous vous recontacterons.",
+   "caught": false
+  },
+  {
+   "language": "fr",
+   "kind": "control",
+   "category": "control",
+   "text": "Il n'est pas encore établi qu'il s'agisse d'un défaut de fabrication.",
+   "caught": false
+  },
+  {
+   "language": "es",
+   "kind": "forbidden",
+   "category": "rma_approved",
+   "text": "Su solicitud de RMA ha sido aprobada. El número de RMA es RMA-2026-0415.",
+   "caught": false
+  },
+  {
+   "language": "es",
+   "kind": "forbidden",
+   "category": "warranty_approved",
+   "text": "La reclamación de garantía está aprobada y el equipo está cubierto por la garantía.",
+   "caught": false
+  },
+  {
+   "language": "es",
+   "kind": "forbidden",
+   "category": "replacement_or_refund_confirmed",
+   "text": "Le enviaremos una unidad de reemplazo sin costo.",
+   "caught": false
+  },
+  {
+   "language": "es",
+   "kind": "forbidden",
+   "category": "visit_confirmed",
+   "text": "La visita del técnico está confirmada para el 12 de noviembre.",
+   "caught": false
+  },
+  {
+   "language": "es",
+   "kind": "forbidden",
+   "category": "defect_confirmed",
+   "text": "Se trata de un defecto de fabricación.",
+   "caught": false
+  },
+  {
+   "language": "es",
+   "kind": "forbidden",
+   "category": "fault_confirmed",
+   "text": "La avería se confirmó como mal uso por parte del cliente.",
+   "caught": false
+  },
+  {
+   "language": "es",
+   "kind": "control",
+   "category": "control",
+   "text": "Verificaremos si la garantía aplica a su equipo.",
+   "caught": false
+  },
+  {
+   "language": "es",
+   "kind": "control",
+   "category": "control",
+   "text": "Se emitirá un número de RMA una vez finalizada la revisión.",
+   "caught": false
+  },
+  {
+   "language": "es",
+   "kind": "control",
+   "category": "control",
+   "text": "Si la devolución es aprobada, nos pondremos en contacto con usted.",
+   "caught": false
+  },
+  {
+   "language": "es",
+   "kind": "control",
+   "category": "control",
+   "text": "Aún no se ha determinado si se trata de un defecto de fabricación.",
+   "caught": false
+  },
+  {
+   "language": "it",
+   "kind": "forbidden",
+   "category": "rma_approved",
+   "text": "La sua richiesta di RMA è stata approvata. Il numero RMA è RMA-2026-0415.",
+   "caught": false
+  },
+  {
+   "language": "it",
+   "kind": "forbidden",
+   "category": "warranty_approved",
+   "text": "La richiesta di garanzia è approvata; l'unità è coperta da garanzia.",
+   "caught": false
+  },
+  {
+   "language": "it",
+   "kind": "forbidden",
+   "category": "replacement_or_refund_confirmed",
+   "text": "Le invieremo gratuitamente un'unità sostitutiva.",
+   "caught": false
+  },
+  {
+   "language": "it",
+   "kind": "forbidden",
+   "category": "visit_confirmed",
+   "text": "La visita del tecnico è confermata per il 12 novembre.",
+   "caught": false
+  },
+  {
+   "language": "it",
+   "kind": "forbidden",
+   "category": "defect_confirmed",
+   "text": "Si tratta di un difetto di fabbricazione.",
+   "caught": false
+  },
+  {
+   "language": "it",
+   "kind": "forbidden",
+   "category": "fault_confirmed",
+   "text": "Il guasto è stato confermato come uso improprio da parte del cliente.",
+   "caught": false
+  },
+  {
+   "language": "it",
+   "kind": "control",
+   "category": "control",
+   "text": "Verificheremo se la garanzia si applica alla sua unità.",
+   "caught": false
+  },
+  {
+   "language": "it",
+   "kind": "control",
+   "category": "control",
+   "text": "Il numero RMA sarà emesso al termine della verifica.",
+   "caught": false
+  },
+  {
+   "language": "it",
+   "kind": "control",
+   "category": "control",
+   "text": "Se il reso viene approvato, la ricontatteremo.",
+   "caught": false
+  },
+  {
+   "language": "it",
+   "kind": "control",
+   "category": "control",
+   "text": "Non è ancora stato stabilito se si tratti di un difetto di fabbricazione.",
+   "caught": false
+  },
+  {
+   "language": "pt",
+   "kind": "forbidden",
+   "category": "rma_approved",
+   "text": "Sua solicitação de RMA foi aprovada. O número do RMA é RMA-2026-0415.",
+   "caught": false
+  },
+  {
+   "language": "pt",
+   "kind": "forbidden",
+   "category": "warranty_approved",
+   "text": "A reclamação de garantia está aprovada e o equipamento está coberto pela garantia.",
+   "caught": false
+  },
+  {
+   "language": "pt",
+   "kind": "forbidden",
+   "category": "replacement_or_refund_confirmed",
+   "text": "Enviaremos uma unidade de substituição sem custo.",
+   "caught": false
+  },
+  {
+   "language": "pt",
+   "kind": "forbidden",
+   "category": "visit_confirmed",
+   "text": "A visita do técnico está confirmada para 12 de novembro.",
+   "caught": false
+  },
+  {
+   "language": "pt",
+   "kind": "forbidden",
+   "category": "defect_confirmed",
+   "text": "Trata-se de um defeito de fabricação.",
+   "caught": false
+  },
+  {
+   "language": "pt",
+   "kind": "forbidden",
+   "category": "fault_confirmed",
+   "text": "A falha foi confirmada como uso indevido pelo cliente.",
+   "caught": false
+  },
+  {
+   "language": "pt",
+   "kind": "control",
+   "category": "control",
+   "text": "Vamos verificar se a garantia se aplica ao seu equipamento.",
+   "caught": false
+  },
+  {
+   "language": "pt",
+   "kind": "control",
+   "category": "control",
+   "text": "Um número de RMA será emitido após a análise.",
+   "caught": false
+  },
+  {
+   "language": "pt",
+   "kind": "control",
+   "category": "control",
+   "text": "Se a devolução for aprovada, entraremos em contato.",
+   "caught": false
+  },
+  {
+   "language": "pt",
+   "kind": "control",
+   "category": "control",
+   "text": "Ainda não foi determinado se é um defeito de fabricação.",
+   "caught": false
+  },
+  {
+   "language": "ru",
+   "kind": "forbidden",
+   "category": "rma_approved",
+   "text": "Ваш запрос RMA одобрен. Номер RMA: RMA-2026-0415.",
+   "caught": false
+  },
+  {
+   "language": "ru",
+   "kind": "forbidden",
+   "category": "warranty_approved",
+   "text": "Гарантийный случай подтверждён, устройство покрывается гарантией.",
+   "caught": false
+  },
+  {
+   "language": "ru",
+   "kind": "forbidden",
+   "category": "replacement_or_refund_confirmed",
+   "text": "Мы бесплатно отправим вам замену.",
+   "caught": false
+  },
+  {
+   "language": "ru",
+   "kind": "forbidden",
+   "category": "visit_confirmed",
+   "text": "Визит техника подтверждён на 12 ноября.",
+   "caught": false
+  },
+  {
+   "language": "ru",
+   "kind": "forbidden",
+   "category": "defect_confirmed",
+   "text": "Это производственный дефект.",
+   "caught": false
+  },
+  {
+   "language": "ru",
+   "kind": "forbidden",
+   "category": "fault_confirmed",
+   "text": "Неисправность признана следствием неправильной эксплуатации клиентом.",
+   "caught": false
+  },
+  {
+   "language": "ru",
+   "kind": "control",
+   "category": "control",
+   "text": "Мы проверим, распространяется ли гарантия на ваше устройство.",
+   "caught": false
+  },
+  {
+   "language": "ru",
+   "kind": "control",
+   "category": "control",
+   "text": "Номер RMA будет выдан после завершения проверки.",
+   "caught": false
+  },
+  {
+   "language": "ru",
+   "kind": "control",
+   "category": "control",
+   "text": "Если возврат будет одобрен, мы свяжемся с вами.",
+   "caught": false
+  },
+  {
+   "language": "ru",
+   "kind": "control",
+   "category": "control",
+   "text": "Пока не установлено, является ли это производственным дефектом.",
+   "caught": false
+  },
+  {
+   "language": "ar",
+   "kind": "forbidden",
+   "category": "rma_approved",
+   "text": "تمت الموافقة على طلب RMA الخاص بكم. رقم RMA هو RMA-2026-0415.",
+   "caught": false
+  },
+  {
+   "language": "ar",
+   "kind": "forbidden",
+   "category": "warranty_approved",
+   "text": "تمت الموافقة على مطالبة الضمان، والجهاز مشمول بالضمان.",
+   "caught": false
+  },
+  {
+   "language": "ar",
+   "kind": "forbidden",
+   "category": "replacement_or_refund_confirmed",
+   "text": "سنرسل لكم وحدة بديلة مجانًا.",
+   "caught": false
+  },
+  {
+   "language": "ar",
+   "kind": "forbidden",
+   "category": "visit_confirmed",
+   "text": "تم تأكيد زيارة الفني يوم 12 نوفمبر.",
+   "caught": false
+  },
+  {
+   "language": "ar",
+   "kind": "forbidden",
+   "category": "defect_confirmed",
+   "text": "العطل ناتج عن عيب تصنيع.",
+   "caught": false
+  },
+  {
+   "language": "ar",
+   "kind": "forbidden",
+   "category": "fault_confirmed",
+   "text": "تم تأكيد أن العطل ناتج عن سوء استخدام من العميل.",
+   "caught": false
+  },
+  {
+   "language": "ar",
+   "kind": "control",
+   "category": "control",
+   "text": "سنتحقق مما إذا كان الضمان ينطبق على جهازكم.",
+   "caught": false
+  },
+  {
+   "language": "ar",
+   "kind": "control",
+   "category": "control",
+   "text": "سيتم إصدار رقم RMA بعد اكتمال المراجعة.",
+   "caught": false
+  },
+  {
+   "language": "ar",
+   "kind": "control",
+   "category": "control",
+   "text": "إذا تمت الموافقة على الإرجاع فسنتواصل معكم.",
+   "caught": false
+  },
+  {
+   "language": "ar",
+   "kind": "control",
+   "category": "control",
+   "text": "لم يتم بعد تحديد ما إذا كان عيب تصنيع.",
+   "caught": false
+  },
+  {
+   "language": "pl",
+   "kind": "forbidden",
+   "category": "rma_approved",
+   "text": "Państwa zgłoszenie RMA zostało zatwierdzone. Numer RMA to RMA-2026-0415.",
+   "caught": false
+  },
+  {
+   "language": "pl",
+   "kind": "forbidden",
+   "category": "warranty_approved",
+   "text": "Reklamacja gwarancyjna została uznana; urządzenie jest objęte gwarancją.",
+   "caught": false
+  },
+  {
+   "language": "pl",
+   "kind": "forbidden",
+   "category": "replacement_or_refund_confirmed",
+   "text": "Wyślemy Państwu bezpłatnie urządzenie zastępcze.",
+   "caught": false
+  },
+  {
+   "language": "pl",
+   "kind": "forbidden",
+   "category": "visit_confirmed",
+   "text": "Wizyta technika została potwierdzona na 12 listopada.",
+   "caught": false
+  },
+  {
+   "language": "pl",
+   "kind": "forbidden",
+   "category": "defect_confirmed",
+   "text": "Jest to wada fabryczna.",
+   "caught": false
+  },
+  {
+   "language": "pl",
+   "kind": "forbidden",
+   "category": "fault_confirmed",
+   "text": "Usterka została uznana za wynik niewłaściwego użytkowania przez klienta.",
+   "caught": false
+  },
+  {
+   "language": "pl",
+   "kind": "control",
+   "category": "control",
+   "text": "Sprawdzimy, czy gwarancja obejmuje Państwa urządzenie.",
+   "caught": false
+  },
+  {
+   "language": "pl",
+   "kind": "control",
+   "category": "control",
+   "text": "Numer RMA zostanie nadany po zakończeniu weryfikacji.",
+   "caught": false
+  },
+  {
+   "language": "pl",
+   "kind": "control",
+   "category": "control",
+   "text": "Jeśli zwrot zostanie zatwierdzony, skontaktujemy się z Państwem.",
+   "caught": false
+  },
+  {
+   "language": "pl",
+   "kind": "control",
+   "category": "control",
+   "text": "Nie ustalono jeszcze, czy jest to wada fabryczna.",
+   "caught": false
+  },
+  {
+   "language": "th",
+   "kind": "forbidden",
+   "category": "rma_approved",
+   "text": "คำขอ RMA ของท่านได้รับการอนุมัติแล้ว หมายเลข RMA คือ RMA-2026-0415",
+   "caught": false
+  },
+  {
+   "language": "th",
+   "kind": "forbidden",
+   "category": "warranty_approved",
+   "text": "การเคลมประกันได้รับการอนุมัติแล้ว และสินค้าอยู่ในการรับประกัน",
+   "caught": false
+  },
+  {
+   "language": "th",
+   "kind": "forbidden",
+   "category": "replacement_or_refund_confirmed",
+   "text": "เราจะส่งสินค้าทดแทนให้ท่านโดยไม่มีค่าใช้จ่าย",
+   "caught": false
+  },
+  {
+   "language": "th",
+   "kind": "forbidden",
+   "category": "visit_confirmed",
+   "text": "ยืนยันนัดหมายช่างเข้าหน้างานวันที่ 12 พฤศจิกายน",
+   "caught": false
+  },
+  {
+   "language": "th",
+   "kind": "forbidden",
+   "category": "defect_confirmed",
+   "text": "ผลการตรวจสอบยืนยันว่าเป็นความบกพร่องจากการผลิต",
+   "caught": false
+  },
+  {
+   "language": "th",
+   "kind": "forbidden",
+   "category": "fault_confirmed",
+   "text": "ความเสียหายได้รับการยืนยันว่าเกิดจากการใช้งานผิดวิธีของลูกค้า",
+   "caught": false
+  },
+  {
+   "language": "th",
+   "kind": "control",
+   "category": "control",
+   "text": "เราจะตรวจสอบว่าสินค้าของท่านอยู่ในเงื่อนไขการรับประกันหรือไม่",
+   "caught": false
+  },
+  {
+   "language": "th",
+   "kind": "control",
+   "category": "control",
+   "text": "หมายเลข RMA จะออกให้หลังจากการตรวจสอบเสร็จสิ้น",
+   "caught": false
+  },
+  {
+   "language": "th",
+   "kind": "control",
+   "category": "control",
+   "text": "หากการคืนสินค้าได้รับการอนุมัติ เราจะติดต่อกลับ",
+   "caught": false
+  },
+  {
+   "language": "th",
+   "kind": "control",
+   "category": "control",
+   "text": "ยังไม่สามารถสรุปได้ว่าเป็นความบกพร่องจากการผลิตหรือไม่",
+   "caught": false
+  },
+  {
+   "language": "id",
+   "kind": "forbidden",
+   "category": "rma_approved",
+   "text": "Permintaan RMA Anda telah disetujui. Nomor RMA adalah RMA-2026-0415.",
+   "caught": false
+  },
+  {
+   "language": "id",
+   "kind": "forbidden",
+   "category": "warranty_approved",
+   "text": "Klaim garansi disetujui dan unit Anda tercakup dalam garansi.",
+   "caught": false
+  },
+  {
+   "language": "id",
+   "kind": "forbidden",
+   "category": "replacement_or_refund_confirmed",
+   "text": "Kami akan mengirimkan unit pengganti tanpa biaya.",
+   "caught": false
+  },
+  {
+   "language": "id",
+   "kind": "forbidden",
+   "category": "visit_confirmed",
+   "text": "Kunjungan teknisi telah dikonfirmasi pada 12 November.",
+   "caught": false
+  },
+  {
+   "language": "id",
+   "kind": "forbidden",
+   "category": "defect_confirmed",
+   "text": "Kerusakan ini merupakan cacat produksi.",
+   "caught": false
+  },
+  {
+   "language": "id",
+   "kind": "forbidden",
+   "category": "fault_confirmed",
+   "text": "Kerusakan telah dipastikan akibat kesalahan penggunaan oleh pelanggan.",
+   "caught": false
+  },
+  {
+   "language": "id",
+   "kind": "control",
+   "category": "control",
+   "text": "Kami akan memeriksa apakah garansi berlaku untuk unit Anda.",
+   "caught": false
+  },
+  {
+   "language": "id",
+   "kind": "control",
+   "category": "control",
+   "text": "Nomor RMA akan diterbitkan setelah peninjauan selesai.",
+   "caught": false
+  },
+  {
+   "language": "id",
+   "kind": "control",
+   "category": "control",
+   "text": "Jika pengembalian disetujui, kami akan menghubungi Anda.",
+   "caught": false
+  },
+  {
+   "language": "id",
+   "kind": "control",
+   "category": "control",
+   "text": "Belum dapat dipastikan apakah ini cacat produksi.",
+   "caught": false
+  },
+  {
+   "language": "vi",
+   "kind": "forbidden",
+   "category": "rma_approved",
+   "text": "Yêu cầu RMA của quý khách đã được phê duyệt. Số RMA là RMA-2026-0415.",
+   "caught": false
+  },
+  {
+   "language": "vi",
+   "kind": "forbidden",
+   "category": "warranty_approved",
+   "text": "Yêu cầu bảo hành đã được chấp nhận và thiết bị thuộc diện bảo hành.",
+   "caught": false
+  },
+  {
+   "language": "vi",
+   "kind": "forbidden",
+   "category": "replacement_or_refund_confirmed",
+   "text": "Chúng tôi sẽ gửi thiết bị thay thế miễn phí cho quý khách.",
+   "caught": false
+  },
+  {
+   "language": "vi",
+   "kind": "forbidden",
+   "category": "visit_confirmed",
+   "text": "Lịch kỹ thuật viên đến hiện trường đã được xác nhận vào ngày 12 tháng 11.",
+   "caught": false
+  },
+  {
+   "language": "vi",
+   "kind": "forbidden",
+   "category": "defect_confirmed",
+   "text": "Đây là lỗi do nhà sản xuất.",
+   "caught": false
+  },
+  {
+   "language": "vi",
+   "kind": "forbidden",
+   "category": "fault_confirmed",
+   "text": "Sự cố đã được xác nhận là do khách hàng sử dụng sai cách.",
+   "caught": false
+  },
+  {
+   "language": "vi",
+   "kind": "control",
+   "category": "control",
+   "text": "Chúng tôi sẽ kiểm tra xem thiết bị của quý khách có thuộc diện bảo hành hay không.",
+   "caught": false
+  },
+  {
+   "language": "vi",
+   "kind": "control",
+   "category": "control",
+   "text": "Số RMA sẽ được cấp sau khi hoàn tất xem xét.",
+   "caught": false
+  },
+  {
+   "language": "vi",
+   "kind": "control",
+   "category": "control",
+   "text": "Nếu yêu cầu trả hàng được phê duyệt, chúng tôi sẽ liên hệ lại.",
+   "caught": false
+  },
+  {
+   "language": "vi",
+   "kind": "control",
+   "category": "control",
+   "text": "Hiện chưa xác định được đây có phải lỗi sản xuất hay không.",
+   "caught": false
+  },
+  {
+   "language": "tr",
+   "kind": "forbidden",
+   "category": "rma_approved",
+   "text": "RMA talebiniz onaylandı. RMA numaranız RMA-2026-0415.",
+   "caught": false
+  },
+  {
+   "language": "tr",
+   "kind": "forbidden",
+   "category": "warranty_approved",
+   "text": "Garanti talebi onaylandı; cihaz garanti kapsamındadır.",
+   "caught": false
+  },
+  {
+   "language": "tr",
+   "kind": "forbidden",
+   "category": "replacement_or_refund_confirmed",
+   "text": "Size ücretsiz olarak yedek bir cihaz göndereceğiz.",
+   "caught": false
+  },
+  {
+   "language": "tr",
+   "kind": "forbidden",
+   "category": "visit_confirmed",
+   "text": "Teknisyen ziyareti 12 Kasım için onaylandı.",
+   "caught": false
+  },
+  {
+   "language": "tr",
+   "kind": "forbidden",
+   "category": "defect_confirmed",
+   "text": "Bu bir üretim hatasıdır.",
+   "caught": false
+  },
+  {
+   "language": "tr",
+   "kind": "forbidden",
+   "category": "fault_confirmed",
+   "text": "Arızanın müşteri kaynaklı yanlış kullanımdan olduğu tespit edildi.",
+   "caught": false
+  },
+  {
+   "language": "tr",
+   "kind": "control",
+   "category": "control",
+   "text": "Garantinin cihazınızı kapsayıp kapsamadığını kontrol edeceğiz.",
+   "caught": false
+  },
+  {
+   "language": "tr",
+   "kind": "control",
+   "category": "control",
+   "text": "İnceleme tamamlandıktan sonra RMA numarası verilecektir.",
+   "caught": false
+  },
+  {
+   "language": "tr",
+   "kind": "control",
+   "category": "control",
+   "text": "İade onaylanırsa sizinle iletişime geçeceğiz.",
+   "caught": false
+  },
+  {
+   "language": "tr",
+   "kind": "control",
+   "category": "control",
+   "text": "Üretim hatası olup olmadığı henüz belirlenmedi.",
+   "caught": false
+  }
+ ]
+}

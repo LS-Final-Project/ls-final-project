@@ -13,6 +13,88 @@ spec.loader.exec_module(changes)
 
 
 class ChangeTests(unittest.TestCase):
+    def test_local_business_tools_select_python_and_node_jobs(self):
+        result = changes.classify(["scripts/local_business/dispatcher.py"])
+        self.assertIn("platform", result["backends"])
+        self.assertTrue(result["infrastructure"])
+
+    def test_cs_engine_selects_only_its_consumers_including_runtime_markdown(self):
+        """C/S 전용 엔진의 검사·배포와 평가 소비자를 선택한다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 코드·초기화·런타임 문서 모두 같은 소유 경계를 따름을 확인한다.
+        """
+        for path in (
+            "backend/engine/cs/classification.py",
+            "backend/engine/cs/__init__.py",
+            "backend/engine/cs/prompt.md",
+        ):
+            with self.subTest(path=path):
+                result = changes.classify([path])
+                self.assertEqual(result["services"], ["cs", "platform"])
+                self.assertEqual(result["backends"], ["cs", "platform"])
+                self.assertTrue(result["evaluation"])
+                self.assertFalse(result["infrastructure"])
+
+    def test_shared_or_unknown_engine_keeps_both_consumers(self):
+        """공통·미분류 경로 및 C/S 경로 밖 이동은 보수적으로 검사한다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 삭제·추가 경로의 합집합과 공통 영향 범위를 확인한다.
+        """
+        for path in (
+            "backend/engine/__init__.py",
+            "backend/engine/search.py",
+            "backend/engine/new_domain/adapter.py",
+            "backend/engine/cs_extra/adapter.py",
+            "backend/agent/cs/prompts/classify.md",
+        ):
+            with self.subTest(path=path):
+                result = changes.classify(["backend/engine/cs/adapter.py", path])
+                self.assertEqual(result["services"], ["cs", "tft", "platform"])
+                self.assertEqual(result["backends"], ["cs", "tft", "platform"])
+                self.assertTrue(result["evaluation"])
+
+    def test_collaboration_consumers_run_only_with_infrastructure_inputs(self):
+        """협업 검사의 입력과 일반 업무 변경을 구분한다.
+
+        Args:
+            없음.
+
+        Returns:
+            None: 협업 입력·실행 환경 변경은 선택하고 무관한 경로는 생략한다.
+        """
+        for path in (
+            "scripts/dev.py",
+            "scripts/tests/test_dev.py",
+            "scripts/README.md",
+            ".github/scripts/pr_metadata.cjs",
+            ".github/tests/ai_review.test.cjs",
+            ".github/workflows/collaboration-checks.yml",
+            ".github/pull_request_template.md",
+            "infra/local/init.sh",
+            "pyproject.toml",
+            "uv.lock",
+            "new-runtime/handler.py",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(changes.classify([path])["infrastructure"])
+        for path in (
+            "docs/team-start.md",
+            "frontend/src/App.tsx",
+            "backend/api/cs/workflow/routes.py",
+            "tests/cs/test_workflow.py",
+            "eval/smoke.py",
+        ):
+            with self.subTest(path=path):
+                self.assertFalse(changes.classify([path])["infrastructure"])
+
     def test_main_compares_against_successful_ci_not_a_failed_previous_commit(self):
         with (
             patch.object(
@@ -38,6 +120,10 @@ class ChangeTests(unittest.TestCase):
         self.assertEqual(args[args.index("--branch") + 1], "dev")
         with self.assertRaises(ValueError):
             changes.successful_branch_base("current", "feature")
+
+    def test_display_label_tables_run_the_cross_check(self):
+        for path in ("backend/engine/rfp/vocabulary.py", "frontend/src/rfp/labels.ts"):
+            self.assertTrue(changes.classify([path])["infrastructure"], path)
 
     def test_frontend_does_not_build_backends(self):
         result = changes.classify(["frontend/src/App.tsx"])
@@ -78,8 +164,8 @@ class ChangeTests(unittest.TestCase):
 
     def test_runtime_markdown_prompts_are_not_skipped_as_documentation(self):
         result = changes.classify(["backend/agent/cs/prompts/classification.md"])
-        self.assertEqual(result["services"], ["cs", "tft"])
-        self.assertEqual(result["backends"], ["cs", "tft"])
+        self.assertEqual(result["services"], ["cs", "tft", "platform"])
+        self.assertEqual(result["backends"], ["cs", "tft", "platform"])
 
     def test_shared_dependencies_expand_to_all_backends(self):
         for path in ("backend/shared/models.py", "uv.lock", "backend/api/common/application.py"):
@@ -101,8 +187,36 @@ class ChangeTests(unittest.TestCase):
                 self.assertIn("cs", result["backends"])
                 self.assertIn("tft", result["backends"])
 
+    def test_api_modules_imported_by_evaluation_tests_run_the_evaluation_check(self):
+        # tests/eval이 import하는 rfp 비교·협력사·처리 함수가 바뀌면 평가 검사를 돈다(#329 누락 재발 방지).
+        for path in (
+            "backend/api/tft/rfp/comparison.py",
+            "backend/api/tft/partners/grading.py",
+            "backend/api/tft/worker_processor.py",
+            "backend/api/platform/evaluations/cs_smoke.py",
+        ):
+            with self.subTest(path=path):
+                result = changes.classify([path])
+                self.assertTrue(result["evaluation"])
+                self.assertIn(path.split("/")[2], result["services"])
+        # 평가 검사가 쓰지 않는 api 경로는 그대로 평가를 켜지 않는다.
+        self.assertFalse(
+            changes.classify(["backend/api/tft/staffing_requests/routes.py"])["evaluation"]
+        )
+
     def test_new_evaluation_tests_run_without_releasing_an_api(self):
         result = changes.classify(["tests/eval/retrieval/test_metrics.py"])
+        self.assertTrue(result["evaluation"])
+        self.assertEqual(result["backends"], [])
+        self.assertEqual(result["services"], [])
+
+    def test_deploy_model_changes_run_the_promotion_check(self):
+        result = changes.classify(["infra/deploy_private.py"])
+        self.assertTrue(result["evaluation"])
+        self.assertTrue(result["infrastructure"])
+
+    def test_evaluation_spec_runs_evaluation_without_releasing_an_api(self):
+        result = changes.classify(["docs/evaluation.md"])
         self.assertTrue(result["evaluation"])
         self.assertEqual(result["backends"], [])
         self.assertEqual(result["services"], [])

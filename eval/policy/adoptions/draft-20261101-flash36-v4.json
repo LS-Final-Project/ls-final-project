@@ -1,0 +1,71 @@
+{
+  "task": "draft",
+  "adopted": {
+    "model": "gemini-3.6-flash",
+    "prompt_version": "v4",
+    "max_output_tokens": 6000,
+    "verification_max_output_tokens": 8192,
+    "prompt_fingerprint": "1c35a30973e5c1b7",
+    "evidence_limit": 5
+  },
+  "evidence": [
+    {
+      "run_file_sha256": "bce74a72afc8758e4b099f79feb8ee13c32377c6d384750029f0f3ffa0bd04fb",
+      "candidate_name": "flash-3.6-draft-v4-out6000",
+      "metrics": {
+        "schema_violation_rate": 0.0,
+        "forbidden_rate": 0.0,
+        "grounded_sentence_rate": 1.0,
+        "grounded_case_rate": 1.0,
+        "info_f1": {
+          "CONCISE": 1.0,
+          "DETAILED": 1.0,
+          "INFO_FIRST": 1.0
+        }
+      },
+      "targets": 50,
+      "run_started_at": "2026-10-31T12:30:58.462586+00:00",
+      "git_sha": "f5ec55457778d0dccfa49c5f83580be47defbfdb"
+    }
+  ],
+  "gates": {
+    "run_file_sha256": "bce74a72afc8758e4b099f79feb8ee13c32377c6d384750029f0f3ffa0bd04fb",
+    "version": "release-gate-v1",
+    "gates": [
+      {
+        "metric_key": "schema_violation_rate",
+        "segment": "all",
+        "status": "PASS",
+        "value": 0.0,
+        "comparison": "==",
+        "threshold": 0.0,
+        "blocker": true,
+        "support": 50,
+        "held": 0,
+        "errors": 0
+      }
+    ],
+    "counts": {
+      "PASS": 1,
+      "FAIL": 0,
+      "NOT_EVALUABLE": 0
+    },
+    "blocker": false,
+    "excluded": [
+      "category_macro_f1",
+      "critical_miss_count",
+      "urgency_macro_f1",
+      "urgency_non_none_recall",
+      "hit_at_5",
+      "priority_rule_exact",
+      "dept_rule_policy_match",
+      "dept_pipeline_exact"
+    ]
+  },
+  "rejected": [],
+  "decided_by": "오새결",
+  "decided_on": "2026-11-01",
+  "rationale": "사용자 합격 결정(2026-11-01)이다. 사용자가 정한 합격선은 금지 약속 0, 근거 밖 인용 0, 인용 일치 1.0이고 근거 실행 값은 각각 0, 0(입력 밖·관련 근거 밖), 1.0이다. 이 합격선은 사용자 결정이며 gates-v1에 없는 값이다. 게이트 표의 판정은 gates-v1의 schema_violation_rate 하나뿐이다. 근거 실행은 5차 측정(gemini-3.6-flash, 초안 지시문 v4, 초안 출력 상한 6000, 검증 출력 상한 6000, 근거 5건, chunking-v3 하이브리드·제품 계열 우선·정책 1자리)이다. 채택 설정의 검증 출력 상한은 8192이고 측정은 6000이었다. 그 측정에서 검증 호출 2/62가 상한에 닿아 잘려(5,980·5,983토큰) 8192로 올렸다. 8192로 측정한 값은 없고 재측정도 하지 않았다. 상한만 넓어져 잘린 호출에만 영향이 있기 때문이다. 한계: 합성 데이터 50건이다. 최종 상태는 VERIFIED 45, NEEDS_REVIEW 3, NOT_VERIFIED 2이고 NOT_VERIFIED 2건은 위 잘림이다. 문장 판정은 SUPPORTED 245, UNVERIFIABLE 3이다. 규칙 기반 기대값이며 잠긴 정답이 없다.",
+  "status": "ADOPTED",
+  "waivers": []
+}

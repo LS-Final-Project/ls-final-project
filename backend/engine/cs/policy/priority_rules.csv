@@ -1,0 +1,8 @@
+﻿rule_id,order,condition,priority,priority_definition
+PR-01,1,urgency=SAFETY (모든 Category),P1,Critical — 안전 위험(발연·화재·감전·아크) 또는 설비 전체 정지
+PR-02,2,"urgency=SITE_DOWN 이고 Category ∈ {DEFECT, INSTALL, FW_UPDATE}",P1,Critical — 안전 위험(발연·화재·감전·아크) 또는 설비 전체 정지
+PR-03,3,"urgency=SITE_DOWN 이고 Category ∈ {ORDER_LEAD, RETURN, WARRANTY}",P2,"High — 생산/운전에 영향, 시운전 중단, 반복 트립"
+PR-04,4,"urgency ∈ {PROD_IMPACT, COMMISSION}",P2,"High — 생산/운전에 영향, 시운전 중단, 반복 트립"
+PR-05,5,"Category ∈ {DEFECT, INSTALL, FW_UPDATE, WARRANTY, RETURN, ORDER_LEAD}",P3,"Normal — 운전 가능한 기술 문제, 일반 보증·반품·주문"
+PR-06,6,urgency=DEADLINE (정보성 Category),P3,"Normal — 운전 가능한 기술 문제, 일반 보증·반품·주문"
+PR-07,7,"그 외 정보 요청 (TECH_SPEC, MANUAL, COMPLIANCE, QUOTE)",P4,"Low — 정보 요청(문서·사양·견적·인증), 기한 여유"

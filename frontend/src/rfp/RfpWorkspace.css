@@ -1,0 +1,397 @@
+/* 통합 작업 공간(KAN-222). 국내 ERP 셸 안에서 쓴다. 상태 글자는 검은색, 강조는 네이비 한 색. */
+.ws{display:flex;flex-direction:column;gap:0}
+.ws .muted{color:#6b7684}
+.ws .sp{flex:1}
+.ws-strong{font-weight:400;color:#1f2a37}
+.ws-grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:12px;padding:12px 0}
+.ws-sec{background:#fff;border:1px solid #d5dbe3;min-width:0;display:flex;flex-direction:column}
+.ws-left{grid-column:span 7;min-height:640px}
+.ws-right{grid-column:span 5;min-height:640px}
+.ws-center{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:24px}
+.ws-drop{flex:1;margin:16px;border:1px dashed #9aa7b8;background:#fafbfc;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;cursor:pointer;min-height:300px}
+.ws-ready{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px}
+.ws-file{display:flex;align-items:center;gap:12px;padding:10px 14px;border:1px solid #d5dbe3;background:#fafbfc;min-width:420px}
+.ws-field{display:flex;flex-direction:column;gap:4px;font-size:12px;color:#6b7684;width:100%;max-width:440px}
+.ws-field.inline{flex-direction:row;align-items:center;gap:8px;width:auto}
+.ws-field input,.ws-field select{font:inherit;font-size:13px;color:#1f2a37;border:1px solid #c4ccd6;padding:5px 8px;min-height:30px;box-sizing:border-box}
+.ws-big{min-height:36px;padding:7px 18px}
+.ws-link{all:unset;cursor:pointer;color:#24518a;font-size:12px}
+.ws-link:focus-visible,.ws-rowbtn:focus-visible{outline:2px solid #24518a}
+.ws-link[disabled]{opacity:.5;cursor:default}
+.ws-alert{margin:6px 0}
+
+.ws-strip{display:flex;align-items:center;gap:12px;padding:9px 12px;background:#fff;border:1px solid #e1e6ec;flex-wrap:wrap;margin-top:12px}
+/* 보드 페르소나(Persona 모양을 CSS로 옮긴 것): 원형 몸체, 도는 빛, 광택, 작은 점 둘 */
+@keyframes ws-spin{to{transform:rotate(360deg)}}
+.ws-small{font-size:12px}
+.ws-clock{font-size:12px;color:#6b7684;font-variant-numeric:tabular-nums}
+.ws-fade{display:inline-block;animation:ws-in .45s ease-out}
+@keyframes ws-in{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+.ws-line.warn{color:#9a3412}
+.ws-lines{font-size:12px;line-height:1.7;color:#97a1ad;max-height:160px;overflow:auto;padding-left:40px}
+.ws-lines p{margin:0}
+.ws-lines span{display:inline-block;min-width:88px}
+.ws-toggle{display:inline-flex;align-items:center;gap:2px}
+.ws-toggle svg{transition:transform .2s}
+.ws-toggle.open svg{transform:rotate(180deg)}
+.ws-shim{font-size:14px;font-weight:400;background:linear-gradient(90deg,#1f2a37 0%,#1f2a37 38%,#a7b1be 50%,#1f2a37 62%,#1f2a37 100%);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:ws-shimmer 2.2s linear infinite}
+@keyframes ws-shimmer{from{background-position:100% 0}to{background-position:0 0}}
+.ws-seg{display:flex;gap:3px}
+.ws-seg i{display:block;width:14px;height:3px;background:#dfe5ee}
+.ws-seg i.done,.ws-seg i.now{background:#24518a}
+.ws-seg i.now{animation:ws-pulse 1.2s ease-in-out infinite}
+.ws-seg i.stop{background:#9aa3ae}
+@keyframes ws-pulse{50%{opacity:.35}}
+.ws-line{flex:1 1 300px;min-width:0;font-size:12px;color:#97a1ad;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ws-log{background:#fff;border:1px solid #e1e6ec;border-top:0;padding:8px 12px}
+.ws-track{flex:0 1 320px;height:6px;background:#e6eaf0;position:relative}
+.ws-track>span{position:absolute;left:0;top:0;bottom:0;background:#24518a;transition:width .3s}
+@media (prefers-reduced-motion:reduce){.ws-shim,.ws-seg i.now,.ws-skel .sk,.ws-fade{animation:none}.ws-shim{color:#1f2a37;background:none}}
+
+.ws-skel{padding:16px;display:flex;flex-direction:column;gap:14px}
+.ws-skel .sk{display:block;height:10px;background:linear-gradient(90deg,#eef1f5 0%,#e2e7ee 50%,#eef1f5 100%);background-size:200% 100%;animation:ws-skel 1.4s linear infinite}
+@keyframes ws-skel{from{background-position:100% 0}to{background-position:-100% 0}}
+
+.ws-tabs{display:flex;gap:0;margin-top:12px}
+.ws-tabs button,.ws-dtabs button{font:inherit;font-size:13px;border:1px solid #d5dbe3;border-bottom:0;background:#eef1f5;color:#4b5563;padding:7px 16px;cursor:pointer;margin-right:-1px;min-height:34px}
+.ws-tabs button.on,.ws-dtabs button.on{background:#fff;color:#1f2a37;box-shadow:inset 0 2px 0 #24518a}
+.ws-filters{display:flex;align-items:center;gap:4px;padding:10px 0 0;flex-wrap:wrap}
+.ws-chip{font:inherit;font-size:12px;border:1px solid transparent;background:none;padding:4px 9px;cursor:pointer;color:#3b4654;min-height:28px}
+.ws-chip:hover{background:#eef2f7}
+.ws-chip.on{border-color:#24518a;background:#e9eff8;color:#1a3c68}
+.ws-vsep{width:1px;height:16px;background:#d5dbe3;margin:0 6px}
+
+.ws-tbox{height:680px;overflow:auto}
+.ws-table{width:100%;border-collapse:collapse;font-size:12px}
+.ws-table th{font-weight:400;background:#f3f5f8;color:#4b5563;border-bottom:1px solid #dde2e8;height:30px;padding:0 8px;text-align:left;position:sticky;top:0}
+.ws-table td{border-bottom:1px solid #edf0f3;height:34px;padding:0 8px}
+.ws-table .r{text-align:right}
+.ws-table tr.g td{background:#f6f8fb;height:30px;color:#2d3846}
+.ws-table tr.row{cursor:pointer}
+.ws-table tr.row:hover td{background:#f7f9fc}
+.ws-table tr.sel td{background:#e9f0fa}
+.ws-table tr.sel td:first-child{box-shadow:inset 3px 0 0 #24518a}
+.ws-table tr.decided td{color:#9aa3ae}
+.ws-table td.empty,.ws-cmp .v.empty{color:#9a6b00}
+.ws-table .tag{font-size:11px;color:#6b7684}
+.ws-rowbtn{all:unset;cursor:pointer}
+.ws-act{min-height:24px;padding:2px 9px}
+
+.ws-panel{display:flex;flex-direction:column;height:100%}
+.ws-pick{padding:10px 12px;border-bottom:1px solid #e1e6ec;display:flex;flex-direction:column;gap:8px}
+.ws-pick .hd{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ws-pick .name{font-size:14px;font-weight:500}
+.ws-pick .dot{width:7px;height:7px;border-radius:50%;background:#7d93b5;display:inline-block}
+.ws-cmp{display:grid;grid-template-columns:72px minmax(0,1fr);border:1px solid #e3e7ec}
+.ws-cmp>span{padding:7px 10px;border-bottom:1px solid #eef1f4}
+.ws-cmp .k{color:#6b7684;background:#f8f9fb;font-size:12px}
+.ws-cmp .v{font-size:14px}
+.ws-why{margin:0;font-size:12px;color:#6b7684;line-height:1.55}
+.ws-decided{display:flex;align-items:center;gap:10px;padding:8px 10px;background:#f3f6fa;border:1px solid #dfe5ee}
+.ws-note{margin:0;font-size:12px}
+.ws-form{display:flex;flex-direction:column;gap:8px}
+.ws-opts,.ws-plist{display:flex;gap:14px;flex-wrap:wrap}
+.ws-plist{flex-direction:column;gap:4px}
+.ws-plist label.off{color:#9aa3ae}
+.ws-label{font-size:12px;color:#6b7684}
+.ws-go{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.ws-change{margin-top:4px}
+.ws-srcbar{display:flex;align-items:center;gap:6px;padding:6px 12px;border-bottom:1px solid #e1e6ec;background:#f8f9fb}
+.ws-seg2{display:inline-flex}
+.ws-seg2 button{font:inherit;font-size:12px;border:1px solid #c4ccd6;background:#fff;padding:3px 9px;margin-left:-1px;cursor:pointer}
+.ws-seg2 button.on{background:#e9eff8;border-color:#24518a;color:#1a3c68}
+.ws-source{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column}
+.ws-quote{padding:12px 16px;line-height:1.75;margin:0;background:#fdf1c4}
+
+.ws-out{display:flex;flex-direction:column;gap:12px;padding:12px 0}
+.ws-gate{display:flex;align-items:center;gap:18px;padding:10px 12px;background:#fff;border:1px solid #e1e6ec;flex-wrap:wrap}
+.ws-gateitem{font:inherit;font-size:13px;background:none;border:0;padding:0;color:#1f2a37}
+button.ws-gateitem{color:#24518a;cursor:pointer}
+.ws-review h2,.ws-doc h2{margin:0;font-size:13px;font-weight:500;padding:8px 12px;border-bottom:1px solid #e1e6ec;background:#f8f9fb;display:flex;gap:8px;align-items:center}
+.ws-dtabs{display:flex}
+.ws-sum{padding:14px 18px;line-height:1.7}
+
+/* 업무 홈 오늘 할 일 */
+.rfp-today{list-style:none;margin:0;padding:0}
+.rfp-today li{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr) auto;align-items:center;gap:12px;padding:8px 12px;border-bottom:1px solid #edf0f3}
+.rfp-today .muted{color:#6b7684}
+.ws-search{font:inherit;font-size:12px;border:1px solid #c4ccd6;padding:4px 8px;min-height:28px;width:200px}
+.ws-remain{font-size:12px}
+.ws-bulk{margin-left:12px}
+.ws-confirm{margin-left:12px;font-size:12px}
+.ws-bulkbar{display:flex;align-items:center;gap:12px;padding:6px 10px;border-bottom:1px solid #e1e6ec;background:#f3f6fa;flex-wrap:wrap}
+.ws-bulkline,.ws-similar{margin:6px 0;font-size:12px;display:flex;align-items:center;gap:8px}
+.ws-similar{padding:6px 12px;border-bottom:1px solid #e1e6ec;background:#f3f6fa;margin:0}
+.ws-filters .sp{flex:1}
+.ws-filters .ws-field.inline select{width:auto;max-width:160px}
+.ws-filters input.ws-search{flex:0 0 200px;width:200px}
+.ws-table tr.g td .muted{display:inline;margin-left:4px}
+.ws-table td.r .kb{white-space:nowrap}
+.ws-histlink{display:block;margin:8px 12px;font-size:12px}
+.ws-hist{padding:6px 12px 10px;font-size:12px;border-top:1px solid #e1e6ec}
+.ws-hist ol{list-style:none;margin:0;padding:0}
+.ws-hist li{padding:3px 0;font-weight:300}
+.ws-histtable td{font-size:12px;font-weight:300}
+.ws-badge{margin-left:6px;font-size:11px;padding:1px 6px;border:1px solid #24518a;color:#24518a;white-space:nowrap}
+.ws-small{font-size:11px}
+.ws-quote-line{display:block;font-size:12px;margin-top:2px}
+.ws-drop input[type=file]{display:none}
+.ws-dtabs button .muted{display:inline;margin-left:4px}
+.ws-histfilter{padding:6px 12px}
+.ws-resume{margin:0 24px 24px;border-top:1px solid #e1e6ec;padding-top:10px;font-size:12px}
+.ws-resume p{display:flex;justify-content:space-between;gap:12px;margin:4px 0}
+.ws-dtabs button{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+.ws-badge.gray{border-color:#9aa4b1;color:#4b5563}
+.ws-quoteval{white-space:normal;line-height:1.5}
+.ws-exclude{padding:6px 12px}
+.ws-alert{color:#b42318}
+.ls-root .ws-table .ws-badge{display:inline-block;width:auto;line-height:16px;vertical-align:middle}
+.ws-field.inline{white-space:nowrap}
+.ws-field.inline input{width:auto;min-width:0}
+.ws-mark{background:#fff0a6;color:inherit;padding:0 1px}
+.ws-tabs button{white-space:nowrap}
+.ls-root :is(.ws-opts,.ws-plist) label{display:inline-flex;align-items:center;gap:4px;margin-right:14px;width:auto}
+.ls-root :is(.ws-opts,.ws-plist) input[type=radio]{width:auto;min-height:0;margin:0;padding:0;border:0;box-shadow:none}
+.ws-strip .ws-link{font-size:12px}
+.ls-root .ws-tabs button .muted{display:inline;margin-left:6px}
+.ls-root .ws-opts{display:flex;gap:14px;flex-wrap:wrap}
+.ls-root :is(.ws-opts,.ws-plist) label{white-space:nowrap;flex:none}
+/* 작업 공간 원문 칸: 보드처럼 원문 막대 바로 아래에 문서를 두고, 고른 요구의 인용문이 칸 안 위쪽에 보이게 높이를 줄인다. */
+.ws-source .rfp-original-pane>header,.ws-source .rfp-review-help{display:none}
+.ws-source .rfp-docx-frame,.ws-source .rfp-pdf-scroll{flex:1;height:auto;min-height:0}
+.ls-root .ws-field.inline input,.ls-root .ws-field.inline select{width:auto}
+.ws-form .ws-go{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.ws-reply{margin:6px 0 2px}
+/* 셸의 ".kv div span{display:block}"이 패널 글을 줄마다 끊지 않게 한다. */
+.ls-root .ws .ws-panel span:where(:not(.ws-quote-line)){display:inline}
+.ws-form{gap:6px}
+.ws-form p{margin:4px 0}
+.ws-table td small{white-space:nowrap}
+.ws-outnote{margin:6px 16px}
+
+/* 보드 재현(2026-11-05, 사본 캔버스 "RFP 검토 화면 개편안"). 글꼴·크기·표 치수는 보드 CSS 값을 쓴다.
+   글꼴은 C/S와 같은 셸 글꼴(--erp-font)을 쓴다(2026-11-05 사용자 결정). 굵기·크기 위계와 표 치수만 RFP 화면에 둔다.
+   굵기 위계(사용자 결정 2026-11-05): 본문·표 셀·보조 글 500, 라벨·표 머리·탭·버튼 600, 제목·패널 제목·묶음 제목 700, 숫자는 tabular-nums.
+   .rfp-ui는 업무 홈·RFP 목록·작업 공간의 <main>에만 붙는다. 셸은 RFP 화면이 떠 있을 때만 같은 규칙을 쓴다(C/S 등은 그대로). */
+.ls-root:has(.rfp-ui){--mm-bg:#f4f6f9}
+.ls-root .kv .rfp-ui{--rfp-font:var(--erp-font);font-size:13px;font-weight:300;line-height:normal;color:#1f2a37}
+.ls-root .kv .rfp-ui,.ls-root .kv .rfp-ui :is(button,input,select,textarea,h1,h2,h3,th,td,a){font-family:var(--rfp-font)!important}
+.ls-root .kv .rfp-ui :is(button,input,select,textarea){font-weight:300}
+
+/* 머리(보드 .head): 16px 500 제목, 12px 회색 경로·화면 번호 */
+.ls-root .kv .rfp-ui .kv-title{height:auto;min-height:51px;padding:10px 16px;border-bottom-color:#e1e6ec}
+.ls-root .kv .rfp-ui .kv-path{gap:10px;font-size:12px;color:#6b7684;white-space:nowrap;min-width:0}
+.ls-root .kv .rfp-ui .kv-path h1{font-size:16px;font-weight:500;color:#1f2a37}
+.ls-root .kv .rfp-ui .kv-code{font-size:12px;color:#6b7684}
+
+/* 버튼(보드 .btn): 12px, 본문 굵기, 줄바꿈 없음 */
+.ls-root .kv .rfp-ui .kb{height:28px;padding:0 11px;font-size:12px;font-weight:300;white-space:nowrap;border-color:#c4ccd6;color:#1f2a37}
+.ls-root .kv .rfp-ui .kb.primary{background:#24518a;border-color:#24518a;color:#fff}
+.ls-root .kv .rfp-ui .kb.primary:hover{background:#1a3c68}
+.ls-root .kv .rfp-ui .kb.ws-act,.ls-root .kv .rfp-ui .kv-grid .kb{height:24px;min-width:0;padding:0 9px;border-color:#24518a;color:#1a3c68}
+.ls-root .kv .rfp-ui :is(.ws-chip,.ws-link,.ws-seg2 button,.ws-field,.ws-search){font-size:12px}
+.ls-root .kv .rfp-ui .ws-tabs button{font-size:13px;font-weight:300}
+.ls-root .kv .rfp-ui .ws-tabs button.on{font-weight:400}
+
+/* 진행 줄: 설비별 남은 건수는 한 줄에서 자른다(보드 .nowline) */
+.ls-root .kv .rfp-ui .ws-strip{flex-wrap:nowrap}
+.ls-root .kv .rfp-ui .ws-strip .ws-strong{font-weight:400;white-space:nowrap}
+.ls-root .kv .rfp-ui .ws-remain{flex:1 1 0;min-width:0;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ls-root .kv .rfp-ui .ws-strip .sp{flex:0 0 0}
+.ls-root .kv .rfp-ui .ws-strip>:is(button,a){flex:none;white-space:nowrap}
+
+/* 요구 표(보드 .grid): 12px, 머리 30px, 행 34px, 묶음 행 30px, 셀은 한 줄에서 줄임표 */
+.ls-root .kv .rfp-ui .ws-table{font-size:12px;border-collapse:collapse}
+.ls-root .kv .rfp-ui .ws-table th{font-size:12px;font-weight:400;color:#4b5563;background:#f3f5f8;border-bottom:1px solid #dde2e8;height:30px;padding:0 8px;line-height:normal;white-space:nowrap;vertical-align:middle}
+.ls-root .kv .rfp-ui .ws-table td{font-size:12px;font-weight:300;height:34px;padding:0 8px;line-height:normal;border-top:0;border-bottom:1px solid #edf0f3;vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;overflow-wrap:normal;word-break:normal}
+.ls-root .kv .rfp-ui .ws-table tr.g td{height:30px;font-weight:400;color:#2d3846;max-width:none;overflow:visible}
+.ls-root .kv .rfp-ui .ws-table tr.decided td{color:#9aa3ae}
+.ls-root .kv .rfp-ui .ws-table .tag,.ls-root .kv .rfp-ui .ws-table td.tag{font-size:11px;color:#6b7684}
+.ls-root .kv .rfp-ui .ws-table td small{font-size:11px}
+.ls-root .kv .rfp-ui .ws-rowbtn{font-size:inherit;font-weight:inherit;white-space:nowrap}
+.ls-root .kv .rfp-ui .ws-table td.r{max-width:none}
+
+/* 출력 문서 표(보드 .otbl): 12.5px, 칸 여백 7px 10px, 줄높이 1.5, 고정 폭. 긴 글 칸만 두 줄에서 자르고 그 표의 모든 행은 두 줄 높이로 고르게 둔다. */
+.ls-root .kv .rfp-ui .ws-otbl{table-layout:fixed;width:100%;font-size:12.5px}
+.ls-root .kv .rfp-ui .ws-otbl th{padding:7px 10px;height:auto}
+.ls-root .kv .rfp-ui .ws-otbl td{font-size:12.5px;padding:7px 10px;line-height:1.5;height:33px;max-width:none}
+.ls-root .kv .rfp-ui .ws-otbl.two td{height:52px}
+.ls-root .kv .rfp-ui .ws-otbl td.wrap{white-space:normal}
+.ws-clamp{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;line-height:1.5;word-break:keep-all;overflow-wrap:anywhere}
+
+/* 업무 홈 오늘 할 일(보드 .todo): 행 44px, 할 일 14px 400, 프로젝트 260px, 버튼 150px */
+.ls-root .kv .rfp-ui .rfp-today li{grid-template-columns:minmax(0,1fr) 260px 150px;min-height:44px;padding:0 12px;gap:0}
+.ls-root .kv .rfp-ui .rfp-today li>span:first-child{font-size:14px;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ls-root .kv .rfp-ui .rfp-today li>span.muted{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ls-root .kv .rfp-ui .rfp-today li>.kb{justify-self:end;height:24px;padding:0 9px;border-color:#24518a;color:#1a3c68}
+.ls-root .kv .rfp-ui .kv-box>h2{font-size:13px!important;font-weight:500!important}
+
+/* 업무 홈·목록 표(보드 .grid): 12px, 행 30px, 머리 400 */
+.ls-root .kv .rfp-ui .kv-grid th{font-size:12px;height:30px!important;line-height:30px;color:#4b5563;background:#f3f5f8}
+.ls-root .kv .rfp-ui .kv-grid td{font-size:12px;height:30px!important;line-height:30px;font-weight:300}
+.ls-root .kv .rfp-ui .ws-rowbtn{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
+/* 거르기 줄은 보드처럼 한 줄: 검색 칸과 설비 선택 폭을 줄인다 */
+.ls-root .kv .rfp-ui .ws-filters{flex-wrap:nowrap;white-space:nowrap}
+.ls-root .kv .rfp-ui .ws-filters input.ws-search{flex:0 1 170px;width:170px;min-width:100px}
+.ls-root .kv .rfp-ui .ws-filters .ws-field.inline select{max-width:130px}
+.ls-root .kv .rfp-ui .ws-filters>*{flex-shrink:0}
+.ls-root .kv .rfp-ui .ws-filters>.sp{flex:1 1 0;min-width:4px}
+/* 다시 분석(KAN-232) */
+.ls-root .kv .rfp-ui .ws-rerun{display:inline-flex;align-items:center;gap:10px;flex:none;white-space:nowrap;font-size:12px}
+.ls-root .kv .rfp-ui .ws-log .ws-field.inline{margin-bottom:6px}
+/* 중복 묶음(KAN-231): 대표 행의 "원문 n곳"으로 구성원을 펼친다. 구성원은 대표를 따르므로 흐리게 */
+.ls-root .kv .rfp-ui .ws-dup{margin-left:6px;font-size:11px}
+.ls-root .kv .rfp-ui .ws-table tr.member td{color:#8a94a1;background:#fbfcfd}
+.ls-root .kv .rfp-ui .ws-table tr.member td:nth-child(3){padding-left:20px}
+.ls-root .kv .rfp-ui .ws-stale{margin:6px 0 0;font-size:12px;color:#9a6b00}
+
+/* 굵기 위계와 평면 바탕(보드와 같은 규칙, 2026-11-05). 앞의 개별 굵기 선언보다 이 블록이 우선한다. */
+.ls-root .kv .rfp-ui,.ls-root .kv .rfp-ui *,.ls-root:has(.rfp-ui) :is(.sidebar,.ls-topbar,.kt-tabs) *{font-weight:500!important}
+.ls-root .kv .rfp-ui{font-variant-numeric:tabular-nums}
+.ls-root .kv .rfp-ui :is(th,label,button,select,.kb,[role=tab],.ws-tabs button,.ws-chip,.ws-link),.ls-root:has(.rfp-ui) :is(.sidebar .km-g,.sidebar a,.ls-topbar button,.ls-topbar a,.kt-tabs [role=tab]){font-weight:600!important}
+.ls-root .kv .rfp-ui :is(h1,h2,h3,.hd .name,tr.g td,.kv-box>h2),.ls-root:has(.rfp-ui) .sidebar .brand{font-weight:700!important}
+.ls-root:has(.rfp-ui),.ls-root:has(.rfp-ui) :is(.content,.kv,main.rfp-ui){background-color:#f4f6f9;background-image:none}
+.ls-root:has(.rfp-ui) .main::before{display:none}
+.ls-root .kv .rfp-ui .kv-grid th{text-align:left!important}
+.ls-root .kv .rfp-ui .kv-grid th:last-child{text-align:right!important}
+/* 보완 결정의 협력사 행(2026-11-05 사용자 지적): 단추와 이름을 같은 줄 왼쪽에 붙이고, 사유 한 줄과 등급을 같은 행에 둔다.
+   Primer RadioGroup(단추 옆 이름, 아래 보조 설명)·Carbon RadioTile처럼 행 전체가 선택 영역이고, 제외 행은 흐리되 사유를 남긴다. */
+.ls-root .ws-plist{gap:0;border:1px solid #dde2e8}
+.ls-root .ws-plist label.ws-prow{display:grid;grid-template-columns:16px minmax(0,1fr) auto;grid-template-areas:'r n g' '. t t';align-items:center;column-gap:8px;row-gap:2px;margin:0;padding:7px 10px;white-space:normal;cursor:pointer;border-top:1px solid #eef1f4;box-shadow:inset 3px 0 0 transparent}
+.ls-root .ws-plist label.ws-prow:first-child{border-top:0}
+.ls-root .ws-plist label.ws-prow:hover{background:#f6f8fb}
+.ls-root .ws-plist label.ws-prow.on{background:#f3f6fb;box-shadow:inset 3px 0 0 #ED164B}
+.ls-root .ws-plist label.ws-prow.off{cursor:not-allowed;background:#fafbfc}
+.ws-prow input{grid-area:r}
+.ws-prow .nm{grid-area:n;font-weight:600;white-space:nowrap}
+.ws-prow .note{grid-area:t;color:#5b6573;font-size:12px;line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.ws-prow .grade{grid-area:g;justify-self:end;font-size:11.5px;color:#24518a;border:1px solid #c9d6e8;padding:1px 6px;white-space:nowrap}
+.ws-prow.off .nm,.ws-prow.off .grade{color:#9aa3ae;border-color:#e1e5ea}
+.ws-prow.off .note{color:#8a939e}
+.ls-root .ws-role input{max-width:360px}
+
+/* 오른쪽 칸 "안 1"(2026-11-05): 화면 높이에 고정, 위 결정·아래 원문이 각자 스크롤, 경계선으로 높이 조절. */
+.ws-source>.ws-quote{overflow:auto}
+.ws-source .rfp-original-pane{flex:1;min-height:0;display:flex;flex-direction:column}
+.ws-more{display:block;margin:6px 12px 10px;font-size:12px}
+/* 표(왼쪽)·결정+원문(오른쪽)을 화면 높이에 맞추고 각자 안에서 스크롤한다. --ws-grid-top은 화면이 잰 칸 위치. */
+/* 결정 진행을 탭 줄 오른쪽에 작게(사용자 지적 2026-11-05: 별도 줄이 원문 칸을 줄였다). */
+.ws-tabrow{display:flex;align-items:flex-end;gap:12px;margin-top:12px;border-bottom:1px solid #d5dbe3}
+.ws-tabrow .ws-tabs{margin-top:0;margin-bottom:-1px}
+.ls-root .rfp-ui .ws-strip.ws-strip-mini,.ws-strip.ws-strip-mini{margin:0 0 6px auto;padding:0;border:0;background:none;gap:10px;font-size:12px;flex-wrap:nowrap;min-width:0}
+.ws-strip-mini .ws-strong{font-size:12px;white-space:nowrap}
+.ws-strip-mini .ws-track{width:96px;height:4px;flex:none}
+.ws-strip-mini .ws-remain{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ws-tabrow{min-width:0}
+.ws-strip-mini{flex:0 1 auto;overflow:hidden}
+.ws-strip-mini .ws-link,.ws-strip-mini button{white-space:nowrap;flex:none}
+@media (max-width:1700px){.ws-strip-mini .ws-remain{display:none}}
+/* 원문 칸 위 이미지 전사 안내는 한 줄로 줄인다. */
+.ws-source .rfp-match-notice{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 탭 줄 오른쪽 결정 진행이 화면 끝에 붙지 않게 여백(사용자 지적 2026-11-05). */
+.ls-root .rfp-ui .ws-strip.ws-strip-mini,.ws-strip.ws-strip-mini{margin-right:20px;gap:14px}
+.ws-strip-mini .ws-strong{margin-right:2px}
+/* 작업 공간 전체를 화면 오른쪽 끝에서 띄운다(사용자 지적 2026-11-05: 설비~목록 내려받기, 결정 진행이 끝에 붙음). */
+.ls-root .ws.rfp-ui,.ws.rfp-ui{padding-right:20px;box-sizing:border-box;min-width:0}
+.ls-root .rfp-ui .ws-strip.ws-strip-mini,.ws-strip.ws-strip-mini{margin-right:4px}
+/* 결정 카드 촘촘히(사용자 확정 2026-11-05: 스크롤 없이 한눈에). */
+.ws-pick{gap:6px}
+.ws-tools .ws-link{font-size:12px}
+.ws-tools>.ws-form,.ws-tools>section{flex-basis:100%}
+.ws-tools>.ws-form.ws-exclude{padding:0}
+.ws-prow .note{-webkit-line-clamp:1}
+.ws-offtoggle{align-self:flex-start;font-size:12px}
+/* 결정 카드 도구 링크(검토 대상에서 제외, 변경 이력)는 주 단추 줄에 한 줄로 나란히. */
+/* 작업 공간: 전체 페이지 스크롤. 오른쪽 칸은 원문(고정 높이, 내부 스크롤) 아래에 결정 카드를 다 펼친다(사용자 지시 2026-11-05). */
+.ws-right .ws-panel{height:auto}
+.ws-bottom{display:flex;flex-direction:column;border-bottom:1px solid #e1e6ec}
+.ws-bottom .ws-source{flex:none;height:480px}
+.ws-top{flex:none}
+/* 결정 카드: 보드처럼 키-값 표와 처리 상자. 왼쪽 회색 라벨 칸 82px. */
+.ls-root .ws-cmp,.ws-cmp{display:grid;grid-template-columns:82px minmax(0,1fr);border:1px solid #e3e7ec}
+.ls-root .ws .ws-panel .ws-cmp>span{display:block;padding:7px 10px;border-bottom:1px solid #eef1f4}
+.ws-cmp>span:nth-last-child(-n+2){border-bottom:0}
+.ws-cmp .k{color:#6b7684;background:#f8f9fb;font-size:12px;font-weight:600}
+.ws-cmp .v.why{font-size:12.5px;color:#4b5563;line-height:1.55}
+.ws-pick>.ws-form{display:grid;grid-template-columns:82px minmax(0,1fr);gap:0;border:1px solid #e3e7ec;background:linear-gradient(to right,#f8f9fb 82px,#fff 82px)}
+.ws-pick>.ws-form>*{border-bottom:1px solid #eef1f4}
+.ws-pick>.ws-form>:last-child{border-bottom:0}
+.ls-root .ws .ws-panel .ws-pick>.ws-form>.ws-label{display:block;grid-column:1;padding:8px 10px;font-weight:600;font-size:12px;color:#6b7684}
+.ws-pick>.ws-form>:is(.ws-opts,.ws-plist,.ws-offtoggle){grid-column:2;margin:0;padding:6px 10px}
+.ws-pick>.ws-form>.ws-plist{border:0;padding:0}
+.ws-pick>.ws-form>.ws-offtoggle{justify-self:start;text-align:left}
+.ws-pick>.ws-form>.ws-field{grid-column:1/-1;display:grid;grid-template-columns:72px minmax(0,1fr);column-gap:10px;align-items:center;max-width:none;padding:6px 10px;font-weight:600;font-size:12px;color:#6b7684}
+.ws-pick>.ws-form>.ws-field :is(input,select){width:100%;font-weight:500}
+.ws-pick>.ws-form>:is(.ws-go,.ws-note,p,[role=alert]){grid-column:1/-1;background:#fff;margin:0;padding:8px 10px}
+.ws-pick>.ws-form>.ws-go{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap}
+/* 처리 선택은 세그먼트 단추 모양. */
+.ws-pick .ws-opts{gap:0}
+.ls-root .ws-pick .ws-opts label{margin:0 -1px 0 0;padding:4px 12px;border:1px solid #c4ccd6;background:#fff;cursor:pointer;font-weight:500;position:relative}
+.ls-root .ws-pick .ws-opts label:has(input:checked){background:#24518a;border-color:#24518a;color:#fff;z-index:1}
+.ls-root .ws-pick .ws-opts label:has(input:focus-visible){outline:2px solid #24518a;outline-offset:1px}
+.ls-root .ws-pick .ws-opts input[type=radio]{position:absolute;opacity:0;width:1px;height:1px}
+/* 주 단추는 왼쪽, 판정 변경·제외·변경 이력은 오른쪽 작은 링크. 펼치면 그 줄 아래 전체 폭. */
+.ws-tools{display:flex;flex:1 1 auto;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:4px 14px;margin-left:auto}
+.ws-tools .ws-link,.ws-tools .ws-histlink{font-size:12px;margin:0;white-space:nowrap;display:inline}
+.ws-tools>.ws-form,.ws-tools>section{flex-basis:100%}
+.ws-decided{flex-wrap:wrap}
+.ls-root .ws .ws-panel span.ws-tools{display:flex}
+.ls-root .ws .ws-panel .ws-tools>*+*{margin-left:0}
+/* 분석 표 박스 높이는 오른쪽 작업 박스(원문+결정 카드)를 따른다: 표는 줄 높이를 정하지 않고(height:0) 늘어난 칸을 채운다. 최소 560px. */
+.ws-grid{align-items:stretch}
+.ws-grid>.ws-left{display:flex;flex-direction:column;min-height:560px}
+.ws-grid>.ws-left>.ws-tbox{flex:1 1 0;height:0;min-height:0}
+
+.ws-ello{display:inline-flex;flex:0 0 auto}
+.ws-aimark{display:inline-flex;margin-left:4px}
+.ws-tools .ws-err{display:block;flex-basis:100%;color:#b42318;font-size:12px}
+.ws-ok{margin:6px 0;color:#1f7a3f;font-weight:600}
+/* 필터 줄 두 줄 묶음(2026-11-05 사용자 확정 A안): 1줄 범위·설비·검색·더 보기, 2줄 판정별 건수·설비별로 묶기 */
+.ls-root .kv .rfp-ui .ws-filters{display:block;white-space:normal;padding-top:10px}
+.ws-frow{display:flex;align-items:center;gap:8px;white-space:nowrap;padding-left:8px}
+.ws-frow+.ws-frow{margin-top:6px}
+.ws-frow .sp{flex:1 1 0;min-width:4px}
+.ws-scope{display:inline-flex;border:1px solid #c4ccd6}
+.ws-scope button{font:inherit;font-size:12px;border:0;background:#fff;color:#3b4654;padding:4px 12px;min-height:28px;cursor:pointer}
+.ws-scope button+button{border-left:1px solid #c4ccd6}
+.ws-scope button.on{background:#1e2b48;color:#fff}
+.ws-verdicts{gap:2px}
+.ws-verdicts>.muted{margin-right:6px;font-size:12px}
+.ls-root .kv .rfp-ui .ws-verdicts .ws-chip{color:#6b7480;min-height:24px;padding:2px 8px}
+.ws-verdicts .ws-chip b{font-weight:500;color:#3b4654;margin-left:2px}
+.ls-root .kv .rfp-ui .ws-verdicts .ws-chip.on{color:#1a3c68}
+.ws-verdicts .ws-chip.on b{color:#1a3c68}
+.ws-more{position:relative}
+.ws-more>summary{list-style:none;cursor:pointer;border:1px solid #c4ccd6;min-height:28px;padding:0 10px;display:flex;align-items:center;color:#3b4654;background:#fff}
+.ws-more>summary::-webkit-details-marker{display:none}
+.ws-more>div{position:absolute;right:0;top:calc(100% + 2px);z-index:20;background:#fff;border:1px solid #c4ccd6;padding:6px 10px;box-shadow:0 2px 6px rgba(0,0,0,.08)}
+.ws-switch{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#3b4654;cursor:pointer}
+.ws-switch input{appearance:none;width:28px;height:16px;border-radius:8px;background:#c4ccd6;position:relative;margin:0;cursor:pointer}
+.ws-switch input::after{content:"";position:absolute;width:12px;height:12px;border-radius:6px;background:#fff;top:2px;left:2px;transition:left .12s}
+.ws-switch input:checked{background:#1e2b48}
+.ws-switch input:checked::after{left:14px}
+/* 분석 중 조항 진행(2026-11-05 확정 목업 v3): 목차형 줄, 건수 막대, 읽는 중 줄은 글자 빛과 막대 흐름 */
+.ws-sp{padding:14px 20px 12px;font-size:12.5px;color:#1f2933}
+.ws-sp-head{display:flex;align-items:baseline;gap:8px;padding-bottom:8px;border-bottom:2px solid #1e2b48}
+.ws-sp-head b{font-size:28px;font-weight:300;color:#1e2b48;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
+.ws-sp-head .r{margin-left:auto;color:#8a929c;font-size:12px;font-variant-numeric:tabular-nums}
+.ws-sp-wait{margin:12px 0}
+.ws-sp-list{list-style:none;margin:6px 0 0;padding:0}
+.ws-sp-list li{display:flex;align-items:center;gap:10px;height:28px;border-bottom:1px solid #f2f4f6;color:#3b4654}
+.ws-sp-list .mk{flex:none;width:9px;height:9px;border-radius:50%;border:1.5px solid #d3d8de;box-sizing:border-box}
+.ws-sp-list .tx{flex:none;width:190px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ws-sp-list .trk{flex:1;height:4px;background:#f1f3f5;border-radius:2px;position:relative;overflow:hidden}
+.ws-sp-list .trk b{position:absolute;left:0;top:0;bottom:0;background:#1f4e8c;border-radius:2px;transition:width .7s ease}
+.ws-sp-list .n{flex:none;width:52px;text-align:right;font-size:12px;color:#6b7480;font-variant-numeric:tabular-nums}
+.ws-sp-list li.done .mk{border-color:#1f4e8c;background:#1f4e8c;transform:scale(.8)}
+.ws-sp-list li.done .n{animation:ws-sp-in .5s ease-out}
+@keyframes ws-sp-in{from{opacity:0;transform:translateX(-4px)}to{opacity:1;transform:none}}
+.ws-sp-list li.run{color:#1f4e8c}
+.ws-sp-list li.run .mk{border-color:#1f4e8c;border-right-color:transparent;animation:ws-sp-spin .8s linear infinite}
+@keyframes ws-sp-spin{to{transform:rotate(360deg)}}
+.ws-sp-list li.run .tx{background:linear-gradient(90deg,#1f4e8c 0%,#1f4e8c 35%,#9db4cf 50%,#1f4e8c 65%,#1f4e8c 100%);background-size:250% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:ws-sp-shine 1.6s linear infinite}
+@keyframes ws-sp-shine{from{background-position:100% 0}to{background-position:-150% 0}}
+.ws-sp-list li.run .trk::after{content:"";position:absolute;top:0;bottom:0;width:30%;background:linear-gradient(90deg,transparent,#9db4cf,transparent);animation:ws-sp-mv 1.2s ease-in-out infinite}
+@keyframes ws-sp-mv{from{left:-30%}to{left:100%}}
+.ws-sp-list li.wait .sk{flex:1;height:8px;max-width:60%;border-radius:2px;background:linear-gradient(90deg,#eef1f5 0%,#e2e7ee 50%,#eef1f5 100%);background-size:200% 100%;animation:ws-skel 1.4s linear infinite}
+@media (prefers-reduced-motion:reduce){.ws-sp-list li.run .mk,.ws-sp-list li.run .tx,.ws-sp-list li.run .trk::after,.ws-sp-list li.wait .sk,.ws-sp-list li.done .n{animation:none}.ws-sp-list li.run .tx{background:none;color:#1f4e8c}}

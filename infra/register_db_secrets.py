@@ -13,6 +13,9 @@ SECRETS = (
     ("cs-db-password", "CS_DB_PASSWORD", "cs-runtime"),
     ("tft-db-password", "TFT_DB_PASSWORD", "tft-runtime"),
     ("platform-db-password", "PLATFORM_DB_PASSWORD", "platform-runtime"),
+    # KAN-159: worker 전용 로그인. 실행 계정은 setup_worker_jobs.py prepare가 먼저 만든다.
+    ("cs-worker-db-password", "CS_WORKER_DB_PASSWORD", "cs-worker-runtime"),
+    ("tft-worker-db-password", "TFT_WORKER_DB_PASSWORD", "tft-worker-runtime"),
 )
 
 

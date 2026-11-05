@@ -1,67 +1,72 @@
 """Read queries for TFT projects. Tables are created by infra/migrations/tft only."""
 
+import logging
 from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from psycopg import AsyncConnection
+from psycopg import AsyncConnection, errors
+
+from backend.api.tft.rfp.repository import PROJECT_COUNTS
 
 Row = dict[str, Any]
+LOGGER = logging.getLogger(__name__)
 
 SUMMARY_COLUMNS = (
     "p.id, p.external_id, p.name, p.company_code, p.status, p.data_origin, p.derivation_kind, "
-    "p.responsible_user_id, p.created_at, "
-    "(SELECT max(v.version) FROM tft.composition_versions v WHERE v.project_id = p.id) "
-    "AS current_composition_version"
+    "p.responsible_user_id, p.sales_user_id, p.created_at, p.version, p.known_at, p.client_name, "
+    "p.output_status, p.judgement_status, p.strategic_customer, p.integration_holder, "
+    "p.supply_region, p.customer_manufacturer_list, p.off_list_permission, p.submission_due_at, "
+    + PROJECT_COUNTS
 )
 DETAIL_COLUMNS = (
     "id, external_id, version, data_origin, derivation_kind, known_at, created_at, "
-    "company_code, name, client_name, status, responsible_user_id"
+    "company_code, name, client_name, status, responsible_user_id, sales_user_id, "
+    "supply_region, customer_manufacturer_list, off_list_permission"
+)
+INTEGRATION_COLUMNS = (
+    "integration_holder, integration_holder_candidates, integration_note, integration_set_by, "
+    "integration_set_at"
 )
 REQUIREMENT_COLUMNS = (
     "id, requirement_code, field_tag, title, description, document_name, document_id, "
     "document_version_id, clause, page, excerpt, data_origin, derivation_kind"
 )
-ROLE_COLUMNS = (
-    "id, role_code, title, field_tag, tasks, experience_condition, is_core, headcount, "
-    "period_start, period_end, allocation_rate, status, reviewed_by_user_id, reviewed_at, "
-    "next_action, next_action_organization_id, reply_due_at, data_origin, derivation_kind"
-)
-REQUEST_COLUMNS = (
-    "r.id, r.required_role_id, r.organization_id, o.name AS organization_name, r.participation, "
-    "r.status, r.issued_by_user_id, r.issued_at, r.due_at, r.message, r.data_origin, "
-    "r.derivation_kind"
-)
-RECOMMENDATION_COLUMNS = (
-    "c.id, c.staffing_request_id, r.required_role_id, c.candidate_id, "
-    "k.display_name AS candidate_name, k.organization_id, c.recommended_by_user_id, "
-    "c.recommended_at, c.rationale, c.status, c.data_origin, c.derivation_kind"
-)
-EVIDENCE_COLUMNS = (
-    "e.id, e.recommendation_id, e.summary, e.project_name, e.role_title, e.period_start, "
-    "e.period_end, e.evidence_source, e.status, e.verified_by_user_id, e.verified_at, e.basis, "
-    "e.data_origin, e.derivation_kind"
-)
-COMPETENCY_CHECK_COLUMNS = (
-    "e.id, e.recommendation_id, e.competency_id, e.status, e.checked_by_user_id, e.checked_at, "
-    "e.basis, e.data_origin, e.derivation_kind"
-)
-AVAILABILITY_COLUMNS = (
-    "e.id, e.recommendation_id, e.period_start, e.period_end, e.allocation_rate, "
-    "e.constraints_note, e.checked_by_user_id, e.checked_at, e.basis, e.status, "
-    "e.data_origin, e.derivation_kind"
-)
-VERSION_COLUMNS = "id, version, created_by_user_id, created_at, note, data_origin, derivation_kind"
-MEMBER_COLUMNS = (
-    "id, required_role_id, recommendation_id, status, rationale, remaining_conditions, "
-    "gap_note, next_action_organization_id, follow_up_due_at"
-)
-# Rows of a recommendation-level table joined up to the project.
-RECOMMENDATION_SCOPE = (
-    "JOIN tft.candidate_recommendations c ON c.id = e.recommendation_id "
-    "JOIN tft.staffing_requests r ON r.id = c.staffing_request_id "
-    "WHERE r.project_id = %s"
-)
+
+
+def project_scope(
+    managed_projects: list[UUID],
+    user_id: UUID,
+    department: str | None,
+    output_status: str | None,
+    judgement_status: str | None,
+    q: str | None,
+    search_field: str,
+) -> tuple[str, list[Any]]:
+    """Shared authorization and literal search for numbered totals and list rows."""
+    scope = "(p.id = ANY(%s) OR p.responsible_user_id = %s OR p.sales_user_id = %s"
+    params: list[Any] = [managed_projects, user_id, user_id]
+    if department is not None:
+        scope += " OR %s = ANY(p.review_departments)"
+        params.append(department)
+    scope += ")"
+    if output_status is not None:
+        scope += " AND p.output_status = %s"
+        params.append(output_status)
+    if judgement_status is not None:
+        scope += " AND p.judgement_status = %s"
+        params.append(judgement_status)
+    if q is not None:
+        # 검색어의 %·_는 글자 그대로 찾는다.
+        escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        columns = {
+            "all": ("p.external_id", "p.name", "p.client_name"),
+            "external_id": ("p.external_id",),
+            "name": ("p.name",),
+        }[search_field]
+        scope += " AND (" + " OR ".join(f"{column} ILIKE %s" for column in columns) + ")"
+        params += [f"%{escaped}%"] * len(columns)
+    return scope, params
 
 
 async def list_projects(
@@ -70,26 +75,58 @@ async def list_projects(
     after: tuple[datetime, UUID] | None,
     managed_projects: list[UUID],
     user_id: UUID,
+    department: str | None = None,
+    *,
+    output_status: str | None = None,
+    judgement_status: str | None = None,
+    q: str | None = None,
+    search_field: str = "all",
+    offset: int = 0,
 ) -> list[Row]:
     """Newest first, only projects the user may see (access.sees_project).
 
-    Fetches one extra row so the caller knows whether a next page exists.
+    Fetches one extra row so the caller knows whether a next page exists. `department` is the
+    dept_staff department. Filters and counts run in this one statement, never per project.
     """
-    scope = "(p.id = ANY(%s) OR p.responsible_user_id = %s)"
+    scope, params = project_scope(
+        managed_projects, user_id, department, output_status, judgement_status, q, search_field
+    )
     if after is None:
         cursor = await conn.execute(
             f"SELECT {SUMMARY_COLUMNS} FROM tft.projects p WHERE {scope} "
-            "ORDER BY p.created_at DESC, p.id DESC LIMIT %s",
-            (managed_projects, user_id, limit + 1),
+            "ORDER BY p.created_at DESC, p.id DESC LIMIT %s OFFSET %s",
+            (*params, limit + 1, offset),
         )
     else:
         cursor = await conn.execute(
             f"SELECT {SUMMARY_COLUMNS} FROM tft.projects p WHERE {scope} "
             "AND (p.created_at, p.id) < (%s, %s) "
             "ORDER BY p.created_at DESC, p.id DESC LIMIT %s",
-            (managed_projects, user_id, *after, limit + 1),
+            (*params, *after, limit + 1),
         )
     return await cursor.fetchall()
+
+
+async def count_projects(
+    conn: AsyncConnection[Row],
+    managed_projects: list[UUID],
+    user_id: UUID,
+    department: str | None = None,
+    *,
+    output_status: str | None = None,
+    judgement_status: str | None = None,
+    q: str | None = None,
+    search_field: str = "all",
+) -> int:
+    scope, params = project_scope(
+        managed_projects, user_id, department, output_status, judgement_status, q, search_field
+    )
+    cursor = await conn.execute(
+        f"SELECT count(*) AS total FROM tft.projects p WHERE {scope}", params
+    )
+    row = await cursor.fetchone()
+    assert row is not None
+    return int(row["total"])
 
 
 async def get_project(conn: AsyncConnection[Row], project_id: UUID) -> Row | None:
@@ -99,6 +136,59 @@ async def get_project(conn: AsyncConnection[Row], project_id: UUID) -> Row | Non
     return await cursor.fetchone()
 
 
+async def review_departments(conn: AsyncConnection[Row], project_id: UUID) -> list[str]:
+    """The project's review departments (dept_staff scope, permissions.md 4.2).
+
+    Args:
+        conn: dict_row connection.
+        project_id: Project ID.
+
+    Returns:
+        list[str]: Department codes.
+    """
+    cursor = await conn.execute(
+        "SELECT review_departments FROM tft.projects WHERE id = %s", (project_id,)
+    )
+    row = await cursor.fetchone()
+    return list(row["review_departments"]) if row else []
+
+
+async def integration_state(
+    conn: AsyncConnection[Row], project_id: UUID
+) -> tuple[Row, list[Row]] | None:
+    """프로젝트의 통합 책임 입력을 읽는다. 조항에 묶인 최신 요구 판본만 근거가 될 수 있다.
+
+    프로젝트 조회는 RFP 표보다 먼저 있던 핵심 읽기다. 마이그레이션(T7·T11·T12)이 아직 없는 DB에서 프로젝트 조회
+    전체가 503이 되지 않게 savepoint로 격리하고, 없으면 사유 코드만 경고로 남긴다.
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 프로젝트 ID.
+
+    Returns:
+        tuple[Row, list[Row]] | None: (사람 입력 칸, 요구별 clause_id·clause_no·task·assembly_clause). 스키마가
+            없으면 None이다(required를 거짓으로 꾸미지 않는다).
+    """
+    try:
+        async with conn.transaction():
+            cursor = await conn.execute(
+                f"SELECT {INTEGRATION_COLUMNS} FROM tft.projects WHERE id = %s", (project_id,)
+            )
+            holder = await cursor.fetchone()
+            cursor = await conn.execute(
+                "SELECT v.clause_id, c.clause_no, v.task, v.assembly_clause FROM tft.requirements r "
+                "JOIN tft.requirement_versions v "
+                "ON v.requirement_id = r.id AND v.version = r.latest_version "
+                "JOIN tft.clauses c ON c.id = v.clause_id WHERE r.project_id = %s",
+                (project_id,),
+            )
+            rows = await cursor.fetchall()
+    except (errors.UndefinedColumn, errors.UndefinedTable):
+        LOGGER.warning("TFT_INTEGRATION_SCHEMA_MISSING")
+        return None
+    return (holder, rows) if holder is not None else None
+
+
 async def list_rfp_requirements(conn: AsyncConnection[Row], project_id: UUID) -> list[Row]:
     cursor = await conn.execute(
         f"SELECT {REQUIREMENT_COLUMNS} FROM tft.rfp_requirements "
@@ -106,121 +196,3 @@ async def list_rfp_requirements(conn: AsyncConnection[Row], project_id: UUID) ->
         (project_id,),
     )
     return await cursor.fetchall()
-
-
-async def list_required_roles(conn: AsyncConnection[Row], project_id: UUID) -> list[Row]:
-    cursor = await conn.execute(
-        f"SELECT {ROLE_COLUMNS} FROM tft.required_roles WHERE project_id = %s ORDER BY role_code",
-        (project_id,),
-    )
-    return await cursor.fetchall()
-
-
-async def list_role_requirement_links(conn: AsyncConnection[Row], project_id: UUID) -> list[Row]:
-    cursor = await conn.execute(
-        "SELECT l.required_role_id, l.requirement_id, l.rationale "
-        "FROM tft.role_requirement_links l "
-        "JOIN tft.required_roles r ON r.id = l.required_role_id "
-        "JOIN tft.rfp_requirements q ON q.id = l.requirement_id "
-        "WHERE r.project_id = %s ORDER BY q.requirement_code",
-        (project_id,),
-    )
-    return await cursor.fetchall()
-
-
-async def list_role_competencies(conn: AsyncConnection[Row], project_id: UUID) -> list[Row]:
-    cursor = await conn.execute(
-        "SELECT c.id, c.required_role_id, c.kind, c.description FROM tft.role_competencies c "
-        "JOIN tft.required_roles r ON r.id = c.required_role_id "
-        "WHERE r.project_id = %s ORDER BY c.kind, c.created_at, c.id",
-        (project_id,),
-    )
-    return await cursor.fetchall()
-
-
-async def list_staffing_requests(conn: AsyncConnection[Row], project_id: UUID) -> list[Row]:
-    cursor = await conn.execute(
-        f"SELECT {REQUEST_COLUMNS} FROM tft.staffing_requests r "
-        "JOIN tft.organizations o ON o.id = r.organization_id "
-        "WHERE r.project_id = %s ORDER BY r.created_at, r.id",
-        (project_id,),
-    )
-    return await cursor.fetchall()
-
-
-async def list_recommendations(conn: AsyncConnection[Row], project_id: UUID) -> list[Row]:
-    cursor = await conn.execute(
-        f"SELECT {RECOMMENDATION_COLUMNS} FROM tft.candidate_recommendations c "
-        "JOIN tft.staffing_requests r ON r.id = c.staffing_request_id "
-        "JOIN tft.candidates k ON k.id = c.candidate_id "
-        "WHERE r.project_id = %s ORDER BY c.recommended_at, c.id",
-        (project_id,),
-    )
-    return await cursor.fetchall()
-
-
-async def list_experience_evidence(conn: AsyncConnection[Row], project_id: UUID) -> list[Row]:
-    cursor = await conn.execute(
-        f"SELECT {EVIDENCE_COLUMNS} FROM tft.experience_evidence e {RECOMMENDATION_SCOPE} "
-        "ORDER BY e.created_at, e.id",
-        (project_id,),
-    )
-    return await cursor.fetchall()
-
-
-async def list_competency_checks(conn: AsyncConnection[Row], project_id: UUID) -> list[Row]:
-    cursor = await conn.execute(
-        f"SELECT {COMPETENCY_CHECK_COLUMNS} FROM tft.competency_checks e {RECOMMENDATION_SCOPE} "
-        "ORDER BY e.created_at, e.id",
-        (project_id,),
-    )
-    return await cursor.fetchall()
-
-
-async def list_availability_checks(conn: AsyncConnection[Row], project_id: UUID) -> list[Row]:
-    cursor = await conn.execute(
-        f"SELECT {AVAILABILITY_COLUMNS} FROM tft.availability_checks e {RECOMMENDATION_SCOPE} "
-        "ORDER BY e.created_at, e.id",
-        (project_id,),
-    )
-    return await cursor.fetchall()
-
-
-async def get_current_composition(conn: AsyncConnection[Row], project_id: UUID) -> Row | None:
-    cursor = await conn.execute(
-        f"SELECT {VERSION_COLUMNS} FROM tft.composition_versions "
-        "WHERE project_id = %s ORDER BY version DESC LIMIT 1",
-        (project_id,),
-    )
-    return await cursor.fetchone()
-
-
-async def list_composition_members(conn: AsyncConnection[Row], version_id: UUID) -> list[Row]:
-    cursor = await conn.execute(
-        f"SELECT {MEMBER_COLUMNS} FROM tft.composition_members "
-        "WHERE composition_version_id = %s ORDER BY required_role_id, id",
-        (version_id,),
-    )
-    return await cursor.fetchall()
-
-
-async def get_latest_responsible_change(conn: AsyncConnection[Row], project_id: UUID) -> Row | None:
-    cursor = await conn.execute(
-        "SELECT new_user_id, changed_by_user_id, reason, occurred_at "
-        "FROM tft.responsible_changes WHERE project_id = %s "
-        "ORDER BY occurred_at DESC, id DESC LIMIT 1",
-        (project_id,),
-    )
-    return await cursor.fetchone()
-
-
-async def get_final_confirmation(conn: AsyncConnection[Row], project_id: UUID) -> Row | None:
-    cursor = await conn.execute(
-        "SELECT f.id, f.composition_version_id, v.version AS composition_version, "
-        "f.confirmed_by_user_id, f.confirmed_at, f.note "
-        "FROM tft.final_confirmations f "
-        "JOIN tft.composition_versions v ON v.id = f.composition_version_id "
-        "WHERE f.project_id = %s ORDER BY f.confirmed_at DESC, f.id DESC LIMIT 1",
-        (project_id,),
-    )
-    return await cursor.fetchone()

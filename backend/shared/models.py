@@ -8,6 +8,13 @@ from pydantic import BaseModel, Field
 from backend.shared.settings import ServiceName
 
 DataT = TypeVar("DataT")
+# Customer ID convention (KAN-178): ASCII alphanumeric first, then alphanumerics, ".", "_" or
+# "-", 1-64 characters. The platform relay matches it on paths and C/S validates input with it;
+# docs/openapi/business-relay-routes.json keeps the same value for the web relay test.
+CUSTOMER_ID = r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}"
+# Condition comparison evidence ID (KAN-114/178): the same characters, alphanumeric first, so a
+# relayed path segment is never "." or "..". C/S validates writes with it and the relay matches it.
+EVIDENCE_ID = r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}"
 
 
 class ResponseMeta(BaseModel):

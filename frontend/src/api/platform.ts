@@ -1,5 +1,5 @@
 import type { paths } from './generated/platform';
-import { ApiError, request } from './client';
+import { ApiError, request, sessionCsrfToken, clearSessionCsrfToken } from './client';
 
 export type MeResponse = paths['/api/v1/platform/me']['get']['responses'][200]['content']['application/json'];
 export type Identity = MeResponse['data'];
@@ -11,3 +11,18 @@ export async function me(): Promise<MeResponse | null> {
   try { return await request<MeResponse>('/api/v1/platform/me'); }
   catch (error) { if (error instanceof ApiError && error.status === 401) return null; throw error; }
 }
+
+// Operational logout uses the session-bound response header, never persistent storage.
+export async function logoutSession(): Promise<void> {
+  const token = sessionCsrfToken();
+  if (!token) throw new ApiError(403, '세션 확인 후 로그아웃을 다시 시도하세요.');
+  await request<void>('/api/v1/platform/auth/logout', {method:'POST', headers:{'X-CSRF-Token':token}});
+  clearSessionCsrfToken();
+}
+
+// 담당 변경 후보(활성 cs_agent). 사용자 이름은 이 목록에서만 알 수 있다.
+export type AssigneeListResponse = paths['/api/v1/platform/assignees']['get']['responses'][200]['content']['application/json'];
+export const listCsAssignees = (signal?: AbortSignal) => request<AssigneeListResponse>('/api/v1/platform/assignees?role=cs_agent', { signal });
+// 업무 기록의 사용자 ID를 이름으로 묶어 읽는다(로그인한 누구나, 한 번에 100개까지). 없는 ID는 빠진다.
+export type UserNameListResponse = paths['/api/v1/platform/users']['get']['responses'][200]['content']['application/json'];
+export const listUserNames = (ids: string[], signal?: AbortSignal) => request<UserNameListResponse>(`/api/v1/platform/users?ids=${ids.slice(0, 100).map(encodeURIComponent).join(',')}`, { signal });

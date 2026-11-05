@@ -1,0 +1,40 @@
+﻿product_code,fw_version,release_date,is_latest,changes,doc_id
+ACB-AS-2000,1.2,2024-11-04,N,Initial release of trip unit firmware for AS series,RN-ACB-AS-2000
+ACB-AS-2000,1.3,2025-06-16,N,Fixed: ground fault (G) pickup delay ignored when set to 0.1 s | Added: Modbus register for contact wear percentage,RN-ACB-AS-2000
+ACB-AS-2000,1.4,2026-03-09,Y,Fixed: false T.SF self-diagnosis alarm after control power dip below 85 V | Improved: event log capacity from 64 to 256 entries,RN-ACB-AS-2000
+INV-LSLV0075-S100,3.00,2024-09-02,N,Baseline release,RN-INV-LSLV0075-S100
+INV-LSLV0075-S100,3.05,2025-04-21,N,Fixed: Modbus RTU response timeout when polling interval < 20 ms (E.CO) | Added: parameter copy compatibility check on keypad,RN-INV-LSLV0075-S100
+INV-LSLV0075-S100,3.10,2026-01-12,Y,Fixed: E.EP parameter write error when copying from 3.00 keypad | Improved: stall prevention during fast acceleration | Added: fan run-hour counter (monitor parameter),RN-INV-LSLV0075-S100
+INV-LSLV0220-H100,2.20,2024-10-14,N,Baseline release,RN-INV-LSLV0220-H100
+INV-LSLV0220-H100,2.31,2025-05-26,N,Fixed: BACnet MS/TP token loss on networks with > 32 nodes (E.CO) | Added: pump clean function,RN-INV-LSLV0220-H100
+INV-LSLV0220-H100,2.40,2026-02-02,Y,Fixed: MMC auxiliary motor not staging when PID feedback noisy | Improved: fire mode event log with timestamp,RN-INV-LSLV0220-H100
+INV-LSLV0750-iS7,4.00,2024-08-19,N,Baseline release,RN-INV-LSLV0750-iS7
+INV-LSLV0750-iS7,4.05,2025-03-10,N,Fixed: E.OC trip at restart after momentary power loss (speed search),RN-INV-LSLV0750-iS7
+INV-LSLV0750-iS7,4.10,2025-12-15,Y,Fixed: EtherNet/IP option loses connection after 49.7 days uptime | Added: cooling fan life warning,RN-INV-LSLV0750-iS7
+PLC-XGB-XBM-DR16S,3.00,2024-07-01,N,Baseline release,RN-PLC-XGB-XBM-DR16S
+PLC-XGB-XBM-DR16S,3.10,2025-02-17,N,Fixed: P.04 program checksum error after repeated power cycling within 1 s,RN-PLC-XGB-XBM-DR16S
+PLC-XGB-XBM-DR16S,3.20,2025-11-03,Y,Added: Modbus RTU master up to 64 blocks | Fixed: RTC drift > 30 s/month at high ambient temperature,RN-PLC-XGB-XBM-DR16S
+PLC-XGI-CPUU,4.20,2024-09-23,N,Baseline release,RN-PLC-XGI-CPUU
+PLC-XGI-CPUU,4.40,2025-06-02,N,"Fixed: P.05 Ethernet timeout under broadcast storm > 2,000 frames/s",RN-PLC-XGI-CPUU
+PLC-XGI-CPUU,4.50,2026-02-23,Y,Added: online change for structured data types | Fixed: watchdog false trip during online change of large FB,RN-PLC-XGI-CPUU
+HMI-XGT-eXP60,1.50,2024-06-10,N,Baseline OS,RN-HMI-XGT-eXP60
+HMI-XGT-eXP60,1.58,2025-03-24,N,Fixed: screen freeze after ~30 days continuous uptime,RN-HMI-XGT-eXP60
+HMI-XGT-eXP60,1.62,2025-10-20,Y,Fixed: H.03 project download failure with editor 3.2 or later | Added: alarm history export to USB as CSV,RN-HMI-XGT-eXP60
+HMI-XGT-iXP90,2.00,2024-10-07,N,Baseline OS,RN-HMI-XGT-iXP90
+HMI-XGT-iXP90,2.05,2025-05-12,N,Fixed: H.02 PLC communication timeout when two Ethernet ports on same subnet,RN-HMI-XGT-iXP90
+HMI-XGT-iXP90,2.08,2026-01-26,Y,Fixed: touch drift after warm restart | Added: TLS 1.3 for web server,RN-HMI-XGT-iXP90
+METER-LP3500-3P4W,1.60,2024-08-05,N,Baseline release,RN-METER-LP3500-3P4W
+METER-LP3500-3P4W,1.72,2025-04-07,N,Fixed: energy register reset after power loss during flash write,RN-METER-LP3500-3P4W
+METER-LP3500-3P4W,1.80,2025-12-01,Y,Added: Modbus TCP gateway mode | Fixed: R.01 no response when baud 38400 and parity even,RN-METER-LP3500-3P4W
+ESS-PCS-100kW,2.50,2024-11-11,N,Baseline release,RN-ESS-PCS-100kW
+ESS-PCS-100kW,2.62,2025-07-07,N,Fixed: G.06 BMS communication loss with BMS FW 3.4 heartbeat change,RN-ESS-PCS-100kW
+ESS-PCS-100kW,2.70,2026-03-30,Y,Added: frequency-watt response curve for new grid codes | Fixed: G.02 nuisance trip on ROCOF measurement during genset operation,RN-ESS-PCS-100kW
+ESS-BMS-V3,3.30,2024-10-28,N,Baseline release,RN-ESS-BMS-V3
+ESS-BMS-V3,3.40,2025-05-19,N,Changed: CAN heartbeat period from 100 ms to 200 ms | Improved: passive balancing threshold 30 mV → 20 mV,RN-ESS-BMS-V3
+ESS-BMS-V3,3.50,2026-01-19,Y,Fixed: SOC jump of up to 15% after long rest period | Fixed: contactor status mismatch alarm on cold start,RN-ESS-BMS-V3
+PV-INV-SOLAR-25,1.70,2024-09-09,N,Baseline release,RN-PV-INV-SOLAR-25
+PV-INV-SOLAR-25,1.82,2025-04-14,N,Fixed: S.01 false insulation fault at sunrise with humidity > 95%,RN-PV-INV-SOLAR-25
+PV-INV-SOLAR-25,1.90,2025-12-08,Y,Added: reactive power Q(U) curve | Fixed: Wi-Fi dongle reconnect failure after router reboot,RN-PV-INV-SOLAR-25
+UPS-LSU-10K,2.10,2024-07-15,N,Baseline release,RN-UPS-LSU-10K
+UPS-LSU-10K,2.20,2025-03-03,N,Added: generator mode with wider frequency window (45-65 Hz),RN-UPS-LSU-10K
+UPS-LSU-10K,2.30,2025-11-17,Y,Fixed: SNMP card not detected after hot-swap | Fixed: battery test result not logged when load < 10%,RN-UPS-LSU-10K

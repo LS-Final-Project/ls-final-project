@@ -1,0 +1,90 @@
+{
+  "manifest_version": "rfp-documents-20261029-v1",
+  "ticket": "KAN-197",
+  "source": {
+    "mapping": "Drive data_eval_pilot_20261021/문서속성_22건.csv (D number, filename) and sources.json (docx_sha256), both dated 2026-10-21; re-read and compared for these 6 documents on 2026-10-29",
+    "split": "KAN-191 description; RFP plan revised 2026-10-28 §3.2",
+    "local_hash_verification": "2026-10-29; raw DOCX bytes only, document content not opened"
+  },
+  "policy": {
+    "evaluation_used_for_model_prompt_selection": false,
+    "first_post_freeze_run_is_official": true,
+    "remeasurements_are_reference_only": true,
+    "independent_unexposed_holdout": false,
+    "regression_document_15_is_separate": true
+  },
+  "documents": [
+    {
+      "document_number": 10,
+      "document_id": "D10",
+      "filename": "26 11 16 12 fl - secondary unit substations with switchboard secondary_교육용클렌징v6.docx",
+      "sha256": "73417adf6749bc76e54d4ec831dfe761b6a016c16c1d580d280154eb7995c6af",
+      "split": "evaluation",
+      "allowed_purposes": [
+        "post_freeze_official_measurement",
+        "reference_remeasurement"
+      ],
+      "historical_exposure": "DEVELOPMENT_EXPOSED reported in recovered 2026-10-21 inventory; original inventory not reverified in this session"
+    },
+    {
+      "document_number": 11,
+      "document_id": "D11",
+      "filename": "26 11 16.01-GA-Secondary LV Unit Substations - Prepurchase-_교육용클렌징v6.docx",
+      "sha256": "bf0e226a80716cc1b24f401eed95b0ec26974c07643613eceb902d129a1deff9",
+      "split": "evaluation",
+      "allowed_purposes": [
+        "post_freeze_official_measurement",
+        "reference_remeasurement"
+      ],
+      "historical_exposure": "DEVELOPMENT_EXPOSED reported in recovered 2026-10-21 inventory; original inventory not reverified in this session"
+    },
+    {
+      "document_number": 12,
+      "document_id": "D12",
+      "filename": "26 13 00 fl - medium-voltage switchgear (15kv rated)_교육용클렌징v6.docx",
+      "sha256": "f1797dc3be97d8b6793465a6b3793f51a08d324bdcccc319f23cb9f55057fc16",
+      "split": "evaluation",
+      "allowed_purposes": [
+        "post_freeze_official_measurement",
+        "reference_remeasurement"
+      ],
+      "historical_exposure": "DEVELOPMENT_EXPOSED reported in recovered 2026-10-21 inventory; original inventory not reverified in this session"
+    },
+    {
+      "document_number": 14,
+      "document_id": "D14",
+      "filename": "261116.11 fl - secondary unit substations with switchgear secondary_교육용클렌징v6.docx",
+      "sha256": "e73a2eec4c848b68a758636009abfca0054029b0236d97ee0b126e3c25d57945",
+      "split": "development",
+      "allowed_purposes": [
+        "model_prompt_selection",
+        "development_validation"
+      ],
+      "historical_exposure": "DEVELOPMENT_EXPOSED reported in recovered 2026-10-21 inventory; original inventory not reverified in this session"
+    },
+    {
+      "document_number": 17,
+      "document_id": "D17",
+      "filename": "262413 fl - switchboards_교육용클렌징v6.docx",
+      "sha256": "7f93aa2ac447689e88c3f606d927e8ec39a735ed35e4a2b801e7ade20eb39be0",
+      "split": "development",
+      "allowed_purposes": [
+        "model_prompt_selection",
+        "development_validation"
+      ],
+      "historical_exposure": "DEVELOPMENT_EXPOSED reported in recovered 2026-10-21 inventory; original inventory not reverified in this session"
+    },
+    {
+      "document_number": 18,
+      "document_id": "D18",
+      "filename": "337230 Medium-Voltage Metal-Clad Switchgear [DATE REDACTED]_교육용클렌징v6.docx",
+      "sha256": "12d5429385a094fb8b8256995bc71934b52b4cb7144092093de5426aa89d1e64",
+      "split": "evaluation",
+      "allowed_purposes": [
+        "post_freeze_official_measurement",
+        "reference_remeasurement"
+      ],
+      "historical_exposure": "DEVELOPMENT_EXPOSED reported in recovered 2026-10-21 inventory; original inventory not reverified in this session"
+    }
+  ]
+}

@@ -9,21 +9,30 @@
 | frontend 실행 코드와 의존성 | 웹 테스트와 TypeScript 및 빌드 | web |
 | backend/api/cs, tft, platform | 해당 앱, 공통 회귀와 계약 소비자 검사 | 해당 앱 |
 | backend/shared, api/common, Python 의존성 | 백엔드 전체와 계약 소비자 | 백엔드 전체 |
-| backend/engine, backend/agent | 영향받는 C/S와 TFT 검사 | C/S와 TFT |
+| backend/engine/cs | C/S·플랫폼과 평가 검사 | C/S와 플랫폼 |
+| 그 밖의 backend/engine, backend/agent | C/S·TFT·플랫폼과 평가 검사 | C/S·TFT·플랫폼 |
 | OpenAPI와 개발용 모의 예시 | 원본 일치 및 프론트 호환성 | OpenAPI는 해당 앱, 개발 모의 예시만 바꾸면 웹 CD 없음 |
 | eval 및 tests/eval | Ruff·포맷, 공통 회귀 및 평가 테스트 재귀 수집 | API CD 없음 |
-| infra·scripts Python과 배포 도구 | Ruff·포맷, 도구 unittest | 자동 DB 마이그레이션 없음 |
+| infra·scripts·.github와 Python 의존성 | Ruff·포맷, 도구 unittest·PR 자동화·새 DB 초기화 | 자동 DB 마이그레이션 없음 |
 | 설명 Markdown | Application result만 확인 | 없음 |
 
 알 수 없는 실행 코드 경로는 전체 검사 대상으로 보수적으로 처리한다. 공통 백엔드·AI 의존성과 공유 엔진·에이전트 변경은 평가 소비자 검사도 실행한다. 서비스별 테스트는 해당 앱에서, tests/eval은 평가에서, 그 밖의 새 테스트 폴더는 공유 범위로 재귀 수집한다. 공유 엔진과 에이전트가 플랫폼에서도 쓰이기 시작하면 scripts/changes.py의 영향 범위를 함께 수정해야 한다. 현재 루트 tests의 기존 사례는 공통 회귀 검사이며, 새 업무 테스트는 tests/cs, tests/tft, tests/platform 아래에 추가한다.
 
 PR은 공통 기준 브랜치와의 변경을 검사한다. dev와 main은 각 브랜치의 마지막 성공한 Application checks 이후 누적 변경을 검사하므로 실패한 CI 뒤에 문서만 수정해도 실패 범위를 건너뛰지 않는다. 최종 Application result는 작업의 실패와 취소를 모아 확인한다. 서비스별 작업이 정상 생략되는 경우도 이 결과는 완료된다.
 
+PR의 Application checks는 새 실행이 시작되면 같은 PR의 이전 실행을 취소한다. dev/main push는 각 SHA의 검증과 배포 판단을 위해 취소하지 않는다. Draft에서도 CI는 실행하며 AI 리뷰는 Ready 상태에서 실행한다.
+
+Python 검사는 uv 0.10.10과 uv.lock 기준 다운로드 캐시를 재사용하고 매번 `uv sync --frozen` 및 검사를 실행한다. Docker는 서비스·target별 GitHub Actions 캐시를 사용한다. `test-dependencies`에 설치를 분리하고 `test` 단계에는 `no-cache-filters: test`를 적용해 캐시가 있어도 Ruff·타입·테스트·계약 검사를 다시 실행한다. runtime/worker 이미지는 로컬로 불러와 기존 시작·잠금 검사를 매번 수행한다. 캐시가 없으면 의존성을 다시 설치한다. 캐시 적중은 검사 성공을 대신하지 않으며, 캐시에는 키·운영 설정·업무 데이터를 넣지 않는다.
+
+협업 검사는 Application checks의 infrastructure 작업에 통합한다. 기존 scripts unittest는 한 번만 실행하며 Node PR 자동화 검사도 같은 작업에서 실행한다. 별도 Collaboration checks는 실행하지 않는다. .github·scripts 변경(하위 Markdown 포함), 인프라 및 Python 의존성 변경은 이 작업을 선택하고 실패는 최종 Application result를 차단한다. 일반 프론트·업무 API·설명 문서만 바뀌면 협업 검사 전용 runner를 시작하지 않는다.
+
+플랫폼 합성 평가 worker가 backend/engine/cs를 사용하므로 C/S·플랫폼·평가 검사와 C/S·플랫폼 배포 대상으로 선택한다. 공통 엔진·아직 분류하지 않은 엔진·에이전트 경로는 세 백엔드를 보수적으로 선택한다. 이름 변경은 삭제와 추가 양쪽 경로로 계산하고 dev/main은 마지막 성공한 검사 이후의 누적 변경을 계속 확인한다.
+
 ## 배포 판단
 
 main push 또는 main을 명시한 수동 실행으로만 CD를 시작한다. GCP 인증과 빌드 전에 동일한 main 커밋의 Application checks 성공을 최대 20분 기다린다. 실패 또는 취소, 시간 초과와 main 전진 시 빌드하지 않는다. dev의 CI 성공은 배포 조건이 아니다. 각 서비스의 실제 배포 commit-sha와 현재 main을 비교해 변경을 찾는다. 직전 push만 비교하지 않으므로 배포를 건너뛴 중간 커밋도 반영한다. 오래된 CI 이벤트와 빌드 중 main 변경은 배포 전에 다시 확인해 이전 버전 배포를 막는다. 서비스별 배포는 직렬화하고 다른 서비스는 독립 실행한다.
 
-Cloud Build의 서비스 이미지 빌드와 CD는 별도 실행 및 별도 계정이다. CD는 성공한 빌드 메타데이터의 정확한 SHA 및 digest를 검증한다. 기존 IAM 공개 범위는 변경하지 않으며 기대한 웹/백엔드 경계와 다르면 중단한다. 실패한 앱 때문에 다른 앱의 이미지를 임의로 바꾸지 않는다. 자동 롤백은 아직 제공하지 않는다.
+Cloud Build의 서비스 이미지 빌드와 CD는 별도 실행 및 별도 계정이다. CD는 성공한 빌드 메타데이터의 정확한 SHA 및 digest를 검증한다. 기존 IAM 공개 범위는 변경하지 않으며 기대한 웹/백엔드 경계와 다르면 중단한다. 실패한 앱 때문에 다른 앱의 이미지를 임의로 바꾸지 않는다. 자동 롤백은 아직 제공하지 않는다. 수동 되돌리기와 배포 전 이전 앱 호환 확인은 [배포 확인 런북](release-runbook.md)을 따른다.
 
 ## 오새결의 평소 배포: dev에서 main으로
 
@@ -70,7 +79,7 @@ python3 infra/deploy_private.py BUILD_ID --service web
 python3 infra/deploy_private.py BUILD_ID --service web --apply
 ```
 
-이후 웹 HTTPS와 플랫폼 ready 연결 및 업무 경로 차단을 확인한다. 저장소에는 health/ready와 별도로 KAN-77의 인증 전용 중계 초안을 추가했다. 플랫폼 Microsoft 인증은 기본 비활성이며, 로그인·callback·로그아웃은 설정 전 503을 반환한다. 허용 경로·쿠키·CSRF·설정은 [인증 계약](../contracts/platform/auth.md)을 따른다. 임의 API, 개발 로그인, 메일은 중계하지 않는다. KAN-178 업무 JSON 중계도 기본 비활성이며 아래 별도 확인 후 활성화한다. 이 코드 변경으로 현재 배포의 인증이 활성화되지는 않으며 실제 화면·Outlook 검증과 main 배포는 별도다.
+이후 웹 HTTPS와 플랫폼 ready 연결 및 업무 경로 차단을 확인한다. 저장소에는 health/ready와 별도로 KAN-77의 인증 전용 중계 초안을 추가했다. 플랫폼 Microsoft 인증은 기본 비활성이며, 로그인·callback·로그아웃은 설정 전 503을 반환한다. 허용 경로·쿠키·CSRF·설정은 [인증 계약](../contracts/platform/auth.md)을 따른다. 임의 API와 개발 로그인은 중계하지 않는다. 사서함 초기 연결/해제 HTTP는 별도 `MAILBOX_AUTH_ENABLED=false`로 기본 차단하며 [전용 callback·키·쿠키/CSRF 계약](../contracts/platform/auth.md#사서함-초기-연결-http-기본-비활성-운영-미적용)에 따라 운영자가 준비한다. 이 경계가 메일 수집이나 Graph 업무 API를 중계하는 것은 아니다. KAN-178 업무 JSON 중계도 기본 비활성이며 아래 별도 확인 후 활성화한다. 이 코드 변경으로 현재 배포의 인증이 활성화되지는 않으며 실제 화면·Outlook 검증과 main 배포는 별도다.
 
 ## KAN-178 업무 중계 활성화 전 확인
 

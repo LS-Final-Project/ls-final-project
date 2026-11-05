@@ -1,0 +1,26 @@
+{
+  "version": "search-expected-v1",
+  "basis": "RULE_EXPECTATION_NOT_GOLD",
+  "review": "규칙 기대값 v1, 사람 검수 전",
+  "source": {
+    "jira": "KAN-101 2차",
+    "decided_on": "2026-10-30"
+  },
+  "symbols": {
+    "DS|IG|TG|MG|RN": "문의 제품의 그 종류 문서",
+    "FAQ": "FAQ-{문의 제품 family}",
+    "POL-*": "그 정책 문서 하나"
+  },
+  "categories": {
+    "TECH_SPEC": ["DS", "FAQ"],
+    "INSTALL": ["IG"],
+    "DEFECT": ["TG", "RN", "POL-SERVICE"],
+    "FW_UPDATE": ["TG", "RN"],
+    "WARRANTY": ["POL-WARRANTY", "DS", "POL-SERVICE"],
+    "RETURN": ["POL-RETURN"],
+    "ORDER_LEAD": ["POL-ORDER", "DS"],
+    "QUOTE": ["POL-ORDER", "DS"],
+    "MANUAL": ["IG", "MG", "FAQ"],
+    "COMPLIANCE": ["DS"]
+  }
+}

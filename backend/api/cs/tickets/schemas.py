@@ -9,17 +9,38 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from backend.shared.models import CUSTOMER_ID
+
 DataOrigin = Literal["synthetic", "demo", "real"]
 DerivationKind = Literal["PROVIDED", "DERIVED", "SYSTEM", "ASSUMED"]
 Channel = Literal["EMAIL", "PARTNER_PORTAL", "WEB_FORM", "PHONE", "CHAT"]
+TransferStatus = Literal["OPEN", "RESULT_SUBMITTED", "RETURNED_BY_DEPT", "RECALLED"]
+# Live workflow state (KAN-108). The provided `status` is source history, not this value.
+WorkflowState = Literal[
+    "RECEIVED", "IN_REVIEW", "WAITING_CUSTOMER", "ANSWERED", "TRANSFERRED", "CLOSED"
+]
 Code = Annotated[str, Field(min_length=1, max_length=64)]
+CustomerId = Annotated[str, Field(pattern=f"^{CUSTOMER_ID}$")]
 Subject = Annotated[str, Field(min_length=1, max_length=500)]
+
+
+class ReceivedTransfer(BaseModel):
+    round: int
+    dept_code: str
+    status: TransferStatus
+    transferred_at: datetime
+    reason: str = Field(description="Why C/S sent this request to the department.")
+    customer_external_id: str
 
 
 class TicketSummary(BaseModel):
     id: UUID
     # Chat inquiries have no subject in the provided data.
     subject: str | None
+    subject_ko: str | None = Field(
+        default=None,
+        description="Korean subject from the latest valid translation (KAN-213). None if not translated.",
+    )
     data_origin: DataOrigin
     # Manual input may have no source ID; the other fields are NOT NULL in cs.tickets.
     external_id: str | None
@@ -27,11 +48,27 @@ class TicketSummary(BaseModel):
     received_at: datetime
     channel: Channel
     product_code: str
+    workflow_state: WorkflowState
+    owner_user_id: UUID | None = Field(
+        default=None, description="C/S agent in charge. None until review starts."
+    )
+    transfer: ReceivedTransfer | None = Field(
+        default=None,
+        description="Latest transfer to the department in the dept filter. None without it.",
+    )
 
 
 class TicketList(BaseModel):
     items: list[TicketSummary]
     next_cursor: str | None
+
+
+class CandidateAfterCase(BaseModel):
+    """What the automatic candidate judgement did right after a case was registered (KAN-206)."""
+
+    outcome: Literal["CREATED", "ALREADY_REQUESTED", "NOT_ELIGIBLE", "SKIPPED", "FAILED"]
+    # The saved or already existing fault request of this product and fault, when there is one.
+    request_id: UUID | None = None
 
 
 class ResolutionCase(BaseModel):
@@ -53,6 +90,20 @@ class ResolutionCase(BaseModel):
     fw_fixed_version: str | None
     resolved_by_dept: str
     recurrence_prevention: str | None
+    dept_result_id: UUID | None = Field(
+        default=None,
+        description="Accepted department result the case was written from (KAN-108). "
+        "Null for provided cases.",
+    )
+    # KAN-193: optional, entered by the person registering the case.
+    responsibility: Literal["MANUFACTURING", "NON_MANUFACTURING", "UNDETERMINED"] | None = None
+    non_manufacturing_reason: str | None = None
+    # KAN-206: only on the registration response. Reads of stored cases leave it null.
+    improvement_candidate: CandidateAfterCase | None = Field(
+        default=None,
+        description="Candidate judgement of this product and fault right after registration. "
+        "FAILED means the case was saved but the judgement did not run; null when read later.",
+    )
 
 
 class TicketDetail(BaseModel):
@@ -71,22 +122,29 @@ class TicketDetail(BaseModel):
     body: str
     fw_version_reported: str | None
     error_code_reported: str | None
+    workflow_state: WorkflowState
     resolution_case: ResolutionCase | None
 
 
 class TicketCreate(BaseModel):
-    """Manual intake. Source IDs, origin and timestamps are set by the server."""
+    """Intake through the API. Source IDs and timestamps are set by the server.
+
+    `data_origin` accepts only `synthetic`: a loader of made-up tickets can mark them so, and
+    nothing can label a ticket real. Left out, the server decides as before.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     channel: Channel
     body_language: str = Field(min_length=2, max_length=16)
-    customer_external_id: Code
+    customer_external_id: CustomerId
     product_code: Code
     subject: Subject | None = None
     body: str = Field(min_length=1, max_length=50_000)
     fw_version_reported: Code | None = None
     error_code_reported: Code | None = None
+    customer_tier: Literal["STANDARD", "GOLD", "PLATINUM"] | None = None
+    data_origin: Literal["synthetic"] | None = None
 
 
 # The customer's original text, channel and receipt time are never rewritten.
@@ -105,7 +163,7 @@ class TicketUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     version: int = Field(ge=1)
-    customer_external_id: Code | None = None
+    customer_external_id: CustomerId | None = None
     product_code: Code | None = None
     subject: Subject | None = None
     fw_version_reported: Code | None = None

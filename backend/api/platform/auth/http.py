@@ -238,23 +238,7 @@ async def callback(request: Request, provider: LoginAdapter = Depends(adapter)) 
         RedirectResponse: 세션 교체 후 code·state 없는 고정 URL의 303 응답.
     """
     value = configuration(request)
-    if (
-        request.url.query
-        or request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
-        != "application/x-www-form-urlencoded"
-    ):
-        raise reject_callback()
-    body = bytearray()
-    async for chunk in request.stream():
-        body.extend(chunk)
-        if len(body) > 8192:
-            raise reject_callback()
-    try:
-        parameters = parse_qsl(
-            body.decode("utf-8"), keep_blank_values=True, strict_parsing=True, max_num_fields=20
-        )
-    except (ValueError, UnicodeError):
-        raise reject_callback() from None
+    parameters = await read_callback_form(request)
     binding = request.cookies.get(BINDING_COOKIE, "")
     subject = await complete_stored_callback(
         request.app.state.settings,
@@ -281,6 +265,35 @@ async def callback(request: Request, provider: LoginAdapter = Depends(adapter)) 
     )
     response.delete_cookie(BINDING_COOKIE, secure=True, httponly=True, samesite="none", path="/")
     return response
+
+
+async def read_callback_form(request: Request) -> list[tuple[str, str]]:
+    """토큰·code를 URL로 받지 않고 중복 키를 보존해 제한된 form_post만 읽는다.
+
+    Args:
+        request: 로그인 또는 사서함 callback의 HTTP 요청.
+
+    Returns:
+        list[tuple[str, str]]: 기존 검증에 전달할 최대8KiB·20필드 입력.
+    """
+    if (
+        request.url.query
+        or request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        != "application/x-www-form-urlencoded"
+    ):
+        raise reject_callback()
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > 8192:
+            raise reject_callback()
+    try:
+        parameters = parse_qsl(
+            body.decode("utf-8"), keep_blank_values=True, strict_parsing=True, max_num_fields=20
+        )
+    except (ValueError, UnicodeError):
+        raise reject_callback() from None
+    return parameters
 
 
 @router.post("/logout", status_code=204, operation_id="platform_logout", openapi_extra=DRAFT)

@@ -85,7 +85,7 @@ def reject_callback() -> ApplicationError:
     return ApplicationError(400, "AUTH_INVALID_CALLBACK", "The authorization callback is invalid.")
 
 
-def complete_callback(
+def validate_callback(
     pending: PendingAuthorization,
     parameters: Sequence[tuple[str, str]],
     *,
@@ -93,9 +93,8 @@ def complete_callback(
     browser_binding: str,
     session_user_id: UUID | None,
     now: datetime,
-    adapter: OAuthAdapter,
-) -> MicrosoftSubject:
-    """callback 형식과 인가 시도의 결속을 검증한 뒤 토큰 교환을 위임한다.
+) -> dict[str, str]:
+    """callback 형식과 인가 시도의 결속을 검증해 프로토콜 입력만 반환한다.
 
     parameters는 QueryParams.multi_items()처럼 중복 query 키를 보존해야 한다.
     호출자는 서버의 인가 시도를 원자적으로 한 번만 소비해야 하며,
@@ -108,13 +107,12 @@ def complete_callback(
         browser_binding: 요청 브라우저에서 전달받은 인가 시도 결속값.
         session_user_id: 현재 서비스 세션의 사용자 ID. 사서함 연결 시 필수다.
         now: 인가 시도의 만료 여부를 판단할 시간대 정보가 있는 현재 시각.
-        adapter: code 교환과 실제 토큰 검증을 담당하는 공급자 어댑터.
 
     Returns:
-        MicrosoftSubject: 공급자 어댑터가 검증한 Microsoft 식별자.
+        dict[str, str]: 검증한 state와 code. 토큰 교환은 실행하지 않는다.
 
     Raises:
-        ApplicationError: callback 검증에 실패하거나 공급자 어댑터가 거부한 경우.
+        ApplicationError: callback 형식·결속·만료 검증에 실패한 경우.
     """
     if (
         pending.purpose != purpose
@@ -145,4 +143,39 @@ def complete_callback(
     ):
         raise reject_callback()
     # 브라우저의 클레임이나 역할 대신 검증된 프로토콜 입력만 어댑터에 전달한다.
-    return adapter.redeem(pending, {key: callback[key] for key in ("state", "code")})
+    return {key: callback[key] for key in ("state", "code")}
+
+
+def complete_callback(
+    pending: PendingAuthorization,
+    parameters: Sequence[tuple[str, str]],
+    *,
+    purpose: OAuthPurpose,
+    browser_binding: str,
+    session_user_id: UUID | None,
+    now: datetime,
+    adapter: OAuthAdapter,
+) -> MicrosoftSubject:
+    """공통 callback 검증을 통과한 입력만 기존 식별자 어댑터에 전달한다.
+
+    Args:
+        pending: 서버에 보관하고 원자적으로 일회 소비한 인가 시도.
+        parameters: 중복 키를 보존한 callback 입력.
+        purpose: callback 경로의 인가 목적.
+        browser_binding: 시작 브라우저의 결속값.
+        session_user_id: 현재 서비스 사용자. 사서함 연결 시 시작 사용자와 같아야 한다.
+        now: 시간대 정보가 있는 현재 시각.
+        adapter: code 교환과 Microsoft 식별자 검증 어댑터.
+
+    Returns:
+        MicrosoftSubject: 검증된 Microsoft 식별자. 토큰 캐시는 반환하지 않는다.
+    """
+    callback = validate_callback(
+        pending,
+        parameters,
+        purpose=purpose,
+        browser_binding=browser_binding,
+        session_user_id=session_user_id,
+        now=now,
+    )
+    return adapter.redeem(pending, callback)

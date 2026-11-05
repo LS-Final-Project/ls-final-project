@@ -1,0 +1,5 @@
+.rfp-project-pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 10px 12px; border: 1px solid var(--erp-border-soft); border-top: 0; color: var(--erp-text); font-size: 12px; }
+.rfp-project-pagination > div { display: flex; align-items: center; gap: 4px; }
+.rfp-project-pagination .kb { min-width: 30px; }
+.rfp-project-search { display: flex; align-items: center; gap: 6px; padding: 10px 12px; border: 1px solid var(--erp-border-soft); background: var(--erp-bg, #f7f9fc); }
+.rfp-project-search input { flex: 1; max-width: 360px; min-width: 100px; }

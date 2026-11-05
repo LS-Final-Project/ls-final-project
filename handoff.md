@@ -23,6 +23,15 @@
 
 최신 상태와 선행 합의는 [Jira](https://lsteam4.atlassian.net/jira/software/projects/KAN/boards/1/backlog), 날짜·공수는 [WBS](https://docs.google.com/spreadsheets/d/11X85xRDncd_xg3EPhcoke6dhF1fhTByKzhpRxLk6ow8/edit#gid=1680447802)를 따른다. 계약 초안 준비와 티켓 전체 완료를 구분한다. 개발·배포 완료는 11/3, 발표는 11/10이다.
 
+## TFT 정리(KAN-181)
+
+2026-10-28 범위 변경(TFT 팀 구성 → RFP 자사 대응·협력사 보완)으로 쓰지 않게 된 TFT 인력 구성 코드를 지웠다. 새 RFP 작업은 KAN-182~192(A01~A12)다.
+
+- 유지: TFT 서비스(compose·cloudbuild·Dockerfile·설정·준비 검사), 프로젝트 목록·상세 GET 2개(`backend/api/tft/projects/`), 접근 검사(`projects/access.py`: manager 관리 대상·책임자·담당 sales), 상세의 RFP 요구사항(문서·조항·페이지·발췌), 중계 허용표의 TFT 2행(`frontend/server.mjs`, `backend/api/platform/relay.py`), 화면 `/tft/projects`·`/tft/projects/:id`, [프로젝트 계약](contracts/tft/projects.md).
+- 제거: 부서 인력요청(`staffing_requests/`, 발행 권한 `authz.py`), 후보 추천·경험·역량·가용성(`recommendations/`), 검증·공백 판정(`verification/`), 구성안·책임자 결정(`decisions/`), 상세의 역할·요청서·추천·구성안·책임자·확정 필드, 인력요청을 받은 부서의 dept_staff 조회 범위, 계약 4개, 테스트 5개, 화면 5개(역할 요청서·내 부서 요청·부서 요청·구성안 검토·구성안 편집)와 라우트·메뉴, `docs/tft-screens.md`, CI `tft-database` 잡.
+- 복원: 제거 직전 dev는 `1d17f84ef4f2726a3e365862b0832105315d6270`이다. `git show 1d17f84:<경로>` 또는 `git checkout 1d17f84 -- <경로>`로 꺼낸다. 원 PR은 KAN-122 #31·#68, KAN-123 #37, KAN-125 #38, KAN-127 #39, KAN-130 #45, KAN-134 #32, KAN-135 #40, KAN-136 #67이며 해당 Jira 티켓은 scope-dropped로 닫혀 있다.
+- DB와 계정은 그대로 둔다. `infra/migrations/tft`의 5개 파일과 테이블은 공용 DB 적용 이력을 확인하지 않아 DROP 마이그레이션을 만들지 않았다(되돌릴 수 없고 공용 DB 적용은 사용자 승인 대상). `tests/platform/test_business_relay.py`가 이 마이그레이션을 계속 적용·검사한다. `tft_app`은 프로젝트 조회가 쓰고, platform 마이그레이션과 `infra/sql/001·002·004`가 이 이름을 권한 회수·검증 대상으로 쓰므로 지우면 그 파일들이 깨진다.
+
 ## 작업 규칙
 
 - 기본 dev에서 KAN 작업 브랜치를 만들고 dev PR을 검사·검토 후 Squash merge한다. dev push는 배포하지 않는다.

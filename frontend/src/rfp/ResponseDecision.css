@@ -1,0 +1,107 @@
+.rfp-response-decision { display:flex; flex-direction:column; gap:14px; min-width:0; }
+.rfp-response-decision .response-card { border:1px solid #dce2ec; border-radius:8px; padding:16px; background:#fff; min-width:0; overflow-wrap:anywhere; }
+.rfp-response-decision h3 { margin:0 0 12px; color:#203b60; font-size:15px; }
+.rfp-response-decision p { font-size:13px; line-height:1.6; margin:7px 0; }
+.rfp-response-decision small { color:#63738c; font-size:11px; }
+.rfp-response-decision .response-evidence, .rfp-response-decision .response-gate { border-top:1px solid #e6ebf2; padding:10px 0; }
+.rfp-response-decision blockquote { margin:8px 0; padding:10px; border-left:3px solid #a9bbd2; background:#f5f7fb; white-space:pre-wrap; }
+.rfp-response-decision .supplement-bottom > div { grid-template-columns:minmax(0,1fr)!important; }
+.rfp-response-decision .supplement-bottom fieldset > div { grid-template-columns:minmax(0,1fr); gap:5px; }
+.rfp-response-decision .supplement-bottom section { margin:0; }
+
+.rfp-response-decision .response-own-list { max-height:300px; overflow:auto; }
+
+.rfp-response-decision .response-partner-list { max-height:330px; overflow:auto; }
+/* Keep the selection and action readable before opening evidence. */
+.rfp-response-decision{gap:8px}.rfp-response-decision .response-current{padding:14px 16px;border:1px solid #cbd9eb;border-radius:7px;background:#f5f8fd}.response-current-identify{display:flex;gap:8px;align-items:baseline;justify-content:space-between}.response-current-identify>span{font-size:13px;font-weight:600;color:#526882}.rfp-response-decision .response-current h3{font-size:15px;line-height:1.5;margin:6px 0}.response-current-status{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.rfp-response-decision .response-current-status strong{font-size:13px;color:#28496d}.response-current-status>span{font-size:12px;color:#9b4e13}.rfp-response-decision .response-short-reason{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:12px;color:#45576c;line-height:1.5}.rfp-response-decision .response-saved-path{font-size:12px;margin:5px 0}.response-next-action{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:9px}.response-next-action>span,.response-next-action>a{font-size:11px;color:#596e88}.response-next-action .kb{font-size:12px;min-height:30px}.rfp-response-decision .response-disclosure{padding:0;border-radius:6px}.response-disclosure>summary{display:flex;gap:10px;align-items:center;justify-content:space-between;cursor:pointer;padding:11px 13px;list-style:none;min-height:43px}.response-disclosure>summary::-webkit-details-marker{display:none}.response-disclosure>summary:before{content:'›';font-size:20px;color:#6481a3;line-height:1}.response-disclosure[open]>summary:before{transform:rotate(90deg)}.rfp-response-decision .response-disclosure>summary>b{font-size:13px;font-weight:600;line-height:1.4;flex:1}.response-disclosure>summary>span{font-size:11px;color:#667a92;text-align:right;max-width:58%;line-height:1.5}.response-disclosure[open]>summary{border-bottom:1px solid #e3e9f1;background:#f8fafc}.response-disclosure-body{padding:12px 14px}.rfp-response-decision .response-evidence>b{font-size:14px!important;font-weight:600;line-height:1.5}.rfp-response-decision .response-disclosure-body p{font-size:12px}.rfp-response-decision .response-disclosure-body strong{font-size:13px}.response-visible-alerts:empty{display:none}.response-visible-alerts p{color:#9b4e13}.response-criteria{order:6}.response-selection{order:5}.rfp-response-decision .development-review{margin:0}.response-disclosure:focus-within{border-color:#92aeca}.response-disclosure>summary:focus-visible{outline:2px solid #2662b1;outline-offset:2px}.rfp-response-decision .response-own-list,.rfp-response-decision .response-partner-list{max-height:260px}.response-disclosure-body .supplement-actions{flex-wrap:wrap}@media(max-width:600px){.response-disclosure>summary{gap:6px;padding:10px}.response-disclosure>summary>span{max-width:52%}.response-next-action{gap:5px}}
+
+.rfp-response-decision .response-comparison { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.4fr); gap:12px; margin:14px 0 8px; }
+.response-comparison > div { background:white; padding:12px; border:1px solid #dde5ef; border-radius:6px; }
+.response-comparison > div > b { color:#5b6d84; font-size:12px; }
+.response-comparison article { padding-top:9px; }
+.response-comparison article + article { margin-top:9px; border-top:1px solid #e4eaf2; }
+.response-comparison strong { font-size:13px; color:#294a70; }
+.rfp-response-decision .response-customer p { font-size:19px; font-weight:650; color:#203b60; }
+.rfp-response-decision .response-action-explanation { margin-top:12px; color:#344d69; }
+.rfp-response-decision .response-comparison-note { color:#64748a; font-size:11px; }
+.rfp-response-decision .response-action-conditions { padding:10px 12px; background:#f5f8fc; margin:8px 0; border-left:3px solid #88a8ce; }
+.rfp-response-decision .response-disclosure { order:3; }
+.rfp-response-decision .response-selection { order:1; }
+.rfp-response-decision .development-review { order:2; }
+.rfp-response-decision .response-criteria { order:4; }
+@media(max-width:600px) { .rfp-response-decision .response-comparison { grid-template-columns:1fr; } }
+
+.response-workspace-actions { display:flex; flex-wrap:wrap; gap:6px; }
+.response-workspace-actions .kb { font-size:12px; }
+.response-workspace-actions [aria-expanded="true"] { background:#e8f0fb; border-color:#517eae; color:#203b60; }
+.rfp-response-decision .response-workspace { border:1px solid #cbd9eb; border-radius:7px; background:#fff; }
+.rfp-response-decision .response-workspace [hidden], .rfp-response-decision .response-workspace[hidden] { display:none; }
+.rfp-response-decision .response-workspace .response-card { border:0; padding:0; }
+.response-workspace header { padding:12px 14px; border-bottom:1px solid #e3e9f1; background:#f8fafc; }
+.response-workspace h4 { margin:0 0 4px; color:#203b60; font-size:14px; }
+.rfp-response-decision .response-comparison > div > b { font-size:12px; line-height:1.5; }
+.ls-root .rfp-response-decision .response-action-conditions > b { font-size:13px; line-height:1.5; font-weight:600; }
+.ls-root .rfp-response-decision .response-guided-review { padding:14px; }
+.ls-root .rfp-response-decision .response-guided-review h4 { margin:0 0 8px; font-size:14px; font-weight:600; line-height:1.5; color:#203b60; }
+.ls-root .rfp-response-decision .response-question-records article { padding:10px 0; border-bottom:1px solid #e3e9f1; }
+.ls-root .rfp-response-decision .response-question-records strong { font-size:13px; font-weight:600; line-height:1.5; }
+.ls-root .rfp-response-decision .response-record-note { color:#63738c; font-size:11px; margin-top:12px; }
+
+/* Requirement card: what the customer asks, what to decide, what is still unconfirmed.
+   Prefixed with .ls-root because .ls-root .kv div span/b restyle every span and b inside the shell. */
+.ls-root .rfp-response-decision .response-current-identify { align-items:center; }
+.ls-root .rfp-response-decision .response-current-identify > span { min-width:0; font-size:13px; font-weight:600; color:#526882; overflow-wrap:anywhere; }
+.ls-root .rfp-response-decision .response-kind { flex:none; padding:1px 8px; border:1px solid #c5d3e4; border-radius:2px; background:#fff; color:#3e5a7d; font-size:11px; line-height:1.6; }
+.ls-root .rfp-response-decision .response-facts { display:grid; grid-template-columns:88px minmax(0,1fr); gap:10px 12px; margin:12px 0 0; font-size:13px; line-height:1.55; }
+.ls-root .rfp-response-decision .response-facts dt { color:#5d7189; font-size:12px; font-weight:600; padding-top:1px; }
+.ls-root .rfp-response-decision .response-facts dd { margin:0; min-width:0; }
+.ls-root .rfp-response-decision .response-ask { display:block; color:#203b60; font-size:14px; font-weight:600; line-height:1.5; }
+.ls-root .rfp-response-decision .response-quote { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 10px; margin-top:4px; color:#5b6d84; font-size:12px; font-weight:400; }
+.ls-root .rfp-response-decision .response-quote q { quotes:'「' '」'; }
+.ls-root .rfp-response-decision .response-link { flex:none; padding:0; border:0; background:none; color:#245798; font:inherit; font-size:12px; text-decoration:underline; text-underline-offset:2px; cursor:pointer; }
+.ls-root .rfp-response-decision .response-link:hover { color:#153e68; }
+.ls-root .rfp-response-decision .response-link:focus-visible, .ls-root .rfp-response-decision .response-choice:focus-visible { outline:2px solid #2662b1; outline-offset:2px; }
+.ls-root .rfp-response-decision .response-question { margin:0 0 6px; color:#203b60; font-size:13px; font-weight:600; }
+.ls-root .rfp-response-decision .response-choices { display:grid; gap:5px; }
+.ls-root .rfp-response-decision .response-choice { display:grid; grid-template-columns:12px 108px minmax(0,1fr) auto; align-items:baseline; gap:3px 8px; width:100%; min-height:38px; padding:8px 10px; border:1px solid #cfdbe9; border-radius:4px; background:#fff; color:inherit; font:inherit; text-align:left; cursor:pointer; }
+.ls-root .rfp-response-decision .response-choice::before { content:''; box-sizing:border-box; width:12px; height:12px; border:1px solid #8aa2bf; border-radius:50%; background:#fff; align-self:center; }
+.ls-root .rfp-response-decision .response-choice b { color:#203b60; font-size:13px; font-weight:600; line-height:1.45; }
+.ls-root .rfp-response-decision .response-choice span { display:block; color:#4d627b; font-size:12px; font-weight:400; line-height:1.5; }
+.ls-root .rfp-response-decision .response-choice em { padding:0 6px; border:1px solid #9cc7b6; border-radius:2px; color:#16674e; font-size:11px; font-style:normal; line-height:1.6; white-space:nowrap; }
+.ls-root .rfp-response-decision .response-choice:hover { border-color:#517eae; background:#f7faff; }
+.ls-root .rfp-response-decision .response-choice[aria-expanded=true] { border-color:#2662b1; background:#edf4ff; }
+.ls-root .rfp-response-decision .response-choice[aria-expanded=true]::before { border:4px solid #2662b1; }
+.ls-root .rfp-response-decision .response-gap { color:#3d5068; }
+.ls-root .rfp-response-decision .response-gap small { display:block; margin-top:2px; color:#63738c; font-size:11px; }
+.ls-root .rfp-response-decision .response-gap > span { display:inline-block; margin-left:8px; color:#9b4e13; font-size:12px; font-weight:600; }
+.ls-root .rfp-response-decision .response-next-action { margin-top:12px; }
+.ls-root .rfp-response-decision .response-workspace-actions { align-items:center; }
+.ls-root .rfp-response-decision .response-detail-link { margin-left:auto; padding:0 2px; font-size:12px; }
+.ls-root .rfp-response-decision .response-basis { order:9; border:1px solid #dce2ec; border-radius:6px; background:#fff; color:#45576c; font-size:12px; }
+.ls-root .rfp-response-decision .response-basis > summary { padding:9px 12px; color:#41597a; cursor:pointer; }
+.ls-root .rfp-response-decision .response-basis > summary:focus-visible { outline:2px solid #2662b1; outline-offset:2px; }
+.ls-root .rfp-response-decision .response-basis[open] > summary { border-bottom:1px solid #e3e9f1; }
+.ls-root .rfp-response-decision .response-basis dl { display:grid; grid-template-columns:88px minmax(0,1fr); gap:6px 12px; margin:0; padding:10px 12px; line-height:1.55; }
+.ls-root .rfp-response-decision .response-basis dt { color:#63738c; }
+.ls-root .rfp-response-decision .response-basis dd { margin:0; min-width:0; overflow-wrap:anywhere; }
+/* Workspace panels: tidy header and the loose rows the selection and evidence panels end with. */
+.ls-root .rfp-response-decision .response-workspace section > header h4 { margin:0 0 2px; }
+.ls-root .rfp-response-decision .response-route-conditions { margin:0 0 10px; }
+.ls-root .rfp-response-decision .response-route-conditions > summary { cursor:pointer; font-size:12px; font-weight:600; color:#41597a; }
+.ls-root .rfp-response-decision .response-disclosure-body > small { display:block; margin:8px 0 4px; }
+/* The card sits in a side pane, so respond to the card's own width rather than the viewport. */
+.ls-root .rfp-response-decision { container-type:inline-size; }
+@container (max-width:560px) {
+  .ls-root .rfp-response-decision .response-choice { grid-template-columns:12px minmax(0,1fr) auto; }
+  .ls-root .rfp-response-decision .response-choice b { grid-column:2; grid-row:1; }
+  .ls-root .rfp-response-decision .response-choice em { grid-column:3; grid-row:1; }
+  .ls-root .rfp-response-decision .response-choice span { grid-column:2 / -1; grid-row:2; }
+  .ls-root .rfp-response-decision .response-choice::before { align-self:baseline; transform:translateY(1px); }
+}
+@container (max-width:400px) {
+  .ls-root .rfp-response-decision .response-facts, .ls-root .rfp-response-decision .response-basis dl { grid-template-columns:minmax(0,1fr); gap:2px; }
+  .ls-root .rfp-response-decision .response-facts dd { margin-bottom:10px; }
+}
+
+/* 한국어 설명이 한 글자씩 다음 줄로 넘어가지 않게 단어 단위로 줄바꿈한다. */
+.rfp-response-decision{word-break:keep-all;overflow-wrap:anywhere}

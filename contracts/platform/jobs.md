@@ -1,6 +1,6 @@
 # 플랫폼 작업 접수 저장 계약 — KAN-69 초기 구현
 
-현재 구현은 평가 실행 접수에 필요한 저장 함수와 마이그레이션이다. KAN-90의 local/test 전용 합성 접수 API에서 사용하며 [평가 접수 계약](evaluations.md)을 따른다. 로컬 합성 worker의 상태 전이·lease는 평가 계약에 추가했다. 실제 평가·Cloud Run Jobs 전송·SSE는 아직 연결하지 않았다. KAN-90의 운영 실행 잠금은 그대로 유지한다. 공통 규약은 [작업 계약](../../docs/api-contract.md)을 따른다.
+현재 구현은 평가 실행 접수에 필요한 저장 함수·마이그레이션과 아래 제한 상태 조회·SSE API다. KAN-90의 local/test 전용 합성 접수 API에서 사용하며 [평가 접수 계약](evaluations.md)을 따른다. 로컬 합성 worker의 상태 전이·lease는 평가 계약에 추가했다. local/test 합성 평가의 저장 이벤트 SSE를 제공한다. 실제 평가·Cloud Run Jobs 전송·공용 배포의 SSE 활성화는 아직 연결하지 않았다. KAN-90의 운영 실행 잠금은 그대로 유지한다. 공통 규약은 [작업 계약](../../docs/api-contract.md)을 따른다.
 
 ## 저장과 소유권
 
@@ -10,7 +10,7 @@
 python3 scripts/workspace.py migrate platform 20261025_KAN-69_job_admission.sql
 ```
 
-`runtime` 소유자는 `platform_migrator`다. 초기 지원 조합은 `owner=platform`, `kind=evaluation.run`, `POST /api/v1/platform/evaluations/runs` 하나다. `platform_app`은 기본 세 테이블에 SELECT·INSERT만 가능하다. 후속 KAN-90 smoke worker migration은 jobs.status 열의 UPDATE만 추가하며 DELETE·TRUNCATE는 없다. C/S·TFT 계정에는 schema 접근과 테이블 권한을 부여하지 않는다. 다른 업무 종류와 상태 변경 권한은 실제 소비자 구현 시 별도 마이그레이션으로 확장한다.
+`runtime` 소유자는 `platform_migrator`다. 초기 지원 조합은 `owner=platform`, `kind=evaluation.run`, `POST /api/v1/platform/evaluations/runs` 하나다. `platform_app`은 기본 세 테이블에 SELECT·INSERT만 가능하다. 후속 KAN-90 smoke worker migration은 jobs.status 열의 UPDATE만 추가하며 DELETE·TRUNCATE는 없다. C/S·TFT 계정에는 schema 접근과 테이블 권한을 부여하지 않는다. 다른 업무 종류와 상태 변경 권한은 실제 소비자 구현 시 별도 마이그레이션으로 확장한다. KAN-182가 `owner=tft`의 `rfp.process`·`rfp.export`·`rfp.annotate`를 등록했다([RFP 작업 접수 계약](../tft/rfp-jobs.md)). tft 작업은 내부 접수 경로로만 만들고, KAN-199부터 전송 의도와 작업 제어 행을 함께 만든다(처리기 연결 전에는 503으로 저장하지 않음). KAN-194가 `owner=cs`의 `cs.analyze`를 등록했다(아래 'KAN-194 C/S 처리 작업' 절). cs 작업도 내부 접수 경로로만 만들지만 평가처럼 전송 의도를 만든다.
 
 | 테이블 | 저장 단위와 제약 |
 | --- | --- |
@@ -39,3 +39,196 @@ DB 대기 시간 제한과 오류→HTTP 변환은 호출자 경계의 후속 �
 `tests/platform/test_job_admission.py`는 전용 PostgreSQL과 platform_app 계정으로 동시 동일 요청, 다른 hash 충돌, 후속 업무 SQL 실패, outbox INSERT 실패, transaction 없는 호출 거부, 다른 서비스 권한을 검사한다. 기존 auth-database CI에 이 파일을 추가해 DB 테스트가 단순 skip으로 끝나지 않게 한다.
 
 공통 작업 전송·인증·재시도·SSE 재접속과 평가 run 소유권은 이 접수 저장과 별도다. 이 저장 구조의 성공을 모델 호출의 중복 방지, 최종 시험 보호 전체 또는 KAN-69 전체 완료로 보고하지 않는다.
+
+## 평가 작업 상태 조회 — KAN-69 첫 조회 단위
+
+`GET /api/v1/platform/jobs/{job_id}`는 local/test에서 명시적으로 접수를 허용한 평가 작업만 조회한다. 현재 Microsoft 서버 세션·활성 등록 계정·유효 업무 역할·지정 평가자 조건을 요청마다 기존 인증 경계로 검사한다. manager 역할만으로 평가자가 되거나 타인의 작업을 조회하지 않는다. 작업 actor, 실행 요청자, 실험 생성자가 모두 현재 사용자여야 한다. 없는 작업·다른 소유자의 작업·최종 시험은404로 숨긴다. 세션 만료/회수·계정 비활성·역할 전체 회수는401, 평가자 지정 회수는403이다. 구성 승인 hash 철회 후에도 본인의 제한 조회는 유지한다. production 또는 접수 비활성 상태는503이며 실행 잠금 해제 수단이 아니다.
+
+성공 envelope의 `data`는 `job_id`, `run_id`, `owner=platform`, `kind=evaluation.run`, `status`, `run_status`, `version`, `last_event_sequence`, `needs_review`만 포함한다. 원시 출력·정답·대상·event payload·사용자 식별 정보·입력 hash·멱등 키·내부 전송/worker 정보는 반환하지 않는다. 계산되지 않은 진행률과 사용량을 만들어내지 않는다. `ETag: "<version>"`, `Cache-Control: no-store`를 반환하며 DB 장애는503이다.
+
+상태의 권위는 evaluation run이다. `TIMED_OUT`은 작업 `status=FAILED`로 투영하고 `run_status=TIMED_OUT`으로 구분한다. runtime의 전송 기록이나 job 상태를 실행 권한으로 사용하지 않는다. run 상태·제어 판본·해당 작업의 마지막 저장 sequence를 단일 SELECT의 동일 PostgreSQL 스냅샷으로 읽는다. `version`은 실행 제어 판본이고 `last_event_sequence`는 이벤트 위치이므로 서로 대체하지 않는다. 현재 이벤트 삭제/보관 만료 기능은 없으며 이벤트가 없으면 sequence는0이다.
+
+기존 접수 응답의 `status_url`과 최초 응답 재생은 변경하지 않는다. 소비자는 응답의 job_id로 위 경로를 구성할 수 있다. 새 migration이나 추가 DB 권한은 필요하지 않다.
+
+### 평가 SSE 재접속 — local/test 구현
+
+`GET /api/v1/platform/jobs/{job_id}/events`는 위 상태 조회와 같은 세션·지정 평가자·소유권·최종 시험/환경 잠금을 적용한다. 스트림 헤더 전에 권한과 커서를 검사한다. 응답은 `text/event-stream`, `Cache-Control: no-cache, no-store`, `X-Accel-Buffering: no`다. 기존 접수 응답 및 최초 응답 재생은 변경하지 않으며 클라이언트는 job_id로 events 경로를 구성한다.
+
+- `Last-Event-ID` 헤더가 있으면 `after` 쿼리보다 우선한다. 둘 다 없으면0. 0~9223372036854775807의 ASCII 숫자만 받으며 빈 값·음수·잘못된 형식·미래 커서는400 INVALID_EVENT_CURSOR다. 숫자 위치는 URL 작업 안에서만 해석한다. 다른 작업에서 유래한 같은 숫자를 식별하는 토큰은 아니다. 다른 작업 접근은 소유권 검사에서404로 막는다.
+- 마지막 수신 위치 이후 이벤트를 sequence 오름차순으로 최대100개씩 읽는다. 상태·최종 sequence·보관 시작 위치·배치를 같은 REPEATABLE READ 읽기 전용 트랜잭션으로 조회하며, 전송/대기 중에는 DB 연결·트랜잭션을 보유하지 않는다.
+- 이벤트 JSON은 job_id, sequence, type, occurred_at, payload다. payload는 `state`(공통 작업 상태 enum), `step=smoke`, `action=cancel|resume`, `resumed`/`synthetic`/`needs_review`(bool)만 허용하고 null은 생략한다. 내부 generation·code 및 미지정 키는 제거한다. 허용 키의 잘못된 타입/값은503 EVENT_DATA_UNAVAILABLE로 거부하며 DB 원문이나 검증 오류 상세를 반환하지 않는다. 이는 합성 worker의 기존 이벤트에 한정한 공개 DTO다.
+- 매 배치와 유휴 poll(기본1초)에서 기존 서버 세션·활성 계정/업무 역할·지정 평가자·소유권을 재검사한다. 구성 승인 hash 철회 후에도 제한 조회는 유지한다. 권한 회수·DB 오류가 확인되면 스트림을 닫는다. 헤더 이후 JSON 오류나 합성 완료 이벤트로 실패를 숨기지 않는다. 이미 검증해 전송 중인 배치까지 회수할 수 있다는 보장은 하지 않는다.
+- 유휴 상태는15초마다 `: heartbeat` 주석을 보낸다. 클라이언트 연결 종료 시 generator를 종료한다. 유휴 poll 주기와 배치 크기는 초기 구현값이며 운영 부하 검증은 후속이다.
+- 종료된 작업도 커서 이후 저장 이벤트를 모두 보낸 뒤 닫는다. 종료 위치까지 받은 재접속은204다. 클라이언트는 종료 이벤트 수신 후 상태 GET으로 복구하고 재구독을 멈춘다. 상태 snapshot의 last_event_sequence 이후를 구독하면 조회와 구독 사이 commit을 놓치지 않는다.
+- 보관 시작보다 이전에 누락된 구간이 있으면410 EVENT_CURSOR_EXPIRED로 상태 재조회를 요구한다. 현재 이벤트 삭제/보관 만료 작업은 구현하지 않았고 최소7일 보관은 기존 제안 상태다. 모든 이벤트를 삭제하는 정책은 watermark 저장 계약 없이 도입하지 않는다. 현 구현의410 검사는 남아 있는 prefix 경계에 한정한다.
+
+`tests/platform/test_job_events.py`는 실제 DB 세션과 loopback HTTP 스트림에서 저장·실시간 이벤트 순서,100건 배치 경계, 헤더 우선/커서 거부, 연결 종료 후 취소 재접속/204, heartbeat, 연결 중 세션·계정·역할·평가자·소유권 회수/DB 장애, 민감 payload 차단 및 보관 구간 손실을 검증한다. 공용 GCP 프록시·브라우저 UI 통합은 이 검증에 포함하지 않는다. 로컬 웹 중계 검증은 아래 별도 범위를 따른다.
+
+### 공개 경로와 후속 구현 순서
+
+웹 서버의 `EVALUATION_READ_RELAY_ENABLED`는 기본false다. 명시적으로 켜면 정확한 UUID의 `GET /api/v1/platform/jobs/{job_id}` 및 `/events` 두 경로만 고정 PLATFORM_URL로 전달한다. 이는 배포 리소스/환경을 변경하거나 플랫폼의 local/test·지정 평가자·최종 시험 잠금을 해제하지 않는다. 평가 접수·제어·policy 및 임의 경로/메서드는 추가 허용하지 않는다. 플랫폼 C/S·TFT JSON 업무 중계와는 별개다.
+
+웹은 서버 IAM 토큰 공급자를 재사용하며 브라우저 Authorization·내부 사용자/역할/호출자 헤더를 전달하지 않는다. 쿠키는 __Host-team4_session만 전달한다. SSE는 Last-Event-ID와 after 하나만 전달하고, 상태 GET의 쿼리 및 임의/중복 쿼리를 거부한다. 커서는 최대64자로 제한하며 값의 유효성·헤더 우선은 플랫폼 계약을 따른다. upstream 리디렉션은 따라가지 않는다.
+
+상태·오류 응답은 최대1MiB의 application/json으로 제한하고 HTTP 상태·ETag·X-Request-ID·Retry-After를 보존한다. Set-Cookie·Location·내부 인증 헤더는 반환하지 않는다. SSE200은 text/event-stream만 허용하여 첫 프레임부터 전달하며 Cache-Control: no-cache, no-store와 X-Accel-Buffering: no를 적용한다. 느린 소비자에는 write/drain 역압력을 적용하며 전체 스트림을 메모리에 모으지 않는다.204는 본문 없이 그대로 반환한다.
+
+upstream 헤더/JSON 대기는15초, SSE의 다음 chunk 대기/소비자 역압력 대기는45초로 제한한다. 클라이언트 연결 종료 시 upstream을 abort하고 타이머·이벤트 리스너를 정리한다. 헤더 전 중계 오류는 안전한502, 전송 시작 후 오류는 연결을 끊는다. API 오류를 합성 성공·정적 HTML·완료 이벤트로 바꾸지 않는다.
+
+`frontend/server.test.mjs`는 허용 경로·쿠키/헤더 제거·상태/커서/204·첫 프레임 즉시 전달·클라이언트 단절 취소·잘못된 upstream·중간 스트림 실패·헤더 시간 제한을 검사한다. `tests/platform/test_web_job_events.py`는 실제 Node handler→FastAPI→PostgreSQL로 상태 snapshot→SSE heartbeat→단절→취소→재접속→종료 GET/204 및 세션 회수 후 연결 종료/401을 확인한다. 테스트의 IAM 공급자만 합성 값이며 실제 Cloud Run IAM·GCP 프록시 검증은 아니다. CI의 실제 DB job은 프론트 변경 때에도 실행한다.
+
+PR45(김종하)의 웹 diff는 정적 파일 canonical 경로 처리다. 해당 영역은 건드리지 않고 별도 evaluation-relay.mjs와 작은 진입 분기만 추가한다. KAN-140의 공통 프론트 소유권은 유지한다. 평가 React 화면과 브라우저 자동 갱신/재접속은 [평가 화면 계약](evaluations.md#kan-137-sse-자동-갱신과-재접속)을 따른다. 취소/보류 해제 중계는 평가 계약의 별도 기본 비활성 설정을 따르며 접수 중계와 공용 활성화는 미구현이다. 이 HTTP 통합 회귀만으로 평가 화면 전체 완료를 뜻하지 않는다.
+
+1. GET 및 SSE의 실제 세션·DB 접근, 상태 스냅샷·재생·권한 회수·종료 복구 검증까지 구현.
+2. 읽기 전용 웹 SSE 중계·HTTP 소비자 복구 회귀까지 구현. 평가 화면의 읽기 연결과 단절/권한 오류 UI까지 구현. 취소/보류 해제 중계와 화면까지 구현. 접수 화면/중계는 후속 범위.
+3. dispatcher 전송 lease/시도/결과 불명확 기록을 runtime에 구현. 평가 run의 generation/holder/lease와 실행 허가를 대체하지 않음.
+4. Cloud Run Jobs API 호출자의 IAM과 Job 컨테이너 실행 서비스 계정·DB 실행 권한을 구분하여 최소 연결. HTTP Tasks worker의 OIDC 인증을 Jobs 컨테이너 인증으로 복사하지 않음. 중복 전달·전송 결과 불명확 시에도 run 소유권 재검사.
+5. 실제 모델은 외부 호출 전 intent, UNKNOWN, 사용량 보존·취소 경계를 먼저 구현. 현재 fake transaction 안의 호출 패턴을 복사하지 않음.
+
+운영 dispatcher·Jobs 인증·실모델·production 활성화·공용 SQL 적용·main 배포는 이번 범위 밖이다. `tests/platform/test_job_status.py`는 전용 PostgreSQL의 실제 세션으로 정상/종료/구성 철회 조회, 다른 평가자·소유권·시험 차단, 세션/계정/역할/지정 회수 및 DB 장애를 검사한다. CI의 실제 DB 검사 목록에도 포함한다.
+
+### KAN-69 전송 장부 — local/test 첫 단위
+
+`backend/api/platform/jobs/dispatch.py`는 기본 비활성인 내부 저장 함수다. 기존 local/test 합성 접수 허용과 `EVALUATION_DISPATCH_ENABLED=true`가 모두 필요하며 production은 항상 거부한다. HTTP 경로·스케줄러·실제 전송 어댑터는 아직 없다. 새 SQL은 `20261026_KAN-69_dispatch_ledger.sql`이며 기존 outbox는 PENDING/시도0으로 보존한다. 공용 DB에는 별도 운영 절차로 한 번 적용한다.
+
+전송 소유권은 `(job_id, attempt_no, holder_id, lease_expires_at)`이고 평가 worker의 `(run_id, generation, holder_id, lease)`와 별개다. `claim_next`는 행 잠금과 SKIP LOCKED로 한 건을 확보하고 outbox와 시도 기록을 같은 트랜잭션에 저장한다. 기본 lease는30초, 전체 확보 한도는3회, 명확한 미접수 후 재확보 대기는30초이며 서버 설정으로 제한된 범위 안에서 조정한다. 전송 전 만료도 확보 횟수에 포함된다.
+
+| 상태 | 후속 처리 |
+| --- | --- |
+| PENDING | 최초 확보 가능 |
+| CLAIMED | 현재 holder만 전송 시작 가능. 만료되면 이전 시도는 EXPIRED, 한도 안에서 새 holder로 확보 |
+| SENDING | 전송 전에 commit한 상태. 만료되면 UNKNOWN으로 보류 |
+| ACCEPTED | 외부 접수가 확실히 확인됨. 자동 재전송 없음. 평가 성공을 뜻하지 않음 |
+| REJECTED | 외부에서 **접수하지 않았음이 확실한 경우만** 사용. 지연 후 한도 안에서 재확보 |
+| UNKNOWN | timeout·연결 단절·응답 해석 불가·전송 후 기록 실패 등 접수 여부 불명확. 자동 재전송 없음 |
+| BLOCKED | 전송 시작 시 현재 평가 승인·소유권·상태 검사 실패. 자동 재확보 없음 |
+| EXHAUSTED | 확보 한도 도달. 자동 재확보 없음 |
+| MANUAL_CHECK | operation 이름 없이 UNKNOWN이 된 전송을 운영자 대조가 고정한 종료 상태. 자동 재확보·재전송 없음, 해소 경로 없음 |
+
+`begin_send`는 지정 평가자·활성 계정·현재 승인 hash·합성 대상·소유권·job 입력 판본을 재검사한다. 종료/검토 필요/현재 worker lease 보유 실행은 BLOCKED다. SENDING commit을 확인한 호출자만 **DB 트랜잭션 밖에서** 외부 전송해야 한다. commit 성공을 확인하지 못했으면 보내지 않는다. 이 함수는 실행 권한을 부여하지 않으며 전송 직후 취소·승인이 회수될 수 있으므로 worker는 기존 실행 인수 검사를 다시 수행해야 한다.
+
+`record_result`는 현재 SENDING의 시도·holder·lease를 검증하고 두 장부를 함께 갱신한다. 만료된/중복/위조 결과는409로 거부한다. timeout과 예외를 REJECTED로 분류하지 않는다. UNKNOWN의 대조와 BLOCKED·EXHAUSTED의 재처리는 아래 [운영자 명령](#kan-69-전송-장부-대조재처리-운영자-명령)으로만 한다. 자동 재처리는 없다. 만료 한 건을 보류하거나 한도를 소진하면 `claim_next`는 None을 반환할 수 있으므로 None은 전체 큐가 비었다는 증거가 아니다.
+
+장부는 외부 응답 본문·자격증명·원문·정답을 저장하지 않는다. 실행 상태·worker lease·판본·사용량·공개 이벤트는 바꾸지 않고 일반 조회/SSE에 노출하지 않는다. 기존 `smoke_worker.dispatch_one`은 로컬 fake 직접 실행 도구이며 이 전송 장부를 소비하는 운영 dispatcher가 아니다.
+
+후속 순서는 Cloud Run Jobs의 호출자 IAM과 컨테이너 실행 계정·DB 권한을 구분한 계약 → 한 건 전송 어댑터와 timeout/불명확 결과 처리 → 중복 전달에도 독립적인 worker 권한/lease 검사다. HTTP worker OIDC 인증을 Jobs 실행 인증으로 혼동하지 않는다. 실제 모델 intent/UNKNOWN·사용량 보존·취소 경계는 별도다.
+
+### KAN-69 Jobs 한 건 전송 연결 — local/test
+
+`cloud_run.dispatch_one`은 서버 OAuth 공급자로 인증을 준비한 뒤 `claim_next → begin_send commit → Jobs POST → record_result commit` 순서로 한 건만 처리한다. HTTP 경로·자동 스케줄러·실제 ADC 공급자·운영 worker 진입점은 연결하지 않는다. 기존 합성 접수/장부 허용 외에 `EVALUATION_JOBS_ENABLED=true`가 필요하며 production 잠금을 유지한다. `httpx`는 기존 설치 버전을 유지하고 직접 운영 의존성으로 명시한다.
+
+서버 설정은 `EVALUATION_JOBS_PROJECT_NUMBER`(프로젝트 **번호**), `REGION=asia-northeast3`, `JOB`, `CONTAINER=worker`, `TIMEOUT_SECONDS=10`이다. 사용자 요청으로 호스트·Job·컨테이너를 선택하지 않는다. 목적지는 고정 `https://run.googleapis.com/v2/projects/{number}/locations/asia-northeast3/jobs/{job}:run`이다. override는 taskCount1과 지정 컨테이너의 `EVALUATION_RUN_ID=<UUID>`만 포함한다. 토큰·평가 구성·worker lease·원문·정답은 전달하지 않는다.
+
+인증 경계는 다음과 같다. 아래는 구현·검증할 운영 계약이며 현재 GCP 배정이나 권한 적용 완료를 뜻하지 않는다.
+
+| 주체 | 필요한 권한과 책임 |
+| --- | --- |
+| dispatcher 호출 계정 | 서버 ADC의 cloud-platform scope **OAuth access token**으로 Jobs Admin API 호출. 대상 Job에 `run.jobs.run` 및 override 사용에 필요한 `run.jobs.runWithOverrides`를 최소 범위로 부여. 브라우저 토큰·Microsoft 세션·HTTP 서비스용 ID 토큰을 사용하지 않음 |
+| Job 배포 계정 | 고정 이미지·실행 서비스 계정·컨테이너명·taskCount1·maxRetries0 등을 관리. 실행 계정을 선택하는 `iam.serviceAccounts.actAs`는 배포 권한이며 dispatcher에 자동 부여하지 않음 |
+| Job 컨테이너 실행 계정 | Job에 고정된 별도 서비스 계정으로 DB 연결과 필요한 secret만 접근. 전송 호출 계정의 권한·access token을 상속하지 않음. DB worker 최소 역할과 기존 승인·소유권·generation/lease 인수 검사를 모두 적용해야 함 |
+| HTTP Tasks worker | 수신 요청의 OIDC·audience·호출자 검증이 필요한 별도 경로. HTTP 요청을 받지 않는 Jobs 컨테이너의 인증 방식으로 복사하지 않음 |
+
+실제 worker 진입점을 연결하기 전에는 `EVALUATION_RUN_ID`를 UUID로 파싱하고 **해당 run만** 인수해야 한다. 기존 fake CLI처럼 큐의 첫 실행을 탐색하면 안 된다. Job 실행 재시도/중복 호출도 실행 lease 검사로 차단한다. `CLOUD_RUN_*` 환경 변수 또는 operation 접수 확인만으로 신원을 인증하거나 평가 실행을 허가하지 않는다. 현재 shared platform_app 권한을 운영 worker 전용 권한으로 간주하지 않으며 별도 DB 역할 구현·검증이 남아 있다.
+
+전송은 자동 재시도·리디렉션·환경 proxy를 사용하지 않는다. 전체 응답 대기를 포함해 timeout을 적용하고 64KiB 이하 JSON만 해석한다. 요청 제한 시간+1초는 설정 lease보다 짧아야 한다. 현재 실제 남은 lease 검사는 장부의 begin_send/record_result가 담당하며 만료된 결과 저장은 실패한다. 프로세스 취소·저장 실패는 SENDING을 남기고 만료 후 UNKNOWN으로 보류한다.
+
+HTTP200과 같은 프로젝트 번호/리전의 유효 operation 이름을 확인하면 ACCEPTED다. done=true라면 해당 Job의 Execution 응답도 확인한다. operation error,429,5xx,리디렉션,timeout,연결 단절,비JSON,초과 크기,다른 프로젝트/리전,불완전 operation은 UNKNOWN이다. 400/401/403/404와 일치하는 Google 오류 code/status를 모두 확인한 경우만 REJECTED로 기록한다. 접수 성공은 실행 성공이 아니며 operation을 polling해 평가 상태로 대체하지 않는다.
+
+`20261026_KAN-69_dispatch_operation.sql`은 시도별 operation 이름만 추가한다. 외부 원문·오류 메시지·token은 저장하지 않는다. operation 이름이 있어도 UNKNOWN이면 자동 재전송하지 않는다. 응답 후 DB 저장에 실패하면 operation 이름을 잃을 수 있으므로 작업 상태를 보류하고 외부 실행 내역과 운영 대조해야 한다. 대조·재처리는 아래 [운영자 명령](#kan-69-전송-장부-대조재처리-운영자-명령)을 따른다.
+
+근거: [Jobs run API와 OAuth/override 권한](https://docs.cloud.google.com/run/docs/reference/rest/v2/projects.locations.jobs/run), [Cloud Run 서비스 실행 신원](https://docs.cloud.google.com/run/docs/securing/service-identity), [Operation 결과 형식](https://docs.cloud.google.com/run/docs/reference/rest/v2/projects.locations.operations). 실제 IAM 허용/거부·컨테이너 실행 신원·공용 DB 권한 검증은 후속 운영 단계다. 이번 검증은 합성 HTTP와 전용 실제 PostgreSQL로 한정한다.
+
+### KAN-90 지정 run 합성 worker와 DB 권한
+
+`python -m backend.api.platform.evaluations.job_worker`는 `EVALUATION_RUN_ID`의 표준 UUID 한 개만 인수한다. 누락·잘못된 값은 `INVALID_RUN_ID`로 비정상 종료하며 큐의 다른 항목을 탐색하지 않는다. 기존 local/test·합성 허용 설정, 지정 평가자·승인 hash·최종 시험 차단을 유지한다. 현재 소유자가 있거나 종료/보류 상태면 `NOT_CLAIMED`로 정상 종료하고, 이번 실행이 완료되면 `SYNTHETIC_COMPLETED`를 출력한다. 실제 모델 품질 성공을 뜻하지 않는다.
+
+`20261027_KAN-90_worker_role.sql`은 관리자 연결에서 한 번 적용하는 **NOLOGIN** 역할 `evaluation_worker`를 만든다. 실제 로그인 계정·비밀번호·IAM은 생성하지 않는다. 운영자는 별도 승인 절차에서 제한된 DB 로그인에 이 역할과 대상 DB CONNECT만 부여해야 한다. 해당 로그인에 platform_app·cs_app·tft_app·각 migrator 역할이나 superuser/DB·역할 생성/BYPASSRLS/REPLICATION 권한을 함께 부여하지 않는다. 진입점은 위 6개 앱/migrator 역할 멤버십과 superuser/DB 생성/역할 생성/BYPASSRLS/REPLICATION 속성을 검사해 거부한다. 직접 부여된 테이블 권한이나 다른 역할을 통한 추가 권한 전체를 탐지하는 기능은 아니므로 로그인 연결 시 운영자가 별도 권한 감사를 수행해야 한다. current_user와 session_user가 다른 SET ROLE 연결도 거부하고, 전용 로그인 자체가 권한 역할을 상속하도록 한다.
+
+worker는 현재 승인·대상·활성 사용자 확인에 필요한 읽기, run/사례/lease의 필요한 열 갱신, 사례 시도·이벤트 삽입만 허용한다. 세션·사용자 역할·전송 outbox/attempts 접근, 사용자/실험 변경, run/job 접수, 취소 요청 열 변경, 원시 결과 조회와 삭제·DDL은 허용하지 않는다. 이 역할은 행별 격리가 아니며 대상 run 제한과 현재 평가 승인은 애플리케이션에서 재검사한다. 실행 계정의 탈취를 막는 IAM·secret 연결은 별도 운영 검증이다.
+
+기존 `claim_run/advance_run/park_run`을 재사용해 매 사례의 승인·holder/generation/lease를 검사한다. 승인 위반은 안전한 코드로 지정 run만 검토 필요로 보류한다. 중복 인수와 취소 후 이전 worker의 저장은 거부하고, 만료 후 재인수는 이미 완료한 사례를 건너뛴다. dispatcher의 ACCEPTED/operation 이름이나 CLOUD_RUN 환경 변수를 실행 권한으로 사용하지 않는다.
+
+전용 이미지 빌드: `docker build --target evaluation-worker --build-arg SERVICE_NAME=platform -t evaluation-worker .`. 비root 사용자와 production 기본 잠금을 유지하고 합성 실행에 필요한 eval 패키지만 추가한다. 일반 서비스 runtime 및 target 생략 빌드는 기존 API 진입점을 유지한다. 공용 배포·실제 worker 로그인 연결·production 허용·실제 모델 호출은 아직 하지 않는다. 외부 모델은 fake transaction 내부 호출 방식을 재사용하지 않고 intent/UNKNOWN·사용량·취소 경계부터 구현해야 한다.
+
+### KAN-69 UNKNOWN operation 읽기 대조
+
+`operation.inspect_operation`은 local/test 내부 함수이며 현재 UNKNOWN인 outbox와 정확히 일치하는 `(job_id, run_id, attempt_no, holder_id)`의 저장된 operation만 조회한다. 이름이 없거나 설정 프로젝트 번호·리전과 다르면 HTTP 호출 없이 False다. 고정 Google 호스트에 OAuth access token으로 GET 한 번만 수행하며 DB 연결은 HTTP 전에 닫는다. production 잠금·기본 비활성, timeout·64KiB 제한·리디렉션/자동 재시도/proxy 금지를 유지한다.
+
+True는 요청한 operation 이름과 일치하는 유효 접수 응답을 확인했다는 뜻이다. done=true는 설정 Job의 Execution도 확인한다. 평가 성공이나 현재 실행 권한을 뜻하지 않는다. False는 조회 불가/불명확이며 **미접수 또는 재전송 허용을 뜻하지 않는다**. 401/403/404와 operation error도 False다. 외부 본문·오류·토큰은 반환하거나 저장하지 않는다. DB 장애는 503으로 전파한다.
+
+이 첫 단위는 읽기만 하며 UNKNOWN 장부·평가 상태·판본·이벤트를 변경하지 않는다. 조회 중 장부가 바뀔 수 있으므로 결과를 미래 상태 변경에 사용할 때는 시도와 현재 상태를 트랜잭션 안에서 다시 대조해야 한다. 장부 갱신과 재처리는 아래 운영자 명령이 이 함수를 감싸 수행한다. 자동 polling·API, 실제 ADC·IAM과 worker 로그인 연결은 후속 범위다.
+
+근거: [Cloud Run operations.get](https://docs.cloud.google.com/run/docs/reference/rest/v2/projects.locations.operations/get). 현재 검증은 합성 HTTP와 임시 PostgreSQL에 한정한다.
+
+### KAN-69 전송 장부 대조·재처리 운영자 명령
+
+`backend/api/platform/jobs/recovery.py`는 운영자가 작업 하나씩 실행하는 명령이다. 스케줄러·HTTP 경로·자동 재시도는 없다. 기존 잠금(local/test, 합성 접수 허용, `EVALUATION_DISPATCH_ENABLED`, 대조는 `EVALUATION_JOBS_ENABLED`까지)을 그대로 쓰며 production은 거부한다. 새 SQL은 `20261028_KAN-69_dispatch_recovery.sql`이고 앞의 전송 장부·operation 마이그레이션 뒤에 적용한다.
+
+```bash
+python -m backend.api.platform.jobs.recovery status --job-id <UUID>
+gcloud auth print-access-token | python -m backend.api.platform.jobs.recovery reconcile --job-id <UUID>
+python -m backend.api.platform.jobs.recovery requeue --job-id <UUID>
+```
+
+| 명령 | 동작 |
+| --- | --- |
+| `status` | outbox 상태·시도 수·한도·재처리 횟수·시각과 시도별 상태·operation 보유 여부·마지막 대조 시각. operation 이름 원문은 내지 않는다 |
+| `reconcile` | outbox와 현재 시도가 모두 UNKNOWN일 때만. 저장된 operation이 있으면 DB 연결을 닫고 [읽기 대조](#kan-69-unknown-operation-읽기-대조)로 조회한 뒤, 같은 시도·holder·이름이 여전히 UNKNOWN인지 트랜잭션 안에서 다시 확인한다. 접수 확인이면 두 장부를 ACCEPTED로, 아니면 UNKNOWN 그대로 두고 `checked_at`만 기록한다. 조회 중 장부가 바뀌면 409 `STALE_DISPATCH`로 아무것도 바꾸지 않는다. 저장된 operation이 없으면 조회하지 않고 두 장부를 MANUAL_CHECK로 고정한다 |
+| `requeue` | BLOCKED·EXHAUSTED만 PENDING으로 되돌린다. 시도 중 SENDING·ACCEPTED·UNKNOWN·MANUAL_CHECK가 하나라도 있으면 409 `INVALID_TRANSITION`이다. 시도 한도 `attempt_limit`를 현재 시도 수 + `EVALUATION_DISPATCH_MAX_ATTEMPTS`로 늘리고 `requeue_count`·`requeued_at`을 남긴다. 재전송 전 평가 승인·소유권은 기존 `begin_send`가 다시 검사한다 |
+
+- 대조는 양성 증거만 반영한다. operation 조회 실패(404·error·timeout 등)는 미접수 증거가 아니므로 REJECTED로 바꾸지 않고 재처리 대상도 아니다.
+- **MANUAL_CHECK는 종료 상태다.** 외부 실행 내역과 맞출 operation 이름이 없어 장부만으로 복구할 수 없다는 표시다. 이 상태의 해소(외부 실행 내역 대조 뒤의 상태 전환)는 이번 범위 밖이며 명령이 없다. reconcile·requeue·자동 확보 모두 거부한다.
+- access token은 stdin 한 줄로만 받는다. 명령행 인자·환경 변수로 받지 않고 출력하지 않는다. 실제 ADC 공급자 연결은 하지 않는다.
+- 출력은 성공 시 JSON 한 줄, 실패 시 오류 코드 한 줄(예상 밖 오류는 `DISPATCH_RECOVERY_FAILED`)이다. DSN·토큰·operation 이름·외부 응답을 출력하지 않는다.
+- 재처리 기록에 운영자 ID는 없다. CLI 실행이라 인증된 사용자가 없기 때문이다. 누가 실행했는지는 운영 절차의 기록으로 남긴다.
+- 평가 run 상태·판본·이벤트는 바꾸지 않고 일반 조회·SSE에 노출하지 않는다.
+
+검증은 합성 operation 응답(`httpx.MockTransport`)과 전용 PostgreSQL로 한정한다(`tests/platform/test_jobs_transport.py`, `tests/platform/test_dispatch_ledger.py`). 실제 Google 조회·IAM·공용 DB 적용은 운영 단계다.
+
+
+### KAN-194 C/S 처리 작업(cs.analyze) 접수 — 1/3
+
+- 저장: `owner='cs'`, `kind='cs.analyze'`, `route='/api/v1/cs/tickets/{ticket_id}/analysis'`(KAN-107 분석 경로와 같은 값), `subject_id`=문의 `cs.tickets.id`, `business_id`=작업 자신, `actor_id`=요청 사용자. DB CHECK `jobs_owner_kind_route`가 이 조합만 받는다. 같은 문의에 진행 중(QUEUED·RUNNING) 작업은 하나뿐이다(`jobs_cs_one_active`, 409 `CS_JOB_IN_PROGRESS`).
+- 내부 접수 `POST /internal/v1/platform/jobs/cs`는 기본 비활성(404)이다.
+  - 켜면 Authorization의 Google ID 토큰을 플랫폼 audience·cs 실행 계정(`CS_JOBS_INVOKER_EMAIL`)으로 다시 검증한다.
+  - 본문은 `{ticket_id, input_version(SHA-256), idempotency_key, requested_by}`이고 원문·프롬프트는 받지 않는다.
+  - 같은 사용자·경로·키의 재전송은 기존 작업(200)이다. 문의·입력 판본이 다르면 409 `IDEMPOTENCY_CONFLICT`다(비교 hash는 플랫폼이 계산한다).
+  - `CS_JOBS_PROCESSOR_CONNECTED`(기본 꺼짐) 전에는 저장하지 않고 503 `CS_PROCESSOR_NOT_CONNECTED`다.
+- 적용 순서: `20261031_KAN-194_cs_jobs.sql`(P28)은 `20261029_KAN-182_tft_jobs.sql`(P24) 뒤에 적용한다. `jobs_owner_kind_route`는 마지막 파일(P28)이 평가·tft·cs 합집합으로 정의하므로, P24를 다시 적용하면 P28도 이어서 다시 적용한다(cs 행이 있으면 P24 단독 재적용은 CHECK 추가가 실패한다).
+- 새 작업은 한 트랜잭션에서 `job.queued` 이벤트, 전송 의도(`dispatch_outbox`), 작업 제어 행(`runtime.job_control`)을 함께 만든다. 평가와 같고 tft(전송 의도 없음)와 다르다.
+- `runtime.job_control`은 범용 worker 소유권 표다.
+  - 열: generation·holder_id·lease_expires_at·version·cancel_requested_at·failure_code(고정 코드만).
+  - 평가 lease는 `evaluation.run_control`에 그대로 둔다.
+  - platform_app은 SELECT·INSERT, `cs_worker`는 SELECT와 generation·holder_id·lease_expires_at·version·failure_code UPDATE만 갖는다.
+- `cs_worker`(NOLOGIN) 역할
+  - 플랫폼 마이그레이션은 runtime 권한만 준다: jobs 조회 열과 status UPDATE, job_events 열 INSERT, job_control.
+  - cs 테이블과 checkpoint_cs 권한은 KAN-107의 cs 마이그레이션이 준다.
+  - 플랫폼·cs·checkpoint는 같은 Postgres DB(team4)의 스키마로 나뉜다는 전제다.
+- 전송 분기(kind별 대상 Job·환경 `CS_JOB_ID`)와 상태·SSE의 owner별 접근 검사는 2/3(아래 절), worker 진입점은 3/3에서 연결한다. 3/3 전까지 처리기 연결 설정을 켜지 않는다.
+
+### KAN-194 C/S 작업 전송 분기와 상태·SSE 접근 — 2/3
+
+- 전송 장부는 작업 종류마다 따로 연다(`dispatch.require_local`이 허용 종류 목록을 돌려준다).
+  - 평가(`evaluation.run`): 기존 평가 local 접수 조건 그대로.
+  - C/S(`cs.analyze`): local/test에서 `CS_JOBS_ENABLED`·`CS_JOBS_PROCESSOR_CONNECTED`가 모두 켜지고, Jobs 전송에서는 C/S worker Job 설정(`CS_WORKER_JOBS_ENABLED`, 기본 꺼짐)까지 받았을 때만.
+  - 허용 종류가 없으면 403 `DISPATCH_DISABLED`다. 허용되지 않은 종류의 행은 확보하지 않고 PENDING으로 둔다. C/S 설정을 넘기지 않는 기존 호출자(평가 smoke worker 등)는 평가만 다룬다.
+- 전송 직전 재검사(`begin_send`): C/S는 게이트, 작업 QUEUED·RUNNING, 취소 요청 없음, 살아 있는 worker lease(`runtime.job_control`) 없음을 본다. 아니면 그 시도는 BLOCKED다. 평가는 기존 승인 재검사 그대로다.
+- Jobs 호출(`send_job`): 프로젝트·리전·시간 제한은 공통(`EVALUATION_JOBS_*` 설정)이다.
+  - 평가: `EVALUATION_JOBS_JOB`·`CONTAINER`, 환경 `EVALUATION_RUN_ID`=실행 ID.
+  - C/S: `CS_WORKER_JOBS_JOB`(기본 `cs-worker`)·`CONTAINER`, 환경 `CS_JOB_ID`=작업 ID. 완료 operation의 실행 이름도 그 Job 기준으로 검증한다.
+- 상태 `GET /api/v1/platform/jobs/{job_id}`와 SSE `.../events`는 세션을 먼저 확인(없으면 401)한 뒤 작업 owner의 검사기로 보낸다(`status.CHECKERS`).
+  - platform: 기존 평가 규칙. 지정 평가자가 아니면 403, 평가 조건이 안 맞으면 404.
+  - cs: 요청 사용자 본인 또는 `cs_agent` 역할만. 아니면 404.
+  - 그 밖의 owner(tft 등)와 없는 작업: 404.
+  - SSE는 연결 중에도 배치마다 같은 검사를 다시 한다.
+- 응답 `data`는 owner로 구분한다(OpenAPI `JobStatusResponse`). C/S는 `CsJobStatus{job_id, ticket_id, owner:'cs', kind:'cs.analyze', status, version, last_event_sequence}`다. `version`은 `runtime.job_control.version`이다.
+- 이벤트 payload 허용 키(`EventPayload`): 기존 `state` 외에 `step`(smoke·classify·rules·retrieve·draft), `stage`(그래프 단계), `retried`·`recovered`(0 이상 정수), `classification_outcome`·`draft_outcome`(VALID·SCHEMA_VIOLATION·TRANSPORT_FAILURE·TIMEOUT·HELD). 모르는 키(오류 코드 등)는 버리고 SSE로 내지 않는다.
+- 검증은 전용 PostgreSQL과 합성 Jobs 응답으로 한정한다(`tests/platform/test_cs_job_runtime_db.py`).
+- 3/3: worker(`backend.agent.cs_worker`)의 인수·lease·취소·이벤트·실패 코드는 [C/S 그래프 계약](../cs/graph.md)의 'worker 실행' 절이다.
+
+### KAN-199 RFP 작업 전송 분기와 상태·SSE 접근 — 1/2
+
+- 전송: `require_local`의 허용 종류에 rfp.*(`rfp.process`·`rfp.export`·`rfp.annotate`)를 더했다. local/test에서 `TFT_JOBS_ENABLED`·`TFT_JOBS_PROCESSOR_CONNECTED`가 켜졌을 때만이고, Jobs 전송은 `TFT_WORKER_JOBS_ENABLED`까지 켜져야 한다. 전송 직전 재검사는 C/S와 같은 `runtime.job_control` 규칙(`worker_sendable`)이다. Jobs 호출은 `TFT_WORKER_JOBS_JOB`(기본 `tft-worker`)에 환경 `TFT_JOB_ID`=작업 ID다.
+- 상태·SSE: 검사기 표에 tft를 더했다. 요청 사용자 본인만 보고 그 밖은 404다(역할로 넓히지 않음). 응답은 `TftJobStatus`다.
+- 이벤트 payload: RFP 단계 `step`(parse·extract·search·compare·supplement·candidates·draft·export·annotate), `document_version_id`, `counts{requirements, proposals}`, 기존 `needs_review`.
+- 세부 규칙은 [RFP 작업 계약](../tft/rfp-jobs.md)이다. 검증은 `tests/platform/test_tft_job_runtime_db.py`다.
+- 2/2: worker(`backend.agent.tft_worker`, 역할 `tft_worker`·P29)와 처리 함수 등록 규약은 [RFP 작업 계약](../tft/rfp-jobs.md)의 'worker' 절이다. C/S·RFP worker는 소유권·이벤트 기록을 `backend/agent/job_runtime.py`로 공유한다.

@@ -1,0 +1,387 @@
+"""RFP 초안·검토본·내보내기의 불변 판본 저장(KAN-188). 커밋은 호출자가 한다."""
+
+from typing import Any, get_args
+from uuid import UUID, uuid4
+
+from psycopg import AsyncConnection
+from psycopg.types.json import Jsonb
+
+from backend.api.tft.rfp import schemas as s
+from backend.api.tft.rfp.context_schemas import ContextResponse
+from backend.api.tft.rfp.repository import NEEDS_REREVIEW, version_conflict
+from backend.engine.rfp.draft import DISCLAIMER
+from backend.engine.rfp.vocabulary import sentence_conditions
+
+Row = dict[str, Any]
+
+
+async def lock(conn: AsyncConnection[Row], project_id: UUID) -> None:
+    """초안 생성·수정·검토본 저장을 프로젝트별로 직렬화한다."""
+    await conn.execute(
+        "SELECT pg_advisory_xact_lock(hashtextextended(%s, 188))", (str(project_id),)
+    )
+
+
+async def head(conn: AsyncConnection[Row], project_id: UUID) -> int:
+    """최신 판본 번호. 처음 만들기 전이면 0이다."""
+    cursor = await conn.execute(
+        "SELECT latest_version FROM tft.drafts WHERE project_id = %s FOR UPDATE", (project_id,)
+    )
+    row = await cursor.fetchone()
+    return row["latest_version"] if row else 0
+
+
+async def generated(conn: AsyncConnection[Row], project_id: UUID, job_id: UUID) -> int | None:
+    """같은 처리 작업이 이미 만든 판본을 찾는다. 사람 편집 이후 재시도도 새 판본을 만들지 않는다."""
+    cursor = await conn.execute(
+        "SELECT version FROM tft.draft_versions WHERE project_id = %s AND source_job_id = %s",
+        (project_id, job_id),
+    )
+    row = await cursor.fetchone()
+    return row["version"] if row else None
+
+
+async def load(
+    conn: AsyncConnection[Row], project_id: UUID, version: int | None = None
+) -> s.Draft | None:
+    """지정 판본(또는 최신)에 현재 재검토 표시를 합산해 읽는다. 표시·검토본 검사용이다."""
+    return await _load(conn, project_id, version, live_review=True)
+
+
+async def load_snapshot(
+    conn: AsyncConnection[Row], project_id: UUID, version: int
+) -> s.Draft | None:
+    """편집 저장·내보내기용 불변 판본. 현재 요구/mark를 조회하지 않고 저장된 flags만 반환한다."""
+    return await _load(conn, project_id, version, live_review=False)
+
+
+async def _load(
+    conn: AsyncConnection[Row], project_id: UUID, version: int | None, *, live_review: bool
+) -> s.Draft | None:
+    cursor = await conn.execute(
+        "SELECT v.* FROM tft.drafts d JOIN tft.draft_versions v ON v.project_id = d.project_id "
+        "AND v.version = coalesce(%s, d.latest_version) WHERE d.project_id = %s",
+        (version, project_id),
+    )
+    metadata = await cursor.fetchone()
+    if metadata is None:
+        return None
+    review_sql = "s.needs_rereview"
+    if live_review:
+        review_sql += (
+            " OR EXISTS (SELECT 1 FROM tft.rereview_marks m "
+            "WHERE m.project_id = s.project_id AND m.target_kind = 'draft_sentence' "
+            "AND m.target_id = s.sentence_key AND m.cleared_at IS NULL) "
+            "OR EXISTS (SELECT 1 FROM tft.draft_sentence_evidence e "
+            "JOIN tft.requirements req ON e.evidence_id = req.id::text "
+            "WHERE e.sentence_id = s.id AND e.evidence_type = 'requirement' AND req.project_id = s.project_id "
+            f"AND ({NEEDS_REREVIEW.format(requirement='req.id')})) "
+        )
+    # 추출의 '검토 필요'(needs_review)는 근거 요구 목록으로 따로 받아, 결정·책임자 확인으로 풀린 요구는 빼고 본다
+    # (drafts.requirements_of와 같은 기준, 40444 P26-0002 저장 막힘).
+    flagged_sql = (
+        "ARRAY(SELECT req.id FROM tft.draft_sentence_evidence e "
+        "JOIN tft.requirements req ON e.evidence_id = req.id::text "
+        "JOIN tft.requirement_versions v ON v.requirement_id = req.id AND v.version = req.latest_version "
+        "WHERE e.sentence_id = s.id AND e.evidence_type = 'requirement' AND req.project_id = s.project_id "
+        "AND v.needs_review)"
+        if live_review
+        else "ARRAY[]::uuid[]"
+    )
+    cursor = await conn.execute(
+        f"SELECT s.*, {review_sql} AS review_needed, {flagged_sql} AS flagged_requirements "
+        "FROM tft.draft_sentences s WHERE s.project_id = %s AND s.draft_version = %s "
+        "ORDER BY s.section, s.ordinal",
+        (project_id, metadata["version"]),
+    )
+    rows = await cursor.fetchall()
+    cursor = await conn.execute(
+        "SELECT e.* FROM tft.draft_sentence_evidence e JOIN tft.draft_sentences s "
+        "ON s.id = e.sentence_id WHERE s.project_id = %s AND s.draft_version = %s "
+        "ORDER BY e.sentence_id,e.ordinal",
+        (project_id, metadata["version"]),
+    )
+    proofs: dict[UUID, list[s.Evidence]] = {}
+    for proof in await cursor.fetchall():
+        proofs.setdefault(proof["sentence_id"], []).append(
+            s.Evidence(type=proof["evidence_type"], id=proof["evidence_id"])
+        )
+    sections: dict[s.DraftSection, list[s.Sentence]] = {key: [] for key in get_args(s.DraftSection)}
+    settled: set[UUID] = set()
+    if any(row["flagged_requirements"] for row in rows):
+        from backend.api.tft.rfp.drafts import settled_requirements
+
+        settled = await settled_requirements(conn, project_id)
+    for row in rows:
+        row["review_needed"] = row["review_needed"] or any(
+            r not in settled for r in row["flagged_requirements"]
+        )
+        evidence = proofs.get(row["id"], [])
+        conditions = sentence_conditions(row["conditions"])
+        if live_review:
+            # 화면에는 이미지 전사 코드·영문 조건 이름 대신 사람이 읽는 말(검토서 DOCX와 같은 변환). 저장값은 그대로.
+            from backend.api.tft.rfp.bid_outputs import readable_text
+
+            conditions = [readable_text(c) for c in conditions]
+        sections[row["section"]].append(
+            s.Sentence(
+                sentence_id=row["sentence_key"],
+                text=readable_text(row["text"]) if live_review else row["text"],
+                template_text=row["template_text"],
+                evidence=evidence,
+                conditions=conditions,
+                unconfirmed=(row["unconfirmed"] or row["review_needed"])
+                if live_review
+                else row["unconfirmed"],
+                needs_rereview=row["review_needed"],
+                evidence_missing=(row["evidence_missing"] or not evidence)
+                if live_review
+                else row["evidence_missing"],
+                provenance_kind=row["provenance_kind"],
+            )
+        )
+    from backend.api.tft.rfp.workflow import inputs
+
+    snapshot = metadata.get("input_snapshot")
+    current_inputs = (
+        await inputs(conn, project_id) if live_review and snapshot is not None else snapshot
+    )
+    changed = sorted(
+        key
+        for key in set(snapshot or {}) | set(current_inputs or {})
+        if (snapshot or {}).get(key) != (current_inputs or {}).get(key)
+    )
+    freshness = s.DraftFreshness(
+        status="UNKNOWN" if snapshot is None else "STALE" if changed else "CURRENT",
+        changed_requirement_ids=changed,
+        preserved_human_sentence_ids=[
+            row["sentence_key"] for row in rows if row["provenance_kind"] == "human_input"
+        ],
+    )
+    return s.Draft(
+        freshness=freshness,
+        project_id=project_id,
+        version=metadata["version"],
+        data_origin=metadata["data_origin"],
+        derivation_kind=metadata["derivation_kind"],
+        known_at=metadata["known_at"],
+        sections=[s.Section(section=key, sentences=items) for key, items in sections.items()],
+        disclaimer=DISCLAIMER,
+        evidence_missing_count=sum(
+            row.evidence_missing for items in sections.values() for row in items
+        ),
+    )
+
+
+async def save(
+    conn: AsyncConnection[Row],
+    draft: s.Draft,
+    *,
+    actor: UUID,
+    source_job_id: UUID | None = None,
+    reasons: dict[UUID, str] | None = None,
+    capture_inputs: bool | None = None,
+    source_inputs: dict[str, Any] | None = None,
+) -> None:
+    """로직이 검증한 새 판본을 추가한다. 기존 판본·공개 문장 키는 고치지 않는다."""
+    current = await head(conn, draft.project_id)
+    if draft.version != current + 1:
+        raise version_conflict()
+    if any(
+        not row.text or len(row.text) > 4000 for part in draft.sections for row in part.sentences
+    ):
+        raise ValueError("TFT_DRAFT_SENTENCE_LENGTH")
+    if current == 0:
+        await conn.execute(
+            "INSERT INTO tft.drafts (project_id,latest_version,data_origin,derivation_kind,known_at) "
+            "VALUES (%s,%s,%s,%s,%s)",
+            (
+                draft.project_id,
+                draft.version,
+                draft.data_origin,
+                draft.derivation_kind,
+                draft.known_at,
+            ),
+        )
+    else:
+        await conn.execute(
+            "UPDATE tft.drafts SET latest_version = %s WHERE project_id = %s",
+            (draft.version, draft.project_id),
+        )
+    from backend.api.tft.rfp.workflow import inputs
+
+    snapshot: dict[str, Any] | None
+    capture = capture_inputs if capture_inputs is not None else source_job_id is not None
+    if source_inputs is not None:
+        snapshot = source_inputs
+    elif capture:
+        snapshot = await inputs(conn, draft.project_id)
+    else:
+        cursor = await conn.execute(
+            "SELECT input_snapshot FROM tft.draft_versions WHERE project_id=%s AND version=%s",
+            (draft.project_id, current),
+        )
+        previous = await cursor.fetchone()
+        snapshot = previous["input_snapshot"] if previous else None
+    await conn.execute(
+        "INSERT INTO tft.draft_versions (project_id,version,provenance_kind,created_by,"
+        "data_origin,derivation_kind,known_at,source_job_id,input_snapshot) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        (
+            draft.project_id,
+            draft.version,
+            "system_record" if source_job_id else "human_input",
+            actor,
+            draft.data_origin,
+            draft.derivation_kind,
+            draft.known_at,
+            source_job_id,
+            Jsonb(snapshot) if snapshot is not None else None,
+        ),
+    )
+    for part in draft.sections:
+        for ordinal, row in enumerate(part.sentences):
+            physical_id = uuid4()
+            await conn.execute(
+                "INSERT INTO tft.draft_sentences (id,project_id,draft_version,section,ordinal,"
+                "sentence_key,text,conditions,unconfirmed,evidence_missing,provenance_kind,edit_reason,"
+                "needs_rereview,template_text) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (
+                    physical_id,
+                    draft.project_id,
+                    draft.version,
+                    part.section,
+                    ordinal,
+                    row.sentence_id,
+                    row.text,
+                    Jsonb(row.conditions),
+                    row.unconfirmed,
+                    row.evidence_missing,
+                    row.provenance_kind,
+                    (reasons or {}).get(row.sentence_id),
+                    row.needs_rereview,
+                    row.template_text
+                    or (row.text if row.provenance_kind != "human_input" else None),
+                ),
+            )
+            for index, evidence in enumerate(row.evidence):
+                await conn.execute(
+                    "INSERT INTO tft.draft_sentence_evidence (sentence_id,ordinal,evidence_type,"
+                    "evidence_id) VALUES (%s,%s,%s,%s)",
+                    (physical_id, index, evidence.type, evidence.id),
+                )
+
+
+async def human_lineage(
+    conn: AsyncConnection[Row], project_id: UUID, version: int, keys: list[UUID]
+) -> tuple[dict[UUID, str], list[s.Section]]:
+    """사람 편집 이유와 자동 문장을 수정한 이력을 읽는다. 직접 추가는 자동 영역을 대체하지 않는다."""
+    if not keys:
+        return {}, []
+    cursor = await conn.execute(
+        "SELECT DISTINCT ON (s.sentence_key) s.sentence_key,s.edit_reason, "
+        "(SELECT old.draft_version FROM tft.draft_sentences old WHERE old.project_id=s.project_id "
+        "AND old.sentence_key=s.sentence_key AND old.draft_version<=%s "
+        "AND old.provenance_kind<>'human_input' ORDER BY old.draft_version DESC LIMIT 1) AS original_version "
+        "FROM tft.draft_sentences s WHERE s.project_id=%s AND s.draft_version<=%s "
+        "AND s.sentence_key=ANY(%s) AND s.edit_reason IS NOT NULL "
+        "ORDER BY s.sentence_key,s.draft_version DESC",
+        (version, project_id, version, keys),
+    )
+    rows = await cursor.fetchall()
+    replacements = []
+    for original_version in sorted(
+        {row["original_version"] for row in rows if row["original_version"] is not None}
+    ):
+        snapshot = await load_snapshot(conn, project_id, original_version)
+        if snapshot is None:
+            raise ValueError("TFT_DRAFT_VERSION_MISSING")
+        keys_for_version = {
+            row["sentence_key"] for row in rows if row["original_version"] == original_version
+        }
+        for part in snapshot.sections:
+            originals = [row for row in part.sentences if row.sentence_id in keys_for_version]
+            if originals:
+                replacements.append(s.Section(section=part.section, sentences=originals))
+    return {row["sentence_key"]: row["edit_reason"] for row in rows}, replacements
+
+
+async def evidence_labels(conn: AsyncConnection[Row], project_id: UUID) -> dict[str, str]:
+    """근거 ID를 사람이 읽는 번호로 바꾸는 표를 만든다. 저장값은 그대로 둔다.
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 프로젝트 ID.
+
+    Returns:
+        dict[str, str]: 요구는 2.4.E.1.a-2 꼴, 조항은 조항 번호, 질문은 Q1부터의 순번.
+    """
+    cursor = await conn.execute(
+        "SELECT id::text AS id, code AS label FROM tft.requirements WHERE project_id=%(p)s "
+        "UNION ALL SELECT DISTINCT c.id::text, c.clause_no FROM tft.clauses c "
+        "JOIN tft.requirement_versions v ON v.clause_id=c.id "
+        "JOIN tft.requirements r ON r.id=v.requirement_id WHERE r.project_id=%(p)s "
+        "UNION ALL SELECT q.id::text, 'Q' || row_number() OVER (ORDER BY q.created_at, q.id) "
+        "FROM tft.customer_questions q WHERE q.project_id=%(p)s",
+        {"p": project_id},
+    )
+    # 이미지 전사 조항 코드·직접 추가 순번은 검토서와 같은 사람이 읽는 표시로(OCR-DOCX-0001.7 → 본문 이미지 1).
+    from backend.api.tft.rfp.bid_outputs import clause_label, requirement_label
+
+    labels = {}
+    for row in await cursor.fetchall():
+        label = row["label"]
+        labels[row["id"]] = (
+            requirement_label(label) if len(label.split(":")) == 3 else clause_label(label)
+        )
+    return labels
+
+
+async def project_title(conn: AsyncConnection[Row], project_id: UUID) -> str:
+    """산출물 머리에 쓰는 접수 번호와 프로젝트 이름을 읽는다.
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 프로젝트 ID.
+
+    Returns:
+        str: 접수 번호와 이름을 이은 값. 접수 번호가 없는 옛 프로젝트는 이름만이다.
+    """
+    cursor = await conn.execute(
+        "SELECT external_id, name FROM tft.projects WHERE id=%s", (project_id,)
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        raise ValueError("TFT_PROJECT_MISSING")
+    return " ".join(part for part in (row["external_id"], row["name"]) if part)
+
+
+async def capture_review_context(
+    conn: AsyncConnection[Row], project_id: UUID, review_version: int
+) -> None:
+    """Freeze exact context + original refs inside the review creation transaction, including absence/staleness."""
+    from backend.api.tft.rfp.context_repository import load_context
+
+    await lock(conn, project_id)
+    cursor = await conn.execute(
+        "SELECT 1 FROM tft.review_context_snapshots WHERE project_id=%s AND review_version=%s",
+        (project_id, review_version),
+    )
+    if await cursor.fetchone():
+        return
+    snapshot = await load_context(conn, project_id)
+    await conn.execute(
+        "INSERT INTO tft.review_context_snapshots(project_id,review_version,context_version,snapshot) VALUES(%s,%s,%s,%s)",
+        (project_id, review_version, snapshot.version, Jsonb(snapshot.model_dump(mode="json"))),
+    )
+
+
+async def load_review_context(
+    conn: AsyncConnection[Row], project_id: UUID, review_version: int
+) -> ContextResponse | None:
+    """Old reviews without a captured snapshot return None; never backfill with newer context."""
+    cursor = await conn.execute(
+        "SELECT snapshot FROM tft.review_context_snapshots WHERE project_id=%s AND review_version=%s",
+        (project_id, review_version),
+    )
+    row = await cursor.fetchone()
+    return ContextResponse.model_validate(row["snapshot"]) if row else None

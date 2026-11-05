@@ -71,19 +71,52 @@ Cloud Run의 `X-Serverless-Authorization`은 컨테이너 전달 시 서명이 �
 [Google ID 토큰 검증](https://docs.cloud.google.com/compute/docs/instances/verifying-instance-identity)을 따른다.
 
 허용 경로는 현재 dev에 병합된 다음 JSON API뿐이다. UUID는 표준 하이픈 표기만 허용한다.
-새 업무 API를 추가하면 웹·플랫폼 허용 목록과 회귀 검사를 함께 확장해야 한다.
+새 업무 API를 추가하면 웹·플랫폼 허용 목록과 회귀 검사를 함께 확장해야 한다. 웹
+`frontend/server.mjs`의 `businessRoutes`와 플랫폼 `relay.py`의 `BUSINESS_ROUTES`는 같은 표이며,
+두 검사가 테스트 전용 `docs/openapi/business-relay-routes.json`과 각각 완전 일치를 확인한다.
 
-| 경로 | 메서드 |
-| --- | --- |
-| `/api/v1/cs/tickets` | GET, POST |
-| `/api/v1/cs/tickets/{ticket_id}` | GET, PATCH |
-| `/api/v1/cs/tickets/{ticket_id}/audit` | GET |
-| `/api/v1/tft/projects` | GET |
-| `/api/v1/tft/projects/{project_id}` | GET |
+| 경로 | 메서드 | 허용 query |
+| --- | --- | --- |
+| `/api/v1/cs/tickets` | GET, POST | GET만 `limit`·`cursor` |
+| `/api/v1/cs/tickets/{ticket_id}` | GET, PATCH | 없음 |
+| `/api/v1/cs/tickets/{ticket_id}/audit` | GET | 없음 |
+| `/api/v1/cs/tickets/{ticket_id}/units` | GET | 없음 |
+| `/api/v1/cs/tickets/{ticket_id}/unit-history` | GET | 없음 |
+| `/api/v1/cs/tickets/{ticket_id}/units/{unit_id}` | PUT | 없음 |
+| `/api/v1/cs/tickets/{ticket_id}/resolution-case` | POST | 없음 |
+| `/api/v1/cs/tickets/{ticket_id}/workflow` | GET | 없음 |
+| `/api/v1/cs/tickets/{ticket_id}/workflow/start-review` | POST | 없음 |
+| `/api/v1/cs/tickets/{ticket_id}/workflow/transfer` | POST | 없음 |
+| `/api/v1/cs/tickets/{ticket_id}/workflow/recall` | POST | 없음 |
+| `/api/v1/cs/tickets/{ticket_id}/workflow/return` | POST | 없음 |
+| `/api/v1/cs/tickets/{ticket_id}/workflow/dept-result` | POST | 없음 |
+| `/api/v1/cs/tickets/{ticket_id}/workflow/dept-results/{result_id}/review` | POST | 없음 |
+| `/api/v1/cs/tickets/{ticket_id}/workflow/close` | POST | 없음 |
+| `/api/v1/cs/tickets/{ticket_id}/workflow/owner` | PUT | 없음 |
+| `/api/v1/cs/stats/overview` | GET | `start`·`end`·`dept`·`customer` |
+| `/api/v1/cs/stats/owners` | GET | `start`·`end`·`dept` |
+| `/api/v1/cs/stats/customers/{customer_external_id}` | GET | `start`·`end` |
+| `/api/v1/cs/improvement-requests` | GET, POST | 없음 |
+| `/api/v1/cs/improvement-requests/{request_id}` | GET, PATCH | 없음 |
+| `/api/v1/cs/improvement-requests/{request_id}/versions` | GET | 없음 |
+| `/api/v1/cs/improvement-requests/{request_id}/evidence` | POST | 없음 |
+| `/api/v1/cs/improvement-requests/{request_id}/evidence/{evidence_id}/remove` | POST | 없음 |
+| `/api/v1/cs/improvement-requests/{request_id}/owner` | PUT | 없음 |
+| `/api/v1/cs/improvement-requests/{request_id}/condition-comparison` | GET, POST | GET만 `version` |
+| `/api/v1/cs/improvement-requests/{request_id}/condition-comparison/judgements` | POST | 없음 |
+| `/api/v1/cs/improvement-requests/{request_id}/condition-comparison/evidence/{evidence_id}/remove` | POST | 없음 |
+| `/api/v1/cs/condition-comparisons` | GET | `product_code`·`fault_id`·`version` |
+| `/api/v1/tft/projects` | GET | `limit`·`cursor` |
+| `/api/v1/tft/projects/{project_id}` | GET | 없음 |
 
-목록 GET만 중복 없는 `limit`·`cursor` query(값 각각 200자 이내)를 허용한다. 세부 형식과
-페이지 범위는 기존 업무 API가 검증한다. 임의 upstream·다른 query·SSE·파일·메일·미병합
-API는 허용하지 않는다. 플랫폼과 웹은 요청 1MiB·응답 8MiB로 제한하며 upstream 이동이나
+query는 표에 적힌 키만 중복 없이(값 각각 200자 이내) 허용하고, 표에 없는 키·중복·변경 요청의
+query·query가 없는 경로의 query는 400이다. 세부 형식(시각·부서·페이지 범위)은 기존 업무 API가
+검증한다. `customer_external_id` 경로 값은 웹·플랫폼 모두 디코드한 경로에서
+고객 ID 규약 `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`(첫 글자 영숫자, C/S 입력 검증과 같은 `backend/shared/models.py` `CUSTOMER_ID`)만 허용하고 아니면 404다. 조건 비교 근거 제외 경로의 `evidence_id`도 같은 문자 규칙(`[A-Za-z0-9][A-Za-z0-9._-]{0,63}`, relay.py `EVIDENCE_PATH`, 공용 픽스처 `evidence_pattern`)만 허용하고 아니면 404다. 디코드된 `?`·`#`·`/`와
+`.`·`..` 세그먼트가 upstream 경로나 query를 바꾸지 못하게 하기 위해서이며, 플랫폼은 이 때문에 `request.url.path` 대신 ASGI scope의
+디코드된 경로로 검사·전달한다. 중계 대상은 위 표의 31행이 전부이며, 표에 없는 경로는 404,
+표에 있는 경로의 다른 메서드는 405다(웹은 표에 없는 경로의 GET·HEAD 외 메서드도 405). 쓰기의 권한·상태 전이·판본
+검사는 C/S가 한다. 임의 upstream·SSE·파일·메일·미병합 API는 허용하지 않는다. 플랫폼과 웹은 요청 1MiB·응답 8MiB로 제한하며 upstream 이동이나
 자동 재시도 없이 고정 HTTPS 대상으로만 전달한다. 플랫폼 연결/읽기 제한은 3초/20초,
 웹 전체 중계 제한은 45초다. JSON이 아닌 응답·리디렉션·네트워크 장애는 플랫폼 503 또는
 웹 502로 처리하고 공급자 원문을 반환하지 않는다.
@@ -329,3 +362,383 @@ health/ready는 15초다. 업무 JSON은 위 KAN-178 설정과 허용 목록에 
 HTTP·쿠키·CSRF·인증 전용 중계는 비활성 초안으로 구현했으며 KAN-57 합의, 운영 활성화,
 실제 Outlook 브라우저 흐름, 로그인 화면 및 공용 업무 중계/SSE 검증은 남아 있다.
 사서함 연결·Graph·토큰 보관은 KAN-80·81 범위다. 이 초안으로 KAN-57·77을 완료 처리하지 않는다.
+
+## 사서함 토큰 소비자 계약 초안 (KAN-80·81 → KAN-71)
+
+**상태: 소비자 합의 전 제안이다. 인증 측 제공자와 앱 내부 주입은 구현했으며,
+KAN-71의 실제 소비자 연결·합의 및 Microsoft/Graph 검증은 아직 하지 않았다.**
+[KAN-71 문의 답변](https://lsteam4.atlassian.net/browse/KAN-71?focusedCommentId=10267)의
+함수 형태와 실패 구분을 구체화한다. 아래 함수의 import 경로, 오류 매핑과 재시도 책임은
+KAN-71·80·81에서 확인할 항목이다. 이 문서만으로 실제 사서함 연결이나 토큰 보관이
+가능해진 것은 아니다. 이 소비자 인터페이스 때문에 공개 토큰 HTTP API·OpenAPI·운영 설정·
+DB 스키마를 추가하지 않는다. 기존 초기 연결 HTTP와 보관 구현은 아래 절에서 구분한다.
+
+### 서버 내부 호출 형태
+
+```python
+from uuid import UUID
+
+from pydantic import SecretStr
+
+
+async def get_mailbox_access_token(
+    *, mailbox_id: UUID, owner_user_id: UUID
+) -> SecretStr:
+    """소유 관계를 확인하고 유효한 Graph access token을 반환한다.
+
+    Args:
+        mailbox_id: 서버에 등록된 사서함 연결의 내부 ID.
+        owner_user_id: 인증된 요청 또는 서버의 수집 작업에서 확인한 소유 사용자 ID.
+
+    Returns:
+        SecretStr: 서버의 Graph 호출에만 사용할 유효한 access token.
+
+    Raises:
+        ApplicationError: 아래 실패 코드에 따라 토큰을 제공할 수 없는 경우.
+    """
+    ...
+```
+
+`mailbox_id`는 사서함 연결의 내부 UUID이며 Microsoft `oid`나 이메일로 대체하지 않는다.
+`owner_user_id`는 `identity.users.id`다. 요청 경계는 유효한 사용자와 해당 작업의 권한을
+확인하고, 비동기 작업은 서버에 저장된 연결·수집 작업에서 소유자를 복원한다. 브라우저나
+검증되지 않은 작업 본문이 지정한 두 ID를 그대로 넘겨 권한 확인을 대신하지 않는다.
+메일 수집이 실행될 때마다 현재 연결·소유자·활성 상태를 확인하며, ID를 안다는 이유로
+토큰 접근을 허용하지 않는다. 사서함 연결과 로그인 사용자의 결속은 위 callback 계약을 따른다.
+사서함의 Microsoft 식별자는 별도 연결 정보이며, 이메일을 기준으로 서비스 로그인 사용자나
+연결 소유자를 자동 변경하지 않는다.
+
+반환값은 조회 시점에 유효한 access token 하나다. 만료됐거나 갱신에 실패해 사용할 수 없는 토큰,
+빈 문자열·`None`을 성공으로 반환하지 않는다. 소비자는 Graph 호출의 인증 헤더를 구성할
+때만 서버 메모리에서 원문을 사용하고, 브라우저·URL·업무 데이터·로그에 기록하지 않는다.
+refresh token, MSAL 캐시와 암호화 키는 이 반환값에 포함하지 않는다. `SecretStr`은 표현을
+마스킹하는 자료형이며 저장 암호화나 접근제한의 구현을 뜻하지 않는다.
+
+### 실패 구분 제안
+
+호출 경계와 토큰 제공자는 각자의 권한·연결 검사를 수행한다. 실패를 전달할 때는 새 오류
+기반 클래스를 만들기보다 기존 `backend.shared.errors.ApplicationError`의
+`status_code`, `code`, `message`를 재사용하는 안이다. 아래 값은 소비자와 합의할 제안이며,
+내부 함수에 대한 값이다. 이를 위한 공개 오류 API나 공용 업무 오류 목록을 추가하지 않는다.
+
+| code | status_code | 조건 | 안전한 message 제안 | 소비자 처리 |
+| --- | --- | --- | --- | --- |
+| `MAILBOX_ACCESS_DENIED` | 403 | 알 수 없는 연결 ID, 다른 소유자, 비활성 사용자 또는 허용되지 않은 호출 작업 | `Mailbox access is not allowed.` | 수집 중단. 연결 존재 여부나 타인의 정보를 노출하지 않음 |
+| `MAILBOX_NOT_CONNECTED` | 409 | 소유 관계는 확인됐지만 연결이 완료되지 않았거나 명시적으로 해제됨 | `Mailbox is not connected.` | 연결 전까지 수집을 실행하지 않음 |
+| `MAILBOX_RECONNECT_REQUIRED` | 409 | 자격증명 철회·동의 만료 등 사용자 재연결이 필요한 것으로 분류됨 | `Mailbox reconnection is required.` | 자동 재시도 대신 재연결 필요 상태 전달 |
+| `MAILBOX_TOKEN_UNAVAILABLE` | 503 | DB·시크릿·복호화·공급자 통신 등으로 유효한 토큰을 제공할 수 없음 | `Mailbox authentication is unavailable.` | 실패를 기록하고 작업 정책에 따른 처리. 자동 재연결로 단정하지 않음 |
+
+연결 존재 여부·소유 관계를 확인할 수 없는 DB 장애는 접근 거부나 미연결로 위장하지 않고
+`MAILBOX_TOKEN_UNAVAILABLE`로 실패한다. 알 수 없는 연결과 다른 소유자의 연결은 같은
+접근 거부로 처리하고, 소유 관계 확인 전에 공급자 토큰을 교환하거나 복호화하지 않는다.
+공급자의 원시 오류 설명, 토큰·캐시·계정 식별자는 오류 메시지와 로그에 넣지 않는다.
+다른 예외까지 일괄 잡아 빈 토큰으로 바꾸는 폴백도 두지 않는다.
+
+### 구현 책임과 KAN-71의 fake 경계
+
+| 담당 범위 | 책임 |
+| --- | --- |
+| KAN-80 인증·Graph 경계 | 기존 MSAL·인가 시도 검증 재사용, 연결 소유자 검증, 유효 토큰 획득·갱신과 공급자 실패 분류, 실제 메시지·첨부 접근 확인 |
+| KAN-81 보관·연결 해제 | 토큰/캐시의 암호화·접근제한, 갱신 결과의 안전한 저장과 경합 처리, 해제 후 토큰 조회 차단·저장 자격증명 제거/비활성화, 재연결 시 이전 캐시 재사용 차단 |
+| KAN-71 메일 수집 | 서버의 사서함/작업 소유자를 사용한 호출, 사서함당 단일 처리, 페이지네이션·증분·원문/첨부 보존, 작업 실패 기록 |
+
+메일 수집 코드에서 OAuth·refresh token 처리나 별도 토큰 캐시를 중복 구현하지 않는다.
+MSAL은 캐시의 유효 토큰을 사용하거나 갱신할 수 있으며 오류를 구분하는 획득 방법도
+제공하므로, 기존 SDK 위에 공급자 경계를 연결한다
+([MSAL 토큰 획득](https://learn.microsoft.com/en-us/entra/msal/python/getting-started/acquiring-tokens)).
+refresh token은 만료 전에 철회될 수 있으므로 재연결 필요 상태를 일시 장애와 구분한다
+([Microsoft refresh token 안내](https://learn.microsoft.com/en-us/entra/identity-platform/refresh-tokens)).
+연결 해제 후 차단은 이후 getter 호출을 대상으로 검증한다. 이미 반환된 토큰의 외부 즉시
+무효화까지 이번 함수 계약으로 보장하지 않으며, 그 보장이 필요하면 별도 검증 항목으로 둔다.
+
+KAN-71의 fake는 위 두 keyword 인자를 받는 비동기 callable과 `SecretStr` 반환 형태를
+사용하는 안이다. 실제 Graph와 연결하지 않는 합성 토큰만 반환하고, 실패 시나리오는 위
+`ApplicationError` 코드로 구분한다. 별도 인터페이스 계층이나 운영용 fake를 새로 등록하지
+않는다. 합의 후 최소한 다음을 fake 소비자와 실제 제공자 양쪽에서 대조한다.
+
+- 정상 소유자·연결은 토큰을 받고, 다른 소유자와 알 수 없는 연결은 같은 접근 거부가 된다.
+- 미연결·재연결 필요·일시 장애를 구분하며, 실패를 빈 목록·동기화 성공으로 기록하지 않는다.
+- 소비자가 refresh token을 받지 않고, 토큰 값이 오류·로그·업무 저장 payload에 남지 않는다.
+
+### 인증 측 제공자와 주입 경로 (소비자 합의 전)
+
+구현 import 경로는
+`backend.api.platform.auth.mailbox_tokens.MailboxTokenProvider`다. 서버 구성 단계에서
+`Settings`, 기존 `PersonalMicrosoftOAuth`, `MailboxCipher`를 주입하고,
+인스턴스의 `get_mailbox_access_token` 메서드만 소비자의 비동기 callable로 넘긴다.
+결속된 메서드는 위 예시처럼 두 keyword 인자만 받고 `SecretStr` 하나를 반환한다.
+소비자에게 암호기·설정·MSAL 캐시를 인자로 넘기도록 요구하지 않는다.
+
+```python
+from backend.api.platform.auth.mailbox_tokens import MailboxTokenProvider
+
+# 플랫폼/작업의 신뢰할 서버 구성 단계에서만 준비한다.
+provider = MailboxTokenProvider(settings=settings, adapter=adapter, cipher=cipher)
+get_mailbox_access_token = provider.get_mailbox_access_token
+# 소비자에게는 위 callable을 주입한다. ID는 인증된 요청/저장 작업에서 복원한다.
+token = await get_mailbox_access_token(mailbox_id=mailbox_id, owner_user_id=owner_user_id)
+```
+
+플랫폼 앱은 기존 `MAILBOX_AUTH_ENABLED`가 true이고 전용 설정을 검증한 경우에만
+같은 사서함 어댑터·암호기로 `app.state.mailbox_tokens`를 구성한다. 기본 false에서는
+None이며 키·DB·공급자 호출 없이 기존 로그인과 분리된다. 메일 실행 경계는 제공자가
+없으면 작업을 시작하지 않아야 하며 임의 기본 키·개발 토큰·다른 캐시로 대체하지 않는다.
+이 앱 내부 상태를 공개 API로 반환하지 않는다. KAN-71의 요청/워커에 주입하는 코드는
+소비자 합의 후 해당 담당 범위에서 연결한다. 별도 전역 singleton이나 자동 등록 fake는 없다.
+
+제공자는 아래 기존 조회·갱신 저장 경계를 재사용한다. 네 가지 `ApplicationError`를
+그대로 전달하고, 내부 저장 개정 충돌은 기존처럼 `MAILBOX_TOKEN_UNAVAILABLE`/503이다.
+작업 인증·업무 권한 확인을 대신하거나 실패를 빈 토큰/동기화 성공으로 바꾸지 않는다.
+
+**Graph 401 이후 강제 갱신은 아래 [강제 갱신 키워드](#강제-갱신-키워드-kan-81-구현)로 제공한다.**
+getter는 Graph 응답이나 거부된 토큰을 받지 않고 Graph 호출·자동 재시도를 하지 않는다.
+캐시가 아직 유효하면 기본 호출은 같은 토큰을 돌려줄 수 있다. 언제 강제 갱신을 부르고 몇 번
+재요청하는지, 두 번째 401을 어떻게 기록하는지는 KAN-71 [메일 수집 계약](mail.md#실패)이 정한다
+(2026-10-28 KAN-81 댓글 10396 합의). 401 하나로 연결을 재연결 필요나 해제 상태로 바꾸지 않는다.
+
+### 강제 갱신 키워드 (KAN-81 구현)
+
+`get_mailbox_access_token(*, mailbox_id, owner_user_id, force_refresh: bool = False)`. 기본값 호출은
+기존 동작 그대로이며, 기존 두 ID 호출과 KAN-71 토큰 함수 Protocol(`MailboxTokenGetter`)과 맞는다.
+
+| 항목 | 동작 |
+| --- | --- |
+| 재검사 | `force_refresh=True`여도 소유자·활성·역할·연결 확인을 기본 호출과 같은 순서로 먼저 통과해야 한다. 해제·타인·비활성 연결은 MSAL을 부르지 않고 기존 `MAILBOX_ACCESS_DENIED`·`MAILBOX_NOT_CONNECTED`로 거부한다 |
+| 갱신 | 통과하면 MSAL `acquire_token_silent_with_error(..., force_refresh=True)`로 캐시의 access token을 건너뛰고 refresh token으로 새 토큰을 받는다. 계정 식별자 대조와 반환 전 현재 상태·개정 재확인은 기본 갱신과 같다 |
+| 반환 | 새 캐시를 암호화해 커밋한 뒤에만 토큰을 반환한다. 이후 기본 호출은 방금 저장한 토큰을 캐시에서 쓴다 |
+| 실패 | 새 오류 코드는 없다. 갱신 거부는 `MAILBOX_RECONNECT_REQUIRED`/409, DB·복호화·공급자 장애와 저장 개정 충돌은 `MAILBOX_TOKEN_UNAVAILABLE`/503이다. 실패 캐시는 저장하지 않고 자동 재시도하지 않는다 |
+| 범위 밖 | 제공자는 Graph를 호출하지 않고 거부된 토큰·Graph 응답을 받지 않는다. 호출 조건(401에서만)·실행당 상한·두 번째 401 처리는 수집 계약이 갖는다 |
+
+검사(`tests/platform/test_microsoft_oauth.py`, 합성 MSAL 응답·격리 DB):
+- 유효 캐시에서 `force_refresh=True`면 refresh grant POST가 정확히 1회 일어나고, 새 개정·회전 캐시가 커밋된 뒤 새 토큰을 반환한다. 이어지는 기본 호출은 POST가 없다.
+- 소유자·사서함 불일치, 비활성, 역할 없음, 연결 해제에서는 강제 갱신도 POST 없이 거부되고 보관이 바뀌지 않는다.
+- 강제 갱신의 `invalid_grant`는 `MAILBOX_RECONNECT_REQUIRED`, 일시 장애는 `MAILBOX_TOKEN_UNAVAILABLE`이며 보관이 바뀌지 않는다.
+
+실제 Microsoft·Graph 통과는 검증하지 않았다.
+
+### MSAL 사서함 캐시 어댑터 (부분 구현)
+
+`backend/api/platform/auth/microsoft.py`의 동기 메서드
+`PersonalMicrosoftOAuth.acquire_mailbox_token(subject=..., serialized_cache=..., force_refresh=False)`는
+검증된 Microsoft 사서함 식별자와 해당 연결의 복호화된 `SecretStr` 캐시를 받는다.
+호출자는 현재 연결의 소유자·활성·작업 권한을 먼저 확인하고 무결성이 보호된 캐시를
+복호화해야 한다. 이 메서드는 DB 소유자 검사나 서비스 사용자 인증을 대신하지 않는다.
+비동기 서비스에서 호출할 때는 기존 MSAL 경계처럼 스레드에서 실행해야 한다.
+
+- 고정 개인 계정 authority·앱 설정을 재사용하고 호출마다 별도 `SerializableTokenCache`를
+  사용한다. 이메일 대신 단일 캐시 계정의 `local_account_id`와 검증된 `oid`, 개인 계정
+  realm·고정 환경을 대조한다. 다중 계정이나 다른 계정의 캐시는 접근 거부로 실패한다.
+- MSAL의 `acquire_token_silent_with_error()`로 캐시 적중 또는 갱신을 처리한다. 반환된
+  opaque access token을 JWT로 해석하지 않고 현재 앱·계정·realm의 캐시 및 기존
+  `Mail.Read`·`Mail.Send` 권한과 대조한다. 캐시 적중 응답에는 `scope`가 없을 수 있어
+  그때도 해당 토큰의 캐시 권한을 확인한다. 만료/빈 토큰이나 잘못된 토큰 형식은 반환하지 않는다.
+  SDK의 선제 갱신 실패 시 아직 유효한 캐시가 반환될 수 있으며 동일한 유효성·계정·권한
+  검증을 적용한다. 유효 토큰 조회 성공을 갱신 성공이나 공급자 철회 즉시 탐지로 해석하지 않는다.
+- 갱신 응답에 ID 토큰이 있으면 기존 RS256/JWKS·issuer/audience·시간·개인 `tid`/`oid`
+  검증을 재사용하고 저장된 사서함 식별자와 같은지 확인한다. 갱신에서는 새 nonce를
+  요청하지 않으므로 그 검증에 새 nonce를 요구하지 않는다. 초기 인가의 nonce 검증은 유지한다.
+- 내부 결과 `MailboxTokenUpdate`는 access token, 직렬화된 캐시, 변경 여부를 담는다.
+  토큰·캐시는 `SecretStr`이며 결과의 repr에도 내용을 표시하지 않는다. 변경 여부는
+  MSAL 직렬화가 플래그를 초기화하기 전에 읽는다. 캐시는 KAN-81 보관 경계 전용이고
+  KAN-71 소비자에게 전달하지 않는다. 이 메서드가 결과를 저장하지는 않는다.
+- 계정 불일치는 `MAILBOX_ACCESS_DENIED`, 갱신 자격증명 부재/MSAL이 반환한 재인가 필요는
+  `MAILBOX_RECONNECT_REQUIRED`, 손상된 캐시·공급자/필요한 서명키 조회 실패는
+  `MAILBOX_TOKEN_UNAVAILABLE`로 구분한다. 제공자 오류 설명이나 AADSTS 숫자로 분기하지
+  않고 OAuth `error`로 분류한다
+  ([Microsoft 오류 처리](https://learn.microsoft.com/en-us/entra/identity-platform/reference-error-codes)).
+  `MAILBOX_NOT_CONNECTED`는 연결 상태를 아는 상위 계층의 책임이며 이 어댑터가 생성하지 않는다.
+- 고정 MSAL 버전의 갱신 실패 DEBUG 기록은 `error_description`, 캐시 이벤트는 식별자를
+  인코딩한 `client_info`를 포함하므로 이 두 기록만 안전한 고정 문장으로 변환한다.
+  로그 수준이나 성공·실패 구분은 유지하고, 다른 SDK 기록은 변경하지 않는다.
+  실제 SDK의 DEBUG 기록까지 합성 성공·오류 회귀로 확인한다.
+
+위 내부 어댑터의 합성 HTTP·실제 MSAL/RSA 회귀는 실제 Microsoft·Graph 연결 검증과
+구분한다. MSAL SDK의 기본 캐시·갱신 판정을 재사용하며 별도 재시도 루프·새 설정·공용
+DB 변경은 추가하지 않는다.
+
+### 초기 사서함 캐시 전달 경계 (부분 구현)
+
+`backend/api/platform/auth/mailbox.py`의 서버 내부 함수는 기존 세션·인가 시도 테이블만
+사용한다. 아래 기본 비활성 HTTP 경계가 초기 인가와 보관을 연결한다.
+
+- `start_mailbox_link()`는 원문 세션 쿠키를 기존 `load_session()`으로 확인한 뒤 현재
+  활성 등록 사용자·유효 역할의 ID에 인가 시도를 결속해 저장한다. URL만 반환한다.
+  HTTP 호출자는 Origin·CSRF와 브라우저 결속 쿠키를 검사해야 하며 임의 사용자 ID를 받지 않는다.
+- `complete_mailbox_link()`는 현재 세션을 확인하고 기존 원자적 인가 소비를 재사용한다.
+  시작 브라우저·목적·소유자·만료가 맞아야 삭제가 커밋되며, 외부 교환 실패 후에도 소비를
+  복구하지 않는다. 다른 사용자나 브라우저의 요청은 정상 시도를 소비하지 않는다.
+- `PersonalMicrosoftOAuth.redeem_mailbox()`는 기존 callback 검증을 재사용하고 초기 ID
+  토큰의 nonce·서명·발급자/대상·시간·개인 계정 식별자를 검증한다. 호출 전용 캐시의
+  계정·앱·권한과 유효 access token, 후속 갱신 자격증명을 확인한다. 보관 전용
+  `MailboxAuthorization`에는 세션에서 확인한 `owner_user_id`, 별도 사서함 `subject`,
+  `SecretStr` 캐시만 담으며 repr로 표시하지 않는다. 초기 캐시를 기존 조회·갱신 어댑터로
+  전달할 수 있다. 사서함의 Microsoft 식별자로 서비스 사용자·역할·세션을 변경하지 않는다.
+- 교환 이후에도 같은 세션의 현재 활성·역할·만료/철회 상태를 다시 조회한다. 교환 도중
+  로그아웃·비활성화·유효 역할 상실은 캐시 인계 전에 거부한다. 이 확인과 후속 저장 사이의
+  경합까지 해결한 것은 아니므로 보관 트랜잭션도 현재 소유자·활성·연결 상태를 검사해야 한다.
+- `complete_and_store_mailbox_link()`는 위 초기 인계와 아래 `create_mailbox()`를 명시적으로
+  연결한다. 저장 트랜잭션이 커밋된 뒤 `MailboxConnectionReceipt(mailbox_id, revision)`만
+  반환하며 토큰·캐시·사서함 `tid+oid`·서비스 소유자 ID를 결과에 포함하지 않는다.
+  저장 실패를 연결 성공으로 바꾸지 않으며 이미 소비한 인가를 복구하지 않는다. 같은 callback을
+  재전송해 다시 교환·저장하지 않고, 실패 후 새 연결을 시도하려면 새 인가를 시작해야 한다.
+
+저수준 `complete_mailbox_link()`의 결과는 평문 메모리 캐시이며 `SecretStr`은 암호화가 아니다.
+아래 보관 계층의 내부 함수에 명시적으로 전달해야 암호화 저장한다. 초기 HTTP 연결은
+아래 명시 활성화 경계가 담당하며, 소비자용 getter의 최종 주입과 실제 Microsoft 동의/정책·
+Graph 메시지/첨부·실제 외부 갱신은
+미검증이다. 합성 MSAL/RSA와 전용 PostgreSQL 검사를 실제 연결·배포 완료로 해석하지 않는다.
+
+### 사서함 보관 계층 (KAN-81 부분 구현, 운영 미적용)
+
+`backend/api/platform/auth/mailbox_vault.py`는 서버 내부에서만 호출한다. 기본 비활성에서
+HTTP callback이 보관을 호출하지 않으며 아래 사서함 전용 활성화가 필요하다. 기본 로그인과
+기존 인증 점검의 선행 조건을 추가하지 않는다. 소비자 getter와 별개로 인증·보관 담당자만 평문 캐시를 취급한다.
+
+- `MailboxCipher`는 서버에서 주입한 표준 base64 형식의 32바이트 키와 고정 버전 이름으로
+  AES-256-GCM을 사용한다. 매 암호화마다 임의 12바이트 nonce를 생성하고, 형식 버전·키
+  버전·연결 ID·서비스 소유자·사서함 `tid+oid`·개정 번호를 인증 부가 데이터로 결속한다.
+  변조·다른 문맥·잘못된 키/버전은 `MAILBOX_TOKEN_UNAVAILABLE`로 실패한다. 키를 캐시나
+  DB에 저장하거나 자동 생성·폴백하지 않는다. 현재 단일 키 버전만 지원하며 자동 키 회전은 없다
+  ([AEAD 공식 문서](https://cryptography.io/en/latest/hazmat/primitives/aead/)).
+- `create_mailbox()`는 검증된 `MailboxAuthorization`과 현재 세션으로 연결을 저장한다. 현재
+  사용자·유효 역할·세션을 DB에서 다시 확인하고, 계정이 결속된 캐시의 암호문만 플랫폼 전용
+  `mailbox_auth.connections`에 저장한다. 같은 소유자에 서명 검증된 같은 Microsoft 계정
+  (`subject_tid`·`subject_oid`)의 행이 있으면 새 행 대신 그 행을 `connected`·새 암호문·개정
+  +1로 갱신해 같은 `mailbox_id`(KAN-71 수집 이력·커서)를 유지하고, 없으면 새 행을 만든다.
+  다른 소유자의 같은 계정 행과 다른 계정은 재사용하지 않는다. 잠금 순서는 다른 보관 함수와
+  같이 사용자 행 → 연결 행이다. `(owner_user_id, subject)` 유일 제약은 없으므로 같은 계정
+  행이 여럿이면 `updated_at DESC, id` 순 첫 행 하나만 갱신한다(중복 방지는 유일 인덱스
+  마이그레이션이 필요한 후속 항목). 이메일을 인증 키로 쓰지 않는다.
+- `load_mailbox()`는 신뢰할 서버 세션/저장된 작업에서 확인한 소유자 ID를 받는다.
+  알 수 없는 연결과 다른 소유자는 같은 `MAILBOX_ACCESS_DENIED`이며 복호화 전에 거부한다.
+  `manager`도 타인의 개인 사서함 접근을 허용하지 않는다. 작업용 조회·갱신은 작업 인증과
+  현재 사용자의 활성·유효 역할이 필요하며, 브라우저 로그아웃을 사서함 연결 해제로 간주하지 않는다.
+- 사용자 행은 배타 잠금으로 보호해 FK를 통한 새 역할·세션 삽입도 직렬화하고, 기존 역할과
+  필요한 세션 행에는 공유 잠금을 잡아 현재 Identity 조건을 확인한다. 연결 행 잠금과 개정
+  비교를 함께 사용하며, OAuth/Graph 네트워크 호출은 이 트랜잭션 밖에서
+  수행한다. 사용자 비활성화·역할 변경·로그아웃과 저장이 교차하는 것을 막고 세션 쓰기 SQL도
+  DB 시각의 만료를 검사한다. 잠금/문장 제한시간은 각각3초/5초이며 DB 장애는 고정503으로
+  변환한다([PostgreSQL 행 잠금](https://www.postgresql.org/docs/17/explicit-locking.html)).
+- `save_mailbox_update()`는 기존 MSAL 결과를 현재 권한·연결·사서함 식별자·개정 재검사 후
+  저장한다. 변경 없는 캐시는 다시 쓰지 않는다. 오래된 개정은 내부 보관 전용
+  `MAILBOX_VERSION_CONFLICT`/409이며 자동 재시도하지 않는다. 소비자 getter의 오류/401 후
+  재시도 계약을 확정한 것은 아니다.
+- `disconnect_mailbox()`는 현재 세션 소유자를 확인해 암호문을 NULL로 지우고 개정을
+  증가시킨다. 이후 조회·갱신은 `MAILBOX_NOT_CONNECTED`다. `reconnect_mailbox()`는 새 OAuth
+  인계와 현재 세션·기대 개정을 검사해 새 암호문과 개정을 저장한다. 인계의 Microsoft 계정
+  (`subject_tid`·`subject_oid`)이 기존 행과 다르면 저장 없이 `MAILBOX_ACCESS_DENIED`로 거부해
+  같은 `mailbox_id`를 다른 계정으로 바꾸지 않는다(KAN-71 수집 커서 보호). 이전 갱신 결과가 새 연결을
+  덮어쓸 수 없다. 명시적 해제/재연결을 구현한 것이며 외부 철회 자동 탐지나 이미 반환한 access
+  token의 즉시 무효화, 메모리·백업에서의 물리적 제거까지 보장하지 않는다. 해제·재연결 모두
+  연결 행은 삭제하지 않고 같은 ID에서 `state='disconnected'`/`'connected'`로만 바꾼다(KAN-71
+  수집 표의 `mailbox_id` FK 보장).
+- 권한(`20261028_KAN-81_mailbox_reconnect_state.sql`): `platform_app`의 연결 표 UPDATE는 열 단위로
+  `revision`·`state`·`key_version`·`cache_ciphertext`·`updated_at`·`reconnect_required_at`·`reconnect_reason`만
+  허용한다. `id`·`owner_user_id`·`subject_tid`·`subject_oid`는 바꿀 수 없다. 현재 DELETE 권한은 남아 있으나 코드는 쓰지 않는다
+  (행 유지 계약; 회수는 후속).
+- **재연결 필요 표시**: 공급자가 갱신을 거부하면(`invalid_grant`·`interaction_required`·`login_required`·
+  `consent_required`, 또는 캐시에 토큰·계정이 없거나 메일 권한이 줄어든 경우) 연결 행의
+  `reconnect_required_at`·`reconnect_reason`(공급자 오류 이름 그대로, 토큰·계정 없음은 `token_missing`,
+  권한 축소는 `consent_required`)을 기록한다. `state`는 `connected` 그대로이며 행·FK를 바꾸지 않는다.
+  MSAL은 트랜잭션 밖에서 돌기 때문에 거부 직후 짧은 트랜잭션(`mark_reconnect_required()`)으로 기록하고,
+  토큰을 읽은 뒤 재연결·해제·갱신으로 개정이 바뀌었으면 기록하지 않는다. 기록이 실패해도 호출자에게는
+  원래 409를 그대로 낸다. 일시 장애(503)·접근 거부(403)·Graph 401은 기록하지 않는다.
+- 표시된 연결은 `load_mailbox()`·`save_mailbox_update()`에서 MSAL을 부르지 않고 바로 `MAILBOX_RECONNECT_REQUIRED`/409다
+  (`force_refresh` 포함). 사용자가 Microsoft 쪽에서 동의를 복구해도 제품에서 다시 연결해야 한다(재연결이 필요합니다).
+  같은 계정으로 다시 연결(`create_mailbox()` 재사용 갱신·`reconnect_mailbox()`)하거나 해제하면 두 열을 비운다.
+- 수집·워커(KAN-71·72)는 `reconnect_required_at`이 있는 연결을 토큰 요청 전에 건너뛰고
+  `MAILBOX_RECONNECT_REQUIRED`로 기록할 수 있다. 건너뛰지 않아도 제공자가 공급자 호출 없이 바로 409를 낸다.
+  수집 코드는 이번 변경에서 바꾸지 않았다.
+
+`StoredMailbox`와 캐시는 repr에 내용을 표시하지 않는 보관 전용 메모리 값이다. 캐시로
+기존 MSAL 조회·갱신을 수행할 수 있지만 이 계층은 Graph를 호출하지 않는다. KAN-71에
+캐시나 refresh token을 반환하지 않으며, 현재 보관 함수를 공개 HTTP API로 노출하지 않는다.
+앱 런타임은 DDL을 수행하지 않는다. 운영자는 별도 승인 후 새 마이그레이션·별도 읽기 전용
+점검·전용 Secret/IAM/서버 주입을 준비해야 한다. 현재 공용 DB·Secret·IAM·Cloud Run 설정과
+배포에는 적용하지 않았다. 운영 순서는 [SQL 안내](../../infra/sql/README.md#사서함-보관-준비-kan-81)를 따른다.
+
+### 보관 캐시의 조회·갱신 연결 (KAN-81 부분 구현)
+
+`backend/api/platform/auth/mailbox.py`의 `acquire_stored_mailbox_token()`은 인증·보관 내부의
+연결 함수다. `Settings`, 기존 `PersonalMicrosoftOAuth`, `MailboxCipher`를 서버가 명시적으로
+주입하고 연결 ID와 신뢰할 소유자 ID를 전달한다. 위 제공자가 이 내부 함수를 재사용한다.
+제공자 import 및 앱 내부 구성은 위 절에 명시했으며, KAN-71의
+실제 주입·소비자 합의를 완료한 것은 아니다. HTTP 요청·수집 작업의 인증과 업무 권한
+확인을 대신하지 않는다. `owner_user_id`를 브라우저 입력에서 그대로 가져오지 않는다.
+
+- `load_mailbox()`로 현재 소유자·활성·유효 역할·연결을 검사한 뒤 캐시를 복호화한다.
+  거부된 연결에 대해 SDK를 호출하지 않는다.
+- MSAL 조회·갱신은 DB 트랜잭션 밖의 스레드에서 수행한다. 네트워크를 기다리는 동안
+  사용자·역할·연결 행 잠금을 유지하지 않는다.
+- SDK 성공 후 항상 `save_mailbox_update()`를 호출한다. 캐시가 바뀌지 않은 적중도 현재
+  권한·연결·사서함 식별자·개정을 재검사한다. 변경 캐시는 암호화 저장이 커밋된 뒤에만
+  `SecretStr` access token 하나를 반환하고, 변경 없는 캐시는 DB를 다시 쓰지 않는다.
+- 제공 중 비활성·유효 역할 상실·연결 해제는 새 토큰을 반환하지 않는다. 재연결이나 다른
+  갱신으로 개정이 바뀐 경우 내부 `MAILBOX_VERSION_CONFLICT`를
+  `MAILBOX_TOKEN_UNAVAILABLE`/503으로 변환하고 자동 재시도하지 않는다. 동시에 같은 캐시를
+  갱신한 두 호출은 커밋한 결과의 토큰만 반환할 수 있다. 회전된 공급자 자격증명을 사용한
+  패자의 결과를 다시 저장하거나 성공 토큰으로 반환하지 않는다.
+- DB 저장 실패도 토큰 제공 실패다. 기존 SDK의 재연결 필요/일시 장애 분류는 그대로 전달하며
+  실패 캐시를 저장하지 않는다. 재연결 필요는 위 보관 계층 절대로 연결에 표시만 하고 `state`는
+  바꾸지 않는다. 이미 반환한 토큰의 즉시 외부 무효화와 재연결 필요의 자동 복구는 보장하지 않는다.
+
+실제 MSAL·RSA·PostgreSQL·AES-GCM과 합성 Microsoft HTTP를 연결하는 회귀 범위다.
+실제 Microsoft 동의·정책·Graph 요청·실제 외부 갱신, 소비자 fake 교체·HTTP 운영 적용·전용 키
+주입은 별도이며, 합성 검사 성공을 실제 사서함 수집 가능 상태로 표시하지 않는다.
+
+### 사서함 초기 연결 HTTP (기본 비활성, 운영 미적용)
+
+기존 로그인과 별도로 웹·플랫폼의 `MAILBOX_AUTH_ENABLED` 기본값은 false다. 플랫폼은
+비활성 경로를 DB/공급자 호출 전404로 닫으며 키나 사서함 어댑터를 구성하지 않는다.
+기본 로그인은 사서함 키·스키마 없이 유지한다. 웹은 이 플래그가 켜졌을 때만 아래 다섯
+경로(목록 GET과 POST 넷)를 고정 플랫폼 upstream으로 중계하고, 브라우저 Authorization은 전달하지 않는다.
+
+| 경로 | 보호 및 결과 |
+| --- | --- |
+| `GET /api/v1/platform/auth/mailbox` | 읽기라 CSRF 헤더 없이 `/me`와 같은 Origin(있으면 앱 출처와 일치)·현재 운영 세션·활성 사용자를 검사하고 세션 소유자의 연결만 `data.items[]`의 `mailbox_id`·`state`·`revision`·`updated_at`과 `reconnect_required`(bool)·`reconnect_reason`(위 5종|null)·`reconnect_required_at`(시각|null)으로 최근 변경 순200 반환. 재연결 세 필드는 호환 추가이며 화면은 없으면 재연결 불필요로 받는다. Microsoft 식별자·키 버전·암호문·토큰은 반환하지 않음. DB 장애는 `MAILBOX_TOKEN_UNAVAILABLE`/503. 웹은 GET만 쿼리 없이 중계하고 인증 쿠키·Origin만 전달 |
+| `POST /api/v1/platform/auth/mailbox/start` | 현재 운영 세션·동일 Origin·`X-CSRF-Token` 검사 후 일회 인가를 저장하고 `data.authorization_url`만200 반환 |
+| `POST /api/v1/platform/auth/mailbox/callback` | Microsoft의 제한된 form_post를 같은 출처 완료 요청으로 넘기는 무상태 HTML200. 이 단계는 DB 소비·교환·저장을 하지 않음. 오류(비활성404·잘못된 입력400 등)는 HTML이 아닌 공통 JSON `ErrorResponse` |
+| `POST /api/v1/platform/auth/mailbox/complete` | 동일 Origin·현재 운영 세션·별도 브라우저 결속·사서함 목적·소유자·일회 state를 검증하고 암호화 커밋 후 고정 앱 루트 `/`로303. 같은 소유자의 같은 Microsoft 계정 연결이 있으면 그 행을 재연결(같은 `mailbox_id`, 개정 +1)하고 없으면 새 연결 |
+| `POST /api/v1/platform/auth/mailbox/{mailbox_id}/disconnect` | 동일 Origin·현재 세션 결속 CSRF·현재 소유자를 검사하고 암호문 제거 커밋 후204. 외부 Microsoft 즉시 철회가 아님. 연결 행은 삭제하지 않고 `state='disconnected'`로 유지(KAN-71 FK 보장) |
+
+시작은 별도 `__Host-team4_mailbox_oauth` 쿠키(5분·Secure·HttpOnly·SameSite=Lax·Path=/)를
+설정한다. 로그인 결속 쿠키와 구분하며 원문 세션·해시·캐시·토큰을 복사하지 않는다. 성공
+완료는 이 쿠키만 삭제하고 기존 서비스 로그인·역할·세션 쿠키를 변경하지 않는다.
+
+기존 Lax 세션은 Microsoft의 교차 사이트 POST에 실리지 않는다. 첫 callback 문서는
+code/state 두 hidden 입력만 HTML escape해 같은 출처 완료 경로로 전달한다. URL·스크립트에
+code/state를 넣거나 다른 공급자 필드를 반사하지 않는다. `no-referrer`에서 일반 form 제출은
+Origin:null이 될 수 있으므로 nonce CSP가 허용한 고정 스크립트가 같은 출처 fetch를 사용한다.
+완료 요청의 Origin 검사를 완화하지 않으며 state와 별도 결속으로 OAuth CSRF를 검사한다.
+시작/해제의 일반 변경 요청과 달리 이 완료 POST는 별도 CSRF 헤더를 요구하지 않는다.
+
+문서는 no-store·no-referrer, nonce script·connect-src self·form-action none·base-uri none·
+frame-ancestors none CSP를 적용하고 웹도 CSP를 보존한다. 완료의303 응답을 받은 뒤에만
+고정 루트로 이동한다. 오류/통신 실패는 연결 성공으로 바꾸지 않으며 고정 안내만 표시한다.
+JavaScript가 꺼져 있으면 활성화 후 새 연결을 안내한다. 두 form 입력 경로는 query를
+거부하고 기존8KiB/20필드·중복 보존 검사를 재사용한다. 소비한 인가는 실패 후 복구하지 않는다.
+
+플랫폼 활성화에는 기존 Microsoft 로그인 설정 외에 아래 전용 설정이 모두 필요하다.
+
+- `MAILBOX_AUTH_REDIRECT_URI`: 기존 Web 앱에 추가 등록할 동일 출처의 정확한
+  `/api/v1/platform/auth/mailbox/callback`. 로그인 callback을 교체하지 않는다.
+- `MAILBOX_AUTH_ENCRYPTION_KEY`: 플랫폼만 읽는 고정 Secret 버전의 표준 base64 32바이트 키.
+- `MAILBOX_AUTH_KEY_VERSION`: 보관 암호문의 키 버전에 결속할 비밀이 아닌 고정 이름.
+
+불완전한 활성 설정은 서버 시작 시 원문 없는 오류로 거부한다. 키는 웹·브라우저에 주입하지
+않으며 앱이 Secret/IAM/DB를 생성하지 않는다. 공용에서는 최신 스키마·권한을 재조회하고
+필요한 보관 마이그레이션을 한 번 적용/004 읽기 전용 점검한 뒤 운영자가 키·IAM·설정을 준비한다.
+기존 identity7테이블 점검이나 계정 등록을 반복하지 않는다. main 배포와 활성화는 별도 승인이다.
+
+이번은 초기 연결/해제 HTTP까지다. 연결 목록·재연결 UI/HTTP·소비자 getter의 최종 주입,
+실제 Microsoft 동의/Graph/외부 refresh·운영 설정 검증과 재연결 필요 상태 영속 표시는 남아 있다.
+합성 HTTP/MSAL·자체 DB·독립 Chrome 검사를 실제 Outlook/공용 환경 완료로 확대하지 않는다.
+
+**남은 합의·검증:** 위 제공자의 import·주입 방식과 오류 코드/상태 매핑에 대한 소비자 확인,
+갱신 여유시간·외부 요청
+제한시간, 위 내부 경합 처리를 소비자에게 연결하는 방식, 일시 장애의 제한된 재시도 책임을
+확인해야 한다. getter의
+성공이 뒤따르는 Graph 요청 성공까지 보장하지는 않는다. Graph의 401 이후 강제 갱신 신호와
+재시도 방식은 [강제 갱신 키워드](#강제-갱신-키워드-kan-81-구현)와 수집 계약의 상한을 따르며,
+KAN-71이 임의로 갱신하거나 무한 재시도하지 않는다. 이 초안의
+구문·링크 확인은 fake 소비자 연동·실제 Graph·토큰 암호화·공용 배포 검증의 증거가 아니다.

@@ -1,0 +1,33 @@
+/* TF0103 only: compose the shared kv pieces without changing their styles. */
+.rfp-supplement .supplement-query { display:flex; align-items:center; gap:6px; padding:5px; }
+.rfp-supplement .supplement-list-heading { display:flex; justify-content:space-between; align-items:center; gap:8px; margin:10px 14px 7px; color:#63738c; font-size:12px; }
+.rfp-supplement .supplement-requirements { display:flex; overflow-x:auto; gap:3px; margin:0 14px 8px; }
+.rfp-supplement .supplement-requirements button { flex:0 0 auto; max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:6px 12px; border:1px solid #c7d0df; background:#f4f6fa; color:#526680; }
+.rfp-supplement .supplement-requirements button[aria-pressed=true] { background:#fff; color:#18355b; border-bottom-color:#fff; }
+.rfp-supplement .supplement-summary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); border:1px solid #c7d0df; background:#fff; margin:0 14px; }
+.rfp-supplement .supplement-summary > div { display:flex; margin:0; min-width:0; border-right:1px solid #dce2ec; border-bottom:1px solid #dce2ec; }
+.rfp-supplement .supplement-summary > div > span { flex:0 0 75px; padding:6px 9px; background:#f4f6fa; font-size:12px; }
+.rfp-supplement .supplement-summary > div > div { min-width:0; flex:1; padding:6px 9px; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rfp-supplement .supplement-summary a { color:#244f89; }
+.rfp-supplement .supplement-source { margin:7px 14px; color:#667792; font-size:12px; }
+.rfp-supplement .supplement-source blockquote { white-space:pre-wrap; color:#203b60; padding:8px; background:#fff; }
+.rfp-supplement .supplement-bottom { margin-top:8px; }
+.rfp-supplement .supplement-candidate-heading { color:#667792; font-size:12px; margin:0 0 7px; }
+.rfp-supplement .supplement-link { border:0; background:none; color:#245798; padding:0; text-decoration:underline; cursor:pointer; }
+.rfp-supplement .supplement-bottom section > div { padding:9px 10px; }
+.rfp-supplement .supplement-bottom fieldset { border:0; padding:0; margin:0; min-width:0; }
+.rfp-supplement .supplement-bottom fieldset > div { display:grid; grid-template-columns:95px minmax(0,1fr); margin:0 0 7px; align-items:center; }
+.rfp-supplement .supplement-bottom fieldset > div > span { color:#63738c; font-size:12px; }
+.rfp-supplement .supplement-bottom fieldset > div > div { min-width:0; border:0; padding:0; background:none; }
+.rfp-supplement .supplement-bottom textarea, .rfp-supplement .supplement-bottom select, .rfp-supplement .supplement-bottom input:not([type=checkbox]) { width:100%; box-sizing:border-box; border:1px solid #c7d0df; padding:5px 8px; color:#244466; background:#fff; font:inherit; }
+.rfp-supplement .supplement-checkboxes { display:flex; flex-direction:column; gap:5px; }
+.rfp-supplement .supplement-checkboxes label { display:flex; align-items:flex-start; gap:4px; }
+.rfp-supplement .supplement-help, .rfp-supplement .supplement-bottom p { font-size:12px; margin:5px 0; }
+.rfp-supplement .supplement-actions { display:flex; justify-content:flex-end; margin-top:9px; }
+.rfp-supplement .supplement-sr { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+@media(max-width:1000px) { .rfp-supplement .supplement-summary { grid-template-columns:repeat(2,minmax(0,1fr)); } .rfp-supplement .supplement-bottom > div { grid-template-columns:minmax(0,1fr)!important; } }
+.rfp-supplement .supplement-checkboxes { width:100%; flex:1; }
+.rfp-supplement .supplement-checkboxes label { width:100%; }
+.rfp-supplement .supplement-checkboxes input[type=checkbox] { width:13px; height:13px; min-height:0; flex:0 0 13px; margin:2px 0 0; padding:0; }
+
+.rfp-supplement .supplement-heading { margin:0; font:inherit; font-weight:500; color:#244466; }

@@ -2,7 +2,10 @@
 
 import importlib.util
 import json
+import os
+import re
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -13,6 +16,54 @@ spec.loader.exec_module(release)
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_web_build_passes_ui_flag_only_after_tests_succeed(self):
+        dockerfile = (release.ROOT / "frontend/Dockerfile").read_text()
+        default = re.search(r"^ARG BUSINESS_UI_ENABLED=(\w+)$", dockerfile, re.M).group(1)
+        cloudbuild = (release.ROOT / "infra/cloudbuild.web.yaml").read_text()
+        args = [
+            part.strip().strip("'")
+            for part in re.search(r"args: \[(.+)\]", cloudbuild)[1].split(",")
+        ]
+        flag = args[args.index("--build-arg") + 1]
+        self.assertEqual(flag, "BUSINESS_UI_ENABLED=true")
+        command = next(
+            line[4:] for line in dockerfile.splitlines() if line.startswith("RUN npm test ")
+        )
+        self.assertEqual(default, "false")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            calls = root / "calls.jsonl"
+            npm = root / "npm"
+            npm.write_text(
+                "#!/usr/bin/env python3\nimport json,os,sys\n"
+                "with open(os.environ['TEST_CALL_LOG'],'a') as f:\n"
+                " f.write(json.dumps([sys.argv[1:],os.environ.get('VITE_BUSINESS_UI_ENABLED')])+'\\n')\n"
+                "sys.exit(1 if sys.argv[1]=='test' and os.environ.get('TEST_NPM_FAIL') else 0)\n"
+            )
+            npm.chmod(0o755)
+            env = {
+                key: value for key, value in os.environ.items() if key != "VITE_BUSINESS_UI_ENABLED"
+            }
+            env.update(PATH=directory + os.pathsep + env["PATH"], TEST_CALL_LOG=str(calls))
+            for enabled in (default, flag.split("=", 1)[1]):
+                subprocess.run(
+                    ["sh", "-ec", command], env=env | {"BUSINESS_UI_ENABLED": enabled}, check=True
+                )
+                self.assertEqual(
+                    [json.loads(line) for line in calls.read_text().splitlines()],
+                    [
+                        [["test", "--prefix", "frontend"], None],
+                        [["run", "build", "--prefix", "frontend"], enabled],
+                    ],
+                )
+                calls.unlink()
+            failed = subprocess.run(
+                ["sh", "-ec", command],
+                env=env | {"BUSINESS_UI_ENABLED": "true", "TEST_NPM_FAIL": "1"},
+            )
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertEqual(len(calls.read_text().splitlines()), 1)
+
     def test_ci_wait_accepts_only_the_exact_main_commit(self):
         sha = "a" * 40
         attempts = iter(

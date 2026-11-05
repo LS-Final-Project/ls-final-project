@@ -1,13 +1,27 @@
 """Exercise the real SDK request and response path without credentials or network calls."""
 
+import base64
 import json
+from datetime import UTC, date
+from decimal import Decimal
 
 import google.auth
 import httpx
 import pytest
+from google.genai import errors
 from google.oauth2.credentials import Credentials
 
-from backend.shared.ai import AISettings, create_client, embed, generate
+from backend.shared.ai import (
+    PRICES,
+    AISettings,
+    ModelPrice,
+    Usage,
+    create_client,
+    embed,
+    estimate_cost,
+    generate,
+    load_price_table,
+)
 from eval.smoke import GenAIProvider, Prediction, evaluate, save
 
 
@@ -60,7 +74,7 @@ def test_vertex_uses_oauth_and_preserves_schema_and_all_token_categories(sdk_htt
     assert "fixture-key-must-not-be-used" not in str(request.url)
     body = json.loads(request.content)
     assert body["generationConfig"]["responseMimeType"] == "application/json"
-    assert "result" in body["generationConfig"]["responseSchema"]["properties"]
+    assert "result" in body["generationConfig"]["responseJsonSchema"]["properties"]
     assert result.usage.input_tokens == 7
     assert result.usage.output_tokens == 4
     assert result.usage.thought_tokens == 11
@@ -68,10 +82,22 @@ def test_vertex_uses_oauth_and_preserves_schema_and_all_token_categories(sdk_htt
     assert result.usage.total_tokens == 22
     assert result.model_version == "fixture-version"
     assert result.finish_reasons == ["STOP"]
+    assert result.usage.raw == {
+        "promptTokenCount": 7,
+        "candidatesTokenCount": 4,
+        "thoughtsTokenCount": 11,
+        "cachedContentTokenCount": 2,
+        "totalTokenCount": 22,
+    }
+    assert result.usage.billable_input_tokens == 5
+    assert result.model == settings.gemini_model
+    assert result.attempts == 1
+    assert result.elapsed_ms is not None and result.elapsed_ms >= 0
+    assert result.finished_at is not None and result.finished_at.tzinfo is UTC
     assert "fixture-key-must-not-be-used" not in repr(settings)
 
 
-def test_vertex_failure_does_not_retry_or_fall_back_to_key_and_report_redacts_error(sdk_http):
+def test_vertex_failure_retries_once_without_key_fallback_and_report_redacts_error(sdk_http):
     state, requests = sdk_http
     state.update(
         status=429,
@@ -90,7 +116,8 @@ def test_vertex_failure_does_not_retry_or_fall_back_to_key_and_report_redacts_er
         report = evaluate(provider, "vertex", "fixture")
     finally:
         provider.client.close()
-    assert len(requests) == 2  # One request per synthetic case, no retry or fallback.
+    # 429는 일시 오류라 사례마다 한 번 더 부른다(KAN-144 14차). 키 방식으로 넘어가지는 않는다.
+    assert len(requests) == 4
     assert all(r.url.host == "aiplatform.googleapis.com" for r in requests)
     assert all("x-goog-api-key" not in r.headers for r in requests)
     assert all(row["http_status"] == 429 for row in report["cases"])
@@ -149,6 +176,8 @@ def test_embedding_location_and_dimension_or_truncation_contract(
             assert result.values == values
             assert result.input_tokens == 3
             assert result.billable_characters == 8
+            assert (result.model, result.attempts) == ("gemini-embedding-001", 1)
+            assert result.elapsed_ms is not None and result.finished_at is not None
         else:
             with pytest.raises(ValueError):
                 embed(client, "gemini-embedding-001", "synthetic", dimensions=2)
@@ -164,6 +193,102 @@ def test_default_provider_uses_gemini_key_without_adc(sdk_http):
     assert requests[0].url.host == "generativelanguage.googleapis.com"
     assert requests[0].headers["x-goog-api-key"] == "fixture-explicit-key"
     assert "authorization" not in requests[0].headers
+
+
+def test_inline_image_uses_the_same_sdk_and_preserves_accounting(sdk_http):
+    _, requests = sdk_http
+    settings = AISettings(gemini_api_key="fixture-explicit-key")
+    media = b"authored-image-fixture"
+    with create_client(settings) as client:
+        result = generate(client, settings, "read only labels", inline_media=("image/png", media))
+    parts = json.loads(requests[0].content)["contents"][0]["parts"]
+    assert parts[0]["inlineData"]["mime_type"] == "image/png"
+    assert base64.b64decode(parts[0]["inlineData"]["data"]) == media
+    assert parts[1]["text"] == "read only labels"
+    assert result.usage.total_tokens == 22
+    assert result.usage.thought_tokens == 11
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize(
+    "media",
+    [("text/html", b"x"), ("image/png", b""), ("application/pdf", b"x" * (8 * 1024 * 1024 + 1))],
+)
+def test_invalid_inline_media_fails_before_any_network(sdk_http, media):
+    _, requests = sdk_http
+    settings = AISettings(gemini_api_key="fixture-explicit-key")
+    with create_client(settings) as client, pytest.raises(ValueError, match="INVALID_INLINE_MEDIA"):
+        generate(client, settings, "synthetic", inline_media=media)
+    assert not requests
+
+
+@pytest.mark.parametrize(
+    ("first", "retries", "calls", "succeeds"),
+    [
+        ({"error": httpx.ReadTimeout("fixture-timeout")}, 1, 2, True),
+        ({"status": 503}, 1, 2, True),
+        ({"status": 429}, 1, 2, True),
+        ({"status": 400}, 1, 1, False),
+        ({"error": httpx.ReadTimeout("fixture-timeout")}, 0, 1, False),
+        ({"error": httpx.ReadTimeout("fixture-timeout")}, 2, 2, True),
+    ],
+    ids=["timeout-then-ok", "503-then-ok", "429-then-ok", "400-no-retry", "retries-0", "retries-2"],
+)
+def test_transient_errors_are_retried_and_attempts_count_real_calls(
+    sdk_http, monkeypatch, first, retries, calls, succeeds
+):
+    """타임아웃·5xx·429는 gemini_transient_retries만큼 다시 부르고 attempts에 실제 호출 수를 남기며, 400은 바로 실패한다.
+
+    Args:
+        sdk_http: 가짜 전송.
+        monkeypatch: 첫 호출만 실패시키는 전송 교체·대기 기록.
+        first: 첫 호출의 실패(status 또는 error).
+        retries: 재시도 횟수 설정.
+        calls: 기대 HTTP 호출 수.
+        succeeds: 두 번째 호출에서 성공해야 하는지.
+
+    Returns:
+        None: 호출 수·attempts·사용량·대기를 확인한다.
+    """
+    state, requests = sdk_http
+    ok = state["response"]
+    sleeps = []
+    monkeypatch.setattr("backend.shared.ai.TRANSIENT_BACKOFF_SECONDS", 1.5)
+    monkeypatch.setattr("backend.shared.ai.time.sleep", sleeps.append)
+
+    def send(_client, request, **kwargs):
+        requests.append(request)
+        if len(requests) == 1:
+            if "error" in first:
+                raise first["error"]
+            body = {"error": {"code": first["status"], "message": "fixture-provider-text"}}
+            return httpx.Response(first["status"], json=body, request=request)
+        return httpx.Response(200, json=ok, request=request)
+
+    monkeypatch.setattr(httpx.Client, "send", send)
+    settings = AISettings(gemini_api_key="fixture-key", gemini_transient_retries=retries)
+    with create_client(settings) as client:
+        if succeeds:
+            result = generate(client, settings, "synthetic")
+            assert result.attempts == calls and result.usage.input_tokens == 7
+        else:
+            expected = errors.ClientError if "status" in first else httpx.TimeoutException
+            with pytest.raises(expected):
+                generate(client, settings, "synthetic")
+    assert len(requests) == calls
+    assert sleeps == [1.5] * (calls - 1)
+
+
+def test_transient_retry_setting_is_bounded():
+    """재시도 횟수는 0~2만 받는다.
+
+    Returns:
+        None: 검증 오류를 확인한다.
+    """
+    assert AISettings(gemini_api_key="k").gemini_transient_retries == 1
+    for bad in (-1, 3):
+        with pytest.raises(ValueError):
+            AISettings(gemini_api_key="k", gemini_transient_retries=bad)
 
 
 def test_fake_startup_needs_no_key_but_real_client_fails_before_network(monkeypatch):
@@ -194,3 +319,73 @@ def test_gemini_embedding_uses_supported_config_and_checks_dimensions(sdk_http):
     assert body["requests"][0]["outputDimensionality"] == 2
     assert body["requests"][0]["taskType"] == "RETRIEVAL_DOCUMENT"
     assert "autoTruncate" not in str(body)
+
+
+def test_missing_usage_fields_stay_none_and_cache_omission_is_zero(sdk_http):
+    state, _ = sdk_http
+    # Gemini omits cachedContentTokenCount and thoughtsTokenCount when they are not used.
+    state["response"]["usageMetadata"] = {"promptTokenCount": 9, "candidatesTokenCount": 2}
+    settings = AISettings(gemini_api_key="fixture-explicit-key")
+    with create_client(settings) as client:
+        usage = generate(client, settings, "synthetic").usage
+    assert usage.raw == {"promptTokenCount": 9, "candidatesTokenCount": 2}
+    assert (usage.cached_input_tokens, usage.thought_tokens, usage.total_tokens) == (None,) * 3
+    assert usage.billable_input_tokens == 9
+    state["response"].pop("usageMetadata")
+    with create_client(settings) as client:
+        usage = generate(client, settings, "synthetic").usage
+    assert usage == Usage() and usage.billable_input_tokens is None and usage.raw is None
+
+
+# 테스트 전용 임의 단가다. 실제 공급자 단가가 아니다.
+FAKE_PRICES = {
+    "fixture-model": ModelPrice(
+        input_per_million=Decimal("2"),
+        output_per_million=Decimal("10"),
+        cached_input_per_million=Decimal("0.5"),
+        currency="USD",
+        as_of=date(2026, 1, 1),
+    )
+}
+
+
+def test_cost_counts_each_token_once_and_keeps_thought_separate():
+    cost = estimate_cost(
+        Usage(1_000_000, 200_000, 300_000, 400_000, 1_900_000), "fixture-model", FAKE_PRICES
+    )
+    # 청구 입력 600,000 × 2, 캐시 400,000 × 0.5, 답변 200,000 × 10, 추론 300,000 × 10.
+    assert (cost.input, cost.cached_input, cost.output, cost.thought) == (
+        Decimal("1.2"),
+        Decimal("0.2"),
+        Decimal("2"),
+        Decimal("3"),
+    )
+    assert cost.total == Decimal("6.4")
+    assert (cost.currency, cost.price_as_of) == ("USD", date(2026, 1, 1))
+
+
+def test_cost_propagates_none():
+    partial = estimate_cost(Usage(input_tokens=1_000_000), "fixture-model", FAKE_PRICES)
+    assert (partial.input, partial.output, partial.cached_input, partial.thought) == (
+        Decimal("2"),
+        None,
+        None,
+        None,
+    )
+    assert partial.total == Decimal("2")
+    assert estimate_cost(Usage(), "fixture-model", FAKE_PRICES).total is None
+    unknown = estimate_cost(Usage(10, 2, 1, 0, 13), "other-model", FAKE_PRICES)
+    assert all(value is None for value in vars(unknown).values())
+
+
+def test_shipped_price_table_loads_and_empty_table_gives_none():
+    # 저장소 단가표는 형식만 검증한다. 담당자가 공식 단가를 채워도 깨지지 않는다.
+    load_price_table(PRICES)
+    assert estimate_cost(Usage(10, 2, 1, 0, 13), "fixture-model", {}).total is None
+
+
+def test_cache_larger_than_input_gives_no_billable_input():
+    usage = Usage(input_tokens=3, cached_input_tokens=5)
+    assert usage.billable_input_tokens is None
+    cost = estimate_cost(usage, "fixture-model", FAKE_PRICES)
+    assert cost.input is None and cost.total == Decimal("0.0000025")

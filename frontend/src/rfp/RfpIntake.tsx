@@ -1,0 +1,248 @@
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { getApiMode } from '../api/client';
+import { getJob, listDocuments } from '../api/rfp';
+import { me } from '../api/platform';
+import { getProject, listProjects, type ProjectFilters, type ProjectSummary } from '../api/tft';
+import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
+import { ErrorState, Loading } from '../components/states';
+import { formatDate } from '../components/tft';
+import { downloadCsv, KvCond, KvCondField, KvCondRow, KvGrid, KvKey, KvNext, KvRibbon, KvTitle, useHotkey, type KvColumn } from '../ls-shell/kv';
+import { latestVersions, ProcessForm, ProjectForm, UploadForm } from './IntakeForms';
+import ProjectConstraintsForm from './ProjectConstraintsForm';
+import { ProjectPagination, ProjectSearchField } from './ProjectPagination';
+import { useNames } from './names';
+import { useRfpJobEvents } from './useRfpJobEvents';
+import { RfpJobBanner, rfpJobPresentation } from './RfpJobBanner';
+import IntegrationPanel from './IntegrationPanel';
+import { ProjectQuestions } from './GroupActions';
+import { RfpDocumentReview } from './RfpDocumentReview';
+import { deniedRfpJob, readRfpJob } from '../api/rfp-job-events';
+import { DATA_ORIGIN_LABEL, DEPARTMENT_LABEL, JUDGEMENT_LABEL, label, OFF_LIST_PERMISSION_LABEL, OUTPUT_LABEL, PURPOSE_LABEL } from './labels';
+
+const POLL_MS = 30_000;
+const ACTIVE = new Set(['QUEUED', 'RUNNING']);
+// 작업 상태 경로는 요청한 사용자 본인만 열린다. 404·403이면 다시 읽어도 소용없다.
+const notMine = deniedRfpJob;
+
+const count = (value: number, ready: boolean) => ready ? value : '';
+const PROJECT_HEAD = ['프로젝트명', '고객', '진행', '판단', '요구', '미해결 필수', '승인 대기', '열린 질문', '접수일'];
+const projectRow = (p: ProjectSummary) => [p.name, p.client_name, label(OUTPUT_LABEL, p.output_status), label(JUDGEMENT_LABEL, p.judgement_status), p.requirements_count, p.unresolved_mandatory_count, p.pending_proposals_count, p.open_questions_count, p.created_at.slice(0, 10)];
+
+// RFP 검토(TF0101, TF_K_Intake): 프로젝트 목록과 고른 프로젝트를 한 화면에 둔다.
+// 경로에 프로젝트가 없으면 목록의 첫 프로젝트를 고른다.
+export default function RfpIntake() {
+  const { projectId } = useParams();
+  const navigate = useNavigate();
+  const mode = getApiMode();
+  const access = useBusinessAccess('tft');
+  // The live job watcher also needs identity when this page is mounted without the shell.
+  const identity = useQuery({ queryKey: ['me'], queryFn: me, enabled: mode === 'live', retry: false });
+  const actorId = identity.data?.data.id ?? access.user.data?.data.id;
+  const [filters, setFilters] = useState<ProjectFilters>({});
+  const [text, setText] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
+  const [page, setPage] = useState(1);
+  const projects = useQuery({ queryKey: ['projects', mode, access.user.data?.data.id, filters, page], queryFn: () => listProjects(filters, undefined, page), enabled: access.ready, placeholderData: keepPreviousData });
+  const refetch = projects.refetch;
+  const reload = useCallback(() => { refetch(); }, [refetch]);
+  useHotkey('F8', reload, access.ready);
+  const items = projects.data?.data.items ?? [];
+  const nameOf = useNames(items.flatMap(p => [p.sales_user_id, p.responsible_user_id]));
+  if (!access.ready) return <BusinessGate access={access} title="RFP 검토" />;
+  const filter = (change: ProjectFilters) => { setFilters({ ...filters, ...change }); setPage(1); setChecked(new Set()); };
+  // 서버 검색어는 2~100자다. 한 글자는 보내지 않고 알린다.
+  const search = text.trim();
+  const shortSearch = search.length === 1;
+  const selected = projectId ?? items[0]?.id;
+  const columns: KvColumn<ProjectSummary>[] = [
+    { key: 'check', header: <input type="checkbox" aria-label="전체 선택" checked={items.length > 0 && checked.size === items.length} onChange={event => setChecked(new Set(event.target.checked ? items.map(p => p.id) : []))} />, width: 30, className: 'c', cell: p => <input
+      type="checkbox"
+      aria-label={`${p.name} 선택`}
+      checked={checked.has(p.id)}
+      onClick={event => event.stopPropagation()}
+      onChange={event => {
+        const nextChecked = new Set(checked);
+        if (event.target.checked) nextChecked.add(p.id); else nextChecked.delete(p.id);
+        setChecked(nextChecked);
+      }}
+    /> },
+    { key: 'no', header: 'No', width: 40, className: 'n', cell: (_p, index) => (page - 1) * 10 + index + 1 },
+    { key: 'code', header: '프로젝트', width: 88, cell: p => p.external_id ? <Link to={`/tft/projects/${p.id}`}>{p.external_id}</Link> : '' },
+    { key: 'name', header: '프로젝트명', className: 't', cell: p => <Link to={`/tft/projects/${p.id}`}>{p.name}</Link> },
+    { key: 'client', header: '고객', width: 130, cell: p => p.client_name ?? '' },
+    { key: 'output', header: '진행', width: 96, className: 'c', cell: p => label(OUTPUT_LABEL, p.output_status) },
+    { key: 'judgement', header: '판단', width: 104, className: 'c', cell: p => label(JUDGEMENT_LABEL, p.judgement_status) },
+    // 요구가 없는 접수 단계는 0이 아니라 빈칸이다(아직 셀 것이 없다).
+    { key: 'requirements', header: '요구', width: 48, className: 'c', cell: p => p.requirements_count || '없음' },
+    { key: 'unresolved', header: '미해결 필수', width: 76, className: 'c', cell: p => count(p.unresolved_mandatory_count, p.requirements_count > 0) },
+    { key: 'pending', header: '승인 대기', width: 64, className: 'c', cell: p => count(p.pending_proposals_count, p.requirements_count > 0) },
+    { key: 'questions', header: '열린 질문', width: 64, className: 'c', cell: p => count(p.open_questions_count, p.requirements_count > 0) },
+    { key: 'sales', header: '담당', width: 104, className: 'c', cell: p => nameOf(p.sales_user_id) || (p.sales_user_id ? '지정' : '미지정') },
+    { key: 'owner', header: '책임자', width: 104, className: 'c', cell: p => nameOf(p.responsible_user_id) || (p.responsible_user_id ? '지정' : '미지정') },
+    { key: 'created', header: '접수일', width: 96, className: 'd', sort: 'descending', cell: p => formatDate(p.created_at.slice(0, 10)) },
+  ];
+  const list = <>
+    <KvCond onSearch={() => { if (!shortSearch) filter({ q: search || undefined }); }}>
+      <KvCondRow columns={4}>
+        <KvCondField label="진행"><select aria-label="진행" value={filters.output_status ?? ''} onChange={event => filter({ output_status: event.target.value || undefined })}>
+          <option value="">전체</option>
+          {Object.entries(OUTPUT_LABEL).map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+        </select></KvCondField>
+        <KvCondField label="판단"><select aria-label="판단" value={filters.judgement_status ?? ''} onChange={event => filter({ judgement_status: event.target.value || undefined })}>
+          <option value="">전체</option>
+          {Object.entries(JUDGEMENT_LABEL).map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+        </select></KvCondField>
+        <KvCondField label="검색 기준"><ProjectSearchField value={filters.search_field ?? 'all'} onChange={value => filter({ search_field: value })} /></KvCondField>
+        <KvCondField label="검색어"><input aria-label="검색어" type="text" maxLength={100} placeholder="번호 또는 이름, 2자 이상" value={text} onChange={event => setText(event.target.value)} /></KvCondField>
+      </KvCondRow>
+      <button type="submit" hidden>검색</button>
+    </KvCond>
+    <div className="kv-gridhead"><span>{shortSearch ? '검색어는 두 글자 이상 입력하세요.' : `내 프로젝트 ${items.length}건, 접수일 내림차순. 요구 N건 중 미해결 필수 M건`}</span></div>
+    {projects.isError
+      ? <ErrorState error={projects.error} onRetry={() => projects.refetch()} />
+      : <KvGrid
+        label="RFP 검토"
+        columns={columns}
+        rows={items}
+        rowKey={p => p.id}
+        selectedKey={selected}
+        onRow={p => navigate(`/tft/projects/${p.id}`)}
+        fallback={projects.isPending ? <Loading /> : '프로젝트가 없습니다.'}
+      />}
+    {!projects.isError && <ProjectPagination page={page} total={projects.data?.data.total} busy={projects.isFetching} onPage={value => { setPage(value); setChecked(new Set()); }} />}
+    {creating && <ProjectForm key={access.user.data?.data.id ?? "unverified"} onCancel={() => setCreating(false)} />}
+  </>;
+  const common = <>
+    <button className="kb primary" disabled={projects.isFetching || shortSearch} onClick={() => { if (search !== (filters.q ?? '')) filter({ q: search || undefined }); else projects.refetch(); }}>조회<KvKey>F8</KvKey></button>
+    <button className="kb" onClick={() => setCreating(true)}>접수</button>
+  </>;
+  const excel = <button className="kb" disabled={items.length === 0} title={checked.size ? `고른 ${checked.size}건` : '표시한 행 전체'} onClick={() => downloadCsv('프로젝트 목록', PROJECT_HEAD, items.filter(p => !checked.size || checked.has(p.id)).map(projectRow))}>엑셀</button>;
+  if (!selected) return <main><KvTitle path="제안 지원" title="RFP 검토">{common}{excel}</KvTitle>{list}</main>;
+  // Wait for the live actor before mounting job state; avoid an unverified mount followed by a remount.
+  if (mode === 'live' && identity.isPending) return <main><KvTitle path="제안 지원" title="RFP 검토">{common}{excel}</KvTitle>{list}<Loading label="계정 확인 중" /></main>;
+  // 프로젝트를 옮기면 작업·알림 상태를 새로 시작한다(같은 경로 요소라 그대로 두면 앞 프로젝트 상태가 남는다).
+  return <Intake key={`${actorId ?? "unverified"}:${selected}`} actorId={actorId} projectId={selected} list={projectId ? <details className="rfp-project-switch"><summary>다른 프로젝트 선택</summary>{list}</details> : list} before={common} after={excel} />;
+}
+
+// 고른 프로젝트 부분. 진행 칸(output_status)은 산출물 단계이지 작업 상태가 아니다.
+// 작업이 도는지는 작업 ID로만 판단한다. 진행 칸으로 막으면 끝난 프로젝트가 영영 잠긴다.
+function Intake({ projectId, actorId, list, before, after }: { projectId: string; actorId?: string; list: ReactNode; before: ReactNode; after: ReactNode }) {
+  const mode = getApiMode();
+  const client = useQueryClient();
+  const [panel, setPanel] = useState<'upload' | 'process' | 'constraints'>();
+  // 방금 실행한 작업. 프로젝트 응답이 latest_job을 돌려주기 전까지 이 ID로 본다.
+  const [started, setStarted] = useState<string>();
+  const [finished, setFinished] = useState<string>();
+  const [requestDocuments, setRequestDocuments] = useState<string[]>([]);
+  // 끝남은 돌던 모습을 본 작업만 알린다. latest_job은 끝난 뒤에도 남아 안 그러면 들어올 때마다 완료가 뜬다.
+  const watched = useRef<string>(undefined);
+  const enabled = projectId !== '';
+  const project = useQuery({ queryKey: ['projects', mode, projectId], queryFn: () => getProject(projectId), enabled });
+  const jobId = started ?? project.data?.data.latest_job?.job_id;
+  const live = useRfpJobEvents(jobId, projectId, actorId, mode);
+  const job = useQuery({
+    queryKey: ['jobs', mode, actorId, projectId, jobId],
+    queryFn: async ({ signal }) => mode === 'live' && actorId
+      ? { data: await readRfpJob({ jobId: jobId as string, projectId, actorId }, signal) }
+      : getJob(jobId as string),
+    enabled: query => enabled && !!jobId && !notMine(query.state.error) && (mode !== 'live' || !!actorId && live?.connection === 'fallback'),
+    retry: false,
+    refetchInterval: query => {
+      if (notMine(query.state.error) || live?.connection === 'stopped' || live?.connection === 'connected') return false;
+      const status = query.state.data?.data.status;
+      return !status || ACTIVE.has(status) ? POLL_MS : false;
+    },
+  });
+  const jobStatus = job.data?.data.status;
+  // 상태를 읽지 못하면(다른 사용자의 작업 404, 장애) 돈다고 단정하지 않는다. 화면을 잠그지 않고 서버 409에 맡긴다.
+  const unavailable = mode === 'live' && !actorId || live?.connection === 'stopped' || notMine(job.error);
+  const running = !!jobId && !unavailable && !job.isError && (!jobStatus || ACTIVE.has(jobStatus));
+  const bannerView = unavailable ? { connection: 'stopped' as const, message: '이 작업의 조회 권한을 확인할 수 없습니다. 계정과 작업을 확인하세요.' } : live;
+  const documents = useQuery({ queryKey: ['rfp-documents', mode, projectId], queryFn: () => listDocuments(projectId), enabled });
+  const docs = documents.data?.data.items ?? [];
+  const nameOf = useNames([project.data?.data.sales_user_id, project.data?.data.responsible_user_id]);
+  useEffect(() => {
+    if (!jobId || !jobStatus) return;
+    if (ACTIVE.has(jobStatus)) { watched.current = jobId; return; }
+    if (watched.current !== jobId) return;
+    watched.current = undefined;
+    // Keep the admitted job authoritative until project navigation or a new admission.
+    // A stale latest_job during invalidation must not switch back to the previous job.
+    setFinished(jobStatus);
+    for (const key of ['projects', 'rfp-documents', 'rfp-diagrams', 'rfp-context', 'rfp-requirements', 'rfp-proposals', 'rfp-questions']) client.invalidateQueries({ queryKey: [key, mode] });
+    client.invalidateQueries({ queryKey: ['rfp-supplement', mode] });
+    client.invalidateQueries({ queryKey: ['rfp-integration-candidates', mode, projectId] });
+    if (actorId) {
+      client.invalidateQueries({ queryKey: ['rfp-draft', actorId, projectId] });
+      client.invalidateQueries({ queryKey: ['rfp-draft-project', actorId, projectId] });
+    }
+  }, [jobId, jobStatus, client, mode, projectId, actorId]);
+  const title = (buttons?: ReactNode) => <KvTitle path="제안 지원" title="RFP 검토">{before}{buttons}{after}</KvTitle>;
+  if (project.isPending) return <main>{title()}{list}<Loading /></main>;
+  if (project.isError) return <main>{title()}{list}<ErrorState error={project.error} onRetry={() => project.refetch()} /></main>;
+  const data = project.data.data;
+  const analyzing = running;
+  const canEdit = actorId !== undefined && [data.sales_user_id, data.responsible_user_id].includes(actorId);
+  const next = (() => {
+    if (finished === 'FAILED' || finished === 'CANCELLED') return '처리가 끝나지 못했습니다. 입력을 확인하고 다시 실행하세요.';
+    if (!analyzing && data.requirements_count === 0 && latestVersions(docs).some(d => d.kind === 'DRAWING')) return `${finished === 'PARTIAL' ? '일부 처리된 결과입니다. ' : ''}문자 요구 0건입니다. 도면의 장비·기호와 연결 후보는 아래 도면 검토에서 별도로 확인하세요.`;
+    if (finished === 'PARTIAL') return `일부만 처리됐습니다. 요구 ${data.requirements_count}건, 빠진 내용은 아래 원문과 대조하세요.`;
+    if (finished && data.requirements_count === 0) return '분석 완료, 요구 0건. 원문을 확인하세요. 평가 절이 비었거나 뽑은 요구가 인용 검사에서 모두 버려졌을 수 있습니다.';
+    if (finished) return `분석 완료, 요구 ${data.requirements_count}건. 아래에서 검토할 대상을 선택하세요.`;
+    if (analyzing && live?.connection === 'fallback') return '분석 중입니다. 실시간 연결 대신 30초마다 상태를 다시 읽습니다.';
+    if (analyzing) return '문서를 처리하고 있습니다. 최근 확인 상태는 위 처리 상태 영역에서 확인하세요. 작업 중에는 처리 실행과 문서 올리기가 제한됩니다.';
+    if (data.documents_count === 0) return `문서를 올린 뒤 처리 실행을 누르세요.`;
+    if (data.requirements_count === 0) return `문서 ${data.documents_count}건, 요구 0. 처리 실행을 누르면 요구사항을 추출합니다.`;
+    return '검토할 설비·업무를 고르고, 확인할 요구와 대응 방안을 살펴보세요.';
+  })();
+  return <main>
+    {title()}
+    <RfpJobBanner key={jobId ?? projectId} idle={!jobId} view={jobId ? bannerView : undefined} status={jobId && !unavailable ? jobStatus : undefined} accepted={!!jobId && started === jobId} documents={docs} projectId={projectId} requestDocuments={requestDocuments} />
+    <KvNext>{next}</KvNext>
+    {list}
+    <div className="kv-gridhead"><span>{[data.external_id, data.name].filter(Boolean).join(" · ")}</span><a className="right" href="#rfp-document-review">검토 대상 보기</a></div>
+    <div className="rfp-project-tools">
+      {data.pending_proposals_count > 0 && <Link className="kb" to={`/tft/projects/${projectId}/table/approvals`}>판정 변경 검토 {data.pending_proposals_count}건</Link>}
+      <ProjectQuestions projectId={projectId} actorId={actorId} />
+      <Link className="kb" to={`/tft/projects/${projectId}/draft`}>초안 및 검토 이력</Link>
+    </div>
+    <details className="rfp-project-switch"><summary>프로젝트 정보·설정</summary>
+    <KvRibbon cells={[
+      ['프로젝트', data.external_id ?? ''],
+      ['프로젝트명', data.name],
+      ['고객', data.client_name ?? '미기재'],
+      ['제출 목적', label(PURPOSE_LABEL, data.purpose)],
+      ['공급 지역(최신 입력)', data.supply_region ?? '미제공'],
+      ['고객 제조사 목록(최신 입력)', data.customer_manufacturer_list?.join(', ') || '미제공'],
+      ['목록 밖 제조사 허용(최신 입력)', label(OFF_LIST_PERMISSION_LABEL, data.off_list_permission ?? 'UNSTATED')],
+      ['진행', label(OUTPUT_LABEL, data.output_status)],
+      ['판단', label(JUDGEMENT_LABEL, data.judgement_status)],
+      ['담당', nameOf(data.sales_user_id) || (data.sales_user_id ? '지정' : '미지정')],
+      ['책임자', nameOf(data.responsible_user_id) || (data.responsible_user_id ? '지정' : '미지정')],
+      ['검토 부서', (data.review_departments ?? []).map(code => label(DEPARTMENT_LABEL, code)).join(', ') || '없음'],
+      ['최근 작업', jobId ? rfpJobPresentation(unavailable ? undefined : jobStatus, bannerView).row : '없음'],
+      ['검토본', data.review_version ? `v${data.review_version}` : '없음'],
+      ['자료 구분', label(DATA_ORIGIN_LABEL, data.data_origin)],
+    ]} />
+    {canEdit && <button className="kb" disabled={analyzing} onClick={() => setPanel("constraints")}>협력사 입력 수정</button>}
+    {panel === 'constraints' && canEdit && <ProjectConstraintsForm project={data} onClose={() => setPanel(undefined)} />}
+    <h3>프로젝트 조건 및 통합 책임</h3><p>협력사 조건을 바꿨다면 다시 분석해야 합니다. 기존 결과에는 변경 전 조건이 적용되어 있습니다.</p><IntegrationPanel projectId={projectId} canEdit={canEdit && !analyzing && !project.isFetching} /></details>
+    <details className="rfp-project-switch" open={data.requirements_count === 0 || analyzing || undefined}><summary>문서 관리</summary>
+      <div className="rfp-project-tools">
+        <button className="kb" disabled={analyzing} onClick={() => setPanel('upload')}>문서 올리기</button>
+        <button className="kb" disabled={analyzing || docs.length === 0} title={analyzing ? '작업이 끝나야 합니다' : docs.length === 0 ? '문서를 먼저 올리세요' : undefined} onClick={() => setPanel('process')}>처리 실행</button>
+      </div>
+    {panel === 'upload' && <UploadForm projectId={projectId} documents={docs} onCancel={() => setPanel(undefined)} onDone={() => {
+      setPanel(undefined);
+      client.invalidateQueries({ queryKey: ['rfp-documents', mode] });
+      client.invalidateQueries({ queryKey: ['projects', mode] });
+    }} />}
+    {panel === 'process' && <ProcessForm projectId={projectId} documents={docs} rerun={data.requirements_count > 0} onCancel={() => setPanel(undefined)} onStarted={({ job_id }, ids) => { setRequestDocuments(ids); setPanel(undefined); setFinished(undefined); watched.current = job_id; setStarted(job_id); }} />}
+    </details>
+    {documents.isError && <ErrorState error={documents.error} onRetry={() => documents.refetch()} />}
+    <RfpDocumentReview projectId={projectId} actorId={actorId} documents={docs} busy={analyzing} onContextStarted={({job_id})=>{setRequestDocuments(latestVersions(docs).map(d=>d.document_version_id));setFinished(undefined);watched.current=job_id;setStarted(job_id);client.invalidateQueries({queryKey:['projects',mode]});}} />
+  </main>;
+}

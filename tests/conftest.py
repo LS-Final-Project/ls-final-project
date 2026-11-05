@@ -7,6 +7,19 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 
+@pytest.fixture(autouse=True)
+def no_transient_backoff(monkeypatch):
+    """Gemini 일시 오류 재시도(KAN-144 14차)의 대기를 0초로 바꿔 검사가 실제로 기다리지 않게 한다.
+
+    Args:
+        monkeypatch: 모듈 상수 교체.
+
+    Returns:
+        None: 교체만 한다.
+    """
+    monkeypatch.setattr("backend.shared.ai.TRANSIENT_BACKOFF_SECONDS", 0.0)
+
+
 @pytest.fixture(scope="session")
 def google_key():
     """검사 프로세스에서만 사용할 RSA 키와 Google 형태의 공개 JWK를 만든다.
