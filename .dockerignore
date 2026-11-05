@@ -13,6 +13,10 @@
 !docs/openapi/**
 !scripts/
 !scripts/check_backend.py
+!scripts/local_business/
+!scripts/local_business/**
+!scripts/cs_import_provided.py
+!docs/local-business-downloads.json
 !scripts/rfp_draft_trace_input.py
 !frontend/
 !frontend/src/

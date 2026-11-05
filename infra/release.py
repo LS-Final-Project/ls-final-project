@@ -158,6 +158,11 @@ def source_inputs(service: str, deploy: bool = False) -> list[str]:
         "docs/openapi",
         "frontend/src/mocks/generated",
         "scripts/check_backend.py",
+        # Dockerfile 검사 단계가 복사하는 파일. 여기와 .gcloudignore·.dockerignore가 함께 맞아야 한다(2026-11-05 배포 실패).
+        "scripts/local_business",
+        "scripts/cs_import_provided.py",
+        "scripts/rfp_draft_trace_input.py",
+        "docs/local-business-downloads.json",
         "infra/cloudbuild.service.yaml",
         "infra/cloudbuild.worker.yaml",
     ]
