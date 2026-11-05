@@ -17,7 +17,7 @@ import json
 import re
 from typing import Any
 from urllib.parse import quote
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import Response as RawResponse
@@ -28,7 +28,7 @@ from backend.api.platform.auth.http import SESSION_COOKIE, operational_identity
 from backend.api.platform.auth.mailbox_http import mailbox_provider, mutation_token
 from backend.api.platform.auth.microsoft import PersonalMicrosoftOAuth
 from backend.api.platform.mail.intake import raw_store
-from backend.api.platform.mail.links import link_origin, not_found
+from backend.api.platform.mail.links import not_found
 from backend.api.platform.mail.storage import StoredObject
 from backend.api.platform.mail.triage import classify_message
 from backend.engine.mail_triage.extract import TriageInput, build_input
@@ -66,24 +66,32 @@ def rfp_file(name: str | None, content_type: str | None) -> bool:
     )
 
 
-def rule_output(triage_input: TriageInput) -> str | None:
-    """규칙 분류 출력(JSON). 회신이거나 제목·본문에 RFP 표현이 없으면 None(분류를 남기지 않음).
+def rule_output(triage_input: TriageInput) -> str:
+    """규칙 분류 출력(JSON). 후보는 DB가 이미 골랐으므로 언제나 판본을 남겨 다시 보지 않게 한다.
+
+    회신이면 CANDIDATE_REPLY(회신 헤더 근거), 아니면 NEW_RFP다. 표현이 첨부 이름에만 있으면 제목·본문
+    근거가 없어 엔진이 사람 검토 필요로 둔다.
 
     Args:
         triage_input: 마스킹한 분류 입력.
 
     Returns:
-        str | None: 엔진 출력 계약(mail_type·needs_review·evidence·link_suggestion) JSON.
+        str: 엔진 출력 계약(mail_type·needs_review·evidence·link_suggestion) JSON.
     """
     if triage_input.is_reply:
-        return None
+        return json.dumps(
+            {
+                "mail_type": "CANDIDATE_REPLY",
+                "needs_review": True,
+                "evidence": [{"source": "reply_header"}],
+                "link_suggestion": "EXISTING_THREAD",
+            }
+        )
     evidence = [
         {"source": source, "start": match.start(), "end": match.end()}
         for source, text in (("subject", triage_input.subject), ("body", triage_input.body))
         for match in list(RFP_PATTERN.finditer(text))[:2]
     ]
-    if not evidence:
-        return None
     return json.dumps(
         {
             "mail_type": "NEW_RFP",
@@ -100,8 +108,8 @@ async def triage_new_rfp_mails(
     """분류가 없는 받은 메일 중 RFP로 보이는 것만 규칙 분류 판본을 남긴다. 수집 워커가 수집 뒤 부른다.
 
     원문을 읽기 전에 DB에서 거른다: 제목이나 첨부 이름에 RFP 표현이 있고 DOCX·PDF 첨부가 있는 메일.
-    걸러진 메일은 분류가 남아 다시 보지 않는다(멱등). 원문을 읽었는데 규칙이 맞지 않으면(회신 등)
-    분류를 남기지 않는다. 한 통이 실패해도 나머지를 계속한다.
+    걸러진 메일은 회신이면 CANDIDATE_REPLY, 아니면 NEW_RFP 판본이 남아 다시 보지 않는다(멱등).
+    원문을 못 읽은 메일만 다음 수집에서 다시 본다. 한 통이 실패해도 나머지를 계속한다.
 
     Args:
         settings: 플랫폼 DB 설정.
@@ -133,14 +141,11 @@ async def triage_new_rfp_mails(
             )
             # 규칙 판단은 엔진과 같은 입력으로 한다(첨부 요약은 분류 저장 때 다시 읽는다).
             output = rule_output(build_input(raw, folder=row["folder"], attachments=()))
-            if output is None:
-                counts["skipped"] += 1
-                continue
             await classify_message(
                 settings, message_id=row["id"], raw=raw, provider=lambda _input: output
             )
             counts["classified"] += 1
-        except (ApplicationError, HTTPException, ValueError):
+        except Exception:  # noqa: BLE001 - 한 통의 실패(저장소 I/O 포함)가 수집 결과를 막지 않는다.
             counts["failed"] += 1
     return counts
 
@@ -351,7 +356,10 @@ async def link_project(
     user = await operational_identity(request, response)
     await _sales(request)
     settings = request.app.state.settings
-    async with connection(settings) as conn:
+    ref = f"{REF_PREFIX}{payload.project_id}"
+    async with connection(settings) as conn, conn.transaction():
+        # 같은 메일의 동시 등록(더블클릭·두 탭)을 직렬화해 메일당 프로젝트 하나를 지킨다.
+        await conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (str(message_id),))
         cursor = await conn.execute(
             "SELECT 1 FROM integration.mail_messages m JOIN mailbox_auth.connections c "
             "ON c.id=m.mailbox_id WHERE m.id=%s AND c.owner_user_id=%s AND m.folder='inbox' "
@@ -366,20 +374,22 @@ async def link_project(
             (message_id, REF_PREFIX + "%"),
         )
         existing = await cursor.fetchone()
-    ref = f"{REF_PREFIX}{payload.project_id}"
-    if existing is not None and existing["business_ref"] != ref:
-        raise ApplicationError(
-            409,
-            "MAIL_RFP_ALREADY_REGISTERED",
-            "The mail is already registered as an RFP project.",
-            details=[
-                {"field": "project_id", "reason": existing["business_ref"][len(REF_PREFIX) :]}
-            ],
-        )
-    if existing is None:
-        await link_origin(
-            settings, message_id=message_id, owner_service="platform", business_ref=ref
-        )
+        if existing is not None and existing["business_ref"] != ref:
+            raise ApplicationError(
+                409,
+                "MAIL_RFP_ALREADY_REGISTERED",
+                "The mail is already registered as an RFP project.",
+                details=[
+                    {"field": "project_id", "reason": existing["business_ref"][len(REF_PREFIX) :]}
+                ],
+            )
+        if existing is None:
+            await conn.execute(
+                "INSERT INTO integration.mail_links (id, message_id, owner_service, business_ref, "
+                "kind, method) VALUES (%s, %s, 'platform', %s, 'ORIGIN', 'BUSINESS') "
+                "ON CONFLICT (message_id, owner_service, business_ref) DO NOTHING",
+                (uuid4(), message_id, ref),
+            )
     response.status_code = 201 if existing is None else 200
     return SuccessResponse(
         data=LinkedProject(

@@ -4,6 +4,7 @@
 """
 
 import asyncio
+import json
 from uuid import uuid4
 
 import psycopg
@@ -75,12 +76,18 @@ def sales(web, registered_user, auth_database):
     return web
 
 
-def test_rule_reads_rfp_words_and_ignores_replies():
-    assert rule_output(build_input(RFP_MAIL, folder="inbox", attachments=())) is not None
+def test_rule_always_leaves_a_version_so_skipped_mails_never_block_the_queue():
+    first = json.loads(rule_output(build_input(RFP_MAIL, folder="inbox", attachments=())))
+    assert first["mail_type"] == "NEW_RFP" and first["evidence"]
     reply = RFP_MAIL.replace(b"Message-ID:", b"In-Reply-To: <x@y>\r\nMessage-ID:")
-    assert rule_output(build_input(reply, folder="inbox", attachments=())) is None
+    assert (
+        json.loads(rule_output(build_input(reply, folder="inbox", attachments=())))["mail_type"]
+        == "CANDIDATE_REPLY"
+    )
+    # 표현이 첨부 이름에만 있으면 근거 없이 NEW_RFP(엔진이 사람 검토 필요로 둔다).
     plain = RFP_MAIL.replace(b"RFP", b"Hello")
-    assert rule_output(build_input(plain, folder="inbox", attachments=())) is None
+    only_name = json.loads(rule_output(build_input(plain, folder="inbox", attachments=())))
+    assert only_name["mail_type"] == "NEW_RFP" and only_name["evidence"] == []
 
 
 def test_sync_step_classifies_rfp_mails_once_without_a_model(settings, web, notify):
@@ -91,9 +98,16 @@ def test_sync_step_classifies_rfp_mails_once_without_a_model(settings, web, noti
         conn.execute(
             "UPDATE integration.mail_messages SET subject='[RFP-92] spec' WHERE id=%s", (no_file,)
         )
+    reply = received(
+        web,
+        notify,
+        RFP_MAIL.replace(b"Message-ID: <rfp-91@", b"In-Reply-To: <x@y>\r\nMessage-ID: <rfp-93@"),
+    )
+    attach(web, notify, reply)
     counts = asyncio.run(triage_new_rfp_mails(settings, notify["id"], web["store"]))
-    assert counts == {"classified": 1, "skipped": 0, "failed": 0}
+    assert counts == {"classified": 2, "skipped": 0, "failed": 0}
     assert latest_type(notify, rfp) == ("NEW_RFP", "ai_draft")
+    assert latest_type(notify, reply)[0] == "CANDIDATE_REPLY"  # 회신도 판본이 남아 다시 보지 않는다
     assert latest_type(notify, no_file) is None  # DOCX·PDF 첨부가 없으면 보지 않는다
     # 이미 분류가 있으면 다시 보지 않는다(멱등).
     assert (
