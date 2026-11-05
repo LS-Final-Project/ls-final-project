@@ -294,7 +294,6 @@
 .ls-root .kv .td3 .xfer-note{font-size:11.5px;color:#6b7385;background:#fafbfc}
 .ls-root .kv .td3 .act .cand .why.chk{margin-left:auto}
 .ls-root .kv .td3 .tier-note{font-size:12px;color:#8a5a00;background:#fdf8ec;border:1px solid #f3e2b8;padding:6px 10px}
-.ls-root .kv .td3 .info strong.state{font-weight:600}
 /* 고객 원문 카드(메일 보기 모양) */
 .ls-root .kv .td3 .mail-card{border:1px solid #d9dde4;background:#fff;display:flex;flex-direction:column}
 .ls-root .kv .td3 .mail-head{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#f7f8fb;border-bottom:1px solid #e6e9ee}
@@ -326,3 +325,18 @@
 .ls-root .kv .td3 .ko-add{margin:0 0 10px;padding:10px;background:#f5f7fb;border:1px dashed #c9d3e6}
 .ls-root .kv .td3 .orig-always>.meta{font-size:11.5px;font-weight:600;margin-bottom:6px}
 .ls-root .kv .td3 .ph .kb3.sm.on{background:#1a3a7a;border-color:#1a3a7a;color:#fff}
+/* 문의 상태: 공용 .state(회색·여백 20px)를 받지 않는 별도 칩. 상태마다 색을 둔다. */
+.ls-root .kv .td3 .info .wf-state{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 9px;border:1px solid;border-radius:11px;font-size:12px;font-weight:700;white-space:nowrap}
+.ls-root .kv .td3 .info .wf-state i{width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
+.ls-root .kv .td3 .info .wf-state.s-RECEIVED{color:#4a5a73;background:#f1f4f8;border-color:#d5dce6}
+.ls-root .kv .td3 .info .wf-state.s-IN_REVIEW{color:#1f4fa8;background:#eaf1fc;border-color:#bcd0f1}
+.ls-root .kv .td3 .info .wf-state.s-TRANSFERRED{color:#6b3fa6;background:#f3eefb;border-color:#d8c8ef}
+.ls-root .kv .td3 .info .wf-state.s-WAITING_CUSTOMER{color:#8a5a00;background:#fff4e0;border-color:#f0d29a}
+.ls-root .kv .td3 .info .wf-state.s-ANSWERED{color:#1f6b42;background:#eaf6ef;border-color:#bfe2cc}
+.ls-root .kv .td3 .info .wf-state.s-CLOSED{color:#4b5563;background:#eceef1;border-color:#cfd3d9}
+.ls-root .kv .td3 .info .wf-state.s-UNKNOWN{color:#a8321f;background:#fdeeeb;border-color:#efc4bc}
+/* 부서 검토 요청 이력: 공용 표의 가는 글씨(300)가 흐려 보여 보통 굵기·진한 색으로 */
+.ls-root .kv .td3 #td-dept .kv-grid td{font-weight:400;color:#1f2733}
+.ls-root .kv .td3 #td-dept .kv-grid th{color:#4a5566;font-weight:600}
+/* 목록 No 칸: 순번은 옅게, 자릿수 맞춤 */
+.ls-root .kv .td3 .log td.no{color:#6b7385;font-variant-numeric:tabular-nums}

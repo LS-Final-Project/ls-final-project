@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { ApiError, getApiMode } from '../api/client';
@@ -30,7 +30,7 @@ const FIELDS = Object.keys(CONTENT_LABEL) as Field[];
  * 요청 내용 상자. 문의 처리의 "AI 분석 실행"처럼 머리의 버튼으로 AI 작성 초안(KAN-115)을 만든다.
  * 반영 전 저장된 초안이 있으면 초안을, 아니면 현재 내용을 보인다. 초안은 요청을 바꾸지 않는다.
  * 초안 아래 "검토 완료"는 초안을 그대로 저장(PATCH)한 뒤 검토 완료를 기록하고, "수정"은 초안 값으로 입력 칸을 연다.
- * 현재 내용은 머리의 "내용 수정"으로 이 자리에서 고친다. 저장은 새 판본이 되며 검토·전달은 하지 않는다.
+ * 현재 내용은 칸을 누르면 이 자리에서 고친다(누른 칸에 커서). 저장은 새 판본이 되며 검토·전달은 하지 않는다.
  * onPending: 검토 완료를 막을 이유(내용이 비었거나 반영하지 않은 초안이 있음)를 상위 화면에 알린다.
  */
 // ruleOnly: 시스템 초안이 만들 때 규칙으로 채운 내용 그대로다(사람·AI가 아직 쓰지 않음). 그 값은 보이지 않고 AI 초안 작성을 안내한다.
@@ -52,6 +52,7 @@ export default function ImprovementContent({ request: r, title, tags, locked, on
   const [applying, setApplying] = useState(false);
   // 열린 입력 칸. 제안 부서도 여기서 고른다(부서 전달은 이 제안 부서로 바로 보낸다).
   const [editing, setEditing] = useState<{ values: Record<Field, string>; depts: Dept[] } | null>(null);
+  const [focusField, setFocusField] = useState<Field | 'depts'>('problem_statement');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [uncertain, setUncertain] = useState(false);
@@ -163,8 +164,9 @@ export default function ImprovementContent({ request: r, title, tags, locked, on
     }
   }
 
-  const openEditor = (fromDraft: boolean) => {
+  const openEditor = (fromDraft: boolean, at: Field | 'depts' = 'problem_statement') => {
     if (locked || completed || !live) return;
+    setFocusField(at);
     // 규칙 값만 있는 시스템 초안은 빈 칸에서 시작한다(화면에 보이는 그대로).
     const values = fromDraft && draft ? draftValues(draft)
       : Object.fromEntries(FIELDS.map(f => [f, ruleOnly ? '' : r[f] ?? ''])) as Record<Field, string>;
@@ -210,19 +212,19 @@ export default function ImprovementContent({ request: r, title, tags, locked, on
   // 반영·직접 수정·근거 변경·검토 등 무엇이든 저장해 판본이 바뀌면 현재 내용을 보인다. 사람이 고친 내용을 초안이 가리지 않는다.
   const showAi = !!draft && draft.request_version === r.version;
   const pending = showAi ? '반영하지 않은 AI 초안이 있습니다. 개선 요청 작성의 "검토 완료"나 "수정"으로 반영하세요.'
-    : ruleOnly ? '요청 내용이 비어 있습니다. "AI 초안 작성"으로 초안을 만들거나 "내용 수정"으로 직접 쓴 뒤 검토하세요.' : null;
+    : ruleOnly ? '요청 내용이 비어 있습니다. "AI 초안 작성"으로 초안을 만들거나 칸을 눌러 직접 쓴 뒤 검토하세요.' : null;
   useEffect(() => { onPending?.(pending); }, [pending, onPending]);
   useEffect(() => () => onPending?.(null), [onPending]);
   const editable = live && !completed && !locked && !busy && !applying;
   const editor = editing && <form className="sendbox ir-edit" aria-busy={saving} onSubmit={e => { e.preventDefault(); void saveEdit(); }}>
-    {FIELDS.map(f => <label key={f}>{CONTENT_LABEL[f]}<textarea ref={fit} rows={1} autoFocus={f === 'problem_statement'} required={f === 'problem_statement'} maxLength={10000} disabled={saving}
+    {FIELDS.map(f => <label key={f}>{CONTENT_LABEL[f]}<textarea ref={fit} rows={1} autoFocus={f === focusField} required={f === 'problem_statement'} maxLength={10000} disabled={saving}
       value={editing.values[f]} onChange={e => { fit(e.target); setEditing({ ...editing, values: { ...editing.values, [f]: e.target.value } }); }} /></label>)}
     <div className="dept-pick">
       <span className="k">제안 부서{r.request_type === 'FAULT' ? ' (1개 이상)' : ''}</span>
       <div className="chips">
         {editing.depts.map(code => <span key={code} className="dept-chip">{deptName(code)}
           <button type="button" className="x" aria-label={`${deptName(code)} 빼기`} disabled={saving} onClick={() => setEditing({ ...editing, depts: editing.depts.filter(x => x !== code) })}>×</button></span>)}
-        <select aria-label="제안 부서 추가" value="" disabled={saving || editing.depts.length === DEPT_CODES.length}
+        <select aria-label="제안 부서 추가" autoFocus={focusField === 'depts'} value="" disabled={saving || editing.depts.length === DEPT_CODES.length}
           onChange={e => { const code = e.target.value as Dept; if (code) setEditing({ ...editing, depts: [...editing.depts, code] }); }}>
           <option value="">+ 부서 추가</option>
           {DEPT_CODES.filter(code => !editing.depts.includes(code as Dept)).map(code => <option key={code} value={code}>{deptName(code)}</option>)}
@@ -247,13 +249,20 @@ export default function ImprovementContent({ request: r, title, tags, locked, on
   const textList = (items: string[], kind: string) => items.length
     ? <ul className={`fact-box ${kind} ai-list`}>{items.map((t, i) => <li key={i}>{t}</li>)}</ul>
     : <div className="fact-box empty">없음</div>;
+  // 칸을 누르면 그 칸에 커서를 두고 수정이 열린다. 고칠 수 없으면(읽기 전용·완료·다른 입력 중) 평범한 칸이다.
+  const canClick = !reader && !showAi && !editing && editable;
+  const clickWhy = completed ? '완료된 요청은 고칠 수 없습니다' : locked ? '다른 입력이 열려 있습니다' : undefined;
+  const editProps = (at: Field | 'depts', label: string) => canClick ? {
+    role: 'button', tabIndex: 0, 'aria-label': `${label} 고치기`, title: '눌러서 고칩니다', 'data-edit': '',
+    onClick: () => openEditor(false, at),
+    onKeyDown: (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openEditor(false, at); } },
+  } : { title: !reader && !showAi && !editing ? clickWhy : undefined };
   const row = (label: string, body: ReactNode) => <div className="fact-row"><span className="k">{label}</span>{body}</div>;
   function deptChips(codes: string[]) { return <div className="chips">{codes.length ? codes.map(x => <span key={x} className="dept-chip">{deptName(x)}</span>) : <span className="fact-box empty">미확인</span>}</div>; }
 
   return <div className="pane ir-content">
     <div className="ph">개선 요청 작성
       <div className="r">
-        {!reader && !showAi && !editing && <button className="kb3 sm" disabled={!editable} title={completed ? '완료된 요청은 고칠 수 없습니다' : locked ? '다른 입력이 열려 있습니다' : '요청 내용을 이 자리에서 고칩니다'} onClick={() => openEditor(false)}>내용 수정</button>}
         {!reader && <button className="kb3 sm" disabled={!!why || busy || applying || editing !== null} title={why ?? `근거 문의를 읽고 요청 내용 초안을 씁니다(모델 호출 비용). 근거가 같으면 이미 만든 초안을 다시 보여 줍니다.${draft ? ` 마지막 초안 ${formatStamp(draft.created_at)}` : ''}`} onClick={() => void run()}>
           <ElloMark />{phase === 'running' ? '작성 중…' : phase === 'checking' ? '결과 확인 중…' : 'AI 초안 작성'}
         </button>}
@@ -268,16 +277,16 @@ export default function ImprovementContent({ request: r, title, tags, locked, on
       {!busy && !finished && lastFailed && <div className="meta">마지막 AI 초안 시도가 실패했습니다({formatStamp(ai.data!.data.latest_attempt!.created_at)}).</div>}
 
       {!showAi ? <>
-        <h2 className="problem">{title}</h2>
+        <h2 className="problem" {...editProps('problem_statement', CONTENT_LABEL.problem_statement)}>{title}</h2>
         {tags}
         {/* 규칙 값만 있는 시스템 초안은 칸을 비운 채(-) 보인다. 문의 처리의 AI 분석 전 칸과 같다. */}
         {editor || <div className="facts">
           {([['confirmed_facts', 'fact'], ['inconsistencies', 'conflict'], ['missing_info', 'missing'], ['review_task', 'task'], ['not_claimed', 'claim']] as const).map(([field, kind]) => {
             const value = ruleOnly ? null : r[field];
-            return <div key={field} className="fact-row"><span className="k">{CONTENT_LABEL[field]}</span><div className={value ? `fact-box ${kind}` : 'fact-box empty'}>{value ?? '-'}</div></div>;
+            return <div key={field} className="fact-row"><span className="k">{CONTENT_LABEL[field]}</span><div className={value ? `fact-box ${kind}` : 'fact-box empty'} {...editProps(field, CONTENT_LABEL[field])}>{value ?? '-'}</div></div>;
           })}
           {row('사용 조건', <div className={!ruleOnly && r.condition_summary ? 'fact-box' : 'fact-box empty'}>{(!ruleOnly && r.condition_summary) || '-'}</div>)}
-          {row('제안 부서', ruleOnly ? <div className="fact-box empty">-</div> : deptChips(r.proposed_depts))}
+          {row('제안 부서', <div className="dept-click" {...editProps('depts', '제안 부서')}>{ruleOnly ? <div className="fact-box empty">-</div> : deptChips(r.proposed_depts)}</div>)}
         </div>}
         {!editing && next && <div className="row2 ai-apply"><span className="btns2">{next}</span></div>}
         {!reader && !editing && (ruleOnly || !draft) && !busy && !off && <div className="meta">{ruleOnly ? '아직 요청 내용이 없습니다. ' : ''}위의 "AI 초안 작성"을 누르면 근거 문의를 읽고 내용을 씁니다.</div>}

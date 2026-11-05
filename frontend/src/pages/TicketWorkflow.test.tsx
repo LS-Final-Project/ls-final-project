@@ -13,7 +13,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); setApiMode('mock'); });
 function viewList(){setApiMode('live');return renderAt('/cs/tickets','/cs/tickets',<Tickets/>);}
 function viewDetail(){setApiMode('live');return renderAt('/cs/tickets/x','/cs/tickets/:ticketId',<TicketDetail/>);}
 // 목록과 상세(KAN-210 새 화면의 상태 칸)는 같은 문구(검토중, 답변 완료, 부서 검토 중)를 쓴다.
-const stateCell = { selector: 'strong.state' };
+const stateCell = { selector: 'span.wf-state' };
 const isRequests = (url: RequestInfo | URL) => String(url).includes('/improvement-requests');
 test.each([
   ['RECEIVED','접수','접수'], ['IN_REVIEW','검토중','검토중'], ['WAITING_CUSTOMER','고객 회신 대기','고객 회신 대기'],

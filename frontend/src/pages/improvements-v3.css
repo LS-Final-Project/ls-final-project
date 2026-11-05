@@ -246,3 +246,9 @@
 .ls-root .kv .td3.ir3 .sig-tile .bar i{display:block;height:100%;background:#2a5bb5;border-radius:3px}
 .ls-root .kv .td3.ir3 .sig-call{margin:0;padding:8px 10px;background:#eef3fb;border:1px solid #cfdcf2;color:#1f3d73;font-size:12.5px}
 @media (max-width:720px){.ls-root .kv .td3.ir3 .sig-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+/* 개선 요청 작성: 칸을 누르면 그 자리에서 고친다 */
+.ls-root .kv .td3.ir3 [data-edit]{cursor:text;transition:border-color .12s,background-color .12s,box-shadow .12s}
+.ls-root .kv .td3.ir3 .fact-box[data-edit]:hover,.ls-root .kv .td3.ir3 h2.problem[data-edit]:hover,.ls-root .kv .td3.ir3 .dept-click[data-edit]:hover{border-color:#8fa8d6;background:#f6f9fe;box-shadow:inset 0 0 0 1px #8fa8d6}
+.ls-root .kv .td3.ir3 h2.problem[data-edit]{border:1px solid transparent;margin-left:-6px;padding-left:6px;padding-right:6px}
+.ls-root .kv .td3.ir3 .dept-click{border:1px solid transparent;padding:2px;margin:-3px}
+.ls-root .kv .td3.ir3 [data-edit]:focus-visible{outline:2px solid #2a5bb5;outline-offset:1px}

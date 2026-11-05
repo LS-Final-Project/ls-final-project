@@ -6,11 +6,10 @@ import { getApiMode } from '../api/client';
 import { listTicketsBy, type TicketListResponse } from '../api/cs';
 import { ErrorState, Loading } from '../components/states';
 import TicketCreateDialog from '../components/TicketCreateDialog';
-import BatchOwnerDialog from '../components/BatchOwnerDialog';
 import AutoAssignDialog from '../components/AutoAssignDialog';
 import { me } from '../api/platform';
 import { useTicketPages } from '../ls-shell/use-tickets';
-import { downloadCsv, useHotkey } from '../ls-shell/kv';
+import { useHotkey } from '../ls-shell/kv';
 import LogTable, { type LogColumn, type LogSort } from './LogTable';
 import './ticket-detail-v3.css';
 import './list-cond.css';
@@ -42,9 +41,7 @@ export default function Tickets() {
   // 정렬: 경과일(기본, 오래된 문의 먼저) 또는 접수일시.
   const [sort, setSort] = useState<LogSort>({ key: 'age', dir: 'desc' });
   const [page, setPage] = useState(0);
-  const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
   const [creating, setCreating] = useState(false);
-  const [batchOwner, setBatchOwner] = useState(false);
   const [autoAssign, setAutoAssign] = useState(false);
   // 담당 변경·자동 배정은 C/S 관리자만 한다(서버도 확인). 업무 접근 확인(['me'])과 캐시를 섞지 않으려고 키를 따로 둔다.
   const identity = useQuery({ queryKey: ['tickets-identity', mode], queryFn: me, retry: false, enabled: access.ready && mode === 'live' });
@@ -97,15 +94,8 @@ export default function Tickets() {
 
   const products = Array.from(new Set([...all.map(item => item.product_code), ...(product ? [product] : [])])).sort();
   const number = (item: Ticket) => item.external_id ?? item.id.slice(0, 8);
-  const pickedRows = rows.filter(item => picked.has(item.id));
-  const allPicked = rows.length > 0 && rows.every(item => picked.has(item.id));
   const clear = () => { setStatus('ACTIVE'); setChannel(''); setProduct(''); setAge(''); setFrom(''); setTo(''); setSearch(''); };
-  const togglePick = (id: string) => setPicked(prev => { const next = new Set(prev); if (!next.delete(id)) next.add(id); return next; });
-  const exportCsv = () => {
-    const target = pickedRows.length ? pickedRows : rows;
-    downloadCsv('문의_조회', ['문의번호', '제목(한국어)', '원문 제목', '제품', '접수 경로', '상태', '경과일', '접수일시'],
-      target.map(item => [number(item), item.subject_ko ?? '', item.subject ?? '', item.product_code, CHANNEL_LABEL[item.channel], STATE_LABEL[item.workflow_state], ageOf(item), formatStamp(item.received_at)]));
-  };
+
 
   const pages = Math.max(1, Math.ceil(rows.length / PAGE));
   const at = Math.min(page, pages - 1);
@@ -113,8 +103,8 @@ export default function Tickets() {
   const last = at === pages - 1;
   const next = () => { if (!last) setPage(at + 1); else if (tickets.hasNextPage && !tickets.isFetchingNextPage) void tickets.fetchNextPage().then(() => setPage(at + 1)); };
   const columns: LogColumn<Ticket>[] = [
-    { key: 'pick', header: <input type="checkbox" aria-label="모두 선택" checked={allPicked} onChange={() => setPicked(allPicked ? new Set() : new Set(rows.map(item => item.id)))} />, width: 34, className: 'c',
-      cell: item => <input type="checkbox" aria-label={`${number(item)} 선택`} checked={picked.has(item.id)} onChange={() => togglePick(item.id)} /> },
+    // No: 지금 조건·정렬 기준의 순번(쪽을 넘겨도 이어진다).
+    { key: 'no', header: 'No', width: 44, className: 'c no', cell: item => at * PAGE + shown.indexOf(item) + 1 },
     { key: 'id', header: '문의번호', width: 110, cell: item => number(item) },
     { key: 'subject', header: '제목', className: 't', cell: item => <Link className="link" to={`/cs/tickets/${item.id}`} title={item.subject ? `원문: ${item.subject}` : undefined}>{item.subject_ko || item.subject || '(제목 없음)'}</Link> },
     { key: 'state', header: '상태', width: 110, className: 'c', cell: item => <span className={item.workflow_state === 'CLOSED' ? 'chip st-closed' : 'chip st-open'}>{STATE_LABEL[item.workflow_state]}</span> },
@@ -133,7 +123,6 @@ export default function Tickets() {
         <button className="kb3" disabled={mode !== 'live'} title={mode !== 'live' ? '실제 API 모드에서만 등록할 수 있습니다' : undefined} onClick={() => setCreating(true)}>신규 등록</button>
         {/* KAN-214: 담당 없는 접수 문의를 규칙으로 배정한다. 미리보기 뒤 적용. */}
         <button className="kb3" disabled={!isManager} title={managerReason('C/S 부서 관리자만 자동 배정할 수 있습니다') ?? '담당 없는 접수 문의를 언어·제품군 규칙으로 배정합니다(미리보기 뒤 적용)'} onClick={() => setAutoAssign(true)}>자동 배정</button>
-        <button className="kb3" disabled={rows.length === 0} onClick={exportCsv} title={pickedRows.length ? `선택한 ${pickedRows.length}건만 내려받습니다` : '표시된 행 전체를 내려받습니다'}>엑셀{pickedRows.length > 0 && <small> {pickedRows.length}</small>}</button>
         <button className="kb3" onClick={() => window.print()}>인쇄</button>
         <span className="vsep" />
         <button className="kb3 pri" disabled={tickets.isFetching} onClick={refresh}>조회<kbd aria-hidden="true">F8</kbd></button>
@@ -161,12 +150,7 @@ export default function Tickets() {
       {tickets.isSuccess && !tickets.isError && <div className="pane">
         <div className="ph">문의 목록
           <div className="r">
-            {pickedRows.length > 0 ? <span className="picked" role="toolbar" aria-label="선택한 문의">
-              <span><b>{pickedRows.length}</b>건 선택</span>
-              <button type="button" className="kb3 sm" disabled={!isManager} title={managerReason('C/S 부서 관리자만 담당을 바꿀 수 있습니다')} onClick={() => setBatchOwner(true)}>담당 변경</button>
-              <button type="button" className="kb3 sm" aria-label="선택한 문의 엑셀" onClick={exportCsv}>엑셀</button>
-              <button type="button" className="kb3 sm" onClick={() => setPicked(new Set())}>선택 해제</button>
-            </span> : <span className="meta" title={tickets.hasNextPage ? '받아 온 문의 기준입니다. 마지막 쪽의 다음을 누르면 더 받아 옵니다.' : undefined}>총 {all.length}건 중 {rows.length}건</span>}
+            <span className="meta" title={tickets.hasNextPage ? '받아 온 문의 기준입니다. 마지막 쪽의 다음을 누르면 더 받아 옵니다.' : undefined}>총 {all.length}건 중 {rows.length}건</span>
           </div>
         </div>
         <LogTable label="문의 목록" columns={columns} rows={shown} rowKey={item => item.id}
@@ -184,7 +168,6 @@ export default function Tickets() {
     </div>
 
     {autoAssign && <AutoAssignDialog onClose={() => setAutoAssign(false)} onDone={() => { void tickets.refetch(); }} />}
-    {batchOwner && <BatchOwnerDialog targets={pickedRows.map(item => ({ id: item.id, label: number(item) }))} onClose={() => setBatchOwner(false)} onDone={() => { void tickets.refetch(); }} />}
     {creating && <TicketCreateDialog products={products} onClose={() => setCreating(false)} onCreated={() => { void tickets.refetch(); }} />}
   </main>;
 }

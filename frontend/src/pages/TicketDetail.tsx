@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import TicketAnalysisPanel from '../components/TicketAnalysisPanel';
@@ -93,6 +93,9 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
   const [returnFormKey, setReturnFormKey] = useState(0);
   // 원문은 항상 보이고, 한국어 번역은 원문 위에 덧붙인다(전환 아님).
   const [showKo, setShowKo] = useState(false);
+  // 한국어 보기를 열 때 번역이 없으면 만든다. 저장본 조회가 끝난 뒤에 판단한다(조회 중에 눌러도 된다).
+  const [wantKo, setWantKo] = useState(false);
+  const translateRef = useRef<(() => void) | null>(null);
   const [draftPick, setDraftPick] = useState<string | undefined>(undefined);
   const [action, setAction] = useState<'info' | 'answer' | 'transfer' | undefined>(undefined);
   // 회신 상자 안에서 고쳐 쓰고(edit) 보내기 확인(step)까지 한다. 고객 메일이라 승인 체크는 꼭 거친다.
@@ -110,6 +113,11 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
   const [copyNote, setCopyNote] = useState('');
   const [unitPick, setUnitPick] = useState('');
   const running = useRef<AbortController | null>(null);
+  useEffect(() => {
+    if (!wantKo || translation.isPending) return;
+    setWantKo(false);
+    if (translation.isSuccess && !translation.data?.data.translation) translateRef.current?.();
+  }, [wantKo, translation.isPending, translation.isSuccess, translation.data]);
   useHotkey('Escape', () => navigate('/cs/tickets'), access.ready && dialog === null);
 
   if (!access.ready) return <BusinessGate access={access} title="문의 처리" />;
@@ -409,7 +417,15 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
   const translationRecord = translation.data?.data.translation;
   const translationOff = translation.error instanceof ApiError && translation.error.status === 404;
   const koSource = (data?.body_language ?? '').split('-')[0] === 'ko';
-  const translateButton = canWrite && <button className="kb3 sm" disabled={busy || translating || translation.isPending} title="모델을 한 번 호출합니다(비용)" onClick={() => { setTranslating(true); void run('번역을 만들었습니다.', signal => createTicketTranslation(ticketId, signal)).then(() => translation.refetch()).finally(() => setTranslating(false)); }}><ElloMark />한국어 번역</button>;
+  const translate = () => { setTranslating(true); void run('번역을 만들었습니다.', signal => createTicketTranslation(ticketId, signal)).then(() => translation.refetch()).finally(() => setTranslating(false)); };
+  const translateButton = canWrite && <button className="kb3 sm" disabled={busy || translating || translation.isPending} title="모델을 한 번 호출합니다(비용)" onClick={translate}><ElloMark />다시 번역</button>;
+  // "한국어 번역 보기"를 누르면 저장된 번역을 보이고, 없으면 그 자리에서 바로 번역을 만든다(모델 1회). 같은 원문이면 서버가 저장본을 돌려준다.
+  const toggleKo = () => {
+    const opening = !showKo;
+    setShowKo(opening);
+    if (opening && canWrite && !translationRecord && !translating && !busy) setWantKo(true);
+  };
+  translateRef.current = translate;
   const mailCard = (subject: string, body: string, when?: ReactNode) => data && <div className="mail-card">
     <div className="mail-head">
       <span className="avatar" aria-hidden="true">{(wf?.mail_origin?.sender_address ?? data.customer_external_id).slice(0, 1).toUpperCase()}</span>
@@ -456,7 +472,7 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
         <div className="k">고객</div><div className="v"><Link className="link" to={`/cs/customers?customer=${encodeURIComponent(data.customer_external_id)}`}>{data.customer_external_id}</Link></div>
         <div className="k">접수 경로</div><div className="v last">{CHANNEL_LABEL[data.channel]}, {LANG_LABEL[data.body_language] ?? data.body_language}</div>
         <div className="k nb">제품</div><div className="v nb">{data.product_code}</div>
-        <div className="k nb">상태</div><div className="v nb"><strong className="state">{state}</strong></div>
+        <div className="k nb">상태</div><div className="v nb"><span className={`wf-state s-${knownState ? data.workflow_state : "UNKNOWN"}`}><i aria-hidden="true" />{state}</span></div>
         <div className="k nb">담당</div><div className="v nb">{owner}
           {/* KAN-214: 지금 담당이 규칙으로 정해졌을 때만 서버가 근거를 준다. 사람이 바꾼 담당이면 없다. */}
           {wf?.assignment && <small className="assign-why" title={`${assignmentText(wf.assignment)} · ${wf.assignment.trigger === 'BATCH' ? '관리자 일괄 배정' : '접수 시 자동'} · 규칙 ${wf.assignment.rule_version}`}>{assignmentText(wf.assignment)}</small>}
@@ -480,7 +496,7 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
           <div className="ph">고객 원문 <div className="r">
             {/* AI 요약 만들기는 한국어 번역 보기 옆에 둔다. 이미 요약이 있으면 단추를 숨긴다(같은 원문은 다시 만들어도 같은 결과). */}
             {!summaryRecord && !summaryOff && canWrite && <button className="kb3 sm" disabled={busy || summary.isPending} title="모델을 한 번 호출합니다(비용)" onClick={() => { setSummarizing(true); void run('요약을 만들었습니다.', signal => createTicketSummary(ticketId, signal)).then(() => summary.refetch()).finally(() => setSummarizing(false)); }}><ElloMark />{summarizing ? '요약 중…' : 'AI 요약'}</button>}
-            {!koSource && <button className={showKo ? 'kb3 sm on' : 'kb3 sm'} aria-pressed={showKo} onClick={() => setShowKo(value => !value)}>{showKo ? '한국어 번역 숨기기' : '한국어 번역 보기'}</button>}</div></div>
+            {!koSource && <button className={showKo ? 'kb3 sm on' : 'kb3 sm'} aria-pressed={showKo} title={!translationRecord && canWrite ? '번역이 없으면 바로 만듭니다(모델 1회 호출)' : undefined} onClick={toggleKo}>{showKo ? '한국어 번역 숨기기' : '한국어 번역 보기'}</button>}</div></div>
           <div className="pb">
             <div className="sum">
               <div className="h"><span className="ai"><ElloMark />AI 요약</span><span className="meta">{summaryRecord ? hm(summaryRecord.created_at) : ''}</span></div>
@@ -499,7 +515,7 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
                 </>
                 : translationOff ? <div className="meta">번역 기능이 이 배포에서 꺼져 있습니다</div>
                 : translation.isPending ? <div className="meta">불러오는 중</div>
-                : <div className="meta">아직 번역이 없습니다 {translateButton}</div>}
+                : <div className="meta">아직 번역이 없습니다{canWrite ? '' : '. 실제 API에서 C/S 담당자가 열면 만들어집니다'}</div>}
             </div>}
             {/* 메일처럼 보이는 원문 카드: 보낸 사람·경로·시각, 제목, 본문, 고객이 적은 오류 코드·FW. 항상 보인다. */}
             <div className="orig-always"><div className="meta">원문</div>{mailCard(data.subject || '(제목 없음)', data.body)}</div>
