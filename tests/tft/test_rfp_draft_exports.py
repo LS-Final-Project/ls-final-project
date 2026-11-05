@@ -434,3 +434,37 @@ def test_docx_layout_keeps_empty_sections_long_text_flags_and_missing_label_ids(
     assert "미확약: 예 / 재검토: 예 / 근거 누락: 예" in texts
     assert "작성 유형: 담당자 입력" in texts
     assert data == draft_exports.render_docx(draft, 4)
+
+
+def test_docx_has_no_ocr_codes_or_english_condition_heads(snapshot):
+    # 2026-11-05 흐름 점검: 검토서 조항 경로에 OCR 코드 166개, 조건 칸에 영문 이름이 남았다.
+    draft = build_draft(**snapshot)
+    row = draft.sections[0].sentences[0]
+    row.text = "근거 조항 2건: 제2조.1, OCR-DOCX-0001.7 / cb11aed0:OCR-PDF-P3.2"
+    row.conditions.append("cooling AN")
+    data = draft_exports.render_docx(draft, 2, {"c": "OCR-DOCX-0001.12-3"})
+    with zipfile.ZipFile(io.BytesIO(data)) as package:
+        root = ET.fromstring(package.read("word/document.xml"))
+    text = "\n".join(node.text or "" for node in root.iter(draft_exports.W + "t"))
+    assert "OCR-" not in text and "cooling" not in text
+    assert "본문 이미지 1" in text and "PDF 3쪽" in text and "냉각 방식 AN" in text
+
+
+def test_listing_sections_keep_human_sentences_and_point_the_rest_to_xlsx(snapshot):
+    # 요구를 하나씩 나열하는 절은 상한까지만 싣는다. 담당자 입력 문장은 늘 싣는다.
+    draft = build_draft(**snapshot)
+    section = next(p for p in draft.sections if p.section == "CUSTOMER_GOAL_SCOPE")
+    base = section.sentences[0]
+    rows = [
+        base.model_copy(update={"sentence_id": UUID(int=1000 + n), "text": f"나열 문장 {n}"})
+        for n in range(10)
+    ]
+    rows[9] = rows[9].model_copy(update={"provenance_kind": "human_input"})
+    section.sentences = rows
+    data = draft_exports.render_docx(draft, 3)
+    with zipfile.ZipFile(io.BytesIO(data)) as package:
+        root = ET.fromstring(package.read("word/document.xml"))
+    text = "\n".join(node.text or "" for node in root.iter(draft_exports.W + "t"))
+    limit = draft_exports.LISTING_LIMIT
+    assert "나열 문장 9" in text and f"나열 문장 {limit - 1}" not in text
+    assert f"이 절의 나머지 {10 - limit}건은" in text

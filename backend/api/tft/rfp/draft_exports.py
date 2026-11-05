@@ -159,6 +159,34 @@ def sentence_flags(row: s.Sentence) -> str:
     )
 
 
+# 요약서에서 요구를 하나씩 나열하는 절. 검토자가 읽을 분량만 싣고 나머지는 XLSX 요구별 시트로 넘긴다(2026-11-05).
+# 편차·협력사 보완·질의는 결정할 항목이라 모두 싣는다.
+# ponytail: 절마다 고정 상한, 문서가 아주 크면 절별 상한을 설정으로 뺀다.
+LISTING_SECTIONS = {"CUSTOMER_GOAL_SCOPE", "OUR_RESPONSE", "ASSUMPTIONS_EXCLUSIONS"}
+LISTING_LIMIT = 6
+
+
+def shown(section: s.Section) -> list[s.Sentence]:
+    """요약서에 실을 문장. 담당자 입력과 검토 표시가 있는 문장은 늘 싣고, 나머지는 상한까지 원래 순서로."""
+    rows = section.sentences
+    if section.section not in LISTING_SECTIONS or len(rows) <= LISTING_LIMIT:
+        return rows
+    must = {
+        id(r)
+        for r in rows
+        if r.provenance_kind == "human_input" or r.needs_rereview or r.evidence_missing
+    }
+    room = max(LISTING_LIMIT - len(must), 0)
+    keep = set(must)
+    for r in rows:
+        if room == 0:
+            break
+        if id(r) not in keep:
+            keep.add(id(r))
+            room -= 1
+    return [r for r in rows if id(r) in keep]
+
+
 def render_docx(
     draft: s.Draft,
     review_version: int,
@@ -186,7 +214,7 @@ def render_docx(
     append_context_report(body, context)
     table_sections = {"OUR_RESPONSE", "DEVIATIONS", "PARTNER_SUPPLEMENT"}
     widths = (650, 3500, 2600, 2730)
-    numbered: list[tuple[int, s.Sentence]] = []
+    numbered: list[tuple[int, s.Sentence, bool]] = []
     for section in draft.sections:
         paragraph(SECTION_TITLES[section.section], "Heading1")
         if not section.sentences:
@@ -197,9 +225,10 @@ def render_docx(
             if section.section in table_sections
             else None
         )
-        for row in section.sentences:
+        rows = shown(section)
+        for row in rows:
             number = len(numbered) + 1
-            numbered.append((number, row))
+            numbered.append((number, row, table is not None))
             flag_text = sentence_flags(row)
             if table is not None:
                 cells = layout.table_row(table, widths)
@@ -216,25 +245,40 @@ def render_docx(
                 layout.sentence_link(body, number)
                 for condition in row.conditions:
                     paragraph(f"조건·미확인: {condition}", "Meta")
+        if len(rows) < len(section.sentences):
+            paragraph(
+                f"이 절의 나머지 {len(section.sentences) - len(rows)}건은 "
+                "대응 현황표(XLSX)의 요구별 시트에서 확인합니다.",
+                "Meta",
+            )
         if table is not None:
             paragraph("", "Meta")
     paragraph("부록 · 문장별 근거와 검토 기록", "Heading1")
-    paragraph("본문과 같은 S번호의 모든 조건·근거·검토 표시입니다.", "Meta")
+    # 2026-11-05 분량 정리: 본문에 있는 문장·조건과 표에 이미 쓴 근거는 되풀이하지 않는다.
+    # 검토 표시는 하나라도 '예'인 문장만, 작성 유형은 AI 초안이 아닌 문장만 적는다.
+    paragraph(
+        "본문과 같은 S번호의 근거와 검토 표시입니다. 표에 근거를 쓴 문장은 번호만 있고, "
+        "검토 표시가 없는 문장은 미확약·재검토·근거 누락이 모두 ‘아니오’입니다.",
+        "Meta",
+    )
     provenance = {
         "ai_draft": "AI 작성 초안",
         "human_input": "담당자 입력",
         "system_record": "양식·시스템 기록",
     }
-    for number, row in numbered:
+    for number, row, in_table in numbered:
         layout.sentence_heading(body, number)
-        paragraph(row.text)
-        for condition in row.conditions:
-            paragraph(f"조건·미확인: {condition}", "Meta")
-        for line in evidence_lines(row, labels or {}) or ["연결 근거 없음"]:
-            paragraph(line, "Meta")
-        paragraph(sentence_flags(row), "Meta")
-        paragraph(f"작성 유형: {provenance[row.provenance_kind]}", "Meta")
+        if not in_table:
+            for line in evidence_lines(row, labels or {}) or ["연결 근거 없음"]:
+                paragraph(line, "Meta")
+        if row.unconfirmed or row.needs_rereview or row.evidence_missing:
+            paragraph(sentence_flags(row), "Meta")
+        if row.provenance_kind != "ai_draft":
+            paragraph(f"작성 유형: {provenance[row.provenance_kind]}", "Meta")
     paragraph(DISCLAIMER, "Notice")
+    for node in root.iter(W + "t"):
+        if node.text:
+            node.text = bid_outputs.readable_text(node.text)
     entries = layout.package_parts(root, body, ORIGIN_TEXT[draft.data_origin])
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w") as archive:

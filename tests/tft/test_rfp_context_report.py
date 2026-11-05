@@ -98,7 +98,7 @@ def test_frozen_report_preserves_categories_traceability_stale_and_legacy_sectio
     rendered = text(first)
     for value in (
         "문맥 판본 2",
-        "STALE",
+        "원문·요구가 바뀌어 다시 정리 필요",
         "8개 요구 유형별 구성",
         "설비·장비",
         "수행 업무",
@@ -109,16 +109,17 @@ def test_frozen_report_preserves_categories_traceability_stale_and_legacy_sectio
         "자격·실적",
         "상업 조건",
         "미분류",
-        "TR-1 시험 보고서 제출",
-        "R-001 / v2",
+        "TR-1 [설비] · 태그 TR-1",
         "사양 차이",
-        "분류 근거: 시험 보고서 원문",
+        "요구별 원문 위치·판정·분류 근거는 대응 현황표(XLSX)의 요구별 시트에 있습니다.",
         "검토용 초안입니다.",
     ):
         assert value in rendered
     for part in draft.sections:
         for sentence in part.sentences:
             assert sentence.text in rendered
+    # 영문 상태값과 요구별 추적표는 DOCX에 싣지 않는다(XLSX 요구별 시트, 2026-11-05).
+    assert "STALE" not in rendered and "분류 근거:" not in rendered
     newer = saved.model_copy(update={"version": 3})
     assert render_docx(draft, 7, context=newer) != first
     assert render_docx(draft, 7, context=saved) == first

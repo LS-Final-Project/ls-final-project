@@ -10,12 +10,6 @@ from backend.api.tft.rfp.context_schemas import ContextResponse
 # 검토용 부록에도 내부 코드·영문 열거값을 그대로 쓰지 않는다(40444 흐름 점검, 검토본 DOCX).
 STATUS = {"CURRENT": "최신", "STALE": "원문·요구가 바뀌어 다시 정리 필요", "UNKNOWN": "확인 불가"}
 KIND = {"SYSTEM": "계통", "EQUIPMENT": "설비", "TASK": "업무", "COMMON": "공통"}
-RELATION = {
-    "SAME_EQUIPMENT": "같은 설비",
-    "PART_OF": "구성품",
-    "APPLIES_TO": "적용",
-    "RELATED": "관련",
-}
 
 
 def diagram_label(source_id: str) -> str:
@@ -33,7 +27,7 @@ CATEGORIES = {
     "COMMERCIAL": "상업 조건",
     "UNCLASSIFIED": "미분류",
 }
-STATUS = {
+REQ_STATUS = {
     "EVIDENCE_FOUND": "근거 있음",
     "CONDITIONAL": "조건부",
     "SPEC_GAP": "사양 차이",
@@ -84,7 +78,7 @@ def append_context_report(body: ET.Element, snapshot: ContextResponse | None) ->
     layout.paragraph(
         body,
         "기존 요구 판정(고정 판본): "
-        + " / ".join(f"{label} {status_counts[code]}건" for code, label in STATUS.items()),
+        + " / ".join(f"{label} {status_counts[code]}건" for code, label in REQ_STATUS.items()),
         "Meta",
     )
     layout.paragraph(body, "8개 요구 유형별 구성", "Heading2")
@@ -112,99 +106,31 @@ def append_context_report(body: ET.Element, snapshot: ContextResponse | None) ->
     if not groups:
         layout.paragraph(body, "저장된 묶음 없음 · 원문 검토 필요", "Meta")
     for group in result.groups:
+        # 검토자가 훑는 한 줄. 묶음 근거 목록과 요구별 추적은 XLSX 요구별 시트에 있다(2026-11-05 분량 정리).
         parent = groups.get(group.parent_id or "")
-        layout.paragraph(
-            body,
-            f"{group.name} [{KIND.get(group.kind, group.kind)}] / 상위: {parent.name if parent else '없음·미지정'}",
-            "Heading3",
-        )
-        layout.paragraph(
-            body,
-            f"태그: {group.tag or '미확인'} / 위치: {group.site or '미확인'} / 검토 필요: {'예' if group.needs_review else '표식 없음(승인 아님)'}",
-            "Meta",
-        )
-        layout.paragraph(
-            body,
-            "묶음 근거: "
-            + ", ".join(
-                requirement_label(refs[r].code) if r in refs else r
-                for r in group.evidence_requirement_ids
-            ),
-            "Meta",
-        )
+        parts = [
+            f"{group.name} [{KIND.get(group.kind, group.kind)}]",
+            f"태그 {group.tag or '미확인'}",
+            f"요구 {len(group.evidence_requirement_ids)}건",
+        ]
+        if parent:
+            parts.append(f"상위 {parent.name}")
         if group.diagram_source_ids:
-            layout.paragraph(
-                body,
-                "도면 원본 참조: " + ", ".join(diagram_label(d) for d in group.diagram_source_ids),
-                "Meta",
-            )
-    layout.paragraph(body, "요구별 추적표 · 원문과 판단", "Heading2")
-    widths = (1000, 1800, 2480, 4100)
-    table = layout.table(
-        body, ("요구·판본", "유형·묶음", "기존 판정·검토", "원문 위치·인용·분류 근거"), widths
+            parts.append("도면 " + ", ".join(diagram_label(d) for d in group.diagram_source_ids))
+        if group.needs_review:
+            parts.append("검토 필요")
+        layout.paragraph(body, " · ".join(parts), "Meta")
+    layout.paragraph(
+        body,
+        "요구별 원문 위치·판정·분류 근거는 대응 현황표(XLSX)의 요구별 시트에 있습니다.",
+        "Meta",
     )
-    for row in result.assignments:
-        req, ref = requirements.get(row.requirement_id), refs.get(row.requirement_id)
-        cells = layout.table_row(table, widths)
-        layout.paragraph(
-            cells[0],
-            f"{requirement_label(ref.code) if ref else row.requirement_id} / v{req.version if req else '미확인'}",
-            "TableText",
-        )
-        layout.paragraph(cells[1], CATEGORIES[row.primary_category], "TableText")
-        if row.additional_categories:
-            layout.paragraph(
-                cells[1],
-                "추가 유형: " + ", ".join(CATEGORIES[c] for c in row.additional_categories),
-                "TableText",
-            )
-        layout.paragraph(
-            cells[1],
-            ", ".join(groups[g].name for g in row.group_ids if g in groups) or "미지정",
-            "TableText",
-        )
-        for relation in row.relations:
-            layout.paragraph(
-                cells[1],
-                f"관계 후보: {RELATION.get(relation.relation, relation.relation)} / {groups[relation.group_id].name if relation.group_id in groups else relation.group_id}",
-                "TableText",
-            )
-        layout.paragraph(
-            cells[2], STATUS.get(req.status, req.status) if req else "판정 확인 불가", "TableText"
-        )
-        layout.paragraph(
-            cells[2],
-            "분류 검토 필요: " + ("예" if row.needs_review else "표식 없음(승인 아님)"),
-            "TableText",
-        )
-        if ref:
-            layout.paragraph(
-                cells[3],
-                f"출처 {requirement_label(ref.code)} / 쪽 {ref.page or '미확인'}",
-                "TableText",
-            )
-            layout.paragraph(cells[3], ref.quote, "TableText")
-        if req:
-            layout.paragraph(cells[3], " > ".join(req.section_path), "TableText")
-        layout.paragraph(cells[3], "분류 근거: " + row.reason, "TableText")
-        layout.paragraph(
-            cells[3],
-            "근거 요구: "
-            + ", ".join(
-                requirement_label(refs[r].code) if r in refs else r
-                for r in row.evidence_requirement_ids
-            ),
-            "TableText",
-        )
     layout.paragraph(body, "미해결·확인할 사항", "Heading2")
     for issue in result.issues:
-        layout.paragraph(body, f"{issue.message}", "Meta")
-        layout.paragraph(
-            body,
-            "대상 요구: "
-            + ", ".join(refs[r].code if r in refs else r for r in issue.requirement_ids),
-            "Meta",
+        targets = ", ".join(
+            requirement_label(refs[r].code) if r in refs else r for r in issue.requirement_ids
         )
+        layout.paragraph(body, f"{issue.message} (대상 요구: {targets})", "Meta")
     if not result.issues:
         layout.paragraph(
             body, "기록된 분류 이슈 없음 · 원문 요구의 승인·해결 완료를 뜻하지 않음", "Meta"

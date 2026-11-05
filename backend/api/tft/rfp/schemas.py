@@ -1270,6 +1270,8 @@ BULK_ACTIONS = frozenset(
         "ask_rnd",
         "assign",
         "change_verdict",
+        # 책임자 "모두 확인"(2026-11-05). 확인은 판단을 바꾸지 않아 묶음 되돌리기 대상이 아니다.
+        "review_confirm",
     }
 )
 

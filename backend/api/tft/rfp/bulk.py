@@ -47,7 +47,12 @@ async def each(
 ) -> list[s.DecisionResult]:
     """건마다 decide_on. 실패하면 몇 번째 어느 요구인지 붙여 다시 던진다(트랜잭션은 호출자가 롤백)."""
     out = []
+    versions: dict[UUID, int] = {}
     for index, (requirement_id, payload, key) in enumerate(work):
+        if payload.action == "review_confirm" and requirement_id in versions:
+            # 한 요구에 확인할 결정이 둘이면 앞 확인이 판본을 올린다. 확인 대상은 decision_id가 정하므로
+            # 같은 묶음 안에서는 앞 결과의 판본으로 잇는다(결정 행동의 같은 요구 중복은 여전히 판본 409).
+            payload = payload.model_copy(update={"version": versions[requirement_id]})
         try:
             result = await decide_on(
                 conn, principal, requirement_id, payload, key, project_id=project_id, extra=extra
@@ -66,7 +71,9 @@ async def each(
                     *error.details,
                 ],
             ) from None
-        out.append(s.DecisionResult.model_validate(result))
+        done = s.DecisionResult.model_validate(result)
+        versions[requirement_id] = done.requirement_version
+        out.append(done)
     return out
 
 
@@ -108,7 +115,8 @@ async def bulk_undo(
         cursor = await conn.execute(
             "SELECT d.id, d.requirement_id, req.latest_version FROM tft.requirement_decisions d "
             "JOIN tft.requirements req ON req.id = d.requirement_id "
-            "WHERE d.project_id = %s AND d.detail->>'batch_id' = %s AND NOT EXISTS "
+            "WHERE d.project_id = %s AND d.detail->>'batch_id' = %s "
+            "AND d.action NOT IN ('review_confirm', 'review_return') AND NOT EXISTS "
             "(SELECT 1 FROM tft.requirement_decisions u WHERE u.undoes = d.id) "
             "ORDER BY d.created_at DESC, d.id DESC",
             (project_id, str(batch_id)),
