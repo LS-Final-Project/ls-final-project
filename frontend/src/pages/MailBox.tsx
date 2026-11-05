@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { ApiError, getApiMode } from '../api/client';
@@ -65,6 +65,8 @@ function BoxView() {
   const rows = all.filter(r => match(r, filter) && (!needle || `${r.subject ?? ''} ${r.from_address ?? ''}`.toLocaleLowerCase().includes(needle)));
   const selected = rows.find(r => r.message_id === picked) ?? rows[0];
   // 고른 메일이 바뀌면(처리돼 목록에서 빠진 경우 포함) 이전 메일에 적던 메모·후보·찾기 값을 비운다.
+  const shown = useRef<string | undefined>(undefined);
+  shown.current = selected?.message_id;
   if (selected?.message_id !== formFor) { setFormFor(selected?.message_id); setPick(''); setManual(''); setFound(null); setMemo(''); }
   const others = selected?.from_address ? all.filter(r => r.from_address === selected.from_address && r.message_id !== selected.message_id) : [];
 
@@ -84,8 +86,11 @@ function BoxView() {
     const code = manual.trim();
     if (!code || !selected || finding) return;
     setFinding(true); setFound(null);
+    const forId = selected.message_id;
     try {
       const body = await listTicketsBy({ q: code, limit: '20' });
+      // 찾는 동안 다른 메일을 골랐으면 늦게 온 결과를 그 메일에 붙이지 않는다.
+      if (shown.current !== forId) return;
       const lower = code.toLocaleLowerCase();
       const hit = body.data.items.find(t => (t.external_id ?? '').toLocaleLowerCase() === lower || t.id.toLocaleLowerCase() === lower);
       if (!hit) { setFound({ kind: 'none', code }); return; }
@@ -93,6 +98,7 @@ function BoxView() {
       if (candidate) { setPick(keyOf(candidate)); setFound({ kind: 'candidate', key: keyOf(candidate) }); }
       else setFound({ kind: 'outside', ticket: hit });
     } catch (error) {
+      if (shown.current !== forId) return;
       setFound({ kind: 'error', text: error instanceof ApiError ? error.message : '문의를 찾지 못했습니다. 잠시 뒤 다시 찾으세요.' });
     } finally { setFinding(false); }
   }
