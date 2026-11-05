@@ -127,7 +127,7 @@ export default function RfpWorkspace() {
         <section className="ws-sec ws-left">
           {phase === 'empty' && <DropZone onFile={() => undefined} projectId={projectId} />}
           {phase === 'ready' && <StartAnalysis projectId={projectId} documents={docs} />}
-          {(phase === 'running' || phase === 'failed') && <SectionProgress activity={live?.activity ?? []} count={live?.progress?.counts?.requirements} running={phase === 'running'} />}
+          {(phase === 'running' || phase === 'failed') && <SectionProgress activity={live?.activity ?? []} count={live?.progress?.counts?.requirements} running={phase === 'running'} step={live?.progress?.step} />}
           {phase === 'none' && <div className="ws-center"><p className="ws-strong">요구를 찾지 못했습니다</p><p className="muted">목차만 있는 문서이거나 스캔 이미지일 수 있습니다.</p></div>}
         </section>
         <section className="ws-sec ws-right">
@@ -304,7 +304,9 @@ export function sectionStates(activity: RfpProgress[]) {
   return order.map(label => ({ label, n: found.get(label) }));
 }
 
-function SectionProgress({ activity, count, running }: { activity: RfpProgress[]; count?: number; running: boolean }) {
+function SectionProgress({ activity, count, running, step }: { activity: RfpProgress[]; count?: number; running: boolean; step?: string }) {
+  // 같은 판본을 다시 처리하면 요구 뽑기를 건너뛰어 조항 이름이 오지 않는다. 그때는 나누는 중이라고 하지 않는다.
+  const pastExtract = STEPS.indexOf(step ?? 'parse') > STEPS.indexOf('extract');
   const rows = sectionStates(activity);
   const done = rows.filter(r => r.n !== undefined);
   const reading = rows.length - done.length;
@@ -313,14 +315,14 @@ function SectionProgress({ activity, count, running }: { activity: RfpProgress[]
   return <div className="ws-sp" aria-busy={running}>
     <div className="ws-sp-head"><span className="muted">찾은 요구</span><b>{total}</b><span className="muted">건</span>
       <span className="r">다 읽은 조항 {done.length}{reading > 0 ? `, 읽는 중 ${reading}` : ''}</span></div>
-    {rows.length === 0 && <p className="muted ws-sp-wait">문서를 조항으로 나누는 중입니다.</p>}
+    {rows.length === 0 && <p className="muted ws-sp-wait">{pastExtract ? '이미 찾은 요구로 다음 단계를 진행하는 중입니다.' : '문서를 조항으로 나누는 중입니다.'}</p>}
     <ul className="ws-sp-list">
       {rows.map(r => <li key={r.label} className={r.n === undefined ? (running ? 'run' : '') : 'done'}>
         <i className="mk" /><span className="tx">{r.label}</span>
         <span className="trk"><b style={{ width: r.n === undefined ? 0 : `${(r.n / max) * 100}%` }} /></span>
         <span className="n">{r.n === undefined ? '' : `요구 ${r.n}`}</span>
       </li>)}
-      {running && [0, 1, 2].map(i => <li key={`w${i}`} className="wait"><i className="mk" /><span className="sk" /></li>)}
+      {running && !pastExtract && [0, 1, 2].map(i => <li key={`w${i}`} className="wait"><i className="mk" /><span className="sk" /></li>)}
     </ul>
   </div>;
 }
