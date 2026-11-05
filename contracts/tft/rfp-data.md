@@ -359,8 +359,8 @@ query: `kind`(아래 값을 쉼표로 이음, 예 `kind=decision,recompared`, �
 | reply_recorded | `question_replies`(질문의 요구·issue_type) | `recorded_by` | `회신 기록 (issue_type)` | 없음. 회신 원문은 내지 않는다 |
 
 판단을 바꾸는 결정은 결정 행과 그 결정이 만든 판본 행이 같은 시각으로 둘 다 나온다. 재비교는 `requirement_recomparisons`가
-아니라 감사 행을 읽는다. 그 표에는 제안 승인 때 물려받은 비교 사본도 쌓이고 행위자가 없어서다. 직접 추가·빼기(KAN-225)처럼
-아직 저장 표가 없는 사건은 나오지 않으며, 표가 생기면 `SOURCES`에 SELECT 하나를 더한다.
+아니라 감사 행을 읽는다. 그 표에는 제안 승인 때 물려받은 비교 사본도 쌓이고 행위자가 없어서다. 직접 추가·빼기·다시 포함(KAN-225)은
+결정 기록이라 kind=decision, after.action이 add_requirement·exclude_requirement·restore_requirement로 나온다(화면이 "직접 추가"·"제외"·"다시 포함"으로 표시). 기록에 없는 사건은 나오지 않으며, 저장 표가 새로 생기면 `SOURCES`에 SELECT 하나를 더한다.
 
 ### 원문에서 요구 직접 추가와 요구에서 빼기 (KAN-225, 2026-11-04 사용자 확정)
 
