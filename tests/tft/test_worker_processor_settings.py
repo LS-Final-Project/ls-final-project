@@ -135,3 +135,57 @@ def test_reply_provider_uses_the_metered_client_factory_lazily(monkeypatch):
     assert provider("prompt") == "generation" and len(created) == 1
     assert seen["schema"] is AiOutput
     assert (seen["settings"].gemini_model, seen["settings"].gemini_transient_retries) == ("m-1", 0)
+
+
+def test_structure_repair_is_off_by_default_and_uses_the_extraction_settings_when_on(monkeypatch):
+    """KAN-188 구조 보정은 기본 끔(None)이다. 켜면 추출과 같은 모델 설정·RepairOutput 스키마로 부르고 지연 생성한다."""
+    from backend.engine.rfp import structure_repair
+
+    assert worker_processor.structure_provider(ProcessorSettings(_env_file=None)) is None
+    fake = ProcessorSettings(
+        _env_file=None, structure_repair_enabled=True, extraction_provider="fake"
+    )
+    assert worker_processor.structure_provider(fake) is structure_repair.fake_provider
+    created, seen = [], {}
+    monkeypatch.setattr(ai, "create_client", lambda settings: created.append(settings) or "c")
+
+    def generate(client, settings, text, *, response_schema):
+        seen.update(settings=settings, schema=response_schema)
+        return "generation"
+
+    monkeypatch.setattr(ai, "generate", generate)
+    provider = worker_processor.structure_provider(
+        ProcessorSettings(_env_file=None, structure_repair_enabled=True)
+    )
+    assert provider is not None and created == []
+    assert provider("prompt") == "generation"
+    assert seen["schema"] is structure_repair.RepairOutput
+    assert seen["settings"].gemini_model == "gemini-3.6-flash"
+    assert seen["settings"].gemini_max_output_tokens == 16384
+
+
+def test_repair_structure_reports_progress_around_each_call_and_marks_review():
+    from backend.engine.documents.model import Block, Position, build_document
+    from backend.engine.rfp.clauses import build_clause_tree
+    from backend.shared.ai import Generation, Usage
+
+    texts = [
+        "PART 2 - PRODUCTS",
+        "2.1 BUS",
+        "A. Bus:",
+        "a. Copper rated 1200 A b. Silver.",
+        "c. X.",
+    ]
+    blocks = [
+        Block(block_id=f"b{n}", kind="PARAGRAPH", text=t, position=Position(paragraph_index=n))
+        for n, t in enumerate(texts)
+    ]
+    tree = build_clause_tree(build_document("DOCX", b"x", blocks, [], tables=0))
+    events = []
+    assert worker_processor.repair_structure(tree, None, events.append, "v") == (tree, False)
+    answer = '{"items": [{"label": "b", "start_text": "b. Silver."}]}'
+    repaired, review = worker_processor.repair_structure(
+        tree, lambda _p: Generation(answer, Usage(), None, []), events.append, "v"
+    )
+    assert review and "2.1.A.b" in {c.clause_no for c in repaired.clauses}
+    assert events == [{"step": "parse", "document_version_id": "v"}] * 2

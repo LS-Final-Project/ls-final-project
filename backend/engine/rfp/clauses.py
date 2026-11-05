@@ -161,7 +161,13 @@ class TableDeleted(Strict):
 
 class NumberingIssue(Strict):
     clause_no: str
-    kind: str = Field(description="DUPLICATE(같은 번호 반복) 또는 GAP(건너뜀).")
+    kind: str = Field(
+        description=(
+            "DUPLICATE(같은 번호 반복), GAP(건너뜀), UNPLACED_ARTICLE, MULTIPLE_SECTIONS, "
+            "STRUCTURE_GAP(빠진 항목이 묻혀 있을 조항, detect_structure_gaps), "
+            "STRUCTURE_REPAIRED(모델 경계로 나눈 자리, structure_repair)."
+        )
+    )
     detail: str
 
 
@@ -1151,5 +1157,140 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
         preamble_block_ids=list(dict.fromkeys(preamble)),
         boilerplate_block_ids=boilerplate,
         excluded=[Excluded(block_id=b, text=texts[b], reason=noise[b]) for b in boilerplate],
-        numbering_issues=issues,
+        numbering_issues=issues + [gap.issue() for gap in detect_structure_gaps(clauses)],
     )
+
+
+# 빠진 번호 앞쪽 몇 개까지만 묻힌 항목으로 본다. 더 멀면 다른 목록이거나 원문이 번호를 건너뛴 것이다.
+MAX_MISSING = 3
+SEQUENCE_START = ("1", "a", "A", "가")
+# 하위 번호 모양(깊이 → 문단 안 표지 정규식(1: 여는 괄호, 2: 번호), 번호 글자 틀). 영문 번호 체계만 본다(한글 문맥은 깊이가 한 칸 당겨진다).
+INLINE_STYLE: dict[int, tuple[re.Pattern[str], str]] = {
+    4: (re.compile(r"(?<=\s)()(\d{1,2})\.\s+(?=[A-Z(\"'“])"), "{}."),
+    5: (re.compile(r"(?<=\s)()([a-z])\.\s+(?=[A-Z(\"'“])"), "{}."),
+    6: (re.compile(r"(?<=\s)(\(?)(\d{1,2})\)\s+(?=[A-Z(\"'“])"), "{})"),
+    7: (re.compile(r"(?<=\s)(\(?)([a-z])\)\s+(?=[A-Z(\"'“])"), "{})"),
+}
+
+
+class StructureGap(Strict):
+    """조항 트리에서 번호가 비는 자리. 빠진 항목이 묻혀 있을 조항(`clause_no`)과 채울 번호를 함께 둔다."""
+
+    clause_no: str = Field(description="빠진 항목 글이 들어 있을 조항(문서 순서상 바로 앞 조항).")
+    reason: str = Field(
+        description="LATE_START(첫 하위가 .a·.1이 아님), SKIP(형제 건너뜀), INLINE_UNSPLIT(본문에 번호 목록)."
+    )
+    labels: list[str] = Field(description="채울 번호 토큰 순서(a, b …).")
+    parent_no: str = Field(description="새 항목의 부모 조항.")
+    depth: int = Field(ge=3, le=7)
+    label_format: str = Field(description="번호 글자 틀(예 '{}.', '({})').")
+
+    def issue(self) -> NumberingIssue:
+        return NumberingIssue(
+            clause_no=self.clause_no,
+            kind="STRUCTURE_GAP",
+            detail=f"{self.reason}: {','.join(self.labels)}",
+        )
+
+
+def _token(clause: Clause) -> str:
+    return clause.label.strip().strip("().")
+
+
+def _start(token: str) -> str | None:
+    if token in KOREAN_LETTERS:
+        return "가"
+    if token.isdigit():
+        return "1"
+    if len(token) == 1 and token.isascii() and token.isalpha():
+        return "a" if token.islower() else "A"
+    return None
+
+
+def _between(first: str, last: str) -> list[str] | None:
+    """first부터 last 앞까지의 번호. last가 MAX_MISSING 안에서 나오지 않으면 None."""
+    out: list[str] = []
+    token: str | None = first
+    while token is not None and token != last and len(out) <= MAX_MISSING:
+        out.append(token)
+        token = _next(token)
+    return out if token == last and 0 < len(out) <= MAX_MISSING else None
+
+
+def detect_structure_gaps(clauses: list[Clause]) -> list[StructureGap]:
+    """번호 목록이 늦게 시작하거나 건너뛴 자리, 본문에 나누지 못한 번호 목록이 남은 조항을 찾는다. 모델 호출이 없다.
+
+    - LATE_START: 첫 하위가 .b·.2처럼 시작 번호가 아니다. 빠진 앞 항목은 문서 순서상 바로 앞 조항(대개 부모) 글에 있다.
+    - SKIP: 형제 번호가 .c 다음 .e처럼 건너뛴다(기존 `GAP`과 같은 자리). 빠진 항목은 .e 바로 앞 조항 글에 있다.
+    - INLINE_UNSPLIT: 하위 조항이 없는 조항 본문에 하위 번호 모양의 1·a부터 이어지는 표지가 둘 이상 남아 있다.
+
+    Args:
+        clauses: build_clause_tree의 조항(문서 순서).
+
+    Returns:
+        list[StructureGap]: 문서 순서. 고쳐 쓰지 않는다(structure_repair가 모델 경계로 나눈다).
+    """
+    gaps: list[StructureGap] = []
+    numbers = {c.clause_no for c in clauses}
+    last: dict[tuple[str | None, int], Clause] = {}
+    for index, clause in enumerate(clauses):
+        token = _token(clause)
+        start = _start(token)
+        if clause.depth < 3 or clause.parent_no is None or start is None:
+            continue
+        if clause.clause_no.split("~")[0] != f"{clause.parent_no}.{token}":
+            continue
+        key = (clause.parent_no, clause.depth)
+        previous = last.get(key)
+        last[key] = clause
+        if previous is None:
+            missing, reason = _between(start, token), "LATE_START"
+        elif _start(_token(previous)) == start and _token(previous) != token:
+            following = _next(_token(previous))
+            missing = _between(following, token) if following else None
+            reason = "SKIP"
+        else:
+            continue
+        if missing and index > 0:
+            gaps.append(
+                StructureGap(
+                    clause_no=clauses[index - 1].clause_no,
+                    reason=reason,
+                    labels=missing,
+                    parent_no=clause.parent_no,
+                    depth=clause.depth,
+                    label_format=clause.label.strip().replace(token, "{}", 1),
+                )
+            )
+    parents = {c.parent_no for c in clauses}
+    for clause in clauses:
+        style = INLINE_STYLE.get(clause.depth + 1)
+        if style is None or clause.clause_no in parents or not clause.text:
+            continue
+        pattern, label_format = style
+        text = " " + clause.text
+        run: list[str] = []
+        for m in pattern.finditer(text):
+            label: str = m.group(2)
+            words = text[: m.start()].split()
+            if words and words[-1].lower().rstrip(",") in INLINE_REFERENCE_WORDS:
+                continue
+            if run and label == _next(run[-1]):
+                run.append(label)
+            elif label in SEQUENCE_START and len(run) < 2:
+                run = [label]
+                if m.group(1):
+                    label_format = "({})"
+        if len(run) >= 2 and not any(f"{clause.clause_no}.{t}" in numbers for t in run):
+            gaps.append(
+                StructureGap(
+                    clause_no=clause.clause_no,
+                    reason="INLINE_UNSPLIT",
+                    labels=run,
+                    parent_no=clause.clause_no,
+                    depth=clause.depth + 1,
+                    label_format=label_format,
+                )
+            )
+    order = {c.clause_no: n for n, c in enumerate(clauses)}
+    return sorted(gaps, key=lambda g: order[g.clause_no])

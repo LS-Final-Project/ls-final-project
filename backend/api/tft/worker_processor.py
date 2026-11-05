@@ -55,6 +55,7 @@ from backend.api.tft.rfp.storage import (
 )
 from backend.engine.documents import vision
 from backend.engine.documents.router import extract
+from backend.engine.rfp import structure_repair
 from backend.engine.rfp.clauses import ClauseTree, build_clause_tree, is_korean_section
 from backend.engine.rfp.context_graph import ContextProvider, Stage, create_gemini_context_provider
 from backend.engine.rfp.context_graph import fake_provider as fake_context_provider
@@ -102,6 +103,9 @@ class ProcessorSettings(BaseSettings):
     # KAN-224 회신 값 AI 읽기(rfp.reply_read). 공급자는 추출 공급자(fake·gemini)를 따른다.
     reply_read_model: str = Field(default="gemini-3.6-flash", pattern=r"^[a-zA-Z0-9._-]+$")
     reply_read_max_output_tokens: int = Field(default=2048, ge=256, le=65536)
+    # KAN-188 번호 빈자리만 모델 경계로 나누기(structure_repair). 기본은 끔이라 켜지 않으면 처리 결과가 같다.
+    # 켜면 추출과 같은 공급자·모델·출력 상한·시간 제한을 쓴다.
+    structure_repair_enabled: bool = False
 
 
 def fake_provider(_prompt: str) -> Generation:
@@ -204,6 +208,47 @@ def reply_provider(config: ProcessorSettings) -> Provider:
     return provide
 
 
+def structure_provider(config: ProcessorSettings) -> Provider | None:
+    """구조 보정 공급자. 꺼져 있으면 None이고, 실제로 부를 때만 클라이언트를 만든다."""
+    if not config.structure_repair_enabled:
+        return None
+    if config.extraction_provider == "fake":
+        return structure_repair.fake_provider
+    ai = extraction_settings(config)
+    client = None
+
+    def provide(text: str) -> Generation:
+        nonlocal client
+        from backend.shared.ai import create_client, generate
+
+        if client is None:
+            client = create_client(ai)
+        return generate(client, ai, text, response_schema=structure_repair.RepairOutput)
+
+    return provide
+
+
+def repair_structure(
+    tree: ClauseTree, provider: Provider | None, emit: Emit, document_version_id: str
+) -> tuple[ClauseTree, bool]:
+    """번호 빈자리만 모델 경계로 나눈다(문서마다 한 번, 추출 전). 모델이 나눈 조항이 있으면 검토가 필요하다.
+
+    호출 앞뒤로 진행을 남겨 lease·소유권을 확인한다(이미지 전사와 같다). 공급자·lease 예외는 그대로 올라간다.
+    """
+    if provider is None:
+        return tree, False
+
+    def tracked(prompt: str) -> Generation:
+        emit({"step": "parse", "document_version_id": document_version_id})
+        try:
+            return provider(prompt)
+        finally:
+            emit({"step": "parse", "document_version_id": document_version_id})
+
+    result = structure_repair.repair_tree(tree, tracked)
+    return result.tree, bool(result.applied)
+
+
 def build(settings: Settings) -> Processor:
     """worker가 부르는 등록 지점.
 
@@ -241,6 +286,7 @@ def build(settings: Settings) -> Processor:
         draft_provider=rewrite_provider(config),
         rewrite_model=config.draft_rewrite_model,
         reply_provider=reply_provider(config),
+        structure_provider=structure_provider(config),
         extraction_concurrency=config.extraction_concurrency,
         context_provider=context_provider,
         image_provider=(
@@ -264,6 +310,7 @@ def make_processor(
     image_provider: Callable[[vision.ImageInput], Generation] | None = None,
     context_provider: ContextProvider | None = None,
     reply_provider: Provider | None = None,
+    structure_provider: Provider | None = None,
 ) -> Processor:
     """처리 함수를 만든다(검사는 추출 공급자·원문 폴더를 바꿔 끼운다).
 
@@ -273,6 +320,7 @@ def make_processor(
         store: 원문 저장소. 없으면 원문이 필요한 작업은 실패한다.
         products: 자사 제품(기본은 own_spec_facts 전체).
         today: 인증 유효기한 기준일.
+        structure_provider: 번호 빈자리 보정 호출. None이면 부르지 않는다(기본).
 
     Returns:
         Processor: `processor(job, emit)`.
@@ -309,6 +357,7 @@ def make_processor(
                 today(),
                 extraction_concurrency,
                 image_provider,
+                structure_provider,
             )
         )
         if context_provider is not None:
@@ -1220,6 +1269,7 @@ async def process(
     today: date,
     extraction_concurrency: int = 3,
     image_provider: Callable[[vision.ImageInput], Generation] | None = None,
+    structure_provider: Provider | None = None,
 ) -> dict[str, Any]:
     """rfp.process 한 번(단계 7개).
 
@@ -1283,6 +1333,10 @@ async def process(
 
         prepared = []
         for document, tree, plan in planned:
+            tree, repaired = await asyncio.to_thread(
+                repair_structure, tree, structure_provider, emit, str(document["id"])
+            )
+            needs_review |= repaired
             observations = await asyncio.to_thread(
                 transcribe_image_plan, plan, image_provider, emit, str(document["id"])
             )

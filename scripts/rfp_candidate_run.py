@@ -12,6 +12,9 @@
 - `--predictions-out`은 요구별 예측(조항·속성·상태·사유·필수 여부·경로)을 저장소 밖 별도 파일에 남긴다. 사람이
   사유를 표본으로 확인하는 입력이다(`scripts/rfp_reason_sample.py`). 엔진 사유에는 비교 값이 들어갈 수 있어 결과
   파일과 달리 공유하지 않고 정답 작성자에게만 1:1로 넘긴다. 정답 내용은 넣지 않는다.
+- `--structure-repair`는 처리 worker의 `TFT_STRUCTURE_REPAIR_ENABLED`와 같은 번호 빈자리 보정(structure_repair)을
+  추출 전에 문서마다 한 번 돌린다. 기본은 끔이다. 같은 공급자로 부르고 사용량은 문서 사용량에 더하며, 결과 meta에
+  `structure_repair`(판본·호출·적용·거부 수)를 남긴다.
 """
 
 import argparse
@@ -35,11 +38,13 @@ from backend.api.tft.partners.loader import load_profiles  # noqa: E402
 from backend.api.tft.rfp.comparison import load_own_products  # noqa: E402
 from backend.api.tft.worker_processor import fake_provider  # noqa: E402
 from backend.engine.documents.router import extract  # noqa: E402
+from backend.engine.rfp import structure_repair  # noqa: E402
 from backend.engine.rfp.clauses import build_clause_tree  # noqa: E402
 from backend.shared.ai import Generation  # noqa: E402
 from eval.rfp_candidates import (  # noqa: E402
     DocumentRun,
     GoldFile,
+    _add,
     precheck,
     result_file,
     run_document,
@@ -232,8 +237,8 @@ def git_sha() -> str:
     return sha + ("+dirty" if status else "")
 
 
-def gemini(env_file: Path) -> tuple[str, Callable[[str], Generation]]:
-    """평가 스크립트(rfp_requirements_eval)와 같은 설정의 Gemini 구조화 출력 호출."""
+def gemini(env_file: Path, schema: type | None = None) -> tuple[str, Callable[[str], Generation]]:
+    """평가 스크립트(rfp_requirements_eval)와 같은 설정의 Gemini 구조화 출력 호출. schema 기본은 추출 응답 스키마다."""
     from dotenv import dotenv_values
     from pydantic import SecretStr
 
@@ -251,7 +256,7 @@ def gemini(env_file: Path) -> tuple[str, Callable[[str], Generation]]:
     )
     client = create_client(settings)
     return settings.gemini_model, lambda text: generate(
-        client, settings, text, response_schema=ResponseSchema
+        client, settings, text, response_schema=schema or ResponseSchema
     )
 
 
@@ -318,6 +323,11 @@ def main(argv: list[str] | None = None) -> int:
         help="저장소 밖 요구별 예측 JSON(조항·속성·상태·사유). 사유 표본 확인 입력. 결과 파일처럼 새 파일로만 쓴다",
     )
     parser.add_argument("--provider", choices=["gemini", "fake"], default="gemini")
+    parser.add_argument(
+        "--structure-repair",
+        action="store_true",
+        help="추출 전에 번호 빈자리만 모델 경계로 나눈다(기본 끔, worker TFT_STRUCTURE_REPAIR_ENABLED와 같다)",
+    )
     parser.add_argument("--candidate-name", help="결과 후보 이름(기본 rfp-<모델>)")
     parser.add_argument("--env-file", type=Path, default=ROOT / ".env.integrations")
     parser.add_argument("--today", type=date.fromisoformat, help="인증 유효기한 기준일(기본 오늘)")
@@ -370,10 +380,14 @@ def main(argv: list[str] | None = None) -> int:
     sha = git_sha()
     # 모델 설정·자사 제품·협력사 프로필을 먼저 다 읽는다. 여기서 실패하면 공식 자리를 쓰지 않는다(#322 리뷰 P2).
     provider: Callable[[str], Generation]
+    repair: Callable[[str], Generation] | None = None
     if args.provider == "fake":
         model, provider = "fake", fake_provider
+        repair = structure_repair.fake_provider if args.structure_repair else None
     else:
         model, provider = gemini(args.env_file)
+        if args.structure_repair:
+            repair = gemini(args.env_file, structure_repair.RepairOutput)[1]
     products, profiles = load_own_products(), load_profiles()
     by_number = {d.document_number: d for d in gold.documents}
     today = args.today or date.today()
@@ -404,8 +418,21 @@ def main(argv: list[str] | None = None) -> int:
             "model": model,
         }
     runs = []
+    repairs: dict[str, int] = {"calls": 0, "applied": 0, "rejected": 0}
     for n in args.documents:
-        run = run_document(trees[n], by_number[n], provider, products, profiles, today)
+        fixed = structure_repair.repair_tree(trees[n], repair) if repair else None
+        run = run_document(
+            fixed.tree if fixed else trees[n], by_number[n], provider, products, profiles, today
+        )
+        if fixed is not None:
+            run.usage = _add(run.usage, fixed.usage)
+            run.model_versions |= fixed.model_versions
+            repairs["calls"] += fixed.calls
+            repairs["applied"] += len(fixed.applied)
+            repairs["rejected"] += len(fixed.rejected)
+            print(
+                f"D{n}: 구조 보정 적용 {len(fixed.applied)} 거부 {len(fixed.rejected)}", flush=True
+            )
         print(f"D{n}: 절 {run.section_outcomes} 요구 {len(run.predicted)}", flush=True)
         runs.append(run)
     drafts = json.loads(args.drafts.read_text(encoding="utf-8")) if args.drafts else None
@@ -422,6 +449,11 @@ def main(argv: list[str] | None = None) -> int:
         started_at=started_at,
         git_sha=sha,
     )
+    if repair is not None:
+        data["meta"]["structure_repair"] = {
+            "version": structure_repair.STRUCTURE_REPAIR_VERSION,
+            **repairs,
+        }
     text = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
     written = write_new(args.out, text)
     if claim is not None:
