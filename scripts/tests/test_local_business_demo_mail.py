@@ -125,7 +125,18 @@ class DemoMailTests(unittest.TestCase):
         raw = demo_mail.base64.b64decode(reply_row["mime"])
         self.assertEqual(reply_headers(raw), [copy["internetMessageId"]])
 
-    def test_reply_needs_an_earlier_sent_mail(self):
+    def test_reply_needs_an_earlier_sent_mail_to_that_address(self):
+        with self.store.open() as data:
+            self.store.add(
+                data,
+                {
+                    "folder": "sentitems",
+                    "to": ["other@customer.example.invalid"],
+                    "subject": "Re: x",
+                    "internetMessageId": "<o@x>",
+                    "conversationId": "c-other",
+                },
+            )
         with self.assertRaises(ValueError):
             demo_mail.receive(
                 self.store, sender="a@b.example.invalid", subject=None, body="x", reply=True
@@ -179,7 +190,8 @@ class DemoMailTests(unittest.TestCase):
         self.assertTrue((state / "auth" / "mail-demo").exists())
         self.assertEqual(mail.load(state)["demo"], True)
         self.assertEqual(
-            json.loads((state / "auth" / "mail.json").read_text())["allow"], ["@customer.example.invalid"]
+            json.loads((state / "auth" / "mail.json").read_text())["allow"],
+            ["@customer.example.invalid"],
         )
         mail.write(
             state,

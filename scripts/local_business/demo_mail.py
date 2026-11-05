@@ -10,6 +10,7 @@ agent sent to that address (In-Reply-To + same conversation), so the reply links
 way real mail does. These are synthetic messages for local demos only.
 """
 
+import asyncio
 import base64
 import contextlib
 import fcntl
@@ -81,6 +82,14 @@ class DemoStore:
             temporary.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
             os.replace(temporary, self.path)
 
+    def read(self) -> dict[str, Any]:
+        """A consistent snapshot under a shared lock. Never rewrites the file."""
+        if not self.path.exists():
+            return {"next_seq": 0, "messages": []}
+        with open(self.path.with_name(self.path.name + ".lock"), "a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_SH)
+            return json.loads(self.path.read_text(encoding="utf-8"))
+
     def add(self, data: dict[str, Any], message: dict[str, Any]) -> dict[str, Any]:
         message = {**message, "seq": data["next_seq"], "id": "demo-" + uuid4().hex}
         data["next_seq"] += 1
@@ -131,7 +140,8 @@ def receive(
         sender: Customer address (use a reserved test domain such as example.invalid).
         subject: Subject. With `reply` and none given, "Re: " + the answered mail's subject.
         body: Plain text body.
-        reply: Answer the agent's latest sent mail to this address (else the latest sent mail).
+        reply: Answer the agent's latest sent mail to this address. Without one it is an error,
+            so a reply never lands in another customer's conversation.
         now: Received time (default now).
 
     Returns:
@@ -146,7 +156,7 @@ def receive(
         if reply:
             sent = [m for m in data["messages"] if m["folder"] == "sentitems"]
             mine = [m for m in sent if sender.lower() in (a.lower() for a in m["to"])]
-            parent = (mine or sent or [None])[-1]
+            parent = mine[-1] if mine else None
             if parent is None:
                 raise ValueError("LOCAL_MAIL_DEMO_NOTHING_TO_REPLY")
         if not subject:
@@ -219,7 +229,9 @@ class DemoGraph(httpx.AsyncBaseTransport):
             return await self.fallback.handle_async_request(request)
         if request.headers.get("authorization") != f"Bearer {TOKEN}":
             return httpx.Response(401, json={"error": {"code": "InvalidAuthenticationToken"}})
-        return self.graph(request, await request.aread())
+        body = await request.aread()
+        # The store takes a file lock; keep it off the platform's event loop.
+        return await asyncio.to_thread(self.graph, request, body)
 
     def graph(self, request: httpx.Request, body: bytes) -> httpx.Response:
         path, query = request.url.path, parse_qs(urlsplit(str(request.url)).query)
@@ -227,9 +239,8 @@ class DemoGraph(httpx.AsyncBaseTransport):
             return self.send(json.loads(body))
         if request.method != "GET":
             return httpx.Response(405, json={"error": {"code": "MethodNotAllowed"}})
-        with self.store.open() as data:
-            messages = list(data["messages"])
-            next_seq = data["next_seq"]
+        data = self.store.read()
+        messages, next_seq = data["messages"], data["next_seq"]
         if found := DELTA.fullmatch(path):
             folder = found.group(1)
             start = int(query.get("$deltatoken", ["0"])[0])
