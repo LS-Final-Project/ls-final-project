@@ -540,11 +540,19 @@ def _modality(text: str) -> bool | None:
     return None
 
 
+# 영문 규격서의 축약 문장('항목: 값'). CSI 규격서 작성 관행에서 'Rated Current: 4000 A'는
+# 'Rated current shall be 4000 A'를 줄인 말이다(streamlined language).
+STREAMLINED = re.compile(r"^\W*[A-Za-z][A-Za-z0-9 ,()/&'\-.]{1,80}:\s*\S")
+
+
 def _raised_necessity(req: ExtractedRequirement, path: str) -> ExtractedRequirement:
     """모델이 UNDETERMINED로 낸 요구를 의무 표현이 있으면 MANDATORY로 올린다. 다른 값은 그대로 둔다.
 
     인용을 먼저 보고, 표현이 없으면 모델이 받은 상위 조항 문맥(path)을 가까운 상위부터 본다. 처음 만난 표현이
     정한다: 선호·허용(should·may 등)이면 올리지 않는다. 'shall not'도 의무라 MANDATORY다.
+    어디에도 표현이 없을 때, 인용이 영문 축약 문장('항목: 값')이고 측정값이 있는 사양 요구(SPEC, 연산자가 TEXT가
+    아님)면 MANDATORY로 올린다(규격서 축약 문장은 'shall be'를 줄인 것이다). 예전에는 형제 항목('1. Comply with
+    ...')이 상위 문맥에 잘못 붙어 우연히 올라가던 경우다(2026-11-06 조항 파서 수정 뒤 드러남).
     모델이 보낸 necessity_by_rule은 쓰지 않는다.
 
     Args:
@@ -561,6 +569,14 @@ def _raised_necessity(req: ExtractedRequirement, path: str) -> ExtractedRequirem
             verdict = _modality(text)
             if verdict is not None:
                 break
+        if (
+            verdict is None
+            and req.kind == "SPEC"
+            and req.value is not None
+            and req.operator != "TEXT"
+            and STREAMLINED.match(req.quote)
+        ):
+            verdict = True
     if verdict:
         return req.model_copy(update={"necessity": "MANDATORY", "necessity_by_rule": True})
     return req.model_copy(update={"necessity_by_rule": False})

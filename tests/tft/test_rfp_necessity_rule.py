@@ -186,3 +186,32 @@ def test_a_raised_rating_shortfall_excludes_the_partner():
     summary, [row] = grade_candidate(weak, [graded], context, date(2026, 11, 20))
     assert row.mandatory_check.failed == ["short_time_withstand_current"]
     assert summary.overall_grade == "EXCLUDED"
+
+
+STREAMLINED = section(
+    "G. Capacities and Characteristics:",
+    "1. Comply with IEEE C37.06.",
+    "2. Rated Continuous Current: 4000 A.",
+    "3. Enclosure color: ANSI 61 gray.",
+)
+
+
+def test_a_streamlined_rating_line_without_any_modality_is_mandatory():
+    """'항목: 값' 축약 문장은 규격서에서 'shall be'다. 형제 항목의 Comply는 상위 문맥이 아니다."""
+    assert "Comply" not in STREAMLINED.clauses[2].path
+    kept = judged(
+        "2.4.G.2",
+        "Rated Continuous Current: 4000 A.",
+        "UNDETERMINED",
+        item=STREAMLINED,
+        value="4000",
+        unit="A",
+        operator="EQ",
+    )
+    assert (kept.necessity, kept.necessity_by_rule) == ("MANDATORY", True)
+
+
+def test_a_streamlined_text_line_stays_undetermined():
+    # 측정값이 없는 문장형(TEXT)은 축약 문장 규칙으로 올리지 않는다.
+    kept = judged("2.4.G.3", "Enclosure color: ANSI 61 gray.", "UNDETERMINED", item=STREAMLINED)
+    assert (kept.necessity, kept.necessity_by_rule) == ("UNDETERMINED", False)
