@@ -134,6 +134,8 @@ const notificationRoutes = [
   [/^\/api\/v1\/platform\/notifications$/, ['GET'], ['limit', 'offset']],
   [/^\/api\/v1\/platform\/notifications\/unread-count$/, ['GET'], []],
   [/^\/api\/v1\/platform\/notifications\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/read$/, ['POST'], []],
+  [/^\/api\/v1\/platform\/notifications\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/dismiss$/, ['POST'], []],
+  [/^\/api\/v1\/platform\/notifications\/read-all$/, ['POST'], []],
   [/^\/api\/v1\/platform\/push\/public-key$/, ['GET'], []],
   [/^\/api\/v1\/platform\/push\/subscription$/, ['PUT', 'DELETE'], []],
 ];

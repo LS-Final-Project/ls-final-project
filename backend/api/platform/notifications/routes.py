@@ -1,4 +1,4 @@
-"""현재 세션의 알림만 조회하고 읽음 처리한다. 수신자 목록은 공개하지 않는다."""
+"""현재 세션의 알림만 조회·읽음·모두 읽음·숨김 처리한다. 수신자 목록은 공개하지 않는다."""
 
 from typing import Annotated
 from uuid import UUID
@@ -73,15 +73,38 @@ async def count_notifications(
     )
 
 
-@router.post("/{intent_id}/read", status_code=204, operation_id="platform_read_my_notification")
-async def read_notification(intent_id: UUID, request: Request, user: User) -> Response:
+def guard_write(request: Request) -> None:
     query_keys(request, set())
     if request.app.state.microsoft_auth.enabled:
         mutation_token(request)
     else:
         guard_local(request)
         guard_origin(request)
+
+
+@router.post("/read-all", status_code=204, operation_id="platform_read_all_my_notifications")
+async def read_all_notifications(request: Request, user: User) -> Response:
+    guard_write(request)
+    async with connection(request.app.state.settings) as conn:
+        await repository.mark_all_read(conn, user.data.id)
+    return Response(status_code=204, headers={"Cache-Control": "no-store"})
+
+
+@router.post("/{intent_id}/read", status_code=204, operation_id="platform_read_my_notification")
+async def read_notification(intent_id: UUID, request: Request, user: User) -> Response:
+    guard_write(request)
     async with connection(request.app.state.settings) as conn:
         if not await repository.mark_read(conn, user.data.id, intent_id):
+            raise HTTPException(404)
+    return Response(status_code=204, headers={"Cache-Control": "no-store"})
+
+
+@router.post(
+    "/{intent_id}/dismiss", status_code=204, operation_id="platform_dismiss_my_notification"
+)
+async def dismiss_notification(intent_id: UUID, request: Request, user: User) -> Response:
+    guard_write(request)
+    async with connection(request.app.state.settings) as conn:
+        if not await repository.dismiss(conn, user.data.id, intent_id):
             raise HTTPException(404)
     return Response(status_code=204, headers={"Cache-Control": "no-store"})

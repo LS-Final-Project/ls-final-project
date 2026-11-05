@@ -239,3 +239,26 @@ def test_get_list_and_count_execute_only_select_and_never_expand(monkeypatch):
         }
     assert conn.execute.await_count == 2
     expand.assert_not_awaited()
+
+
+def test_read_all_and_dismiss_use_session_user_and_write_guard(monkeypatch):
+    client, conn, _, _, _, _ = setup(monkeypatch)
+    read_all = AsyncMock(return_value=3)
+    dismiss = AsyncMock(return_value=True)
+    monkeypatch.setattr(repository, "mark_all_read", read_all)
+    monkeypatch.setattr(repository, "dismiss", dismiss)
+    with client:
+        assert client.post("/api/v1/platform/notifications/read-all").status_code == 204
+        read_all.assert_awaited_once_with(conn, USER)
+        assert client.post(f"/api/v1/platform/notifications/{SUBJECT}/dismiss").status_code == 204
+        dismiss.assert_awaited_once_with(conn, USER, SUBJECT)
+        dismiss.return_value = False
+        assert client.post(f"/api/v1/platform/notifications/{uuid4()}/dismiss").status_code == 404
+        assert client.post("/api/v1/platform/notifications/read-all?user_id=x").status_code == 400
+        assert (
+            client.post(
+                "/api/v1/platform/notifications/read-all",
+                headers={"Origin": "https://evil.invalid"},
+            ).status_code
+            == 403
+        )
