@@ -53,5 +53,7 @@ export async function notificationMutation(actorId: string, path: string, method
   if (!response.ok) throw await error(response);
 }
 export const markNotificationRead = (actorId: string, id: string, signal?: AbortSignal) => notificationMutation(actorId, `/api/v1/platform/notifications/${encodeURIComponent(id)}/read`, 'POST', {}, signal);
+export const markAllNotificationsRead = (actorId: string, signal?: AbortSignal) => notificationMutation(actorId, '/api/v1/platform/notifications/read-all', 'POST', {}, signal);
+export const dismissNotification = (actorId: string, id: string, signal?: AbortSignal) => notificationMutation(actorId, `/api/v1/platform/notifications/${encodeURIComponent(id)}/dismiss`, 'POST', {}, signal);
 export const savePushSubscription = (actorId: string, subscription: SubscriptionInput, signal?: AbortSignal) => notificationMutation(actorId, '/api/v1/platform/push/subscription', 'PUT', subscription, signal);
 export const deletePushSubscription = (actorId: string, endpoint: string) => notificationMutation(actorId, '/api/v1/platform/push/subscription', 'DELETE', { endpoint });

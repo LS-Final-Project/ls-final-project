@@ -124,3 +124,16 @@ it('담당 배정 알림(cs.assigned)은 고정 제목으로 보이고 C/S 문�
   fireEvent.click(await screen.findByRole('button', { name: '새 문의 배정' }));
   await waitFor(() => expect(screen.getByLabelText('현재 경로').textContent).toBe(`/cs/tickets/${ID}`));
 });
+it('모두 읽음과 지우기는 본인 알림 경로를 부르고 목록·숫자를 다시 읽는다', async () => {
+  const base = serve();
+  const f = vi.fn(async (url: string, init?: RequestInit) => url.endsWith('/read-all') || url.endsWith('/dismiss') ? new Response(null, { status: 204 }) : base(url, init));
+  vi.stubGlobal('fetch', f); view();
+  fireEvent.click(await screen.findByRole('button', { name: /알림, 안 읽음 1건/ }));
+  fireEvent.click(await screen.findByRole('button', { name: `${item.title} 알림 지우기` }));
+  await waitFor(() => expect(f.mock.calls.some(([url, init]) => url === `/api/v1/platform/notifications/${ID}/dismiss` && init?.method === 'POST')).toBe(true));
+  await waitFor(() => expect((screen.getByRole('button', { name: '모두 읽음' }) as HTMLButtonElement).disabled).toBe(false));
+  const before = f.mock.calls.filter(([url]) => url.endsWith('/unread-count')).length;
+  fireEvent.click(screen.getByRole('button', { name: '모두 읽음' }));
+  await waitFor(() => expect(f.mock.calls.some(([url]) => url === '/api/v1/platform/notifications/read-all')).toBe(true));
+  await waitFor(() => expect(f.mock.calls.filter(([url]) => url.endsWith('/unread-count')).length).toBeGreaterThan(before));
+});
