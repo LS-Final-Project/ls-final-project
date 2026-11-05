@@ -907,7 +907,7 @@ function ReplyFlow({ projectId, detail, question, onDone }: { projectId: string;
     <div className="ws-go">
       <label className="ws-field inline">새 요구값<input value={value} size={10} placeholder="값을 직접 입력" onChange={event => setValue(event.target.value)} /></label>
       <label className="ws-field inline">단위<input value={unit} size={5} onChange={event => setUnit(event.target.value)} /></label>
-      <label className="ws-field inline">조건<input value={cond} placeholder="예: 1 min" size={8} onChange={event => setCond(event.target.value)} /></label>
+      <label className="ws-field inline">조건<input value={cond} placeholder="예: 1분" size={8} onChange={event => setCond(event.target.value)} /></label>
     </div>
     {!result ? <div className="ws-go">
       <button className="kb primary" disabled={!value.trim() || apply.isPending} onClick={() => apply.mutate()}>회신 값으로 다시 판정</button>
@@ -1036,7 +1036,7 @@ function AddRequirement({ projectId, quote, clause, equipment, onDone, onCancel 
     <div className="ws-go">
       <label className="ws-field inline">값<input value={value} size={10} onChange={event => { setValue(event.target.value); setDupe(false); }} /></label>
       <label className="ws-field inline">단위<input value={unit} size={5} onChange={event => setUnit(event.target.value)} /></label>
-      <label className="ws-field inline">조건<input value={cond} size={8} placeholder="예: 1 min" onChange={event => setCond(event.target.value)} /></label>
+      <label className="ws-field inline">조건<input value={cond} size={8} placeholder="예: 1분" onChange={event => setCond(event.target.value)} /></label>
     </div>
     {!valueOk && <p role="alert" className="ws-alert">값이 고른 글에 없습니다. 고른 글에 있는 값만 넣을 수 있습니다.</p>}
     {dupe && <p role="status" className="ws-note">같은 설비·속성·값의 요구가 이미 있습니다. 그래도 추가하려면 다시 누르세요.</p>}
