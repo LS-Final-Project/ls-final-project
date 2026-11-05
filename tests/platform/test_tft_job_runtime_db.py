@@ -381,6 +381,34 @@ def test_stale_job_is_closed_and_the_project_accepts_again(
     assert again.created is True
 
 
+def test_stale_running_job_is_closed_as_worker_lost(settings, jobs_database, tft_job):
+    """worker가 인수해 진행을 남긴 뒤 끊긴 작업은 '시작 못 함'이 아니라 JOB_WORKER_LOST로 닫힌다."""
+    with psycopg.connect(jobs_database) as conn:
+        conn.execute(
+            "UPDATE runtime.dispatch_outbox SET state='ACCEPTED' WHERE job_id=%s", (tft_job,)
+        )
+        conn.execute(
+            "UPDATE runtime.job_control SET generation=generation+1,holder_id=gen_random_uuid(),"
+            "lease_expires_at=now()-interval '1 minute' WHERE job_id=%s",
+            (tft_job,),
+        )
+        conn.execute("UPDATE runtime.jobs SET status='RUNNING' WHERE id=%s", (tft_job,))
+        for sequence, kind in ((2, "job.started"), (3, "job.progress")):
+            conn.execute(
+                "INSERT INTO runtime.job_events(job_id,sequence,type) VALUES (%s,%s,%s)",
+                (tft_job, sequence, kind),
+            )
+    age_events(jobs_database, tft_job)
+    app = sweep_app(settings, lambda _: httpx.Response(200, json={}))
+    assert run_sweep(app)["reaped"] == 1
+    assert job_state(jobs_database, tft_job) == (
+        "FAILED",
+        "JOB_WORKER_LOST",
+        None,
+        ["job.queued", "job.started", "job.progress", "job.failed"],
+    )
+
+
 def test_reaper_leaves_live_workers_and_closed_owners_alone(
     settings, jobs_database, tft_job, monkeypatch
 ):

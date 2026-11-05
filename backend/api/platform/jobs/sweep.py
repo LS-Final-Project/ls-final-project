@@ -4,7 +4,7 @@ Cloud Scheduler가 `POST /internal/v1/platform/jobs/dispatch`를 주기적으로
 보낸다(시작 지연을 줄인다). 접수 직후 전송은 실패해도 접수를 실패시키지 않고 다음 주기가 맡는다.
 평가 작업은 이 경로로도 local/test 밖에서 전송되지 않는다(admission_available).
 
-주기마다 시작하지 못한 C/S·RFP 작업을 실패로 닫는다. 전송이 끝내 안 되거나 Job이 뜨지 못하거나 worker가
+주기마다 멈춘 C/S·RFP 작업을 실패로 닫는다. 전송이 끝내 안 되거나 Job이 뜨지 못하거나 worker가
 죽으면 작업이 QUEUED·RUNNING에 남아 그 프로젝트의 다음 접수가 계속 409가 되기 때문이다.
 """
 
@@ -117,10 +117,11 @@ def configure_jobs_sweep(app: FastAPI, value: JobsSweepSettings, **overrides: An
 
 
 async def reap_stale(app: FastAPI) -> int:
-    """시작하지 못한 C/S·RFP 작업을 FAILED로 닫아 다음 접수를 연다.
+    """멈춘 C/S·RFP 작업을 FAILED로 닫아 다음 접수를 연다.
 
-    늦게 뜬 worker는 작업이 끝난 상태라 인수하지 못한다(job_runtime.claim). 살아 있는 lease가 있으면 건드리지
-    않는다. 전송 장부는 그대로 두며, 남은 전송은 begin_send가 BLOCKED로 막는다.
+    실패 코드는 닫을 때의 상태로 나눈다. 인수되지 않은 QUEUED는 `JOB_NOT_STARTED`, worker가 인수한 뒤
+    보고가 끊긴 RUNNING은 `JOB_WORKER_LOST`다. 늦게 뜬 worker는 작업이 끝난 상태라 인수하지
+    못한다(job_runtime.claim). 살아 있는 lease가 있으면 건드리지 않는다. 전송 장부는 그대로 두며, 남은 전송은 begin_send가 BLOCKED로 막는다.
 
     Args:
         app: 설정을 가진 플랫폼 앱.
@@ -134,7 +135,9 @@ async def reap_stale(app: FastAPI) -> int:
         return 0
     async with connection(app.state.settings) as conn, conn.transaction():
         cursor = await conn.execute(
-            "SELECT j.id FROM runtime.jobs j JOIN runtime.job_control c ON c.job_id=j.id "
+            "SELECT j.id,CASE j.status WHEN 'RUNNING' THEN 'JOB_WORKER_LOST' "
+            "ELSE 'JOB_NOT_STARTED' END AS code "
+            "FROM runtime.jobs j JOIN runtime.job_control c ON c.job_id=j.id "
             "WHERE j.owner=ANY(%s) AND j.status IN ('QUEUED','RUNNING') "
             "AND coalesce(c.lease_expires_at<=clock_timestamp(),true) "
             "AND (SELECT max(e.occurred_at) FROM runtime.job_events e WHERE e.job_id=j.id) "
@@ -146,8 +149,8 @@ async def reap_stale(app: FastAPI) -> int:
         for row in rows:
             await conn.execute(
                 "UPDATE runtime.job_control SET holder_id=NULL,lease_expires_at=NULL,"
-                "version=version+1,failure_code='JOB_NOT_STARTED' WHERE job_id=%s",
-                (row["id"],),
+                "version=version+1,failure_code=%s WHERE job_id=%s",
+                (row["code"], row["id"]),
             )
             await conn.execute("UPDATE runtime.jobs SET status='FAILED' WHERE id=%s", (row["id"],))
             await conn.execute(
