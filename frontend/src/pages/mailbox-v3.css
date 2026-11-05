@@ -78,3 +78,83 @@
 .ls-root .kv .td3.bx3 .bx-orig .meta{margin:0}
 .ls-root .kv .td3.bx3 .bx-orig small{display:block;font-size:11.5px;color:#6b7385;font-weight:600;margin-bottom:4px}
 .ls-root .kv .td3.bx3 .bx-link .cand.found{margin-top:8px}
+
+/* KAN-241 메일 화면 v3 정리: 메일함·발송 상태·메일 계정 공통(.ml3). 업무 홈(cs-home)과 같은 상자·숫자 배지·빈 상태. */
+.ls-root .kv .td3.ml3 .ph h2{margin:0;font-size:inherit;font-weight:700}
+.ls-root .kv .td3.ml3 .ph .meta{font-size:11.5px;font-weight:400;color:#6b7385}
+.ls-root .kv .td3.ml3 .ph .meta b{color:#1d2433;font-weight:700}
+.ls-root .kv .td3.ml3 .ph .cnt{display:inline-block;min-width:22px;padding:1px 8px;border-radius:999px;background:#eef0f4;color:#4b5563;font-size:11.5px;font-weight:700;text-align:center;font-variant-numeric:tabular-nums}
+.ls-root .kv .td3.ml3 .ph .cnt.hot{background:var(--ls-red,#ED164B);color:#fff}
+.ls-root .kv .td3.ml3 .unc{color:#9aa2b1}
+.ls-root .kv .td3.ml3 .link{color:#1f4fbf;text-decoration:none}
+.ls-root .kv .td3.ml3 .link:hover{text-decoration:underline}
+/* 빈 상태: 아이콘 + 굵은 한 줄 + 다음에 무엇이 보일지 */
+.ls-root .kv .td3.ml3 .ml-empty{display:flex;flex-direction:column;align-items:center;gap:6px;padding:28px 16px;text-align:center;color:#6b7385}
+.ls-root .kv .td3.ml3 .ml-empty.sm{padding:18px 16px}
+.ls-root .kv .td3.ml3 .ml-empty.box{background:#fff;border:1px solid #d9dde4}
+.ls-root .kv .td3.ml3 .ml-empty .ic{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:#eef2fa;color:#1a3a7a;margin-bottom:2px;font-size:16px;font-weight:700}
+.ls-root .kv .td3.ml3 .ml-empty .ic.ok{background:#eaf5ee;color:#2f7d4f}
+.ls-root .kv .td3.ml3 .ml-empty .ic svg{width:20px;height:20px}
+.ls-root .kv .td3.ml3 .ml-empty b{font-size:13.5px;font-weight:700;color:#1d2433}
+.ls-root .kv .td3.ml3 .ml-empty small{font-size:12px;color:#8a92a3;max-width:460px;line-height:1.5}
+.ls-root .kv .td3.ml3 .log td.none{padding:0}
+/* 기타 메뉴(KvMore)를 v3 버튼 모양으로 */
+.ls-root .kv .td3.ml3 .kv-more>summary.kb{height:28px;box-sizing:border-box;padding:0 10px;border:1px solid #b9c0cc;background:#fff;border-radius:2px;display:inline-flex;align-items:center;font-size:12.5px;font-weight:600;color:#1d2433;white-space:nowrap}
+.ls-root .kv .td3.ml3 .kv-more>div{top:32px;border-color:#d9dde4;box-shadow:0 6px 16px rgba(16,24,40,.10)}
+.ls-root .kv .td3.ml3 .kv-more>div button{padding:7px 10px;cursor:default}
+.ls-root .kv .td3.ml3 .kv-more>div small{margin-top:1px;color:#8a92a3}
+
+/* 제목 줄 검색 칸: 셸 공통 입력 테두리(.ls-root:has(#shell) input, !important)가 겹쳐 보이지 않게 */
+.ls-root:has(#shell) .kv .td3.bx3 .bx-search input[type=text]{height:auto;min-height:0;margin:0;padding:0;border:0!important;background:none;box-shadow:none!important;outline:none}
+.ls-root .kv .td3.bx3 .bx-search:focus-within{border-color:#1a3a7a;box-shadow:0 0 0 2px rgba(26,58,122,.12)}
+/* 메일함(MB0100): 받은 메일 표와 연결 필요 상자를 같은 상자 머리로 맞추고 높이는 내용만큼 */
+.ls-root .kv .td3.bx3 .bx-inbox .logwrap{max-height:340px}
+.ls-root .kv .td3.bx3 .bx-inbox .log td.who{max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#4a5263}
+.ls-root .kv .td3.bx3 .bx-inbox .log td.t .chip{margin-left:6px}
+.ls-root .kv .td3.bx3 .bx-inbox .log td.c,.ls-root .kv .td3.bx3 .bx-inbox .log th.c{text-align:center}
+.ls-root .kv .td3.bx3 .bx-review .bx-scope{margin:0}
+.ls-root .kv .td3.bx3 .bx-review>.bx-wrap{border:0;min-height:460px;max-height:calc(100vh - 210px)}
+.ls-root .kv .td3.bx3 .bx-review .bx-list ul{flex:1;min-height:0}
+.ls-root .kv .td3.bx3 .bx-review .bx-detail{overflow:auto}
+
+/* 발송 상태(MB0102): 요약 카드(업무 배정 .as3 .kpi) + 조건 줄 + 목록 상자 */
+.ls-root .kv .td3.ms3 .cond.lc .hint{margin-left:auto;font-size:12px;color:#6b7385}
+.ls-root .kv .td3.ms3 .kpi span{font-size:12px}
+.ls-root .kv .td3.ms3 .log td.t{max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ls-root .kv .td3.ms3 .log td input[type=radio]{margin:0;vertical-align:middle}
+.ls-root .kv .td3.ms3 .log td.no{color:#6b7385;font-variant-numeric:tabular-nums}
+.ls-root .kv .td3.ms3 .chip{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:#f1f2f5;color:#5b6475;font-size:11.5px;font-weight:600;white-space:nowrap}
+.ls-root .kv .td3.ms3 .chip.st-ok{background:#eaf5ee;color:#2f7d4f}
+.ls-root .kv .td3.ms3 .chip.st-warn{background:#fdf3dc;color:#8a5a00}
+.ls-root .kv .td3.ms3 .chip.st-bad{background:#fdecec;color:#c2123f}
+.ls-root .kv .td3.ms3 .chip.st-wait{background:#eef3fb;color:#1f3d73}
+.ls-root .kv .td3.ms3 .log code.err{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#a3221a}
+
+/* 메일 계정(MB0103): 계정마다 연결 상태 카드(상태 칩·계정·마지막 변경), 아래 두 칸 */
+.ls-root .kv .td3.ma3 .ma-cards{list-style:none;margin:0;padding:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(400px,1fr));gap:10px}
+.ls-root .kv .td3.ma3 .ma-card{--tone:#2f7d4f;position:relative;display:flex;flex-direction:column;gap:12px;padding:14px 16px;background:#fff;border:1px solid #e1e5ec;border-radius:6px;box-shadow:0 1px 2px rgba(16,24,40,.04);overflow:hidden}
+.ls-root .kv .td3.ma3 .ma-card::before{content:"";position:absolute;inset:0 auto 0 0;width:3px;background:var(--tone)}
+.ls-root .kv .td3.ma3 .ma-card.bad{--tone:var(--ls-red,#ED164B)}
+.ls-root .kv .td3.ma3 .ma-card.off{--tone:#a9b1bf}
+.ls-root .kv .td3.ma3 .ma-top{display:flex;align-items:center;gap:10px;min-width:0}
+.ls-root .kv .td3.ma3 .ma-top .ic{width:34px;height:34px;border-radius:6px;display:grid;place-items:center;background:#eef2fa;color:#1a3a7a;flex:none}
+.ls-root .kv .td3.ma3 .ma-top .ic svg{width:19px;height:19px}
+.ls-root .kv .td3.ma3 .ma-id{display:flex;flex-direction:column;min-width:0;flex:1}
+.ls-root .kv .td3.ma3 .ma-id small{font-size:11.5px;color:#6b7385;font-weight:600}
+.ls-root .kv .td3.ma3 .ma-id b{font-size:13.5px;font-weight:700;overflow-wrap:anywhere}
+.ls-root .kv .td3.ma3 .ma-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700;white-space:nowrap;background:#eaf5ee;color:#2f7d4f}
+.ls-root .kv .td3.ma3 .ma-chip i{width:7px;height:7px;border-radius:50%;background:currentColor}
+.ls-root .kv .td3.ma3 .ma-chip.bad{background:#fdecec;color:#c2123f}
+.ls-root .kv .td3.ma3 .ma-chip.off{background:#f1f2f5;color:#6b7385}
+.ls-root .kv .td3.ma3 .ma-card dl,.ls-root .kv .td3.ma3 .ma-kv{display:grid;grid-template-columns:100px minmax(0,1fr);gap:8px 10px;margin:0;font-size:12.5px}
+.ls-root .kv .td3.ma3 .ma-kv{padding:12px 14px}
+.ls-root .kv .td3.ma3 .ma-card dt,.ls-root .kv .td3.ma3 .ma-kv dt{color:#6b7385}
+.ls-root .kv .td3.ma3 .ma-card dd,.ls-root .kv .td3.ma3 .ma-kv dd{margin:0;font-weight:600;color:#1d2433;min-width:0;overflow-wrap:anywhere}
+.ls-root .kv .td3.ma3 dd .bad{color:#c2123f}
+.ls-root .kv .td3.ma3 dd .unc{font-weight:400}
+.ls-root .kv .td3.ma3 .cols2{align-items:stretch}
+.ls-root .kv .td3.ma3 .fnote{margin:auto 0 0;padding:8px 14px;font-size:12px;color:#6b7385;border-top:1px solid #eceef2}
+.ls-root .kv .td3.ma3 .pane.alert{border-left:3px solid var(--ls-red,#ED164B)}
+.ls-root .kv .td3.ma3 .ma-act{display:flex;align-items:center;gap:12px;margin-top:auto;padding:10px 14px;border-top:1px solid #eceef2}
+.ls-root .kv .td3.ma3 .ma-act small{flex:1;font-size:12px;color:#6b7385}
+@media (max-width:1100px){.ls-root .kv .td3.ma3 .cols2{grid-template-columns:1fr}}
