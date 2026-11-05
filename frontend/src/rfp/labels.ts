@@ -132,20 +132,23 @@ const PARTNER_WORD: Record<string, string> = { 충족: '충족', 미달: '미달
  *    "조립품 공급이라 통합 책임(연동)이 필요: 후보 미확인." 여러 줄 → "통합 책임 미확인: 연동·보증"
  */
 export function partnerNote(grade?: { reasons?: string[]; exclusion_reasons?: string[] } | null) {
-  const lines = [...(grade?.exclusion_reasons ?? []), ...(grade?.reasons ?? [])];
-  const spec: string[] = [];
-  const duty: Record<string, string[]> = {};
-  for (const line of lines) {
-    const d = line.match(/통합 책임\((\S+?)\)이 필요:\s*후보 (\S+?)\.?$/);
-    if (d) { (duty[d[2]] ??= []).push(d[1]); continue; }
-    const m = line.match(/^원문 \S+ (.+?) 요구 (.+?)(?:, 후보 ([^(:]+?))?(?:\(근거[^)]*\))?:\s*(.+?)\.?$/);
-    if (!m) { spec.push(line); continue; }
-    const [, attr, want, got, word] = m;
-    spec.push(got ? `${attr} ${got.trim()}, 요구 ${want} ${PARTNER_WORD[word] ?? word}` : `${attr} 자료 없음, 확인 필요`);
-  }
-  const parts = [...new Set(spec)];
-  if (duty['불가']) parts.push(`통합 책임 불가: ${duty['불가'].join('·')}`);
-  if (duty['미확인']) parts.push(`통합 책임 미확인: ${duty['미확인'].join('·')}`);
-  return { text: parts.join(' / '), full: lines.join('\n') };
+  // 제외 사유를 먼저, 나머지 사유를 뒤에 둔다(제외 행은 왜 못 고르는지가 먼저 보여야 한다).
+  const summarize = (lines: string[]) => {
+    const spec: string[] = [];
+    const duty: Record<string, string[]> = {};
+    for (const line of lines) {
+      const d = line.match(/통합 책임\((\S+?)\)이 필요:\s*후보 (\S+?)\.?$/);
+      if (d) { (duty[d[2]] ??= []).push(d[1]); continue; }
+      const m = line.match(/^원문 \S+ (.+?) 요구 (.+?)(?:, 후보 ([^(:]+?))?(?:\(근거[^)]*\))?:\s*(.+?)\.?$/);
+      if (!m) { spec.push(line); continue; }
+      const [, attr, want, got, word] = m;
+      spec.push(got ? `${attr} ${got.trim()}, 요구 ${want} ${PARTNER_WORD[word] ?? word}` : `${attr} 자료 없음, 확인 필요`);
+    }
+    if (duty['불가']) spec.push(`통합 책임 불가: ${duty['불가'].join('·')}`);
+    if (duty['미확인']) spec.push(`통합 책임 미확인: ${duty['미확인'].join('·')}`);
+    return spec;
+  };
+  const parts = [...new Set([...summarize(grade?.exclusion_reasons ?? []), ...summarize(grade?.reasons ?? [])])];
+  return { text: parts.join(' / '), full: [...(grade?.exclusion_reasons ?? []), ...(grade?.reasons ?? [])].join('\n') };
 }
 export const PARTNER_GRADE_LABEL: Record<string, string> = { MANDATORY_CONFIRMED: '필수 조건 확인', REVIEW: '검토', REFERENCE_ONLY: '확인용', EXCLUDED: '제외' };
