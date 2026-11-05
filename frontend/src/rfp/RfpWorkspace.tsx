@@ -384,20 +384,22 @@ export function Decide({ project, documents, rows, role, actorId, log }: { proje
   const remainByEq = equipments.map(e => [e, verdictRows.filter(r => eqKey(r) === e && open(r)).length] as const).filter(([, n]) => n);
   const remainText = remainByEq.map(([e, n]) => `${e} ${n}`).join(', ');
   return <>
-    <div className="ws-strip">
-      <span className="ws-strong">결정 {total}건 중 {total - todo}건 완료</span>
-      <span className="ws-track" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={total - todo}><span style={{ width: `${total ? Math.round((total - todo) / total * 100) : 0}%` }} /></span>
-      <span className="muted ws-remain" title={remainText}>{remainText}</span>
-      <span className="sp" />
-      {!responsible && <Rerun projectId={project.id} documents={documents} busy={!!log?.job && activeRfpJob(log.job.status)} />}
-      <button className="ws-link" aria-expanded={logOpen} onClick={() => setLogOpen(!logOpen)}>AI 분석 과정</button>
-    </div>
-    {logOpen && <AnalysisLog projectId={project.id} actorId={actorId} documents={documents} live={log} />}
-    {stale && <p className="muted ws-note ws-stale">맥락 정리 뒤 바뀐 요구가 있습니다. 설비 묶음과 중복을 맞추려면 맥락 정리를 다시 하세요.</p>}
+    <div className="ws-tabrow">
     <div className="ws-tabs" role="tablist">
       <button role="tab" aria-selected={tab === 'review'} className={tab === 'review' ? 'on' : ''} onClick={() => setTab('review')}>검토</button>
       <button role="tab" aria-selected={tab === 'output'} className={tab === 'output' ? 'on' : ''} onClick={() => setTab('output')}>출력 {[gate.undecided, gate.deviation_missing, gate.open_queries, gate.review_pending].some(Boolean) && <span className="muted">출력 전 남은 일 {[gate.undecided, gate.deviation_missing, gate.open_queries, gate.review_pending].filter(Boolean).length}</span>}</button>
     </div>
+    {/* 결정 진행은 탭 줄 오른쪽에 작게 둔다: 따로 한 줄을 쓰면 아래 원문 칸이 그만큼 줄어든다. */}
+    <div className="ws-strip ws-strip-mini">
+      <span className="ws-strong">결정 {total - todo}/{total}</span>
+      <span className="ws-track" role="progressbar" aria-label="결정 진행" aria-valuemin={0} aria-valuemax={total} aria-valuenow={total - todo}><span style={{ width: `${total ? Math.round((total - todo) / total * 100) : 0}%` }} /></span>
+      <span className="muted ws-remain" title={remainText}>{remainText}</span>
+      {!responsible && <Rerun projectId={project.id} documents={documents} busy={!!log?.job && activeRfpJob(log.job.status)} />}
+      <button className="ws-link" aria-expanded={logOpen} onClick={() => setLogOpen(!logOpen)}>AI 분석 과정</button>
+    </div>
+    </div>
+    {logOpen && <AnalysisLog projectId={project.id} actorId={actorId} documents={documents} live={log} />}
+    {stale && <p className="muted ws-note ws-stale">맥락 정리 뒤 바뀐 요구가 있습니다. 설비 묶음과 중복을 맞추려면 맥락 정리를 다시 하세요.</p>}
     {tab === 'output'
       ? <Output project={project} rows={verdictRows} excluded={excluded} responsible={responsible} actorId={actorId} onJump={f => { setFilter(f); setTab('review'); }} onPick={id => { setFilter('all'); setSel(id); setTab('review'); }} />
       : <>

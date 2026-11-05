@@ -296,3 +296,10 @@ button.ws-gateitem{color:#24518a;cursor:pointer}
 .ws-fit{padding-bottom:0}
 .ws-fit>.ws-left,.ws-fit>.ws-right{height:calc(100vh - var(--ws-grid-top,280px) - 12px);min-height:480px;overflow:hidden}
 .ws-fit>.ws-left .ws-tbox{flex:1;height:auto;min-height:0}
+/* 결정 진행을 탭 줄 오른쪽에 작게(사용자 지적 2026-11-05: 별도 줄이 원문 칸을 줄였다). */
+.ws-tabrow{display:flex;align-items:flex-end;gap:12px;margin-top:12px;border-bottom:1px solid #d5dbe3}
+.ws-tabrow .ws-tabs{margin-top:0;margin-bottom:-1px}
+.ls-root .rfp-ui .ws-strip.ws-strip-mini,.ws-strip.ws-strip-mini{margin:0 0 6px auto;padding:0;border:0;background:none;gap:10px;font-size:12px;flex-wrap:nowrap;min-width:0}
+.ws-strip-mini .ws-strong{font-size:12px;white-space:nowrap}
+.ws-strip-mini .ws-track{width:96px;height:4px;flex:none}
+.ws-strip-mini .ws-remain{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
