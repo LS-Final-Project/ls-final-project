@@ -11,6 +11,7 @@ import json
 import os
 import sqlite3
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -136,6 +137,10 @@ class Permit:
                 CREATE TABLE IF NOT EXISTS driver_modes (
                     token TEXT PRIMARY KEY, limit_mode TEXT NOT NULL
                     CHECK(limit_mode IN ('limited','unlimited')));
+                CREATE TABLE IF NOT EXISTS operator_settlements (
+                    charge_id TEXT PRIMARY KEY, previous_reason TEXT, reserved TEXT NOT NULL,
+                    settled_usd TEXT NOT NULL, reason TEXT NOT NULL, operator TEXT NOT NULL,
+                    settled_at TEXT NOT NULL);
             """
             for statement in schema.split(";"):
                 if statement.strip():
@@ -451,6 +456,51 @@ class Permit:
                 ),
             )
             return reason
+
+    def settle_unknown(
+        self, charge: str, *, reason: str, operator: str, actual_usd: str | None = None
+    ) -> dict[str, str]:
+        """운영자가 UNKNOWN 한 건을 SETTLED로 닫는다. 금액은 명시하지 않으면 예약액(보수적).
+
+        감사 행(operator_settlements)을 같은 트랜잭션에 남긴다. 같은 값으로 다시 부르면 기존 정산을 그대로
+        돌려주고(멱등), 다른 값이면 거부한다. UNKNOWN이 아닌 건(RESERVED 포함)은 정상 settle 경로로만 닫는다.
+        """
+        reason, operator = reason.strip(), operator.strip()
+        if not reason or not operator or len(reason) > 500 or len(operator) > 100:
+            raise ValueError("INVALID_LOCAL_SETTLEMENT")
+        with self.transaction() as db:
+            row = db.execute("SELECT * FROM charges WHERE id=?", (charge,)).fetchone()
+            if row is None:
+                raise Denied("LOCAL_CHARGE_NOT_FOUND")
+            amount = money(row["reserved"] if actual_usd is None else actual_usd)
+            done = db.execute(
+                "SELECT * FROM operator_settlements WHERE charge_id=?", (charge,)
+            ).fetchone()
+            if done is not None:
+                if money(done["settled_usd"]) != amount or done["reason"] != reason:
+                    raise Denied("LOCAL_SETTLEMENT_CONFLICT")
+                return dict(done)
+            if row["state"] != "UNKNOWN":
+                raise Denied("LOCAL_CHARGE_NOT_UNKNOWN")
+            record = {
+                "charge_id": charge,
+                "previous_reason": row["reason"],
+                "reserved": row["reserved"],
+                "settled_usd": str(amount),
+                "reason": reason,
+                "operator": operator,
+                "settled_at": datetime.now(UTC).isoformat(),
+            }
+            db.execute(
+                "UPDATE charges SET actual=?,state='SETTLED',reason='OPERATOR_SETTLED' WHERE id=?",
+                (str(amount), charge),
+            )
+            db.execute(
+                "INSERT INTO operator_settlements VALUES "
+                "(:charge_id,:previous_reason,:reserved,:settled_usd,:reason,:operator,:settled_at)",
+                record,
+            )
+            return record
 
     def close_driver(self, token: str):
         with self.transaction() as db:

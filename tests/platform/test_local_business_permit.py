@@ -240,3 +240,35 @@ def test_six_reservations_allowed_seventh_rejected_without_mutation(tmp_path):
         assert db.execute("SELECT count(*) FROM charges").fetchone()[0] == 6
     for charge in charges:
         assert p.settle(charge, actual_usd="0.01") is None
+
+
+def test_operator_settles_unknown_at_reservation_with_audit_and_unblocks(tmp_path):
+    p, token, job = permit(tmp_path)
+    charge = p.reserve(token, job, "configured-model")
+    p.settle(charge, actual_usd=None)
+    p.close_driver(token)
+    with pytest.raises(ValueError, match="INVALID_LOCAL_SETTLEMENT"):
+        p.settle_unknown(charge, reason=" ", operator="ops")
+    record = p.settle_unknown(charge, reason="thinking 토큰 누락", operator="ops")
+    assert record["settled_usd"] == "0.50" and record["previous_reason"] == "LOCAL_COST_UNKNOWN"
+    # 같은 값으로 다시 부르면 그대로, 다른 금액이면 거부한다.
+    assert p.settle_unknown(charge, reason="thinking 토큰 누락", operator="ops") == record
+    with pytest.raises(Denied, match="LOCAL_SETTLEMENT_CONFLICT"):
+        p.settle_unknown(charge, reason="thinking 토큰 누락", operator="ops", actual_usd="0.10")
+    with p.transaction() as db:
+        row = db.execute("SELECT actual,state,reason FROM charges WHERE id=?", (charge,)).fetchone()
+        assert tuple(row) == ("0.50", "SETTLED", "OPERATOR_SETTLED")
+        assert db.execute("SELECT count(*) FROM operator_settlements").fetchone()[0] == 1
+    p.authorize(max_jobs=1, max_calls=1, reserve_usd="0.10")  # UNKNOWN이 없으므로 다시 허가된다.
+
+
+def test_operator_settlement_refuses_reserved_or_settled_charges(tmp_path):
+    p, token, job = permit(tmp_path)
+    charge = p.reserve(token, job, "configured-model")
+    with pytest.raises(Denied, match="LOCAL_CHARGE_NOT_UNKNOWN"):
+        p.settle_unknown(charge, reason="r", operator="ops")
+    p.settle(charge, actual_usd="0.01")
+    with pytest.raises(Denied, match="LOCAL_CHARGE_NOT_UNKNOWN"):
+        p.settle_unknown(charge, reason="r", operator="ops")
+    with pytest.raises(Denied, match="LOCAL_CHARGE_NOT_FOUND"):
+        p.settle_unknown("missing", reason="r", operator="ops")

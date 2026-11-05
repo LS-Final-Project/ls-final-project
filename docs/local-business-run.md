@@ -246,6 +246,16 @@ uv run --frozen --python 3.12 python -m scripts.local_business restart --namespa
 
 고아 QUEUED/RUNNING, 살아 있는 lease, 중단된 driver, 비용 RESERVED/UNKNOWN이 있으면 **enable-real·재시작을 중단하고 담당자에게 보고**한다. UI 재요청·setup 재실행·DB/permit 행 삭제·토큰 초기화로 우회하지 않는다. 현재 비용 journal은 미정산 예약을 발견하면 `LOCAL_COST_UNKNOWN_REVIEW_REQUIRED` 등으로 추가 허용을 거부한다. 고아 job의 일괄 자동 복구 CLI는 없다. 정규 stale lease 복구도 살아 있는 holder를 지우지 않는 기존 절차에 따라 담당자가 판단한다.
 
+**UNKNOWN 비용 한 건의 운영자 정산.** 담당자가 원인(예: 응답 사용량 누락)을 확인했으면, `disable-real`로 driver를 끈 뒤 아래 명령으로 그 한 건만 닫는다. 금액을 모르면 `--actual`을 빼서 예약액으로 보수적으로 정산하고, 공급자 청구 등으로 확인한 금액이 있으면 `--actual`에 넣는다. 사유·운영자는 필수이고, 정산 시각·이전 사유·예약액·정산액이 `operator_settlements` 감사 행으로 남는다. UNKNOWN이 아닌 건은 거부하며, 같은 값으로 다시 실행하면 기존 결과를 돌려준다(다른 값이면 `LOCAL_SETTLEMENT_CONFLICT`). 원장 파일을 직접 고치지 않는다.
+
+```bash
+uv run --frozen --python 3.12 python -m scripts.local_business settle-unknown \
+  --namespace "$NS" --charge '<charges.id>' --operator '<담당자>' \
+  --reason '<원인과 금액 근거>' [--actual '<확인한 USD>']
+```
+
+정산 뒤 UNKNOWN이 남지 않으면 `enable-real`을 다시 실행할 수 있다.
+
 **남은 운영 한계(P3):** POST 허용 확인은 원자적으로 예약하는 슬롯이 아니다. 동시 처리 슬롯보다 많이 접수한 작업은 대기열에 남을 수 있다. 제한 모드의 총 작업 허용량과 동시 실행 수는 별개이며, 중단 후 남은 QUEUED 작업은 자동 재접수하지 않는다. stop 도중 오류가 나면 전체 종료로 간주하지 말고 status와 실제 컨테이너·tunnel·lease·비용의 잔류 상태를 확인해 담당자에게 보고한다. 모든 고아 job의 start/restart 자동 거부나 복구 전용 CLI는 없다. usage·비용이 불명인 호출은 추가 허용 차단을 유지하며 disable-real·앱 재시작으로 자동 정산하거나 예약을 지우지 않는다. source46의 한정 실증 이후에도 최신 통합 전체 E2E와 각 PC의 재현은 별도 확인 대상이다.
 
 status는 컨테이너와 실제 DB의 QUEUED/RUNNING/FAILED 상태·실패 코드·lease 유효 여부를 읽는다. `settings.json`의 코드 SHA와 실제 소비 이미지를 함께 기록한다. 로그는 `artifacts/local-business/$NS/logs/`, driver 결과·worker 로그는 `control/`에 있다. 자격 파일·원문·키·전체 환경은 공유하지 말고 고정 오류 코드·시각·job ID·코드 SHA만 전달한다. 이번 문서 정정·dev 정합 작업에서는 setup/start/적재/모델/DB를 추가 실행하지 않았다. 앞선 source46 실증, 최신 코드 정합, 각 PC의 재현과 전체 업무·운영 완료를 각각 구분해 기록한다.
