@@ -17,7 +17,7 @@
 | 저장소 | Cloud SQL PostgreSQL, pgvector와 FTS, Cloud Storage |
 | DB 분리 | Cloud SQL 인스턴스 1개, PostgreSQL DB 1개. 서비스별 스키마와 접속 계정 분리 |
 | AI | Gemini, LangChain, LangGraph. 체크포인트는 PostgreSQL |
-| 비동기 실행 | 문서 처리는 Cloud Tasks, 평가는 Cloud Run Jobs, 상태는 PostgreSQL |
+| 비동기 실행 | C/S 분석·RFP 문서 처리는 Cloud Run Jobs worker(접수 직후 전송과 Cloud Scheduler 1분 주기 전송), 메일 수집·발송은 Cloud Tasks, 평가는 Cloud Run Jobs, 상태는 PostgreSQL |
 | 운영 도구 | Cloud Build, Secret Manager, LangSmith(Developer 티어, local 추적만, 2026-10-29 확정) |
 | 연동 | Microsoft 로그인과 실제 메일 읽기 및 발송 포함. 회사 시스템 연동 제외 |
 | 로그인과 API 접근 | 플랫폼의 서버 로그인 및 세션 쿠키. C/S 및 TFT 요청은 플랫폼이 중계 |
@@ -123,7 +123,7 @@ RFP 프로젝트의 사업 책임자(`responsible_user_id`)는 새로운 로그�
 
 문의 종결과 개선요청 완료를 별도로 관리한다. RFP 대응도 산출물 상태(`output_status`), 판단 상태(`judgement_status`), 변경 제안 승인이 서로 다른 기록이다. AI 작업이 `SUCCEEDED`여도 메일 발송, 업무 승인, 요구 판단 확정 상태로 자동 전환하지 않는다.
 
-Cloud Tasks의 중복 실행과 순서 역전을 전제로 처리한다. 작업 및 단계 키, lease, 결과 저장의 유일성 제약으로 중복 반영을 막는다. 재시도에서 실행 횟수와 토큰 비용이 늘었다면 실제 사용량을 남긴다. [Cloud Tasks 실행 특성](https://docs.cloud.google.com/tasks/docs/common-pitfalls)
+작업 전송(접수 직후 전송과 Scheduler 주기 전송)과 메일 Cloud Tasks의 중복 실행과 순서 역전을 전제로 처리한다. 작업 및 단계 키, lease, 결과 저장의 유일성 제약으로 중복 반영을 막는다. 재시도에서 실행 횟수와 토큰 비용이 늘었다면 실제 사용량을 남긴다. [Cloud Tasks 실행 특성](https://docs.cloud.google.com/tasks/docs/common-pitfalls)
 
 SSE는 저장된 작업 이벤트를 전달한다. 연결이 끊겨도 실행은 지속되며 클라이언트는 작업 조회와 이벤트 커서로 복구한다. 업무 처리나 LLM 호출을 응답 종료 뒤의 FastAPI 메모리 작업에만 맡기지 않는다. Cloud Run 요청 제한과 재접속을 고려한다. [Cloud Run 요청 시간 제한](https://docs.cloud.google.com/run/docs/configuring/request-timeout)
 
@@ -135,7 +135,7 @@ RFP 시연은 14번 유닛 변전소 규격서 한 건을 대표로 쓴다. 자�
 
 원천별 입력을 공통 데이터 모델로 변환하는 경계를 둔다. KAN-92 완료 범위는 C/S 입력 경계이며 설비·사례·문서·후보의 공통 변환 전체를 완료한 것으로 확대하지 않는다. DOCX·PDF 처리와 메일 수집 등 개별 경로의 구현·검증은 각 계약과 티켓을 따른다. 업무 로직은 원천 컬럼이나 외부 시스템 ID를 직접 사용하지 않는다. 도입 시 어댑터 외에도 정책, 필드 매핑, 권한, 시점과 평가 사례를 검증한다. 인터페이스가 같다는 이유만으로 실제 도입 검증이 끝난 것은 아니다.
 
-검색은 접근 범위와 유효 문서 버전 필터, FTS 및 벡터 후보, RRF 결합, 재정렬 순서다. 인용은 불변 원문 버전과 위치를 보존한다. FLT-042는 인용을 차단한다. 후보 검색과 재정렬에서도 접근할 수 없는 내용이 유출되지 않도록 한다.
+검색은 접근 범위와 유효 문서 버전 필터, FTS 및 벡터 후보, RRF 결합, 제품 코드 일치 우선 순서다. 재정렬(리랭커)은 연결 자리만 있고 구현이 없다(`backend/engine/search/hybrid.py`). C/S 벡터 검색은 기본으로 꺼져 있어 켜기 전에는 FTS만 쓴다. 인용은 불변 원문 버전과 위치를 보존한다. FLT-042는 인용을 차단한다. 후보 검색에서도 접근할 수 없는 내용이 유출되지 않도록 한다.
 
 LLM, 임베딩, OCR, 재정렬은 각각 교체 가능한 포트로 둔다. 모델 ID, 임베딩 차원, 캐시 유효성은 사용 키의 지원 목록과 평가 결과로 선택한다. 임베딩 모델이나 차원이 바뀌면 검색 인덱스 판본을 새로 만들고 혼합 비교하지 않는다.
 
