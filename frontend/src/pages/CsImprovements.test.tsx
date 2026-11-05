@@ -49,7 +49,7 @@ test.each([true])('편집 중 포커스·재조회가 입력과 저장 결과를
   if(init?.method==='POST'||init?.method==='PATCH'){saveSignal=init.signal as AbortSignal;await pending;return jsonResponse(503,errorBody('UNCERTAIN','합성 저장 결과 불확실'));}
   return jsonResponse(200,detail?source:{data:{items:[]}});
  });vi.stubGlobal('fetch',fetch);view(detail);
- fireEvent.click(await screen.findByRole('button',{name:detail?'내용 수정':'새 개선요청 작성'}));
+ fireEvent.click(await screen.findByRole('button',{name:detail?'검토할 문제 고치기':'새 개선요청 작성'}));
  fireEvent.change(screen.getByLabelText('검토할 문제'),{target:{value:'보존할 합성 입력'}});
  if(!detail){fireEvent.change(screen.getByLabelText('제품 코드'),{target:{value:'SYNTHETIC'}});fireEvent.change(screen.getByLabelText('고장 ID'),{target:{value:'FLT-001'}});fireEvent.click(screen.getByLabelText('TS_LV'));}
  const refresh=screen.getByRole('button',{name:'최신 요청 조회'});
@@ -77,7 +77,7 @@ test('운영 빌드는 준비 중 대신 실제 상세와 역할별 동작을 �
  vi.stubGlobal('fetch',fetch);
  render('/cs/improvements/test','/cs/improvements/:requestId',<Page/>);
  await screen.findByText('수신 부서와 할 일');expect(screen.queryByText(/운영 인증 중계와 권한 검증 후/)).toBeNull();
- expect(await screen.findByRole('button',{name:/^검토 완료 기록/})).toBeTruthy();expect(screen.getByRole('button',{name:'내용 수정'})).toBeTruthy();
+ expect(await screen.findByRole('button',{name:/^검토 완료 기록/})).toBeTruthy();expect(screen.getByRole('button',{name:'검토할 문제 고치기'})).toBeTruthy();
 });
 test('운영 빌드에서 업무 UI가 꺼져 있으면 조회하지 않는다',async()=>{
  vi.stubEnv('DEV',false);vi.stubEnv('VITE_BUSINESS_UI_ENABLED','false');vi.resetModules();
@@ -98,7 +98,7 @@ function uncertainFlow(){
 }
 const reviewButton=async()=>(await screen.findByRole('button',{name:/^검토 완료 기록/})) as HTMLButtonElement;
 async function becomeUncertain(){
- // 검토 완료는 입력 없이 바로 기록한다(제안 부서는 '내용 수정'에서만 고친다).
+ // 검토 완료는 입력 없이 바로 기록한다(제안 부서는 칸을 눌러 연 수정에서만 고친다).
  fireEvent.click(await reviewButton());
  // 입력 상자가 없으므로 오류는 '결과 불명' 안내 문장 앞에 붙는다.
  await screen.findByText(/합성 처리 결과 불확실/);
@@ -117,9 +117,9 @@ test('결과 불명 뒤 다시 읽기가 실패하면 막은 채로 두고 이�
  state.detail=200;fireEvent.click(screen.getByRole('button',{name:'최신 요청 조회'}));
  await waitFor(async()=>expect((await reviewButton()).disabled).toBe(false));expect(screen.queryByText(/최신 상세를 받기 전에는/)).toBeNull();
 });
-test('내용 수정 중에는 검토 완료를 누를 수 없다',async()=>{
+test('칸을 눌러 수정 중에는 검토 완료를 누를 수 없다',async()=>{
  uncertainFlow();
- fireEvent.click(await screen.findByRole('button',{name:'내용 수정'}));expect((await reviewButton()).disabled).toBe(true);
+ fireEvent.click(await screen.findByRole('button',{name:'검토할 문제 고치기'}));expect((await reviewButton()).disabled).toBe(true);
 });
 
 test('근거 비교는 해결 기록 칸을 나란히 두고 다수와 다른 값과 확인할 줄을 표시한다',async()=>{
@@ -204,9 +204,10 @@ test('목록은 최근 작성순 10건씩 쪽으로 나누고, 머리를 눌러 
  const items=Array.from({length:12},(_,i)=>({id:`r-${i}`,origin:'MANUAL',problem_statement:`합성 요청 ${String(i).padStart(2,'0')}`,request_type:'FAULT',product_code:'TEST',fault_id:null,doc_signal:null,status:'DRAFT',version:1,evidence_count:i,cs_owner:null,created_at:`2026-10-${String(i+1).padStart(2,'0')}T00:00:00Z`}));
  vi.stubGlobal('fetch',vi.fn(async()=>jsonResponse(200,{data:{items}})));view(false);
  const table=await screen.findByRole('table',{name:'개선요청 목록'});
- const titles=()=>[...table.querySelectorAll('tbody tr td:first-child')].map(td=>td.textContent);
- expect(titles()).toHaveLength(10);expect(titles()[0]).toBe('합성 요청 11');
- fireEvent.click(screen.getByRole('button',{name:'2쪽'}));expect(titles()).toEqual(['합성 요청 01','합성 요청 00']);expect(screen.getByText('총 12건 중 12건')).toBeTruthy();
+ const titles=()=>[...table.querySelectorAll('tbody tr td:nth-child(2)')].map(td=>td.textContent);
+ const nos=()=>[...table.querySelectorAll('tbody tr td:first-child')].map(td=>td.textContent);
+ expect(titles()).toHaveLength(10);expect(titles()[0]).toBe('합성 요청 11');expect(nos()[0]).toBe('1');
+ fireEvent.click(screen.getByRole('button',{name:'2쪽'}));expect(titles()).toEqual(['합성 요청 01','합성 요청 00']);expect(nos()).toEqual(['11','12']);expect(screen.getByText('총 12건 중 12건')).toBeTruthy();
  fireEvent.change(screen.getByLabelText('검색어'),{target:{value:'요청 03'}});expect(titles()).toEqual(['합성 요청 03']);expect(screen.getByText('총 12건 중 1건')).toBeTruthy();
  fireEvent.click(screen.getByRole('button',{name:/조건 지우기/}));expect(titles()).toHaveLength(10);
  fireEvent.click(screen.getByRole('button',{name:/^문제 정렬/}));expect(titles()[0]).toBe('합성 요청 00');expect(titles()).toHaveLength(10);
@@ -261,11 +262,11 @@ test('검토를 마친 요청은 개선 요청 작성 상자의 부서 전달로
  const call=fetch.mock.calls.find(([url])=>String(url).endsWith('/send'))!;expect(JSON.parse(call[1]!.body as string)).toEqual({version:r.version,dept_codes:['TS_TRF'],reply_due_days:7});
 });
 
-test('내용 수정에서 제안 부서를 고르고, 고장 요청은 부서를 비우면 저장하지 않는다',async()=>{
+test('제안 부서 칸을 눌러 부서를 고르고, 고장 요청은 부서를 비우면 저장하지 않는다',async()=>{
  const body=structuredClone(source) as unknown as ImprovementDetail;const r=body.data.request;r.request_type='FAULT';r.fault_id='FLT-001';r.proposed_depts=['TS_TRF'];
  const fetch=vi.fn(async(url:RequestInfo|URL,_init?:RequestInit)=>String(url).endsWith('/me')?new Response(JSON.stringify({data:{roles:['cs_agent'],dept:null,managed_departments:[]}}),{headers:{'X-CSRF-Token':'synthetic'}}):jsonResponse(200,body));
  vi.stubGlobal('fetch',fetch);view();
- fireEvent.click(await screen.findByRole('button',{name:'내용 수정'}));
+ fireEvent.click(await screen.findByRole('button',{name:'제안 부서 고치기'}));
  fireEvent.click(screen.getByRole('button',{name:/ 빼기$/}));
  expect((screen.getByRole('button',{name:'내용 저장'}) as HTMLButtonElement).disabled).toBe(true);
  fireEvent.change(screen.getByLabelText('제안 부서 추가'),{target:{value:'TS_LV'}});expect(screen.getByRole('button',{name:/저압기기 기술지원.* 빼기/})).toBeTruthy();
@@ -363,11 +364,11 @@ test('근거 비교는 판단할 것이 있어도 접힌 채로 시작하고 머
  fireEvent.click(head);expect(await screen.findByRole('table',{name:'근거 비교'})).toBeTruthy();
 });
 
-test('부서 담당자에게는 개선 요청 작성의 내용 수정·AI 초안 작성 단추가 없다(C/S가 보낸 요청서를 읽기만)',async()=>{
+test('부서 담당자에게는 개선 요청 작성의 칸 수정·AI 초안 작성 단추가 없다(C/S가 보낸 요청서를 읽기만)',async()=>{
  const body=structuredClone(source) as unknown as ImprovementDetail;const r=body.data.request;
  r.status='SENT';r.version=3;r.current_round=1;body.data.departments=[{round:1,dept_code:'TS_TRF',status:'SENT',carried_over:false,sent_version:2,reply_due_at:'2999-01-01T00:00:00Z',rejection_reviewed_at:null,rejection_reviewed_by:null}];
  vi.stubGlobal('fetch',vi.fn(async(url:RequestInfo|URL)=>String(url).endsWith('/me')?new Response(JSON.stringify({data:{roles:['dept_staff'],dept:'TS_TRF',managed_departments:[]}}),{headers:{'X-CSRF-Token':'synthetic'}}):jsonResponse(200,body)));view();
  await screen.findByText('수신 부서와 할 일');
- await waitFor(()=>expect(screen.queryByRole('button',{name:'내용 수정'})).toBeNull());
+ await waitFor(()=>expect(screen.queryByRole('button',{name:/고치기$/})).toBeNull());
  expect(screen.queryByRole('button',{name:/AI 초안 작성/})).toBeNull();
 });

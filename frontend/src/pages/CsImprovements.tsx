@@ -309,7 +309,7 @@ function ImprovementView(){
             const shown=sortRows(items,listColumns,sort).slice(at*PAGE,at*PAGE+PAGE);
             return <>
               <div className="ph">개선요청<div className="r"><span className="meta" title="최근 최대 200건을 받아 온 기준입니다">총 {faults.length}건 중 {items.length}건</span><span className="meta" title="C/S 담당이 없는 진행 중 요청입니다(완료 제외). C/S 관리자가 미배정 자동 배정으로 채웁니다">미배정 {faults.filter(item=>!item.cs_owner&&item.status!=='COMPLETED').length}건</span></div></div>
-              <LogTable label="개선요청 목록" columns={listColumns} rows={shown} rowKey={item=>item.id} fallback={faults.length?'조건에 맞는 개선요청이 없습니다. 조건 지우기로 조건을 비울 수 있습니다.':'조회 가능한 개선요청이 없습니다.'}
+              <LogTable label="개선요청 목록" columns={[{key:'no',header:'No',width:44,className:'c no',cell:item=>at*PAGE+shown.indexOf(item)+1},...listColumns]} rows={shown} rowKey={item=>item.id} fallback={faults.length?'조건에 맞는 개선요청이 없습니다. 조건 지우기로 조건을 비울 수 있습니다.':'조회 가능한 개선요청이 없습니다.'}
                 sort={sort} onSort={key=>{setPage(0);setSort(current=>current.key===key?{key,dir:current.dir==='asc'?'desc':'asc'}:{key,dir:key==='created'?'desc':'asc'});}}/>
               {pages>1&&<nav className="pager" aria-label="개선요청 쪽">
                 <button type="button" className="kb3 sm" disabled={at===0} onClick={()=>setPage(at-1)}>이전</button>

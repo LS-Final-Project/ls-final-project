@@ -31,7 +31,7 @@ function server(state: string, version: number, post: (call: Post) => Response |
 }
 function view() { setApiMode('live'); return renderAt('/cs/tickets/x', '/cs/tickets/:ticketId', <TicketDetail />); }
 // 새 문의 처리 화면(KAN-210): "기타" 메뉴 없이 동작 버튼이 제목 줄·정보 칸에 있고, 막힌 이유는 버튼 title에 있다.
-const ready = (label: string) => screen.findByText(label, { selector: 'strong.state' });
+const ready = (label: string) => screen.findByText(label, { selector: 'span.wf-state' });
 const btn = (name: string) => screen.getByRole('button', { name }) as HTMLButtonElement;
 const dialog = () => within(screen.getByRole('dialog'));
 const openReturn = async () => { fireEvent.click(await screen.findByRole('button', { name: '반품 확정' })); return within(await screen.findByRole('form', { name: '반품 확정' })); };

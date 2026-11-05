@@ -45,7 +45,7 @@ function server(state: string, version: number, workflowExtra: Record<string, un
 }
 function view() { setApiMode('live'); return renderAt('/cs/tickets/x', '/cs/tickets/:ticketId', <TicketDetail />); }
 const body = (call: Post) => JSON.parse(call.init.body as string);
-const ready = (label: string) => screen.findByText(label, { selector: 'strong.state' });
+const ready = (label: string) => screen.findByText(label, { selector: 'span.wf-state' });
 // 초안 비교 창은 회신 상자의 [다른 초안]으로 연다(KAN-210).
 async function openDraft() {
   fireEvent.click(await screen.findByRole('button', { name: '다른 초안' }));
@@ -271,21 +271,19 @@ function withTranslation(answer: () => Response, language = 'es') {
 }
 const toKorean = async () => { view(); await ready('검토중'); fireEvent.click(screen.getByRole('button', { name: '한국어 번역 보기' })); };
 
-test('번역이 없으면 한국어 번역 단추를 보이고, 누르면 POST한 뒤 번역을 메일 카드로 보인다', async () => {
-  let made = false;
-  const posts = withTranslation(() => jsonResponse(200, translationView(made ? translated() : null)));
+test('번역이 없으면 한국어 번역 보기를 누르는 순간 바로 번역을 만들어 메일 카드로 보인다', async () => {
+  // 저장된 번역은 POST가 나간 뒤에만 있다.
+  const made = () => posts.some(call => call.url.endsWith('/translation'));
+  const posts: { url: string }[] = withTranslation(() => jsonResponse(200, translationView(made() ? translated() : null)));
   await toKorean();
-  expect(await screen.findByText(/아직 번역이 없습니다/)).toBeTruthy();
-  made = true;
-  fireEvent.click(screen.getByRole('button', { name: '한국어 번역' }));
   const card = (await screen.findByText('변압기 누유')).closest('.mail-card') as HTMLElement;
   expect(card.querySelector('.mail')?.textContent).toBe('개스킷에서 기름이 샙니다.\n보증 대상인가요?');
   expect(within(card).getByText('AI 번역')).toBeTruthy();
   expect(screen.getByText(/원문이 기준입니다/)).toBeTruthy();
-  // 번역을 덧붙여도 원문 카드는 그대로 있다.
+  // 번역을 덧붙여도 원문 카드는 그대로 있다. 번역 단추는 따로 없다.
   expect(document.querySelectorAll('.mail-card').length).toBeGreaterThanOrEqual(2);
   expect(posts.filter(call => call.url.endsWith('/translation'))).toHaveLength(1);
-  expect(screen.queryByRole('button', { name: '한국어 번역' })).toBeNull();
+  expect(screen.queryByText(/아직 번역이 없습니다/)).toBeNull();
   // 처리 기록에 AI 행으로 남는다.
   expect(screen.getByText('한국어 번역')).toBeTruthy();
 });
@@ -295,7 +293,7 @@ test('원문이 바뀐 번역은 그대로 보이고 다시 번역 단추를 둔
   await toKorean();
   expect(await screen.findByText('변압기 누유')).toBeTruthy();
   expect(screen.getByText(/원문이 바뀌어 다시 번역할 수 있습니다/)).toBeTruthy();
-  expect(screen.getByRole('button', { name: '한국어 번역' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: '다시 번역' })).toBeTruthy();
 });
 
 test('원문이 한국어면 번역 보기 단추를 두지 않고 원문만 보인다', async () => {

@@ -42,9 +42,9 @@ function rowsFor(data:Data,roles:string[],dept:string|null,managed:string[],now:
   const deptClosed=r.status==='FOLLOW_UP'||completed||rejectionClosed;
   const deptClosedReason=completed?'완료된 요청입니다.':r.status==='FOLLOW_UP'?'후속 확인 단계에서는 부서 처리를 바꾸지 않습니다.':'모든 부서의 반려를 확인해 종료된 요청입니다.';
   if(roles.includes('cs_agent')){
-    const noDepts=quick&&r.request_type==='FAULT'&&!r.proposed_depts.length?'제안 부서가 없습니다. 개선 요청 작성의 "내용 수정"에서 제안 부서를 고르세요.':undefined;
+    const noDepts=quick&&r.request_type==='FAULT'&&!r.proposed_depts.length?'제안 부서가 없습니다. 개선 요청 작성의 제안 부서 칸을 눌러 고르세요.':undefined;
     rows.push({kind:'review',label:'검토 완료 기록',targetLabel:'요청',reason:r.status==='DRAFT'?reviewBlocked??noDepts:'작성 중 상태에서만 검토를 기록할 수 있습니다.',done:r.status!=='DRAFT'});
-    const sendReason=r.status!=='REVIEWED'?(r.status==='DRAFT'?'검토를 먼저 기록해야 합니다.':'이미 부서에 전달한 요청입니다.'):quick&&!r.proposed_depts.length?'제안 부서가 없습니다. 개선 요청 작성의 "내용 수정"에서 제안 부서를 고르세요.':undefined;
+    const sendReason=r.status!=='REVIEWED'?(r.status==='DRAFT'?'검토를 먼저 기록해야 합니다.':'이미 부서에 전달한 요청입니다.'):quick&&!r.proposed_depts.length?'제안 부서가 없습니다. 개선 요청 작성의 제안 부서 칸을 눌러 고르세요.':undefined;
     rows.push({kind:'send',label:'부서 전달',targetLabel:'요청',reason:sendReason,done:r.status!=='DRAFT'&&r.status!=='REVIEWED'});
     for(const x of data.departments){
       // 다시 요청은 기획서의 추가 정보 대기(자료 보완)와 반려(새 근거)만. 회신 기한·회신 재촉은 화면에서 쓰지 않는다(서버 기본 기한 7일만 보냄).
