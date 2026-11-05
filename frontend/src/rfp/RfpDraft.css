@@ -77,3 +77,9 @@
 .ls-root .rfp-draft .draft-workflow b{font-size:inherit;font-weight:600}
 .rfp-draft .draft-buttons{margin-top:8px}
 @media(max-width:800px){.rfp-draft .draft-workflow li{grid-template-columns:1fr;gap:2px}}
+/* 초안 화면: 왼쪽 문서와 오른쪽 저장 칸이 각자 스크롤(페이지 전체 스크롤 없이, 사용자 지적 2026-11-05). */
+@media(min-width:801px){
+.rfp-draft .draft-fit>.kv-split{align-items:stretch}
+.rfp-draft .draft-fit>.kv-split>*{height:calc(100vh - var(--ws-grid-top,320px) - 16px);min-height:420px;overflow:auto;overscroll-behavior:contain}
+.rfp-draft .draft-fit{padding-bottom:0}
+}

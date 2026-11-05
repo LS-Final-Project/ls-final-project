@@ -25,6 +25,7 @@ import { useRfpJobEvents } from './useRfpJobEvents';
 import { DEPARTMENT_LABEL } from './labels';
 import { constraintsBody, emptyConstraints } from './ProjectConstraintsForm';
 import './RfpWorkspace.css';
+import { useFitToViewport } from './useFitToViewport';
 
 // 통합 작업 공간(KAN-222, 사본 캔버스 "RFP 검토 화면 개편안" 1번 보드): 올리기 → 분석 시작 → 분석 중 → 결정 + 출력.
 // 묶음 종류: 입찰 판정 + 도면 확인. 도면 OCR 조항 요구는 판정과 관계없이 decision.drawing_check로 "도면 확인" 묶음에 모은다(KAN-227).
@@ -1138,16 +1139,3 @@ function bulkFailure(error: unknown, rows: Row[]) {
 }
 
 
-// 작업 공간 표·결정·원문을 화면 높이에 맞춘다(페이지 전체 스크롤 없이 함께 보이게). 칸 위치는 위쪽 띠에 따라 달라져 재서 넣는다.
-function useFitToViewport() {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = ref.current; if (!el) return;
-    const fit = () => el.style.setProperty('--ws-grid-top', `${Math.max(0, el.getBoundingClientRect().top + window.scrollY)}px`);
-    fit();
-    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(fit); observer?.observe(document.body);
-    window.addEventListener('resize', fit);
-    return () => { observer?.disconnect(); window.removeEventListener('resize', fit); };
-  }, []);
-  return ref;
-}

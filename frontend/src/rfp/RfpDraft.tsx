@@ -10,6 +10,7 @@ import { KvBox, KvCond, KvCondField, KvCondRow, KvField, KvGrid, KvNext, KvSplit
 
 import { DATA_ORIGIN_LABEL, JUDGEMENT_LABEL, OUTPUT_LABEL, label, shortDateTime } from './labels';
 import './RfpDraft.css';
+import { useFitToViewport } from './useFitToViewport';
 
 const SECTIONS: Record<string, string> = {
   CUSTOMER_GOAL_SCOPE: '고객 목표와 범위', OUR_RESPONSE: '자사 대응', DEVIATIONS: '차이 사항',
@@ -105,6 +106,7 @@ export default function RfpDraft() {
   }} />;
 }
 function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { projectId: string; user: Identity; notice: string; onSessionChanged: () => void }) {
+  const fitLayout = useFitToViewport();
   const cache = useQueryClient();
   const alive = useRef(true);
   const lifetime = useRef<AbortController | null>(null);
@@ -353,7 +355,7 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
       {data.sections.map(part => <button key={part.section} type="button" className="kb sm" aria-pressed={section === part.section} onClick={() => { setSection(part.section); document.getElementById('draft-document')?.scrollIntoView?.({ block: 'start' }); }}>{SECTIONS[part.section] ?? part.section}<span>{part.sentences.length}</span></button>)}
       <button type="button" className="kb sm" aria-pressed={section === 'all'} onClick={() => setSection('all')}>전체 문서</button>
     </nav>}
-    <div className="draft-layout"><KvSplit columns="minmax(0, 1.75fr) minmax(340px, 1fr)">
+    <div className="draft-layout draft-fit" ref={fitLayout}><KvSplit columns="minmax(0, 1.75fr) minmax(340px, 1fr)">
     <div className="draft-document" id="draft-document">
     <header className="draft-document-heading"><h2>{project.data?.name ?? 'RFP 대응 제안'}</h2><p>초안 {data?.version ?? '-'}판{latest ? '' : ' (지정 판본)'} · 고객 제출 전 담당자 확인 필요</p></header>
     <div className="draft-sections" aria-label="초안 문장 목록">
