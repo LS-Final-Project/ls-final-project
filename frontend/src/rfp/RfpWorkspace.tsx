@@ -16,7 +16,7 @@ import { KvTitle } from '../ls-shell/kv';
 import { MOCK_WORKSPACE_REQUIREMENTS } from '../mocks/rfp-workspace';
 import { fileProblem, latestVersions } from './IntakeForms';
 import { OriginalDocument } from './OriginalDocument';
-import { clauseLabel, codeLabel, ISSUE_LABEL, reasonText, label, NECESSITY_LABEL, OPERATOR_LABEL, PATH_LABEL, STATUS_LABEL } from './labels';
+import { clauseLabel, codeLabel, ISSUE_LABEL, partnerNote, PARTNER_GRADE_LABEL, reasonText, label, NECESSITY_LABEL, OPERATOR_LABEL, PATH_LABEL, STATUS_LABEL } from './labels';
 import { useNames } from './names';
 import { focusText } from './RfpReasoning';
 import { ReplyForm } from './QuestionForms';
@@ -594,13 +594,21 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
               <span className="ws-label">협력사</span>
               <div className="ws-plist" role="radiogroup" aria-label="협력사">
                 {candidates.length === 0 && <span className="muted">{live ? '후보가 없습니다' : '후보 목록은 서버에서 읽습니다'}</span>}
-                {candidates.map(c => <label key={c.candidate_code} className={c.overall_grade === 'EXCLUDED' ? 'off' : ''}>
-                  <input type="radio" name="partner" disabled={c.overall_grade === 'EXCLUDED'} checked={partner === c.candidate_code} onChange={() => setPartner(c.candidate_code)} /> {c.display_name}
-                </label>)}
+                {candidates.map(c => {
+                  const off = c.overall_grade === 'EXCLUDED';
+                  const note = partnerNote(c.grades.find(g => g.requirement_id === row.requirement_id) ?? c.grades[0]);
+                  return <label key={c.candidate_code} className={`ws-prow${off ? ' off' : ''}${partner === c.candidate_code ? ' on' : ''}`}>
+                    <input type="radio" name="partner" disabled={off} checked={partner === c.candidate_code} onChange={() => setPartner(c.candidate_code)} />
+                    <span className="nm">{c.display_name}</span>
+                    <span className="note" title={note.full}>{note.text}</span>
+                    <span className="grade">{PARTNER_GRADE_LABEL[c.overall_grade] ?? c.overall_grade}</span>
+                  </label>;
+                })}
               </div>
-              <label className="ws-field">역할<input value={text ?? partnerRole(row)} onChange={event => setText(event.target.value)} /></label>
-              <div className="ws-go"><button className="kb primary" disabled={!partner || decide.isPending} onClick={() => decide.mutate({ action: 'select_partner', candidate_codes: [partner as string], text: (text ?? '').trim() || partnerRole(row) })}>{partner ? `${partner} 선정` : '협력사 선정'}</button>
+              {partner && <label className="ws-field ws-role">역할<input value={text ?? partnerRole(row)} onChange={event => setText(event.target.value)} /></label>}
+              <div className="ws-go"><button className="kb primary" disabled={!partner || decide.isPending} onClick={() => decide.mutate({ action: 'select_partner', candidate_codes: [partner as string], text: (text ?? '').trim() || partnerRole(row) })}>{partner ? `${candidates.find(c => c.candidate_code === partner)?.display_name ?? partner} 선정` : '협력사 선정'}</button>
                 <button className="ws-link" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'ask_rnd' })}>R&amp;D에 개발 문의</button></div>
+              {!partner && candidates.length > 0 && <p className="muted ws-note">{candidates.every(c => c.overall_grade === 'EXCLUDED') ? '고를 수 있는 협력사가 없습니다. R&D에 문의하거나 판정을 바꾸세요.' : '협력사를 고르면 선정할 수 있습니다.'}</p>}
             </>}
             {kindOf(row) === 'ASSIGN' && <>
               <span className="ws-label">수행</span>

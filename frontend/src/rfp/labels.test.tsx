@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { ATTRIBUTE_LABEL, reasonText, requirementNo } from './labels';
+import { ATTRIBUTE_LABEL, partnerNote, reasonText, requirementNo } from './labels';
 
 const read = (name: string) => readFileSync(new URL(name, import.meta.url), 'utf-8');
 
@@ -33,5 +33,16 @@ describe('reasonText', () => {
     expect(reasonText('검색 범위(family=LV_SWITCHGEAR, voltage_class=LV, 문서 0건)에서 자사 후보를 찾지 못함. 회사 전체 미보유나 참여 불가를 뜻하지 않음.'))
       .toBe('자사 제품 자료에서 맞는 후보를 찾지 못했습니다.');
     expect(reasonText('원문 제10조.1 공장시험: 수행 과업 요구. 수행 주체 확인(자사/협력사) 필요.')).toBe('수행 과업입니다. 자사가 할지 협력사가 할지 정하세요.');
+  });
+});
+
+describe('partnerNote', () => {
+  it('제외 사유와 통합 책임을 한 줄로 줄인다', () => {
+    expect(partnerNote({ exclusion_reasons: ['원문 제2조.1 단시간 내전류 요구 25 kA 이상, 후보 20 kA(근거 SYN-DS-SB-01 2.2): 미달.'],
+      reasons: ['조립품 공급이라 통합 책임(조립)이 필요: 후보 가능.', '조립품 공급이라 통합 책임(연동)이 필요: 후보 미확인.', '조립품 공급이라 통합 책임(보증)이 필요: 후보 미확인.'] }).text)
+      .toBe('단시간 내전류 20 kA, 요구 25 kA 이상 미달 / 통합 책임 미확인: 연동·보증');
+    expect(partnerNote({ exclusion_reasons: ['조립품 공급이라 통합 책임(조립)이 필요: 후보 불가.', '조립품 공급이라 통합 책임(시험)이 필요: 후보 불가.'],
+      reasons: ['원문 제2조.1 단시간 내전류 요구 25 kA 이상: 제안 모델에 같은 속성 근거가 없어 확인 필요.'] }).text)
+      .toBe('통합 책임 불가: 조립·시험 / 단시간 내전류 자료 없음, 확인 필요');
   });
 });
