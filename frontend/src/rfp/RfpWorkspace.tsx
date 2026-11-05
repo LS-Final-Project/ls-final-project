@@ -565,8 +565,17 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
   const [picked, setPicked] = useState('');
   const [adding, setAdding] = useState<{ quote: string; clause: Pick<Clause, 'clause_id' | 'clause_no'> }>();
   const pickedClause = responsible ? undefined : clauseOf(clauses.data ?? [], picked);
-  const [more, setMore] = useState(false);
+  const [whyOpen, setWhyOpen] = useState(false);
+  const [showOff, setShowOff] = useState(false);
   const split = useSplit();
+  // 판정 변경·제외·변경 이력은 주 단추와 같은 줄의 작은 링크(펼치면 그 줄 아래로 넓게, CSS .ws-tools).
+  const tools = <span className="ws-tools">
+    {!responsible && !decided && (changing
+      ? <label className="ws-field inline">판정<select defaultValue={row.bid_verdict} onChange={event => decide.mutate({ action: 'change_verdict', verdict: event.target.value as BidVerdict })}>{(Object.keys(VERDICT) as BidVerdict[]).map(v => <option key={v} value={v}>{VERDICT[v]}</option>)}</select></label>
+      : <button className="ws-link muted" onClick={() => setChanging(true)}>판정 변경</button>)}
+    {!responsible && <ExcludeLine row={row} version={d?.version ?? row.version} />}
+    <RequirementHistory id={row.requirement_id} />
+  </span>;
   return <div className="ws-panel" ref={split.box}>
     <div className="ws-bottom">
     <div className="ws-srcbar">
@@ -576,6 +585,7 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
       </span>
       <span className="sp" />
       {pickedClause && !adding && <button className="kb primary" onClick={() => setAdding({ quote: picked, clause: pickedClause })}>요구 추가</button>}
+      {split.pct != null && <button className="ws-link muted" onClick={split.auto}>자동 맞춤</button>}
       <button className="kb" disabled={idx <= 0} onClick={() => onMove(order[idx - 1].requirement_id)}>이전</button>
       <button className="kb" disabled={idx < 0 || idx >= order.length - 1} onClick={() => onMove(order[idx + 1].requirement_id)}>다음</button>
     </div>
@@ -584,23 +594,23 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
         : <OriginalDocument document={doc} origin={d?.origin} selectionRevision={d ? 1 : 0} onQuoteClick={() => undefined} onSelectText={setPicked} />}
     </div>
     </div>
-    <div className="ws-split" role="separator" aria-orientation="horizontal" aria-label="원문과 결정 높이 조절" tabIndex={0} aria-valuenow={Math.round(split.pct)} onPointerDown={split.drag} onKeyDown={split.key} />
-    <div className="ws-top" style={{ flexBasis: `${split.pct}%` }}>
+    <div className="ws-split" role="separator" aria-orientation="horizontal" aria-label="원문과 결정 높이 조절" tabIndex={0} aria-valuenow={split.pct == null ? undefined : Math.round(split.pct)} onPointerDown={split.drag} onKeyDown={split.key} />
+    <div className="ws-top" style={split.pct == null ? { flex: '0 0 auto', maxHeight: '60%' } : { flex: `0 0 ${split.pct}%` }}>
     {adding ? <AddRequirement projectId={projectId} quote={adding.quote} clause={adding.clause} equipment={row.equipment} onCancel={() => setAdding(undefined)} onDone={id => { setAdding(undefined); setPicked(''); onMove(id); }} />
     : <div className="ws-pick">
       <div className="hd"><span className="name">{row.attribute ?? codeLabel(row.code)}</span><span className="muted">{codeLabel(row.code)} {row.equipment}</span><span className="sp" /><span>{decided ? '결정 완료' : VERDICT[kindOf(row)]}</span>{!decided && <span className="dot" title="AI가 정한 판정입니다" aria-label="AI 판정" />}</div>
       <div className="ws-cmp"><span className="k">요구</span><span className={row.value_text ? 'v' : 'v empty'}>{row.value_text ?? '빈 칸'}</span><span className="k">자사</span><span className="v">{ownText}{(row.own_value ?? own) && <small className="muted"> {row.own_value?.product_code ?? own?.product_code}{row.own_value?.note ? ` ${row.own_value.note}` : ''}</small>}</span></div>
-      {reason && <p className="ws-why" title={reason}>{reasonText(reason)}</p>}
-      {followsOf(row) ? <div className="ws-decided"><span>원문 {row.duplicate?.member_count ?? 2}곳에 같은 요구가 있어 대표 요구에서 결정합니다.</span><span className="sp" /><button className="ws-link" onClick={() => onMove(followsOf(row) as string)}>대표로 이동</button></div>
+      {reason && <div className="ws-whyrow"><p className={`ws-why${whyOpen ? ' open' : ''}`} title={reason}>{reasonText(reason)}</p>{reasonText(reason).length > 90 && <button className="ws-link muted ws-whymore" onClick={() => setWhyOpen(!whyOpen)}>{whyOpen ? '접기' : '펼치기'}</button>}</div>}
+      {followsOf(row) ? <div className="ws-decided"><span>원문 {row.duplicate?.member_count ?? 2}곳에 같은 요구가 있어 대표 요구에서 결정합니다.</span><span className="sp" /><button className="ws-link" onClick={() => onMove(followsOf(row) as string)}>대표로 이동</button>{tools}</div>
       : replied && d && !responsible ? <>
-        <div className="ws-decided"><span>회신 도착</span><span className="sp" />{row.decision?.decision_id && <button className="ws-link" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'undo', decision_id: row.decision?.decision_id })}>되돌리기</button>}</div>
+        <div className="ws-decided"><span>회신 도착</span><span className="sp" />{row.decision?.decision_id && <button className="ws-link" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'undo', decision_id: row.decision?.decision_id })}>되돌리기</button>}{tools}</div>
         <ReplyFlow projectId={projectId} detail={d} question={replied} onDone={() => onDecided({ action: 'confirm_met' })} /></>
         : decided ? <><div className="ws-decided"><span>{row.decision?.summary ?? '결정 완료'}</span><span className="sp" />
         {!responsible && waiting && !replying && <button className="ws-link" onClick={() => setReplying(true)}>회신 기록</button>}
-        {!responsible && row.decision?.decision_id && <button className="ws-link" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'undo', decision_id: row.decision?.decision_id })}>되돌리기</button>}</div>
+        {!responsible && row.decision?.decision_id && <button className="ws-link" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'undo', decision_id: row.decision?.decision_id })}>되돌리기</button>}{tools}</div>
         {replying && waiting && <ReplyForm question={waiting} onCancel={() => setReplying(false)} onReload={() => client.invalidateQueries({ queryKey: ['questions'] })}
           onSaved={() => { setReplying(false); client.invalidateQueries({ queryKey: ['questions'] }); client.invalidateQueries({ queryKey: ['workspace-requirements'] }); }} />}</>
-        : responsible ? <p className="muted ws-note">결정은 담당자가 합니다.</p>
+        : responsible ? <div className="ws-go"><span className="muted ws-note">결정은 담당자가 합니다.</span>{tools}</div>
           : <div className="ws-form">
             {kindOf(row) === 'DEVIATION' && <>
               <div className="ws-opts" role="radiogroup" aria-label="편차 처리">
@@ -609,17 +619,17 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
               </div>
               {choice === 'check' && <label className="ws-field">요청 부서<select value={dept} onChange={event => setDept(event.target.value)}>{Object.entries(DEPARTMENT_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>}
               <label className="ws-field">{choice === 'deviate' ? '편차 내용' : '요청 내용'}<input value={value} onChange={event => setText(event.target.value)} /></label>
-              <div className="ws-go"><button className="kb primary" disabled={!value.trim() || decide.isPending} onClick={() => decide.mutate(choice === 'deviate' ? { action: 'record_deviation', text: value.trim() } : { action: 'request_check', text: value.trim(), target_dept: dept })}>{choice === 'deviate' ? '편차표에 기재' : '확인 요청 보내기'}</button></div>
+              <div className="ws-go"><button className="kb primary" disabled={!value.trim() || decide.isPending} onClick={() => decide.mutate(choice === 'deviate' ? { action: 'record_deviation', text: value.trim() } : { action: 'request_check', text: value.trim(), target_dept: dept })}>{choice === 'deviate' ? '편차표에 기재' : '확인 요청 보내기'}</button>{tools}</div>
             </>}
             {kindOf(row) === 'QUERY' && <>
               <label className="ws-field">고객 질의<input value={value} onChange={event => setText(event.target.value)} /></label>
-              <div className="ws-go"><button className="kb primary" disabled={!value.trim() || decide.isPending} onClick={() => decide.mutate({ action: 'add_query', text: value.trim() })}>질의서에 추가</button></div>
+              <div className="ws-go"><button className="kb primary" disabled={!value.trim() || decide.isPending} onClick={() => decide.mutate({ action: 'add_query', text: value.trim() })}>질의서에 추가</button>{tools}</div>
             </>}
             {kindOf(row) === 'SUPPLEMENT' && <>
               <span className="ws-label">협력사</span>
               <div className="ws-plist" role="radiogroup" aria-label="협력사">
                 {candidates.length === 0 && <span className="muted">{live ? '후보가 없습니다' : '후보 목록은 서버에서 읽습니다'}</span>}
-                {candidates.map(c => {
+                {candidates.filter(c => showOff || c.overall_grade !== 'EXCLUDED').map(c => {
                   const off = c.overall_grade === 'EXCLUDED';
                   const note = partnerNote(c.grades.find(g => g.requirement_id === row.requirement_id) ?? c.grades[0]);
                   return <label key={c.candidate_code} className={`ws-prow${off ? ' off' : ''}${partner === c.candidate_code ? ' on' : ''}`}>
@@ -630,9 +640,10 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
                   </label>;
                 })}
               </div>
+              {candidates.some(c => c.overall_grade === 'EXCLUDED') && <button className="ws-link muted ws-offtoggle" aria-expanded={showOff} onClick={() => setShowOff(!showOff)}>{showOff ? '제외 협력사 접기' : `제외 ${candidates.filter(c => c.overall_grade === 'EXCLUDED').length}곳 보기`}</button>}
               {partner && <label className="ws-field ws-role">역할<input value={text ?? partnerRole(row)} onChange={event => setText(event.target.value)} /></label>}
               <div className="ws-go"><button className="kb primary" disabled={!partner || decide.isPending} onClick={() => decide.mutate({ action: 'select_partner', candidate_codes: [partner as string], text: (text ?? '').trim() || partnerRole(row) })}>{partner ? `${candidates.find(c => c.candidate_code === partner)?.display_name ?? partner} 선정` : '협력사 선정'}</button>
-                <button className="ws-link" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'ask_rnd' })}>R&amp;D에 개발 문의</button></div>
+                <button className="ws-link" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'ask_rnd' })}>R&amp;D에 개발 문의</button>{tools}</div>
               {!partner && candidates.length > 0 && <p className="muted ws-note">{candidates.every(c => c.overall_grade === 'EXCLUDED') ? '고를 수 있는 협력사가 없습니다. R&D에 문의하거나 판정을 바꾸세요.' : '협력사를 고르면 선정할 수 있습니다.'}</p>}
             </>}
             {kindOf(row) === 'ASSIGN' && <>
@@ -642,52 +653,50 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
                 <label><input type="radio" checked={holder === 'PARTNER'} onChange={() => setHolder('PARTNER')} /> 협력사</label>
               </div>
               <div className="ws-go"><label className="ws-field inline">담당<select value={owner} onChange={event => setOwner(event.target.value)}>{Object.keys(OWNER).map(k => <option key={k}>{k}</option>)}</select></label>
-                <button className="kb primary" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'assign', holder, owner: OWNER[owner] })}>배정</button></div>
+                <button className="kb primary" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'assign', holder, owner: OWNER[owner] })}>배정</button>{tools}</div>
             </>}
             {kindOf(row) === 'DRAWING' && <>
               <p className="muted ws-note">도면에서 읽은 값입니다. 규격서 값과 대조해 맞으면 확정하고, 다르면 질의서에 넣습니다.</p>
-              <div className="ws-go"><button className="kb primary" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'confirm_drawing' })}>도면과 같음</button></div>
+              <div className="ws-go"><button className="kb primary" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'confirm_drawing' })}>도면과 같음</button>{tools}</div>
               <label className="ws-field">다르면 고객 질의<input value={text ?? `${row.equipment ?? ''} ${row.attribute ?? ''} 값이 도면과 규격서에서 다릅니다. 적용할 값을 알려 주십시오.`.trim()} onChange={event => setText(event.target.value)} /></label>
               <div className="ws-go"><button className="kb" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'add_query', text: (text ?? `${row.equipment ?? ''} ${row.attribute ?? ''} 값이 도면과 규격서에서 다릅니다. 적용할 값을 알려 주십시오.`).trim() })}>도면과 다름: 질의서에 추가</button></div>
             </>}
             {kindOf(row) === 'CONFIRM' && <div className="ws-go">
               <button className="kb primary" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'confirm_met' })}>충족으로 확정</button>
-              <button className="ws-link" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'change_verdict', verdict: 'DEVIATION' })}>편차로 바꾸기</button>
+              <button className="ws-link" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'change_verdict', verdict: 'DEVIATION' })}>편차로 바꾸기</button>{tools}
             </div>}
-            {more && <div className="ws-change">{changing
-              ? <label className="ws-field inline">판정<select defaultValue={row.bid_verdict} onChange={event => decide.mutate({ action: 'change_verdict', verdict: event.target.value as BidVerdict })}>{(Object.keys(VERDICT) as BidVerdict[]).map(v => <option key={v} value={v}>{VERDICT[v]}</option>)}</select></label>
-              : <button className="ws-link muted" onClick={() => setChanging(true)}>판정 변경</button>}</div>}
             {decide.isError && <p role="alert">{failureText(decide.error)}</p>}
           </div>}
-      {more && !responsible && <ExcludeLine row={row} version={d?.version ?? row.version} />}
     </div>}
-    {more && <RequirementHistory id={row.requirement_id} />}
-    <button className="ws-link muted ws-more" aria-expanded={more} onClick={() => setMore(!more)}>{more ? '접기' : '더보기'}</button>
     </div>
   </div>;
 }
 
-// 오른쪽 칸 위(원문)·아래(결정) 높이 비율(pct는 아래 결정 칸 몫, 기본 40%). 경계선을 끌어 바꾸고 이 브라우저에 기억한다(저장 실패는 무시).
-const SPLIT_KEY = 'rfp-ws-split-v2';
-const readSplit = () => { try { const v = Number(localStorage.getItem(SPLIT_KEY)); return v >= 10 && v <= 90 ? v : 40; } catch { return 40; } };
-const saveSplit = (v: number) => { try { localStorage.setItem(SPLIT_KEY, String(Math.round(v))); } catch { /* 저장 못 해도 화면은 그대로 */ } };
+// 오른쪽 칸 위(원문)·아래(결정 카드). 기본은 자동: 결정 카드는 내용 높이(최대 60%), 원문이 나머지.
+// 경계선을 끌면 그 비율(pct = 결정 카드 몫)로 고정해 이 브라우저에 기억하고, [자동 맞춤]으로 되돌린다(저장 실패는 무시).
+const SPLIT_KEY = 'rfp-ws-split-v3';
+const readSplit = () => { try { const v = Number(localStorage.getItem(SPLIT_KEY)); return v >= 10 && v <= 90 ? v : null; } catch { return null; } };
+const saveSplit = (v: number | null) => { try { if (v == null) localStorage.removeItem(SPLIT_KEY); else localStorage.setItem(SPLIT_KEY, String(Math.round(v))); } catch { /* 저장 못 해도 화면은 그대로 */ } };
 function useSplit() {
   const box = useRef<HTMLDivElement>(null);
-  const [pct, setPct] = useState(readSplit);
-  const clamp = (v: number) => { const h = box.current?.getBoundingClientRect().height ?? 0; const min = h ? 160 / h * 100 : 10; return Math.min(100 - min, Math.max(min, v)); };
+  const [pct, setPct] = useState<number | null>(readSplit);
+  const clamp = (v: number) => { const h = box.current?.getBoundingClientRect().height ?? 0; const card = h ? 160 / h * 100 : 10; const source = h ? 200 / h * 100 : 10; return Math.min(100 - source, Math.max(card, v)); };
+  // 자동 상태에서 처음 끌거나 누르면 지금 카드 높이에서 시작한다.
+  const current = () => { if (pct != null) return pct; const rect = box.current?.getBoundingClientRect(); const top = box.current?.querySelector('.ws-top')?.getBoundingClientRect(); return rect && top && rect.height ? top.height / rect.height * 100 : 40; };
   const drag = (event: ReactPointerEvent<HTMLDivElement>) => {
     const handle = event.currentTarget; const rect = box.current?.getBoundingClientRect(); if (!rect) return;
     handle.setPointerCapture(event.pointerId);
-    let last = pct;
+    let last = current();
     const move = (e: PointerEvent) => { last = clamp(100 - (e.clientY - rect.top) / rect.height * 100); setPct(last); };
     const up = () => { handle.removeEventListener('pointermove', move); handle.removeEventListener('pointerup', up); saveSplit(last); };
     handle.addEventListener('pointermove', move); handle.addEventListener('pointerup', up);
   };
   const key = (event: { key: string; preventDefault: () => void }) => {
     if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
-    event.preventDefault(); const next = clamp(pct + (event.key === 'ArrowDown' ? -5 : 5)); setPct(next); saveSplit(next);
+    event.preventDefault(); const next = clamp(current() + (event.key === 'ArrowDown' ? -5 : 5)); setPct(next); saveSplit(next);
   };
-  return { box, pct, drag, key };
+  const auto = () => { setPct(null); saveSplit(null); };
+  return { box, pct, drag, key, auto };
 }
 
 function Output({ project, rows, excluded = [], responsible, actorId, onJump, onPick }: { project: ProjectDetail; rows: Row[]; excluded?: Row[]; responsible: boolean; actorId?: string; onJump: (filter: 'todo' | Kind) => void; onPick: (id: string) => void }) {
