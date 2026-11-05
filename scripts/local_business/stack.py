@@ -8,6 +8,8 @@ import subprocess
 import threading
 from pathlib import Path
 
+from scripts.local_business.push import ensure_keys as ensure_push_keys
+from scripts.local_business.push import load as load_push
 from scripts.local_business.setup import docker, inspect, owned
 
 
@@ -131,10 +133,13 @@ def start(state: Path):
         docker("start", ns + "-pg")
     pg = inspect(ns + "-pg")
     networks = list(pg["NetworkSettings"]["Networks"])
-    # The APIs share the DB network namespace. Real mail mode alone adds outbound internet
-    # (Microsoft sign-in and Graph); mail-off removes it on the next start.
+    # The APIs share the DB network namespace. Real mail mode or local OS push adds outbound internet
+    # (Microsoft sign-in and Graph, or the browser push service); turning both off removes it on the next start.
     egress = ns + "-worker-egress"
-    want = (state / "auth" / "mail.json").exists()
+    # KAN-201 로컬 OS 알림: 키가 없으면 만들고(settings "local_push": false면 끔), 푸시 서비스(FCM)로 나가는 길을 연다.
+    if config.get("local_push", True) is not False:
+        ensure_push_keys(state)
+    want = (state / "auth" / "mail.json").exists() or load_push(state, config) is not None
     if want and egress not in networks:
         docker("network", "connect", egress, ns + "-pg")
     elif not want and egress in networks:

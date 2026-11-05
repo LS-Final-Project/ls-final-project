@@ -284,6 +284,18 @@ uv run --frozen --python 3.12 python -m scripts.local_business restart --namespa
 
 `mail-off`는 `mail.json`을 지운다. 암호화 키도 함께 사라지므로 다시 켜면 사서함을 새로 연결해야 한다. 다음 start/restart에서 API 컨테이너의 바깥 연결도 끊긴다. Microsoft 쪽 동의를 거두려면 [계정의 앱 권한](https://account.live.com/consent/Manage)에서 해당 앱을 제거한다.
 
+## 로컬에서 OS 알림(웹 푸시) 시험하기
+
+기본값은 켜짐이다(로컬만). `start`가 namespace의 `artifacts/local-business/$NS/auth/push.json`(0600, git 제외)에 시험용 VAPID 키 쌍을 한 번 만들고, 플랫폼이 구독·공개 키 경로를 연다. 운영의 Cloud Scheduler·Cloud Run Job 대신 플랫폼 프로세스 안의 루프가 5초마다 같은 `push_worker`를 돈다. 브라우저 푸시 서비스(FCM)로 나가야 하므로 API 묶음에 바깥 인터넷 연결이 붙는다(메일 모드와 같은 연결). 운영 경로와 Secret Manager 키 방식은 그대로다.
+
+끄려면 상태 폴더 `settings.json`에 `"local_push": false`를 넣고 `restart`한다(키 파일이 남아도 쓰지 않는다). 기존 namespace는 이 기능이 든 source로 갱신한 뒤 `restart`하면 키가 만들어진다.
+
+확인 순서:
+
+1. 브라우저가 로컬 인증서를 믿어야 한다. Chrome은 인증서 경고를 눌러 넘긴 사이트에는 서비스 워커를 등록하지 않으므로 OS 알림이 켜지지 않는다. `artifacts/local-business/$NS/auth/tls-cert.pem`을 Windows에서 `certmgr.msc` → 신뢰할 수 있는 루트 인증 기관 → 모든 작업 → 가져오기로 넣고 브라우저를 다시 연다(시험이 끝나면 지운다).
+2. Chrome으로 로그인한 뒤 내 정보(계정) 화면의 **알림 > OS 알림**에서 켜고, 브라우저의 알림 허용을 누른다. 구독은 FCM 주소(`https://fcm.googleapis.com/...`)만 받는다. Edge·Firefox 구독은 서버가 거절한다.
+3. 다른 계정으로 그 사용자에게 가는 알림(예: RFP 분석 완료, 문의 배정)을 만든다. 5초 안팎에 OS 알림이 뜨고, 누르면 해당 화면이 열린다.
+
 ## 4. 중지·재시작과 미완료 작업
 
 real 처리를 먼저 비활성화한 후 앱을 중지한다. 실행 중 요청을 중단할 수 있으므로 원격 처리·비용·lease가 정리됐다고 가정하지 않는다.
