@@ -54,11 +54,11 @@ describe('화면 단계와 보는 사람', () => {
 });
 
 describe('결정 (담당)', () => {
-  it('묶음은 질의, 편차, 보완, 배정, 충족 확인 순서이고 충족은 접힌다', () => {
+  it('남은 할 일은 질의, 편차, 보완, 배정, 근거 확인 순서이고 충족 줄은 없다', () => {
     show('sales');
     const groups = [...document.querySelectorAll('tr.g')].map(row => row.textContent?.split(' ')[0]);
     expect(groups.slice(0, 2)).toEqual(['질의', '편차']);
-    expect(screen.getByRole('button', { name: '충족 14건 펼치기' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /충족 \d+건 펼치기/ })).toBeNull();
     expect(screen.getAllByRole('button', { name: '편차표에 기재' }).length).toBe(2);
   });
 
@@ -117,6 +117,11 @@ describe('결정 (담당)', () => {
 });
 
 describe('책임자', () => {
+  it('아직 책임자가 아닌 관리자(viewer)도 처리 단추·배정 체크칸이 없다', () => {
+    show('viewer');
+    expect(screen.queryByRole('button', { name: '편차표에 기재' })).toBeNull();
+    expect(screen.queryByRole('checkbox')).toBeNull();
+  });
   it('출력 탭이 먼저 열리고 결정·일괄 버튼이 없다', () => {
     show('responsible');
     expect(screen.getAllByRole('tab', { selected: true })[0].textContent).toContain('출력');

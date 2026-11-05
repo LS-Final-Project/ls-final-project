@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { ATTRIBUTE_LABEL, codeLabel, partnerNote, reasonText, requirementNo } from './labels';
+import { ATTRIBUTE_LABEL, codeLabel, partnerNote, reasonText, requirementNo, exportFileName } from './labels';
 
 const read = (name: string) => readFileSync(new URL(name, import.meta.url), 'utf-8');
 
@@ -48,5 +48,13 @@ describe('partnerNote', () => {
   it('직접 추가 요구 코드는 내부 ID 대신 조항과 직접 추가 순번으로 보인다', () => {
     expect(codeLabel('f4cc6a52:제3조.2:m1')).toBe('제3조.2 직접 추가 1');
     expect(codeLabel('f4cc6a52:제7조.5:3')).toBe('제7조.5');
+  });
+});
+
+describe('exportFileName', () => {
+  it('서버 이름이 rfp-uuid면 프로젝트 번호와 문서 종류로 바꾼다', () => {
+    expect(exportFileName('P26-0003', 'XLSX', 'rfp-0f9e2a7c-1b2d-4c3e-8f90-123456789abc.xlsx')).toBe('P26-0003_대응현황표.xlsx');
+    expect(exportFileName('P26-0003', 'DOCX', null)).toBe('P26-0003_요약서.docx');
+    expect(exportFileName('P26-0003', 'DOCX', '서버이름.docx')).toBe('서버이름.docx');
   });
 });

@@ -8,7 +8,7 @@ import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ErrorState, Loading } from '../components/states';
 import { KvBox, KvCond, KvCondField, KvCondRow, KvField, KvGrid, KvNext, KvSplit, KvTitle, type KvColumn } from '../ls-shell/kv';
 
-import { DATA_ORIGIN_LABEL, JUDGEMENT_LABEL, OUTPUT_LABEL, label, shortDateTime } from './labels';
+import { DATA_ORIGIN_LABEL, JUDGEMENT_LABEL, OUTPUT_LABEL, label, shortDateTime, exportFileName } from './labels';
 import './RfpDraft.css';
 import { useFitToViewport } from './useFitToViewport';
 
@@ -245,7 +245,7 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
       const blob = await downloadExport(projectId, exportId);
       if (!alive.current) return;
       const url = URL.createObjectURL(blob); const link = document.createElement('a');
-      link.href = url; link.download = name; link.click();
+      link.href = url; link.download = exportFileName(project.data?.external_id, 'DOCX', name); link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (failure) { invalid(failure); }
     finally { inFlight.current = false; setBusy(false); }

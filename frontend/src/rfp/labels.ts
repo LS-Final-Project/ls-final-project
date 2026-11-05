@@ -157,3 +157,8 @@ export function partnerNote(grade?: { reasons?: string[]; exclusion_reasons?: st
   return { text: parts.join(' / '), full: [...(grade?.exclusion_reasons ?? []), ...(grade?.reasons ?? [])].join('\n') };
 }
 export const PARTNER_GRADE_LABEL: Record<string, string> = { MANDATORY_CONFIRMED: '필수 조건 확인', REVIEW: '검토', REFERENCE_ONLY: '확인용', EXCLUDED: '제외' };
+// 내려받는 출력 파일 이름: 서버가 준 이름이 없거나 `rfp-<uuid>`면 "프로젝트 번호_문서 종류"로 만든다.
+export function exportFileName(projectNo: string | null | undefined, format: 'XLSX' | 'DOCX', serverName?: string | null): string {
+  if (serverName && !/^rfp-[0-9a-f-]{36}\./i.test(serverName)) return serverName;
+  return `${projectNo || 'RFP'}_${format === 'XLSX' ? '대응현황표' : '요약서'}.${format.toLowerCase()}`;
+}
