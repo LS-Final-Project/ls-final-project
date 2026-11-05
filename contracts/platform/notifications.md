@@ -42,7 +42,7 @@ P34의 함수는 `search_path=pg_catalog`, 스키마 한정 SQL, 소유자 실�
 | GET `/api/v1/platform/notifications/unread-count` | 내 read_at=null 수 |
 | POST `/api/v1/platform/notifications/{intent_id}/read` | 본인 수신 행만 읽음, 성공204; 이미 읽었으면 시각 유지; 남의 것과 없는 것 모두404 |
 | POST `/api/v1/platform/notifications/read-all` | 본인의 안 읽은 알림 전부 읽음, 성공204, 멱등(이미 읽은 행 시각 유지) |
-| POST `/api/v1/platform/notifications/{intent_id}/dismiss` | 본인 수신 행을 목록에서 숨김(행은 지우지 않고 dismissed_at, read_at도 함께 채움), 성공204, 멱등; 남의 것과 없는 것 모두404. 숨긴 행은 목록·unread-count에서 빠진다(P37) |
+| POST `/api/v1/platform/notifications/{intent_id}/dismiss` | 본인 수신 행을 목록에서 숨김(행은 지우지 않고 dismissed_at, read_at도 함께 채움), 성공204, 멱등; 남의 것과 없는 것 모두404. 숨긴 행은 목록·unread-count에서 빠진다(P39) |
 
 두 GET은 수신함 SELECT만 실행하며 펼침이나 expanded_at 갱신을 하지 않는다. 생성 시 trigger와 기존 pending 이관으로 앱 알림을 준비한다.
 반환 필드는 id·kind·고정 title·link_path·created_at·read_at뿐이다. audience·actor·dedupe·수신자 목록을 공개하지 않는다.
