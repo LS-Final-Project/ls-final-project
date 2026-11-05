@@ -170,12 +170,11 @@ button.ws-gateitem{color:#24518a;cursor:pointer}
 .ws-outnote{margin:6px 16px}
 
 /* 보드 재현(2026-11-05, 사본 캔버스 "RFP 검토 화면 개편안"). 글꼴·크기·표 치수는 보드 CSS 값을 쓴다.
-   글꼴은 Pretendard Variable(OFL, public/fonts)을 자체 호스팅해 PC 설치와 무관하게 같게 그린다. 보드 사본도 같은 파일·같은 굵기 규칙을 싣는다.
+   글꼴은 C/S와 같은 셸 글꼴(--erp-font)을 쓴다(2026-11-05 사용자 결정). 굵기·크기 위계와 표 치수만 RFP 화면에 둔다.
    굵기 위계(사용자 결정 2026-11-05): 본문·표 셀·보조 글 500, 라벨·표 머리·탭·버튼 600, 제목·패널 제목·묶음 제목 700, 숫자는 tabular-nums.
    .rfp-ui는 업무 홈·RFP 목록·작업 공간의 <main>에만 붙는다. 셸은 RFP 화면이 떠 있을 때만 같은 규칙을 쓴다(C/S 등은 그대로). */
-@font-face{font-family:"LS Board Pretendard";src:url("/fonts/PretendardVariable.woff2") format("woff2-variations");font-weight:45 920;font-display:swap}
-.ls-root:has(.rfp-ui){--erp-font:"LS Board Pretendard","Noto Sans KR",system-ui,sans-serif;--mm-bg:#f4f6f9}
-.ls-root .kv .rfp-ui{--rfp-font:"LS Board Pretendard","Noto Sans KR",system-ui,sans-serif;font-size:13px;font-weight:300;line-height:normal;color:#1f2a37}
+.ls-root:has(.rfp-ui){--mm-bg:#f4f6f9}
+.ls-root .kv .rfp-ui{--rfp-font:var(--erp-font);font-size:13px;font-weight:300;line-height:normal;color:#1f2a37}
 .ls-root .kv .rfp-ui,.ls-root .kv .rfp-ui :is(button,input,select,textarea,h1,h2,h3,th,td,a){font-family:var(--rfp-font)!important}
 .ls-root .kv .rfp-ui :is(button,input,select,textarea){font-weight:300}
 
