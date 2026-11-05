@@ -101,6 +101,65 @@ CANONICAL_FORMS: dict[str, re.Pattern[str]] = {
     "protection_functions": re.compile(r"(?=.)L?S?I?G?"),
 }
 ATTRIBUTE_KEYS: frozenset[str] = frozenset(get_args(AttributeKey))
+# 헷갈리기 쉬운 키의 공학 의미(추출 지시문에 그대로 들어간다, v11). 이름이 비슷해도 비교 대상 물리량이 다르다:
+# 프레임(AF)과 정격·트립 전류(AT), 저압 차단기 Icu(IEC 60947-2)와 고압 차단기 정격 단락 차단 전류(IEC 62271-100),
+# 저압 Ue와 고압 정격 최대전압, 단시간 내전류(차단하지 않고 견딤)와 차단 전류.
+ATTRIBUTE_HINTS: dict[str, str] = {
+    "rated_current": (
+        "continuous current rating of the equipment item itself (In; 'continuous current', 'ampere rating', a "
+        "breaker's trip or sensor rating in AT)"
+    ),
+    "frame_size": (
+        "frame designation of a low-voltage breaker (AF), the largest rated current its frame accepts, when the "
+        "frame is stated as its own figure, typically next to a trip rating (e.g. 400AF/250AT). A breaker's "
+        "continuous current rating is rated_current"
+    ),
+    "busbar_rated_current": (
+        "continuous current rating of a bus (main bus, bus bars), only when the text states it for the bus. The "
+        "rated continuous current of an assembly or section is rated_current"
+    ),
+    "rated_max_voltage": (
+        "rated maximum voltage (Ur) of medium- or high-voltage equipment ('15 kV maximum', 'rated maximum voltage')"
+    ),
+    "rated_operational_voltage": (
+        "rated operational voltage (Ue) of a low-voltage (up to 1 kV) breaker, switch or assembly (e.g. 480 V, 600 V)"
+    ),
+    "primary_voltage": "rated voltage of a transformer's primary winding; not a switchgear or system voltage",
+    "secondary_voltage": "rated voltage of a transformer's secondary winding; not a switchgear or system voltage",
+    "breaking_capacity_icu": (
+        "rated ultimate short-circuit breaking capacity of a low-voltage breaker (IEC 60947-2 Icu; the interrupting "
+        "rating or interrupting capacity of a low-voltage breaker under UL 489, UL 1066 or IEEE C37.13)"
+    ),
+    "breaking_capacity_ics": (
+        "rated service short-circuit breaking capacity of a low-voltage breaker (Ics), often a percentage of Icu"
+    ),
+    "rated_short_circuit_breaking_current": (
+        "rated short-circuit breaking (interrupting) current of a medium- or high-voltage circuit breaker (IEC "
+        "62271-100, IEEE C37.04/C37.06). Not for a low-voltage breaker, and not for a switch or assembly that does "
+        "not interrupt fault current"
+    ),
+    "short_time_withstand_current": (
+        "current a switching device, switchgear assembly or bus carries for a stated short time without "
+        "interrupting it (Icw, kA for 1 to 3 s, 'braced for'). A transformer's short-circuit strength stated as a "
+        "multiple of rated current is OTHER"
+    ),
+    "number_of_poles": (
+        "number of poles of a switching device ('3-pole'); the number of phases or wires of the power system is "
+        "not a pole count"
+    ),
+    "rated_power": (
+        "rated power of the main equipment (a transformer's base or self-cooled kVA rating; a UPS, drive or "
+        "inverter rating). The power rating of a component (resistor, heater, fan) is OTHER"
+    ),
+    "winding_material": (
+        "conductor material of transformer or motor windings; the material of bus bars, cables or a ground bus is "
+        "OTHER"
+    ),
+    "protection_functions": (
+        "which of long-time, short-time, instantaneous and ground-fault protection a trip unit or relay provides. "
+        "The trip unit technology (solid-state, microprocessor) and accessories such as a shunt trip are OTHER"
+    ),
+}
 EQUIPMENT_FAMILIES: frozenset[str] = frozenset(get_args(EquipmentFamily))
 CONDITION_NAMES: frozenset[str] = frozenset(get_args(ConditionName))
 

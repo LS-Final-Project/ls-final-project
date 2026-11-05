@@ -27,6 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from backend.engine.rfp.clauses import ClauseTree, is_korean_section
 from backend.engine.rfp.vocabulary import (
+    ATTRIBUTE_HINTS,
     ATTRIBUTE_KEYS,
     CONDITION_NAMES,
     EQUIPMENT_FAMILIES,
@@ -47,7 +48,9 @@ from backend.shared.ai import Generation, Usage
 # v8(KAN-185): 저압 배전반·스위치기어 조립품 계열(LV_SWITCHGEAR). 차단기 자체는 LV_BREAKER다.
 # v9(KAN-184): 구조 문장을 form으로 뽑는 판본. 실측에서 form이 3개에서 90개로 늘어 쓰지 않았다.
 # v10(KAN-184): form을 장비 항목 자체의 형식 문장으로 좁히고 부품·재질·기능은 OTHER로 둔다.
-EXTRACTION_VERSION = "rfp-requirements-v10"
+# v11(KAN-188): 헷갈리기 쉬운 속성 키의 공학 의미(vocabulary.ATTRIBUTE_HINTS), 값이 없는 정격도 키를 단다,
+#   부품·보조 회로의 정격과 계통 조건(공칭 전압·상수·접지)은 장비 정격 키가 아니다, 형식 문장 안의 극수는 따로 낸다.
+EXTRACTION_VERSION = "rfp-requirements-v11"
 Operator = Literal["EQ", "GTE", "LTE", "RANGE", "TEXT"]
 StandardSystem = Literal["IEC", "IEEE", "UL", "NEMA", "NONE"]
 Necessity = Literal["MANDATORY", "PREFERRED", "CONDITION_BOUND", "UNDETERMINED"]
@@ -347,10 +350,19 @@ Return JSON matching the schema. Rules:
   {attribute_keys}. If the text is not clearly the same quantity, use "OTHER". Do not guess from a similar word
   (e.g. a momentary current is not a short-time withstand current; an enclosure paint color is OTHER).
   Keep attribute as the clause wording; attribute_key is only the link.
+  Meanings of keys that are easy to confuse:
+{attribute_hints}
+  Give the key of the quantity a requirement states even when its value is not given ("as shown on the
+  drawings", "as specified"); then value is null. Rating keys describe the equipment item itself: a rating of a
+  part, accessory or auxiliary circuit (control power, auxiliary contacts, spring-charging motor, wiring, fuses,
+  capacitors, resistors, surge arresters, instrument transformers) is "OTHER". The power system the equipment is
+  applied on (nominal system voltage, number of phases or wires, frequency, grounding) is not an equipment
+  rating: keep it in conditions of a rating stated with it, else use "OTHER".
   A sentence that states the type of the equipment item itself (its switching device, how the item is mounted or
   how it is insulated) gets one requirement with attribute_key form, separate from any measured values in the
-  same sentence. A part, accessory, material, fastener, interlock, indicator, wiring, access or function of the
-  equipment is not its type: use "OTHER".
+  same sentence; a pole count there also gets its own number_of_poles requirement. A part, accessory, material,
+  fastener, interlock, indicator, wiring, access, operating mechanism or function of the equipment is not its
+  type: use "OTHER".
 - equipment_family: the product family of the equipment, from: {families}; "OTHER" if none fits or you are not
   sure; null for a task or document requirement. Instrument transformers (voltage/potential or current
   transformers) feeding meters or relays are not TRANSFORMER: use OTHER. A low-voltage switchgear or
@@ -383,6 +395,10 @@ Section {section_no} {section_title}
 Clauses (JSON):
 {clauses}
 """
+# 키 설명은 본문에 미리 넣는다. 승격 검사의 지시문 지문(eval/promotion.py)이 설명 변경도 잡게 하려는 것이다.
+PROMPT = PROMPT.replace(
+    "{attribute_hints}", "\n".join(f"  - {k}: {v}." for k, v in ATTRIBUTE_HINTS.items())
+)
 
 
 def prompt(item: ExtractionInput) -> str:

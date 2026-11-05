@@ -30,7 +30,7 @@ from backend.engine.rfp.requirements import (
     validate_output,
 )
 from backend.engine.rfp.scoring import GoldRequirement, score
-from backend.engine.rfp.vocabulary import ATTRIBUTE_KEYS
+from backend.engine.rfp.vocabulary import ATTRIBUTE_HINTS, ATTRIBUTE_KEYS
 from backend.shared.ai import Generation, Usage
 
 
@@ -1065,7 +1065,7 @@ def construction_section(
 
 def test_the_prompt_asks_for_a_form_requirement_from_a_construction_sentence():
     text = prompt(construction_section())
-    assert EXTRACTION_VERSION == "rfp-requirements-v10"
+    assert EXTRACTION_VERSION == "rfp-requirements-v11"
     assert "the type of the equipment item itself" in text
     assert "attribute_key form, separate from any measured values" in text.replace("\n  ", " ")
     assert "how the equipment is built" not in text
@@ -1074,9 +1074,17 @@ def test_the_prompt_asks_for_a_form_requirement_from_a_construction_sentence():
 def test_the_prompt_keeps_parts_and_functions_out_of_form():
     text = prompt(construction_section()).replace("\n  ", " ")
     assert (
-        "A part, accessory, material, fastener, interlock, indicator, wiring, access or function "
-        'of the equipment is not its type: use "OTHER".'
+        "A part, accessory, material, fastener, interlock, indicator, wiring, access, operating mechanism or "
+        'function of the equipment is not its type: use "OTHER".'
     ) in text
+
+
+def test_the_prompt_explains_confusable_keys_from_the_vocabulary():
+    text = prompt(construction_section())
+    assert set(ATTRIBUTE_HINTS) <= ATTRIBUTE_KEYS
+    for key, hint in ATTRIBUTE_HINTS.items():
+        assert f"  - {key}: {hint}." in text
+    assert "{attribute_hints}" not in text
 
 
 def test_a_part_sentence_kept_as_other_is_not_compared_as_a_form():
