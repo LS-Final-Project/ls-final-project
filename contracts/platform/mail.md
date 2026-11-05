@@ -192,6 +192,23 @@ Cloud Tasks(mail-sync 큐, OIDC) ──POST {"mailbox_id"}──▶ /internal/v1
 - 응답에 제목·본문·보낸 사람은 없다. 권한 5.2의 '본인 메일함만'을 따르며, 업무에 연결된 뒤의 열람 범위는 연결 단위에서 정한다.
 - **다음 단위**: 수집 뒤 자동 분류(수집 코드·객체 저장소 읽기, 김나영 합의), 메일 → C/S 문의 접수 경로(`source=microsoft_graph`, `external_id`=Graph ID, `known_at`=수신 시각, cs_agent 확인 뒤 플랫폼 → C/S 호출자 토큰), 화면, 실제 모델 호출·평가.
 
+### RFP로 보이는 메일과 확인 후 등록 (KAN-73, 2026-11-05)
+
+분류는 추천이다. 담당 영업이 확인하고 [RFP로 등록]을 눌러야 프로젝트가 생긴다. 자동 접수·자동 분석은 하지 않는다.
+
+- **수집 뒤 규칙 분류**(`backend/api/platform/mail/rfp_intake.py` `triage_new_rfp_mails`): 수집 워커 `/sync`가 회신 판정 뒤 부른다(`MAIL_SYNC_RFP_TRIAGE`, 기본 켬, 실패는 수집 결과를 막지 않음, `SyncData.rfp_classified`·`rfp_failed`). 대상은 분류가 아직 없는 받은편지함 메일 중 제목이나 첨부 이름에 RFP 표현(`RFP`·`RFQ`·제안 요청·입찰·기술 규격·규격서·견적 요청·request for proposal/quotation·tender)이 있고 inline이 아닌 DOCX·PDF 첨부가 있는 것, 한 번에 20통. 원문을 읽어 회신이 아니고 마스킹한 제목·본문에 표현이 있으면 `classify_message`로 `NEW_RFP`·`NEW_PROJECT` 판본(`ai_draft`, 근거는 표현이 나온 글자 구간)을 남긴다. **모델을 부르지 않는다**(비용·작업 종류·마이그레이션 없음). 분류가 이미 있으면(사람 재분류 포함) 다시 보지 않는다.
+- **연결 저장**: 새 표 없이 `mail_links`(`owner_service='platform'`, `business_ref='rfp_project:<TFT 프로젝트 ID>'`, `ORIGIN`). 플랫폼은 tft 스키마를 읽지 않으므로 프로젝트 ID는 화면이 방금 만든 값을 쓴다.
+
+| 경로 | 동작 |
+| --- | --- |
+| `GET /api/v1/platform/mail/rfp-candidates` | 메일함 소유자. 최신 분류가 `NEW_RFP`이고 아직 `rfp_project` 연결이 없는 받은 메일 최근 50통. 제목·보낸 사람·수신 시각·DOCX·PDF 첨부 목록·근거 한 줄(`basis`), 본문 없음 |
+| `GET /api/v1/platform/mail/messages/{message_id}/attachments/{attachment_id}` | 메일함 소유자. inline이 아닌 DOCX·PDF 첨부 바이트(`Content-Disposition: attachment`, `no-store`). 다른 사람 메일·없는 첨부·다른 형식은 404 `MAIL_ATTACHMENT_NOT_FOUND` |
+| `POST /api/v1/platform/mail/messages/{message_id}/rfp-project` | 운영 세션 `sales`·동일 출처·세션 CSRF. 본문 `project_id`. 처음 201 `created=true`, 같은 프로젝트로 다시 부르면 200 `created=false`, 다른 프로젝트로 이미 등록한 메일은 409 `MAIL_RFP_ALREADY_REGISTERED`(details에 그 프로젝트 ID). 다른 사람·보낸편지함·지운 메일 404, `sales`가 아니면 403 |
+
+- **화면**(제안 지원 › 업무 홈, `sales`만 보임): 후보 줄의 [확인] → 첨부·프로젝트 이름(제목)·고객 코드 → [RFP로 등록]이 첨부 받기 → `POST /tft/projects` → 문서 올리기(`RFP_SPEC`) → `rfp-project` 순으로 부른다. `process`는 부르지 않는다. 중간에 실패하면 만든 프로젝트·올린 문서를 기억해 다시 눌러도 두 번 만들지 않는다. DOCX·PDF 첨부가 없으면 등록 단추가 꺼진다. [RFP 아님]은 읽은 판본으로 `OTHER` 재분류(사유 "담당 영업 확인: RFP 아님")를 남겨 후보에서 뺀다.
+- **확인 범위**: 합성 메일·합성 저장소(`tests/platform/test_mail_rfp_intake_db.py`), 화면 시험(`frontend/src/rfp/rfp-mail-candidates.test.tsx`), 웹 중계(`frontend/server.test.mjs`). 실제 사서함·운영 세션 왕복은 하지 않았다.
+- ponytail: 규칙은 제목·첨부 이름의 표현만 본다. 표현 없이 온 RFP는 놓친다. 놓치는 메일이 보이면 모델 분류(플랫폼 작업 종류 + 비용 원장)를 붙인다.
+
 ### 발송 입구와 실행
 
 `backend/api/platform/mail/send_worker.py`. 모든 경로는 기본 비활성(404)이고 OpenAPI·웹 중계에 넣지 않는다.
@@ -230,7 +247,7 @@ Cloud Scheduler(5분)          ──POST──▶ /send-sweep  → 멈춘 전�
 | `POST /{id}/check-sent-copy` | 보낸편지함 사본 대조(`confirm_sent_copy`). 결과 불명 판단 근거를 이력에 남긴다 |
 | `POST /{id}/resend` (`reason` 1~500자) | `authorize_resend` 뒤 전송 작업(`mailsend-<id>-a<시도 수>`) 등록. 등록이 실패해도 `QUEUED`라 정리 작업이 다시 등록 |
 
-- 웹 중계(`frontend/server.mjs` `mailRoutes`, KAN-178·KAN-132)는 GET `send-intents`(`status`), `reply-reviews`, `messages/{id}/triage`와 POST `messages/{id}/triage`, `send-intents/{id}/check-sent-copy`, `send-intents/{id}/resend`, 받은 메일 화면의 GET `reply-reviews/{id}/candidates`(KAN-235), `reply-reviews/{id}/link`, `reply-reviews/{id}/dismiss`, `messages/{id}/register-ticket`만 연다. 세션 쿠키·동일 출처·CSRF 헤더를 그대로 전달하고, 다른 query는 400, 쓰기는 `application/json`이 아니면 415다. `check-sent-copy`는 본문이 없어도 이 형식으로 보낸다.
+- 웹 중계(`frontend/server.mjs` `mailRoutes`, KAN-178·KAN-132)는 GET `send-intents`(`status`), `reply-reviews`, `messages/{id}/triage`와 POST `messages/{id}/triage`, `send-intents/{id}/check-sent-copy`, `send-intents/{id}/resend`, 받은 메일 화면의 GET `reply-reviews/{id}/candidates`(KAN-235), `reply-reviews/{id}/link`, `reply-reviews/{id}/dismiss`, `messages/{id}/register-ticket`, RFP 메일(KAN-73)의 GET `rfp-candidates`·`messages/{id}/attachments/{id}`(DOCX·PDF 바이트만 통과)와 POST `messages/{id}/rfp-project`만 연다. 세션 쿠키·동일 출처·CSRF 헤더를 그대로 전달하고, 다른 query는 400, 쓰기는 `application/json`이 아니면 415다. `check-sent-copy`는 본문이 없어도 이 형식으로 보낸다.
 - 재전송 통제는 서버가 맡는다: 상태 `UNKNOWN`이고 시도 상한 미만, 마지막 전송 시작 뒤 10분이 지난 "사본 없음" 확인, 사유 1~500자, 승인자 본인. 어기면 403·409·422다. 수신자 제한은 없다.
 - 분류 변경은 메일함 소유자만, 읽은 판본과 사유가 있어야 한다. 사람 판본으로 저장되고 메일이 나가지 않는다.
 - 회신 연결·무시와 문의 접수는 KAN-132에서 웹 중계에 넣었다. 연결 후보·접수 조건은 서버가 검사하고 중계는 경로·메서드·query·본문 형식만 거른다. 메일 계정 화면의 사서함 경로(목록·연결 시작·콜백·완료·해제)는 `mailRoutes`가 아니라 `MAILBOX_AUTH_ENABLED`의 사서함 인증 중계가 맡는다.
@@ -332,4 +349,4 @@ Cloud Scheduler(5분)          ──POST──▶ /send-sweep  → 멈춘 전�
 - KAN-110 운영 확인: `CS_MAIL_ENABLED`·`CS_MAIL_PLATFORM_URL`(C/S Cloud Run), P26(`platform/20261030_KAN-110_mail_link_notify.sql`)·C13(`cs/20261030_KAN-110_customer_mail.sql`) 마이그레이션(C12 `KAN-194_checkpoint_schema`는 메일 연결과 무관), 실제 사서함으로 승인 발송 → `ACCEPTED` → 문의 `ANSWERED` → 회신 → 재개 1회
 - 운영 적용: `infra/setup_mail_send.sh` 실행, Cloud Run 환경 변수(`MAIL_SEND_*`), 정리 작업 resume
 - 운영 적용: `infra/setup_mail_sync.sh` 실행, Cloud Run 환경 변수(`MAIL_SYNC_*`, `MAIL_OBJECT_BUCKET`) 설정, Scheduler resume, 실제 Tasks·버킷·Graph 연결 확인
-- 수집 뒤 자동 분류를 연결할 때(KAN-73 후속): 최신 판본이 사람 재분류(`human_input`)면 모델 분류를 건너뛴다(지금 `classify_message`는 항상 다음 모델 판본을 쓴다)
+- 수집 뒤 자동 분류(KAN-73): 지금은 RFP 규칙 분류만 붙였고 분류가 없는 메일만 본다(사람 재분류를 덮지 않음). 모델 분류를 붙일 때도 최신 판본이 `human_input`이면 건너뛴다(`classify_message`는 항상 다음 판본을 쓴다)
