@@ -334,3 +334,4 @@ button.ws-gateitem{color:#24518a;cursor:pointer}
 /* 결정 카드 도구 링크(검토 대상에서 제외, 변경 이력)는 주 단추 줄에 한 줄로 나란히. */
 .ws-tools .ws-histlink{display:inline;margin:0;white-space:nowrap}
 .ws-decided,.ws-form .ws-go{flex-wrap:wrap;column-gap:14px}
+.ws-tools .ws-histlink{margin-left:14px}
