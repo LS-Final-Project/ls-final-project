@@ -346,3 +346,52 @@ button.ws-gateitem{color:#24518a;cursor:pointer}
 .ws-aimark{display:inline-flex;margin-left:4px}
 .ws-tools .ws-err{display:block;flex-basis:100%;color:#b42318;font-size:12px}
 .ws-ok{margin:6px 0;color:#1f7a3f;font-weight:600}
+/* 필터 줄 두 줄 묶음(2026-11-05 사용자 확정 A안): 1줄 범위·설비·검색·더 보기, 2줄 판정별 건수·설비별로 묶기 */
+.ls-root .kv .rfp-ui .ws-filters{display:block;white-space:normal;padding-top:10px}
+.ws-frow{display:flex;align-items:center;gap:8px;white-space:nowrap;padding-left:8px}
+.ws-frow+.ws-frow{margin-top:6px}
+.ws-frow .sp{flex:1 1 0;min-width:4px}
+.ws-scope{display:inline-flex;border:1px solid #c4ccd6}
+.ws-scope button{font:inherit;font-size:12px;border:0;background:#fff;color:#3b4654;padding:4px 12px;min-height:28px;cursor:pointer}
+.ws-scope button+button{border-left:1px solid #c4ccd6}
+.ws-scope button.on{background:#1e2b48;color:#fff}
+.ws-verdicts{gap:2px}
+.ws-verdicts>.muted{margin-right:6px;font-size:12px}
+.ls-root .kv .rfp-ui .ws-verdicts .ws-chip{color:#6b7480;min-height:24px;padding:2px 8px}
+.ws-verdicts .ws-chip b{font-weight:500;color:#3b4654;margin-left:2px}
+.ls-root .kv .rfp-ui .ws-verdicts .ws-chip.on{color:#1a3c68}
+.ws-verdicts .ws-chip.on b{color:#1a3c68}
+.ws-more{position:relative}
+.ws-more>summary{list-style:none;cursor:pointer;border:1px solid #c4ccd6;min-height:28px;padding:0 10px;display:flex;align-items:center;color:#3b4654;background:#fff}
+.ws-more>summary::-webkit-details-marker{display:none}
+.ws-more>div{position:absolute;right:0;top:calc(100% + 2px);z-index:20;background:#fff;border:1px solid #c4ccd6;padding:6px 10px;box-shadow:0 2px 6px rgba(0,0,0,.08)}
+.ws-switch{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#3b4654;cursor:pointer}
+.ws-switch input{appearance:none;width:28px;height:16px;border-radius:8px;background:#c4ccd6;position:relative;margin:0;cursor:pointer}
+.ws-switch input::after{content:"";position:absolute;width:12px;height:12px;border-radius:6px;background:#fff;top:2px;left:2px;transition:left .12s}
+.ws-switch input:checked{background:#1e2b48}
+.ws-switch input:checked::after{left:14px}
+/* 분석 중 조항 진행(2026-11-05 확정 목업 v3): 목차형 줄, 건수 막대, 읽는 중 줄은 글자 빛과 막대 흐름 */
+.ws-sp{padding:14px 20px 12px;font-size:12.5px;color:#1f2933}
+.ws-sp-head{display:flex;align-items:baseline;gap:8px;padding-bottom:8px;border-bottom:2px solid #1e2b48}
+.ws-sp-head b{font-size:28px;font-weight:300;color:#1e2b48;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
+.ws-sp-head .r{margin-left:auto;color:#8a929c;font-size:12px;font-variant-numeric:tabular-nums}
+.ws-sp-wait{margin:12px 0}
+.ws-sp-list{list-style:none;margin:6px 0 0;padding:0}
+.ws-sp-list li{display:flex;align-items:center;gap:10px;height:28px;border-bottom:1px solid #f2f4f6;color:#3b4654}
+.ws-sp-list .mk{flex:none;width:9px;height:9px;border-radius:50%;border:1.5px solid #d3d8de;box-sizing:border-box}
+.ws-sp-list .tx{flex:none;width:190px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ws-sp-list .trk{flex:1;height:4px;background:#f1f3f5;border-radius:2px;position:relative;overflow:hidden}
+.ws-sp-list .trk b{position:absolute;left:0;top:0;bottom:0;background:#1f4e8c;border-radius:2px;transition:width .7s ease}
+.ws-sp-list .n{flex:none;width:52px;text-align:right;font-size:12px;color:#6b7480;font-variant-numeric:tabular-nums}
+.ws-sp-list li.done .mk{border-color:#1f4e8c;background:#1f4e8c;transform:scale(.8)}
+.ws-sp-list li.done .n{animation:ws-sp-in .5s ease-out}
+@keyframes ws-sp-in{from{opacity:0;transform:translateX(-4px)}to{opacity:1;transform:none}}
+.ws-sp-list li.run{color:#1f4e8c}
+.ws-sp-list li.run .mk{border-color:#1f4e8c;border-right-color:transparent;animation:ws-sp-spin .8s linear infinite}
+@keyframes ws-sp-spin{to{transform:rotate(360deg)}}
+.ws-sp-list li.run .tx{background:linear-gradient(90deg,#1f4e8c 0%,#1f4e8c 35%,#9db4cf 50%,#1f4e8c 65%,#1f4e8c 100%);background-size:250% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:ws-sp-shine 1.6s linear infinite}
+@keyframes ws-sp-shine{from{background-position:100% 0}to{background-position:-150% 0}}
+.ws-sp-list li.run .trk::after{content:"";position:absolute;top:0;bottom:0;width:30%;background:linear-gradient(90deg,transparent,#9db4cf,transparent);animation:ws-sp-mv 1.2s ease-in-out infinite}
+@keyframes ws-sp-mv{from{left:-30%}to{left:100%}}
+.ws-sp-list li.wait .sk{flex:1;height:8px;max-width:60%;border-radius:2px;background:linear-gradient(90deg,#eef1f5 0%,#e2e7ee 50%,#eef1f5 100%);background-size:200% 100%;animation:ws-skel 1.4s linear infinite}
+@media (prefers-reduced-motion:reduce){.ws-sp-list li.run .mk,.ws-sp-list li.run .tx,.ws-sp-list li.run .trk::after,.ws-sp-list li.wait .sk,.ws-sp-list li.done .n{animation:none}.ws-sp-list li.run .tx{background:none;color:#1f4e8c}}

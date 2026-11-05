@@ -127,7 +127,7 @@ export default function RfpWorkspace() {
         <section className="ws-sec ws-left">
           {phase === 'empty' && <DropZone onFile={() => undefined} projectId={projectId} />}
           {phase === 'ready' && <StartAnalysis projectId={projectId} documents={docs} />}
-          {(phase === 'running' || phase === 'failed') && <Skeleton count={live?.progress?.counts?.requirements} />}
+          {(phase === 'running' || phase === 'failed') && <SectionProgress activity={live?.activity ?? []} count={live?.progress?.counts?.requirements} running={phase === 'running'} step={live?.progress?.step} />}
           {phase === 'none' && <div className="ws-center"><p className="ws-strong">요구를 찾지 못했습니다</p><p className="muted">목차만 있는 문서이거나 스캔 이미지일 수 있습니다.</p></div>}
         </section>
         <section className="ws-sec ws-right">
@@ -270,7 +270,8 @@ function AnalysisStrip({ projectId, documents, live, failed }: { projectId: stri
     onSettled: () => client.invalidateQueries({ queryKey: ['projects'] }),
   });
   const latest = bySequence(activity).filter(a => a.focus).at(-1);
-  const line = latest ? lineOf(latest) : STEP_NOW[step ?? 'parse'];
+  const inFlight = step === 'extract' ? sectionStates(activity).filter(r => r.n === undefined).length : 0;
+  const line = inFlight > 1 ? `조항 ${inFlight}개를 동시에 읽는 중` : latest ? lineOf(latest) : STEP_NOW[step ?? 'parse'];
   return <>
     <div className="ws-strip" aria-label="AI 분석 상태">
       <span className="ws-ello" role="img" aria-label={failed ? 'AI 분석 멈춤' : 'AI 분석 중'}><ElloWorking size={28} still={failed} /></span>
@@ -289,10 +290,40 @@ function AnalysisStrip({ projectId, documents, live, failed }: { projectId: stri
   </>;
 }
 
-function Skeleton({ count }: { count?: number }) {
-  return <div className="ws-skel" aria-busy="true">
-    <p className="muted">{count ? `요구 ${count}건을 찾았습니다.` : '요구를 찾는 중입니다.'}</p>
-    {[70, 110, 90, 130, 80, 100].map((w, i) => <span key={i} className="sk" style={{ width: `${w * 2}px` }} />)}
+// 분석 중 조항 진행(2026-11-05 사용자 확정 목업): 서버가 보내는 조항 이름(section: 그 조항 호출 하나가 끝남)과
+// 조항 건수(found)만으로 그린다. 이름은 왔는데 건수가 없으면 읽는 중이다. 꾸며 낸 진행은 없다.
+export function sectionStates(activity: RfpProgress[]) {
+  const order: string[] = [];
+  const found = new Map<string, number>();
+  for (const a of bySequence(activity)) {
+    const f = a.focus;
+    if (!f || (f.kind !== 'section' && f.kind !== 'found')) continue;
+    if (!order.includes(f.label)) order.push(f.label);
+    if (f.kind === 'found') found.set(f.label, f.n ?? 0);
+  }
+  return order.map(label => ({ label, n: found.get(label) }));
+}
+
+function SectionProgress({ activity, count, running, step }: { activity: RfpProgress[]; count?: number; running: boolean; step?: string }) {
+  // 같은 판본을 다시 처리하면 요구 뽑기를 건너뛰어 조항 이름이 오지 않는다. 그때는 나누는 중이라고 하지 않는다.
+  const pastExtract = STEPS.indexOf(step ?? 'parse') > STEPS.indexOf('extract');
+  const rows = sectionStates(activity);
+  const done = rows.filter(r => r.n !== undefined);
+  const reading = rows.length - done.length;
+  const max = Math.max(1, ...done.map(r => r.n ?? 0));
+  const total = count ?? done.reduce((sum, r) => sum + (r.n ?? 0), 0);
+  return <div className="ws-sp" aria-busy={running}>
+    <div className="ws-sp-head"><span className="muted">찾은 요구</span><b>{total}</b><span className="muted">건</span>
+      <span className="r">다 읽은 조항 {done.length}{reading > 0 ? `, 읽는 중 ${reading}` : ''}</span></div>
+    {rows.length === 0 && <p className="muted ws-sp-wait">{pastExtract ? '이미 찾은 요구로 다음 단계를 진행하는 중입니다.' : '문서를 조항으로 나누는 중입니다.'}</p>}
+    <ul className="ws-sp-list">
+      {rows.map(r => <li key={r.label} className={r.n === undefined ? (running ? 'run' : '') : 'done'}>
+        <i className="mk" /><span className="tx">{r.label}</span>
+        <span className="trk"><b style={{ width: r.n === undefined ? 0 : `${(r.n / max) * 100}%` }} /></span>
+        <span className="n">{r.n === undefined ? '' : `요구 ${r.n}`}</span>
+      </li>)}
+      {running && !pastExtract && [0, 1, 2].map(i => <li key={`w${i}`} className="wait"><i className="mk" /><span className="sk" /></li>)}
+    </ul>
   </div>;
 }
 
@@ -427,15 +458,25 @@ export function Decide({ project, documents, rows, role, actorId, log }: { proje
       ? <Output project={project} rows={verdictRows} excluded={excluded} responsible={responsible} readOnly={readOnly} actorId={actorId} onJump={f => { setFilter(f); setTab('review'); }} onPick={id => { setFilter('all'); setSel(id); setTab('review'); }} />
       : <>
         <div className="ws-filters" role="toolbar" aria-label="판정 필터">
-          <Chip on={filter === 'all'} onClick={() => setFilter('all')}>전체 {verdictRows.length}</Chip>
-          <Chip on={filter === 'todo'} onClick={() => setFilter('todo')}>남은 할 일 {todo}</Chip>
-          <span className="ws-vsep" />
-          {[...DECIDE_ORDER, 'MET' as const].map(v => <Chip key={v} on={filter === v} onClick={() => setFilter(v)}>{VERDICT[v]} {count(v)}</Chip>)}
-          <span className="sp" />
-          <label className="ws-field inline">설비<select aria-label="설비" value={eq} onChange={event => setEq(event.target.value)}><option value="">전체</option>{equipments.map(e => <option key={e}>{e}</option>)}</select></label>
-          <input className="ws-search" aria-label="요구 검색" placeholder="요구, 조항, 값 검색" value={q} onChange={event => setQ(event.target.value)} />
-          {filter === 'todo' && <button className={byEq ? 'ws-chip on' : 'ws-chip'} aria-pressed={byEq} onClick={() => setByEq(!byEq)}>설비별로 보기</button>}
-          <button className="kb" onClick={() => downloadCsv(`${project.external_id ?? 'RFP'} 요구.csv`, order)}>목록 내려받기(CSV)</button>
+          <div className="ws-frow">
+            <span className="ws-scope" role="group" aria-label="범위">
+              <button className={filter === 'todo' ? 'on' : ''} aria-pressed={filter === 'todo'} onClick={() => setFilter('todo')}>남은 할 일 {todo}</button>
+              <button className={filter === 'all' ? 'on' : ''} aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>전체 {verdictRows.length}</button>
+            </span>
+            <span className="sp" />
+            <label className="ws-field inline">설비<select aria-label="설비" value={eq} onChange={event => setEq(event.target.value)}><option value="">전체</option>{equipments.map(e => <option key={e}>{e}</option>)}</select></label>
+            <input className="ws-search" aria-label="요구 검색" placeholder="요구, 조항, 값 검색" value={q} onChange={event => setQ(event.target.value)} />
+            <details className="ws-more">
+              <summary aria-label="더 보기">⋯</summary>
+              <div><button className="ws-link" onClick={event => { downloadCsv(`${project.external_id ?? 'RFP'} 요구.csv`, order); (event.currentTarget.closest('details') as HTMLDetailsElement).open = false; }}>목록 내려받기(CSV)</button></div>
+            </details>
+          </div>
+          <div className="ws-frow ws-verdicts">
+            <span className="muted">판정</span>
+            {[...DECIDE_ORDER, 'MET' as const].map(v => <Chip key={v} on={filter === v} onClick={() => setFilter(filter === v ? 'all' : v)}>{VERDICT[v]} <b>{count(v)}</b></Chip>)}
+            <span className="sp" />
+            {filter === 'todo' && <label className="ws-switch"><input type="checkbox" role="switch" checked={byEq} onChange={event => setByEq(event.target.checked)} />설비별로 묶기</label>}
+          </div>
         </div>
         {lastBulk && <p className="ws-bulkline">{lastBulk.n}건을 한 번에 결정했습니다. <button className="ws-link" disabled={undoBulkMutation.isPending} onClick={() => undoBulkMutation.mutate(lastBulk.batchId)}>일괄 되돌리기</button></p>}
         {bulk.isError && <p role="alert" className="ws-alert">{bulkFailure(bulk.error, verdictRows)} 아무것도 저장하지 않았습니다.</p>}

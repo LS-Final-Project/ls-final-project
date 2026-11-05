@@ -74,7 +74,7 @@ export function parseRfpEvent(frame: string[], jobId: string): RfpProgress | und
 
 /** 단계는 최신 관측 하나씩, 진행 한 줄(focus)은 순서대로 쌓는다(최근 80건). */
 export function addActivity(activity: RfpProgress[], p: RfpProgress): RfpProgress[] {
-  if (p.focus) return [...activity, p].slice(-80);
+  if (p.focus) return [...activity, p].slice(-400);
   if (!p.step) return activity;
   return [...activity.filter(item => item.focus || item.step !== p.step), p];
 }
