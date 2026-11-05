@@ -273,6 +273,7 @@ sales만 한다(책임자는 403 `TFT_DECISION_SALES_ONLY`). 책임자 확인·�
 | 최신 판본 | 판정 |
 |---|---|
 | 지금 판본을 만든 판정 바꾸기 결정이 있음 | 그 판정 |
+| EVIDENCE_FOUND, 사람 검토 필요(needs_review) | 충족 확인 |
 | EVIDENCE_FOUND | 충족 |
 | SPEC_GAP | 편차 |
 | CONDITIONAL, 담당 CUSTOMER | 질의 |

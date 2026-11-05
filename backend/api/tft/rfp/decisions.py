@@ -757,7 +757,9 @@ def bid_verdict(
         return override
     status = row["status"]
     if status == "EVIDENCE_FOUND":
-        return "MET"
+        # 근거는 찾았지만 추출이 사람 검토를 남긴 요구는 충족 확인이다. 충족으로 두면 화면에 결정 칸이 없는데
+        # 검토본 저장은 needs_review를 미해결로 세어 막힌다(2026-11-05 P26-0014).
+        return "CONFIRM" if row.get("needs_review") else "MET"
     if status == "SPEC_GAP":
         return "DEVIATION"
     if status == "CONDITIONAL":
@@ -805,7 +807,7 @@ async def states(
     params = {"p": project_id, "ids": list(requirement_ids or [])}
     cursor = await conn.execute(
         "SELECT v.requirement_id, v.version, v.status, v.kind, v.task, v.attribute_key, v.operator, "
-        "v.value, v.unresolved, v.next_owner_field, v.designated_model, "
+        "v.value, v.unresolved, v.next_owner_field, v.designated_model, v.needs_review, "
         "req.derivation_kind = 'PROVIDED' AS manually_added, "
         # 도면 OCR 조항(worker_processor.is_ocr과 같은 접두). 검토용 OCR-REVIEW는 요구를 만들지 않는다.
         "coalesce(c.clause_no LIKE 'OCR-DOCX-%%' OR c.clause_no LIKE 'OCR-PDF-P%%', false) AS drawing "

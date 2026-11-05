@@ -280,6 +280,8 @@ def verdict_of(supplied=False, **row):
 
 def test_bid_verdict_rules_follow_the_rfp91_cases():
     assert verdict_of(status="EVIDENCE_FOUND") == "MET"
+    # 근거를 찾았어도 사람 검토가 남은 요구는 충족 확인(결정 칸이 있어야 검토본 저장이 풀린다).
+    assert verdict_of(status="EVIDENCE_FOUND", needs_review=True) == "CONFIRM"
     assert verdict_of(status="SPEC_GAP") == "DEVIATION"
     # 형식 문장(R-01)과 숫자를 못 읽은 값(R-21)은 충족 확인, 문자 값 차이(R-24)와 조건 차이(R-16)는 편차.
     assert verdict_of(status="CONDITIONAL", attribute_key="form", operator="TEXT") == "CONFIRM"
