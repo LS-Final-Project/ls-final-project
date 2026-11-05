@@ -232,6 +232,21 @@ EVIDENCE_RULE_V4 = (
 PROMPTS["draft"]["v4"] = (
     PROMPTS["draft"]["v2"][:_end] + EVIDENCE_RULE_V4 + PROMPTS["draft"]["v2"][_end:]
 )
+# KAN-161 분류 v4: 모델은 허용 코드 이름만 본다. 검증 603에서 'PO or invoice number' 칸을 po_number로,
+# 'Error code or symptom displayed' 칸을 failure_description으로 적어 이미 준 정보를 다시 요청했다(71/561).
+# 헷갈린 네 코드의 코드북(info_field_codebook) 칸 이름만 v3 provided_info 줄 바로 뒤에 한 줄로 더한다.
+PROVIDED_INFO_CODES_RULE = (
+    "- 헷갈리기 쉬운 정보 코드는 원문 칸 이름(다른 언어 번역 포함)으로 고른다. 'PO or invoice number'(구매 "
+    "주문 또는 송장 번호) 칸은 purchase_doc이고, po_number는 'PO number' 칸만이다. 'Error code or symptom "
+    "displayed'(표시된 오류 코드나 증상) 칸은 error_code이며 값이 '-'여도 고객이 그 칸에 답했으므로 제공이다. "
+    "failure_description은 'Failure description and occurrence time'(고장 설명과 발생 시각) 칸이다.\n"
+)
+_end = PROMPTS["classification"]["v3"].index("[]다.\n") + len("[]다.\n")
+PROMPTS["classification"]["v4"] = (
+    PROMPTS["classification"]["v3"][:_end]
+    + PROVIDED_INFO_CODES_RULE
+    + PROMPTS["classification"]["v3"][_end:]
+)
 
 
 def get_prompt(stage: Stage, version: str) -> str:
