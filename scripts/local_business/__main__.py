@@ -497,6 +497,11 @@ def mail_demo_receive(state, args):
     current = mail.load(state)
     if not current or not current.get("demo"):
         raise ValueError("LOCAL_MAIL_DEMO_OFF")
+    if current.get("send") and not mail.allowed(args.sender.strip(), current["allow"]):
+        print(
+            "Warning: replies to this address are blocked by the send allow list:",
+            ", ".join(current["allow"]),
+        )
     stored = demo_mail.receive(
         demo_mail.DemoStore(demo_mail.store_path(state)),
         sender=args.sender,

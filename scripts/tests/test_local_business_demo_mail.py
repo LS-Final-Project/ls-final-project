@@ -179,7 +179,7 @@ class DemoMailTests(unittest.TestCase):
         self.assertTrue((state / "auth" / "mail-demo").exists())
         self.assertEqual(mail.load(state)["demo"], True)
         self.assertEqual(
-            json.loads((state / "auth" / "mail.json").read_text())["allow"], ["@example.invalid"]
+            json.loads((state / "auth" / "mail.json").read_text())["allow"], ["@customer.example.invalid"]
         )
         mail.write(
             state,

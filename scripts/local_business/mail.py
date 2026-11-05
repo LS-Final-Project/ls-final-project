@@ -98,7 +98,7 @@ def client_app(secret_file: str | None, env: dict) -> dict:
 
 
 DEMO_APP = {"client_id": str(UUID(int=2)), "client_secret": "local-demo-not-an-external-secret"}
-DEMO_ALLOW = ["@example.invalid"]  # reserved test domain: demo customers only
+DEMO_ALLOW = ["@customer.example.invalid"]  # reserved test domain for demo customers
 
 
 def write(

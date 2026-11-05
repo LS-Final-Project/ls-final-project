@@ -286,7 +286,7 @@ uv run --frozen --python 3.12 python -m scripts.local_business restart --namespa
 
 ## 로컬 시연 메일함 (Microsoft 없이)
 
-실제 Outlook 없이 메일함 화면과 C/S 업무 흐름을 같이 시연할 때 쓴다. `mail-on --demo`는 사서함 동의를 로컬 합성 화면으로, Microsoft Graph를 namespace 안의 JSON 메일함(`files/.mail-demo.json`)으로 바꾼다. 그 사이의 수집·분류·회신 연결·문의 접수·발송 의도·보낸편지함 확인은 실제 메일과 같은 제품 코드가 돈다. 메일은 이 PC 밖으로 나가지 않고, 발송 허용 목록 기본값은 예약 시험 도메인 `@example.invalid`다. 시연 메일과 주소는 합성값이다.
+실제 Outlook 없이 메일함 화면과 C/S 업무 흐름을 같이 시연할 때 쓴다. `mail-on --demo`는 사서함 동의를 로컬 합성 화면으로, Microsoft Graph를 namespace 안의 JSON 메일함(`files/.mail-demo.json`)으로 바꾼다. 그 사이의 수집·분류·회신 연결·문의 접수·발송 의도·보낸편지함 확인은 실제 메일과 같은 제품 코드가 돈다. 메일은 이 PC 밖으로 나가지 않고, 발송 허용 목록 기본값은 예약 시험 도메인 `@customer.example.invalid`다(정확한 도메인만 맞춘다). 고객 메일은 그 도메인 주소로 넣는다. 시연 메일과 주소는 합성값이다.
 
 ```bash
 uv run --frozen --python 3.12 python -m scripts.local_business mail-on --namespace "$NS" --demo --receive --send
