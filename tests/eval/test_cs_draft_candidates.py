@@ -11,7 +11,7 @@ import pytest
 from backend.engine.cs.classification import ClassificationOutput
 from backend.engine.cs.drafting import EvidenceSnippet
 from backend.engine.cs.drafting_call import DraftAttempt
-from backend.engine.cs.verification import VerificationOutput
+from backend.engine.cs.verification import output_model
 from backend.shared.ai import AISettings, Generation, Usage
 from eval.cs_draft_candidates import (
     SUBSET_NOTE,
@@ -668,6 +668,8 @@ def verifier(*verdicts, failure=None):
                 "verdict": verdict,
                 "reason": "synthetic secret reason",
                 "evidence_chunk_ids": s["evidence_chunk_ids"],
+                # 기본 판본 v2 지시문은 문장마다 확정 약속 표시를 받는다.
+                **({"firm_commitment": False} if "firm_commitment" in prompt else {}),
             }
             for s in payload["sentences"]
         ]
@@ -887,7 +889,7 @@ def test_output_limit_is_a_candidate_setting():
         factory = cs_draft_run.verification_factory(AISettings())
         factory(spec, AISettings())
         factory({**spec, "verification_max_output_tokens": 1024}, AISettings())
-    assert built == [(VerificationOutput, 4096), (VerificationOutput, 1024)]
+    assert built == [(output_model(), 4096), (output_model(), 1024)]
 
 
 @pytest.mark.parametrize("limit", [0, -1, "1024", 1.5, True])
