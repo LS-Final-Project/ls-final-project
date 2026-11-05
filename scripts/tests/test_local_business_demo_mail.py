@@ -142,6 +142,17 @@ class DemoMailTests(unittest.TestCase):
         authorization = adapter.redeem_mailbox(
             pending, params, browser_binding="b", session_user_id=owner, now=datetime.now(UTC)
         )
+        # The vault reads the cache as MSAL and needs exactly this mailbox's account.
+        import msal
+
+        from backend.api.platform.auth.microsoft import _mailbox_account
+
+        cache = msal.SerializableTokenCache()
+        cache.deserialize(authorization.serialized_cache.get_secret_value())
+        self.assertEqual(
+            _mailbox_account(cache, authorization.subject)["local_account_id"],
+            str(authorization.subject.oid),
+        )
         token = adapter.acquire_mailbox_token(
             subject=authorization.subject, serialized_cache=authorization.serialized_cache
         )

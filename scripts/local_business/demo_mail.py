@@ -25,7 +25,7 @@ from pathlib import Path
 from secrets import token_urlsafe
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlsplit
-from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 import httpx
 from fastapi import HTTPException
@@ -357,24 +357,50 @@ class LocalDemoMailbox:
             or callback.get("code") != CODE
         ):
             raise reject_callback()
+        subject = MicrosoftSubject(
+            PERSONAL_TENANT, uuid5(NAMESPACE_URL, f"local-demo-mailbox:{session_user_id}")
+        )
         return MailboxAuthorization(
-            owner_user_id=session_user_id,
-            subject=MicrosoftSubject(
-                PERSONAL_TENANT, uuid5(NAMESPACE_URL, f"local-demo-mailbox:{session_user_id}")
-            ),
-            serialized_cache=SecretStr(json.dumps({"local_demo_mailbox": str(session_user_id)})),
+            owner_user_id=session_user_id, subject=subject, serialized_cache=demo_cache(subject)
         )
 
     def acquire_mailbox_token(self, *, subject, serialized_cache, force_refresh=False):
         require_local_fixture()
         try:
-            owner = UUID(json.loads(serialized_cache.get_secret_value())["local_demo_mailbox"])
-        except (ValueError, KeyError, TypeError):
+            accounts = json.loads(serialized_cache.get_secret_value())["Account"].values()
+            [account] = accounts
+        except (ValueError, KeyError, TypeError, AttributeError):
             raise reject_callback() from None
-        if subject.tid != PERSONAL_TENANT or subject.oid != uuid5(
-            NAMESPACE_URL, f"local-demo-mailbox:{owner}"
-        ):
+        if subject.tid != PERSONAL_TENANT or account.get("local_account_id") != str(subject.oid):
             raise reject_callback()
         return MailboxTokenUpdate(
             access_token=SecretStr(TOKEN), serialized_cache=serialized_cache, cache_changed=False
         )
+
+
+def demo_cache(subject: MicrosoftSubject) -> SecretStr:
+    """A token cache in the MSAL serialized format with one account and no tokens.
+
+    The vault checks that the cache holds exactly this mailbox's account; the demo Graph
+    accepts the fixed demo token instead of anything from the cache.
+    """
+    home = f"{subject.oid}.{subject.tid}"
+    account = {
+        "home_account_id": home,
+        "environment": "login.microsoftonline.com",
+        "realm": "consumers",
+        "local_account_id": str(subject.oid),
+        "username": MAILBOX,
+        "authority_type": "MSSTS",
+    }
+    return SecretStr(
+        json.dumps(
+            {
+                "AccessToken": {},
+                "RefreshToken": {},
+                "IdToken": {},
+                "Account": {f"{home}-login.microsoftonline.com-consumers": account},
+                "AppMetadata": {},
+            }
+        )
+    )
