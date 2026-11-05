@@ -12,9 +12,11 @@ from backend.engine.documents.model import build_document
 from backend.engine.rfp.clauses import build_clause_tree
 from eval.adoption import RFP_METRIC_KEYS
 from eval.rfp_candidates import GoldFile, result_file, run_document, summarize
-from scripts import rfp_candidate_run
 from tests.tft.test_partner_grading import fact, profile
 from tests.tft.test_rfp_requirements import gen, p, req
+
+# 백엔드 검사 이미지에는 scripts 실행기가 없으니 거기서는 건너뛰고, 전체 checkout인 CI에서 실행한다.
+rfp_candidate_run = pytest.importorskip("scripts.rfp_candidate_run")
 
 QUOTE_A = "Rated maximum voltage shall be 38 kV"
 QUOTE_B = "Perform factory testing of the assembled unit"
