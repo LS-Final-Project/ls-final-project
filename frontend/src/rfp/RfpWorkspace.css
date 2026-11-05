@@ -313,5 +313,5 @@ button.ws-gateitem{color:#24518a;cursor:pointer}
 .ls-root .rfp-ui .ws-strip.ws-strip-mini,.ws-strip.ws-strip-mini{margin-right:20px;gap:14px}
 .ws-strip-mini .ws-strong{margin-right:2px}
 /* 작업 공간 전체를 화면 오른쪽 끝에서 띄운다(사용자 지적 2026-11-05: 설비~목록 내려받기, 결정 진행이 끝에 붙음). */
-.rfp-ui .ws{padding-right:20px;box-sizing:border-box;min-width:0}
+.ls-root .ws.rfp-ui,.ws.rfp-ui{padding-right:20px;box-sizing:border-box;min-width:0}
 .ls-root .rfp-ui .ws-strip.ws-strip-mini,.ws-strip.ws-strip-mini{margin-right:4px}
