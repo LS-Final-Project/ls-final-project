@@ -427,15 +427,25 @@ export function Decide({ project, documents, rows, role, actorId, log }: { proje
       ? <Output project={project} rows={verdictRows} excluded={excluded} responsible={responsible} readOnly={readOnly} actorId={actorId} onJump={f => { setFilter(f); setTab('review'); }} onPick={id => { setFilter('all'); setSel(id); setTab('review'); }} />
       : <>
         <div className="ws-filters" role="toolbar" aria-label="판정 필터">
-          <Chip on={filter === 'all'} onClick={() => setFilter('all')}>전체 {verdictRows.length}</Chip>
-          <Chip on={filter === 'todo'} onClick={() => setFilter('todo')}>남은 할 일 {todo}</Chip>
-          <span className="ws-vsep" />
-          {[...DECIDE_ORDER, 'MET' as const].map(v => <Chip key={v} on={filter === v} onClick={() => setFilter(v)}>{VERDICT[v]} {count(v)}</Chip>)}
-          <span className="sp" />
-          <label className="ws-field inline">설비<select aria-label="설비" value={eq} onChange={event => setEq(event.target.value)}><option value="">전체</option>{equipments.map(e => <option key={e}>{e}</option>)}</select></label>
-          <input className="ws-search" aria-label="요구 검색" placeholder="요구, 조항, 값 검색" value={q} onChange={event => setQ(event.target.value)} />
-          {filter === 'todo' && <button className={byEq ? 'ws-chip on' : 'ws-chip'} aria-pressed={byEq} onClick={() => setByEq(!byEq)}>설비별로 보기</button>}
-          <button className="kb" onClick={() => downloadCsv(`${project.external_id ?? 'RFP'} 요구.csv`, order)}>목록 내려받기(CSV)</button>
+          <div className="ws-frow">
+            <span className="ws-scope" role="group" aria-label="범위">
+              <button className={filter === 'todo' ? 'on' : ''} aria-pressed={filter === 'todo'} onClick={() => setFilter('todo')}>남은 할 일 {todo}</button>
+              <button className={filter === 'all' ? 'on' : ''} aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>전체 {verdictRows.length}</button>
+            </span>
+            <span className="sp" />
+            <label className="ws-field inline">설비<select aria-label="설비" value={eq} onChange={event => setEq(event.target.value)}><option value="">전체</option>{equipments.map(e => <option key={e}>{e}</option>)}</select></label>
+            <input className="ws-search" aria-label="요구 검색" placeholder="요구, 조항, 값 검색" value={q} onChange={event => setQ(event.target.value)} />
+            <details className="ws-more">
+              <summary aria-label="더 보기">⋯</summary>
+              <div><button className="ws-link" onClick={event => { downloadCsv(`${project.external_id ?? 'RFP'} 요구.csv`, order); (event.currentTarget.closest('details') as HTMLDetailsElement).open = false; }}>목록 내려받기(CSV)</button></div>
+            </details>
+          </div>
+          <div className="ws-frow ws-verdicts">
+            <span className="muted">판정</span>
+            {[...DECIDE_ORDER, 'MET' as const].map(v => <Chip key={v} on={filter === v} onClick={() => setFilter(filter === v ? 'all' : v)}>{VERDICT[v]} <b>{count(v)}</b></Chip>)}
+            <span className="sp" />
+            {filter === 'todo' && <label className="ws-switch"><input type="checkbox" role="switch" checked={byEq} onChange={event => setByEq(event.target.checked)} />설비별로 묶기</label>}
+          </div>
         </div>
         {lastBulk && <p className="ws-bulkline">{lastBulk.n}건을 한 번에 결정했습니다. <button className="ws-link" disabled={undoBulkMutation.isPending} onClick={() => undoBulkMutation.mutate(lastBulk.batchId)}>일괄 되돌리기</button></p>}
         {bulk.isError && <p role="alert" className="ws-alert">{bulkFailure(bulk.error, verdictRows)} 아무것도 저장하지 않았습니다.</p>}

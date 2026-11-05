@@ -325,12 +325,12 @@ describe('원문에서 요구 추가와 빼기 (KAN-225)', () => {
 });
 
 describe('보드 맞춤', () => {
-  it('회신 받은 질의 행은 버튼 대신 회신 받음을 보이고, 설비별로 보기는 남은 것만 설비로 묶는다', async () => {
+  it('회신 받은 질의 행은 버튼 대신 회신 받음을 보이고, 설비별로 묶기는 남은 것만 설비로 묶는다', async () => {
     serve([replied({})]);
     show('sales');
     const row = (await screen.findByText('회신 도착', { selector: 'td span' })).closest('tr')!;
     expect(within(row).queryByRole('button', { name: '질의서에 추가' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '설비별로 보기' }));
+    fireEvent.click(screen.getByRole('switch', { name: '설비별로 묶기' }));
     const groups = [...document.querySelectorAll('tr.g')].map(g => g.textContent?.split(' ')[0]);
     // KAN-231: 맥락 태그가 없으면 설비 계열(MV·TR·LV·공통)로 묶는다(보드와 같다).
     expect(groups).toEqual(['MV', 'TR', 'LV', '공통']);
@@ -340,6 +340,7 @@ describe('보드 맞춤', () => {
     const create = vi.fn(() => 'blob:x'); vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: create, revokeObjectURL: vi.fn() }));
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
     show('sales');
+    fireEvent.click(screen.getByLabelText('더 보기'));
     fireEvent.click(screen.getByRole('button', { name: '목록 내려받기(CSV)' }));
     expect(create).toHaveBeenCalledTimes(1);
     expect(click).toHaveBeenCalledTimes(1);
