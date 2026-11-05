@@ -73,6 +73,9 @@ export const createTicketSummary = (ticketId: string, signal: AbortSignal) => po
 // 한국어 번역(제목·본문 전체)을 만든다. 요약과 같이 같은 원문·판본이면 저장본을 돌려주고(200), 없으면 모델을 한 번 불러 저장한다(201).
 // 원문이 한국어면 서버가 모델을 부르지 않고 422(CS_TRANSLATION_NOT_NEEDED)를 돌려준다.
 export const createTicketTranslation = (ticketId: string, signal: AbortSignal) => postTo(`${ticketBase(ticketId)}/translation`, {}, signal, 'POST', ['cs_agent', 'dept_staff']);
+// 고객 회신 하나를 AI로 해석한다(요청한 정보에 답했는지, 남은 질문). 같은 회신·입력이면 저장본(200), 없으면 모델 한 번(201). C/S 담당자만.
+// 판정이 아니고 아무것도 바꾸지 않는다. 답한 정보 반영은 사람이 분류 정정(provided_info)으로 한다.
+export const createReplyAnalysis = (ticketId: string, messageId: string | null, signal: AbortSignal) => postTo(`${ticketBase(ticketId)}/reply-analysis`, messageId ? { message_id: messageId } : {}, signal);
 
 // 담당자가 AI 분류를 정정한다. 바꾼 칸만 보내고 사유가 필수다. 읽은 분석 판본(version)과 기준 분석 실행(analysis_id)을 함께 보낸다. 업무 상태 판본은 바뀌지 않는다.
 export type CorrectionBody = paths['/api/v1/cs/tickets/{ticket_id}/analysis/corrections']['post']['requestBody']['content']['application/json'];

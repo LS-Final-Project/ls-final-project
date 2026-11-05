@@ -1,0 +1,48 @@
+/* 회신 반영 분석 카드(KAN-230). 문의 처리 원문 상자 안, 이후 대화 위. */
+.ls-root .kv .td3 .ra3{margin:10px 0;border:1px solid #cfdcf2;background:#f7f9fd;padding:10px 12px;display:flex;flex-direction:column;gap:9px;font-size:12.5px}
+.ls-root .kv .td3 .ra3 .ra-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.ls-root .kv .td3 .ra3 .ra-head>div{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;min-width:0}
+.ls-root .kv .td3 .ra3 .ra-head b{color:#1a3a7a;font-size:13px}
+.ls-root .kv .td3 .ra3 .ra-head .kb3{display:inline-flex;align-items:center;gap:5px;flex:none}
+.ls-root .kv .td3 .ra3 .ra-empty{margin:0}
+.ls-root .kv .td3 .ra3 .ra-stale{margin:0;padding:6px 9px;background:#fff7e6;border-left:3px solid #e0a020;color:#7a5200}
+.ls-root .kv .td3 .ra3 small{display:block;color:#6b7686;font-size:11px;font-weight:600;margin-bottom:4px}
+
+.ls-root .kv .td3 .ra3 .ra-next{display:grid;grid-template-columns:auto 1fr;column-gap:10px;align-items:baseline;padding:8px 10px;background:#fff;border:1px solid #dfe5ee;border-left-width:4px}
+.ls-root .kv .td3 .ra3 .ra-next small{grid-column:1/-1;margin-bottom:2px}
+.ls-root .kv .td3 .ra3 .ra-next b{font-size:14px}
+.ls-root .kv .td3 .ra3 .ra-next span{color:#4a5566}
+.ls-root .kv .td3 .ra3 .ra-next.calm{border-left-color:#2e8b57}.ls-root .kv .td3 .ra3 .ra-next.calm b{color:#1f6b42}
+.ls-root .kv .td3 .ra3 .ra-next.warn{border-left-color:#e0a020}.ls-root .kv .td3 .ra3 .ra-next.warn b{color:#8a5a00}
+.ls-root .kv .td3 .ra3 .ra-next.danger{border-left-color:#c8402c}.ls-root .kv .td3 .ra3 .ra-next.danger b{color:#a8321f}
+
+.ls-root .kv .td3 .ra3 .ra-fit{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.ls-root .kv .td3 .ra3 .fit{background:#fff;border:1px solid #dfe5ee;padding:7px 9px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.ls-root .kv .td3 .ra3 .fit small{margin:0}
+.ls-root .kv .td3 .ra3 .fit b{font-size:13px}
+.ls-root .kv .td3 .ra3 .fit span{color:#5a6576;font-size:11.5px;line-height:1.45}
+.ls-root .kv .td3 .ra3 .fit.ok b{color:#1f6b42}.ls-root .kv .td3 .ra3 .fit.idle b{color:#5a6576}
+.ls-root .kv .td3 .ra3 .fit.warn b{color:#8a5a00}.ls-root .kv .td3 .ra3 .fit.bad{border-color:#efc4bc}.ls-root .kv .td3 .ra3 .fit.bad b{color:#a8321f}
+
+.ls-root .kv .td3 .ra3 .ra-codes{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.ls-root .kv .td3 .ra3 .ra-codes>div{background:#fff;border:1px solid #dfe5ee;padding:7px 9px;display:flex;flex-wrap:wrap;gap:4px;align-content:flex-start}
+.ls-root .kv .td3 .ra3 .ra-codes small{flex-basis:100%;margin:0 0 2px}
+.ls-root .kv .td3 .ra3 .chip{display:inline-block;padding:2px 7px;font-size:11.5px;border:1px solid}
+.ls-root .kv .td3 .ra3 .chip.ok{background:#eaf6ef;border-color:#bfe2cc;color:#1f6b42}
+.ls-root .kv .td3 .ra3 .chip.warn{background:#fff4e0;border-color:#f0d29a;color:#8a5a00}
+
+.ls-root .kv .td3 .ra3 .ra-list ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px}
+.ls-root .kv .td3 .ra3 .ra-list li{display:flex;gap:7px;align-items:baseline;line-height:1.5}
+.ls-root .kv .td3 .ra3 .kind{flex:none;font-size:10.5px;font-weight:700;padding:1px 6px;border:1px solid}
+.ls-root .kv .td3 .ra3 .kind.stated{color:#2a5bb5;border-color:#cfdcf2;background:#eef3fb}
+.ls-root .kv .td3 .ra3 .kind.unc{color:#7a5200;border-color:#f0d29a;background:#fff7e6}
+.ls-root .kv .td3 .ra3 .kind.ask{color:#5a6576;border-color:#dfe5ee;background:#fff}
+
+.ls-root .kv .td3 .ra3 .ra-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;border-top:1px dashed #d5dde9;padding-top:8px}
+.ls-root .kv .td3 .ra3 .ra-foot>.meta{display:inline-flex;align-items:center;gap:5px}
+.ls-root .kv .td3 .ra3 .ra-foot .kb3{flex:none}
+.ls-root .kv .td3 .ra3 .ra-confirm{display:flex;flex-direction:column;gap:6px;width:100%}
+.ls-root .kv .td3 .ra3 .ra-confirm label{display:flex;flex-direction:column;gap:3px;font-size:11px;color:#6b7686;font-weight:600}
+.ls-root .kv .td3 .ra3 .ra-confirm input{box-sizing:border-box;height:30px;min-height:30px;margin:0;padding:0 8px;border:1px solid #cfd6e0;font:inherit;font-size:12.5px;background:#fff}
+.ls-root .kv .td3 .ra3 .ra-confirm .btns{display:flex;justify-content:flex-end;gap:6px}
+@media (max-width:720px){.ls-root .kv .td3 .ra3 .ra-fit,.ls-root .kv .td3 .ra3 .ra-codes{grid-template-columns:1fr}}
