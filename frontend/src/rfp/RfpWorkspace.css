@@ -284,18 +284,10 @@ button.ws-gateitem{color:#24518a;cursor:pointer}
 .ls-root .ws-role input{max-width:360px}
 
 /* 오른쪽 칸 "안 1"(2026-11-05): 화면 높이에 고정, 위 결정·아래 원문이 각자 스크롤, 경계선으로 높이 조절. */
-.ws-right .ws-panel{flex:1;min-height:0;height:auto}
-.ws-top{flex:0 0 40%;min-height:160px;overflow:auto}
-.ws-bottom{flex:1 1 0;min-height:160px;display:flex;flex-direction:column}
-.ws-split{flex:none;height:6px;cursor:row-resize;background:#e6eaf0;border-top:1px solid #d5dbe3;border-bottom:1px solid #d5dbe3;touch-action:none}
-.ws-split:hover,.ws-split:focus-visible{background:#c9d3e0;outline:none}
 .ws-source>.ws-quote{overflow:auto}
 .ws-source .rfp-original-pane{flex:1;min-height:0;display:flex;flex-direction:column}
 .ws-more{display:block;margin:6px 12px 10px;font-size:12px}
 /* 표(왼쪽)·결정+원문(오른쪽)을 화면 높이에 맞추고 각자 안에서 스크롤한다. --ws-grid-top은 화면이 잰 칸 위치. */
-.ws-fit{padding-bottom:0}
-.ws-fit>.ws-left,.ws-fit>.ws-right{height:calc(100vh - var(--ws-grid-top,280px) - 12px);min-height:480px;overflow:hidden}
-.ws-fit>.ws-left .ws-tbox{flex:1;height:auto;min-height:0}
 /* 결정 진행을 탭 줄 오른쪽에 작게(사용자 지적 2026-11-05: 별도 줄이 원문 칸을 줄였다). */
 .ws-tabrow{display:flex;align-items:flex-end;gap:12px;margin-top:12px;border-bottom:1px solid #d5dbe3}
 .ws-tabrow .ws-tabs{margin-top:0;margin-bottom:-1px}
@@ -316,22 +308,45 @@ button.ws-gateitem{color:#24518a;cursor:pointer}
 .ls-root .ws.rfp-ui,.ws.rfp-ui{padding-right:20px;box-sizing:border-box;min-width:0}
 .ls-root .rfp-ui .ws-strip.ws-strip-mini,.ws-strip.ws-strip-mini{margin-right:4px}
 /* 결정 카드 촘촘히(사용자 확정 2026-11-05: 스크롤 없이 한눈에). */
-.ws-bottom{min-height:200px}
-.ls-root .ws-cmp,.ws-cmp{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:8px;row-gap:2px;border:0}
-.ls-root .ws-cmp>span,.ws-cmp>span{padding:0;border:0;background:none}
-.ws-cmp .v{margin-right:16px}
-.ws-whyrow{display:flex;align-items:flex-start;gap:8px}
-.ws-why{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;flex:1;min-width:0}
-.ws-why.open{display:block}
-.ws-whymore{flex:none;font-size:12px}
 .ws-pick{gap:6px}
-.ws-tools{display:contents}
 .ws-tools .ws-link{font-size:12px}
 .ws-tools>.ws-form,.ws-tools>section{flex-basis:100%}
 .ws-tools>.ws-form.ws-exclude{padding:0}
 .ws-prow .note{-webkit-line-clamp:1}
 .ws-offtoggle{align-self:flex-start;font-size:12px}
 /* 결정 카드 도구 링크(검토 대상에서 제외, 변경 이력)는 주 단추 줄에 한 줄로 나란히. */
-.ws-tools .ws-histlink{display:inline;margin:0;white-space:nowrap}
-.ws-decided,.ws-form .ws-go{flex-wrap:wrap;column-gap:14px}
-.ws-tools .ws-histlink{margin-left:14px}
+/* 작업 공간: 전체 페이지 스크롤. 오른쪽 칸은 원문(고정 높이, 내부 스크롤) 아래에 결정 카드를 다 펼친다(사용자 지시 2026-11-05). */
+.ws-right .ws-panel{height:auto}
+.ws-bottom{display:flex;flex-direction:column;border-bottom:1px solid #e1e6ec}
+.ws-bottom .ws-source{flex:none;height:480px}
+.ws-top{flex:none}
+/* 결정 카드: 보드처럼 키-값 표와 처리 상자. 왼쪽 회색 라벨 칸 82px. */
+.ls-root .ws-cmp,.ws-cmp{display:grid;grid-template-columns:82px minmax(0,1fr);border:1px solid #e3e7ec}
+.ls-root .ws .ws-panel .ws-cmp>span{display:block;padding:7px 10px;border-bottom:1px solid #eef1f4}
+.ws-cmp>span:nth-last-child(-n+2){border-bottom:0}
+.ws-cmp .k{color:#6b7684;background:#f8f9fb;font-size:12px;font-weight:600}
+.ws-cmp .v.why{font-size:12.5px;color:#4b5563;line-height:1.55}
+.ws-pick>.ws-form{display:grid;grid-template-columns:82px minmax(0,1fr);gap:0;border:1px solid #e3e7ec;background:linear-gradient(to right,#f8f9fb 82px,#fff 82px)}
+.ws-pick>.ws-form>*{border-bottom:1px solid #eef1f4}
+.ws-pick>.ws-form>:last-child{border-bottom:0}
+.ls-root .ws .ws-panel .ws-pick>.ws-form>.ws-label{display:block;grid-column:1;padding:8px 10px;font-weight:600;font-size:12px;color:#6b7684}
+.ws-pick>.ws-form>:is(.ws-opts,.ws-plist,.ws-offtoggle){grid-column:2;margin:0;padding:6px 10px}
+.ws-pick>.ws-form>.ws-plist{border:0;padding:0}
+.ws-pick>.ws-form>.ws-offtoggle{justify-self:start;text-align:left}
+.ws-pick>.ws-form>.ws-field{grid-column:1/-1;display:grid;grid-template-columns:72px minmax(0,1fr);column-gap:10px;align-items:center;max-width:none;padding:6px 10px;font-weight:600;font-size:12px;color:#6b7684}
+.ws-pick>.ws-form>.ws-field :is(input,select){width:100%;font-weight:500}
+.ws-pick>.ws-form>:is(.ws-go,.ws-note,p,[role=alert]){grid-column:1/-1;background:#fff;margin:0;padding:8px 10px}
+.ws-pick>.ws-form>.ws-go{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap}
+/* 처리 선택은 세그먼트 단추 모양. */
+.ws-pick .ws-opts{gap:0}
+.ls-root .ws-pick .ws-opts label{margin:0 -1px 0 0;padding:4px 12px;border:1px solid #c4ccd6;background:#fff;cursor:pointer;font-weight:500;position:relative}
+.ls-root .ws-pick .ws-opts label:has(input:checked){background:#24518a;border-color:#24518a;color:#fff;z-index:1}
+.ls-root .ws-pick .ws-opts label:has(input:focus-visible){outline:2px solid #24518a;outline-offset:1px}
+.ls-root .ws-pick .ws-opts input[type=radio]{position:absolute;opacity:0;width:1px;height:1px}
+/* 주 단추는 왼쪽, 판정 변경·제외·변경 이력은 오른쪽 작은 링크. 펼치면 그 줄 아래 전체 폭. */
+.ws-tools{display:flex;flex:1 1 auto;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:4px 14px;margin-left:auto}
+.ws-tools .ws-link,.ws-tools .ws-histlink{font-size:12px;margin:0;white-space:nowrap;display:inline}
+.ws-tools>.ws-form,.ws-tools>section{flex-basis:100%}
+.ws-decided{flex-wrap:wrap}
+.ls-root .ws .ws-panel span.ws-tools{display:flex}
+.ls-root .ws .ws-panel .ws-tools>*+*{margin-left:0}
