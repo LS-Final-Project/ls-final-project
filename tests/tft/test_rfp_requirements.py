@@ -24,6 +24,7 @@ from backend.engine.rfp.requirements import (
     designated_item,
     extract_section,
     halved,
+    merge_general,
     prompt,
     requirement_sentences,
     split_input,
@@ -194,7 +195,9 @@ def test_missing_requirement_sentences_get_one_gap_fill_call():
     # 보완 호출에는 빠진 문장만 들어간다.
     assert "output relays" in calls[1] and "BIL" not in calls[1]
     assert (result.covered_first, result.covered_final, result.sentences) == (3, 4, 4)
-    assert result.gap_fill_added == 1 and len(result.requirements) == 4
+    # 보완으로 더해진 2.5.D 일반 의무는 같은 조항 줄과 한 줄로 합쳐진다(merge_general).
+    assert result.gap_fill_added == 1 and len(result.requirements) == 3
+    assert result.requirements[-1].attribute == "coating · output relays"
     assert result.usage.input_tokens == 20
 
 
@@ -1138,3 +1141,35 @@ def test_a_construction_sentence_keeps_a_form_requirement_beside_its_rating():
     fused = kept[0].model_copy(update={"value": "fused switch"})
     gap = compare_in_family(to_comparison(fused), "MV_EQUIP", load_own_products())
     assert (gap.status, gap.deficiency_cause) == ("SPEC_GAP", "FORM")
+
+
+def test_general_obligations_of_one_clause_merge_into_one_row_with_a_covering_quote():
+    """같은 조항의 일반 의무 줄은 한 줄로 합친다. 인증·어휘 키·값이 다른 줄은 그대로 둔다(KAN-188)."""
+    item = section()
+    rows = [
+        ExtractedRequirement.model_validate(r)
+        for r in [
+            req("2.5.D", "The controller shall be coated.", "coating", operator="TEXT"),
+            req(
+                "2.5.D",
+                "The unit shall provide Fans, Alarm, and Trip output relays.",
+                "relays",
+                operator="TEXT",
+            ),
+            req("2.5.K", "BIL: 95 kV.", "BIL", "95", "kV", attribute_key="bil"),
+        ]
+    ]
+    merged = merge_general(item, rows)
+    assert [r.clause_no for r in merged] == ["2.5.D", "2.5.K"]
+    assert merged[0].quote == (
+        "The controller shall be coated. The unit shall provide Fans, Alarm, and Trip output relays."
+    )
+    assert merged[0].attribute == "coating · relays" and merged[1] == rows[2]
+    # 값이 서로 다르거나 필수 여부가 다르면 합치지 않는다.
+    differ = [rows[0], rows[1].model_copy(update={"necessity": "PREFERRED"})]
+    assert merge_general(item, differ) == differ
+    valued = [
+        rows[0].model_copy(update={"value": "coated"}),
+        rows[1].model_copy(update={"value": "Fans"}),
+    ]
+    assert merge_general(item, valued) == valued

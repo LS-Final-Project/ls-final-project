@@ -14,13 +14,15 @@
    겹치는지 본다. 빠진 문장이 있으면 그 문장만 모아 한 번 더 부른다(`gap_fill`). 긴 조항(14번 2.5 D는 한
    조항에 11문장)에서 모델이 문장을 묶거나 건너뛰는 것을 실행 운에 맡기지 않기 위해서다.
 
+5. 같은 조항 일반 의무 합치기(`merge_general`): 어휘 키 없는 같은 성격의 줄을 한 줄로 합친다. 인증은 합치지 않는다.
+
 명령문("Provide …", "Comply with …")도 요구다. 가격·표준 납기는 비교 대상이 아니라 뽑지 않는다.
 """
 
 import json
 import re
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -792,6 +794,79 @@ def halved(item: ExtractionInput) -> list[ExtractionInput]:
     ]
 
 
+def _span(text: str, quotes: list[str]) -> str | None:
+    """조항 현행 텍스트에서 인용들을 모두 덮는 연속 구간(원문 표기 그대로). 하나라도 못 찾으면 None."""
+    folded = text.replace("’", "'").replace("‘", "'")
+    starts, ends = [], []
+    for quote in quotes:
+        words = quote.replace("’", "'").replace("‘", "'").split()
+        found = (
+            re.search(r"\s+".join(map(re.escape, words)), folded, re.IGNORECASE) if words else None
+        )
+        if found is None:
+            return None
+        starts.append(found.start())
+        ends.append(found.end())
+    return text[min(starts) : max(ends)]
+
+
+def merge_general(
+    item: ExtractionInput, requirements: list[ExtractedRequirement]
+) -> list[ExtractedRequirement]:
+    """같은 조항의 일반 의무(어휘 키 없음) 요구를 한 줄로 합친다.
+
+    여러 문장 조항에서 모델이 문장마다 일반 의무 한 줄씩 내면 검토 화면에 같은 성격의 줄이 늘어난다. 종류·필수 여부·
+    대상·과업·연산자·단위·계열이 같고 지정품·조건·허용 오차가 없는 줄만 합치고, 값이 서로 다르면 합치지 않는다.
+    인증(COMPLIANCE)은 규격마다 따로 비교하므로 합치지 않는다. 합친 인용은 첫 인용부터 끝 인용까지의 원문 구간이다.
+    """
+    texts = {c.clause_no: _clause_text(c) for c in item.clauses}
+    groups: dict[tuple[object, ...], list[int]] = {}
+    for index, r in enumerate(requirements):
+        if (
+            r.kind == "COMPLIANCE"
+            or r.attribute_key != OTHER
+            or r.designated_model is not None
+            or r.conditions
+            or r.tolerance is not None
+        ):
+            continue
+        key = (r.clause_no, r.kind, r.necessity, r.equipment, r.task, r.operator, r.unit,
+               r.standard_system, r.equipment_family)  # fmt: skip
+        groups.setdefault(key, []).append(index)
+    merged: dict[int, ExtractedRequirement] = {}
+    dropped: set[int] = set()
+    for members in groups.values():
+        rows = [requirements[i] for i in members]
+        values = {r.value for r in rows if r.value is not None}
+        span = _span(texts.get(rows[0].clause_no, ""), [r.quote for r in rows])
+        attribute = " · ".join(dict.fromkeys(r.attribute for r in rows))
+        # 사람이 직접 추가하는 요구와 같은 길이 상한(인용 4000자, 속성 200자)을 넘기면 합치지 않는다.
+        if (
+            len(rows) < 2
+            or len(values) > 1
+            or span is None
+            or len(span) > 4000
+            or len(attribute) > 200
+        ):
+            continue
+        merged[members[0]] = rows[0].model_copy(
+            update={
+                "quote": span,
+                "attribute": attribute,
+                "value": next(iter(values), None),
+                "certification_listed": any(r.certification_listed for r in rows),
+                "assembly_clause": any(r.assembly_clause for r in rows),
+                "approval_procedure_missing": any(r.approval_procedure_missing for r in rows),
+            }
+        )
+        dropped.update(members[1:])
+    return [merged.get(i, r) for i, r in enumerate(requirements) if i not in dropped]
+
+
+def _merged(item: ExtractionInput, result: SectionResult) -> SectionResult:
+    return replace(result, requirements=merge_general(item, result.requirements))
+
+
 def extract_section(item: ExtractionInput, provider: Callable[[str], Generation]) -> SectionResult:
     """절 하나를 뽑는다. 긴 절은 `split_input`으로 나눠 부르고 결과를 합친다.
 
@@ -829,7 +904,7 @@ def extract_section(item: ExtractionInput, provider: Callable[[str], Generation]
         else:
             results.append(result)
     if len(results) == 1:
-        return results[0]
+        return _merged(item, results[0])
     failed = [r for r in results if r.outcome != "VALID"]
     # 전송 실패 부분은 응답이 없어 사용량을 알 수 없고, 잘린 부분은 든 비용을 더한다.
     for r in results:
@@ -839,7 +914,7 @@ def extract_section(item: ExtractionInput, provider: Callable[[str], Generation]
     return SectionResult(
         section_no=item.section_no,
         outcome=failed[0].outcome if failed else "VALID",
-        requirements=[req for r in valid for req in r.requirements],
+        requirements=merge_general(item, [req for r in valid for req in r.requirements]),
         rejected=[rej for r in valid for rej in r.rejected],
         value_dropped=sum(r.value_dropped for r in valid),
         designated_dropped=sum(r.designated_dropped for r in valid),
