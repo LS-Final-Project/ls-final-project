@@ -24,6 +24,7 @@ from backend.engine.rfp.draft import DISCLAIMER
 from backend.engine.rfp.vocabulary import DERIVED_SOURCE_NOTE
 from backend.shared.access import Principal, principal_header
 from backend.shared.settings import Settings
+from tests.tft.decision_gate import settle_decisions
 from tests.tft.test_rfp_http_base_db import SALES, admin, app_dsn, chain  # noqa: F401
 from tests.tft.test_worker_processor_db import worker_dsn  # noqa: F401
 
@@ -225,6 +226,7 @@ def test_review_unresolved_with_next_action_is_conditional_and_idempotent(
     client, app_dsn, chain, admin
 ):
     ready(app_dsn, admin, chain)
+    settle_decisions(client, admin, chain["project"])
     body = {"version": 1, "note": "사람이 확인한 검토본"}
     first = call(client, "POST", chain, "/review-versions", body, "review-snapshot-key")
     assert first.status_code == 201, first.text
@@ -262,6 +264,7 @@ def test_export_id_replay_docx_file_scope_and_integrity(
     client, app_dsn, chain, admin, tmp_path, worker_dsn, finish_before_receipt
 ):
     ready(app_dsn, admin, chain)
+    settle_decisions(client, admin, chain["project"])
     saved = call(client, "POST", chain, "/review-versions", {"version": 1}, "review-for-export")
     assert saved.status_code == 201, saved.text
     jobs = Jobs()
@@ -422,6 +425,7 @@ def test_review_export_snapshot_survives_live_changes_and_put_before_db_retry(
     from backend.api.tft.rfp import draft_repository as db
 
     ready(app_dsn, admin, chain)
+    settle_decisions(client, admin, chain["project"])
     saved = call(client, "POST", chain, "/review-versions", {"version": 1}, "snapshot-review")
     assert saved.status_code == 201, saved.text
     jobs = Jobs()
@@ -454,11 +458,13 @@ def test_review_export_snapshot_survives_live_changes_and_put_before_db_retry(
             return (
                 await db.evidence_labels(conn, chain["project"]),
                 await db.project_title(conn, chain["project"]),
+                await db.load_review_context(conn, chain["project"], 1),
             )
 
     original = asyncio.run(frozen())
-    names, title = asyncio.run(head())
-    expected = draft_exports.render_docx(original, 1, names, title)
+    names, title, context = asyncio.run(head())
+    assert context is not None and context.status == "NOT_ANALYZED"
+    expected = draft_exports.render_docx(original, 1, names, title, context)
     events = []
 
     def crash_after_put(event):
@@ -489,8 +495,16 @@ def test_review_export_snapshot_survives_live_changes_and_put_before_db_retry(
             is None
         )
         if change == "requirement":
+            # 결정·확인 뒤 재처리처럼 요구가 검토 필요한 새 판본이 된다(결정한 판본만 검토 끝난 것으로 본다).
             conn.execute(
-                "UPDATE tft.requirement_versions SET needs_review=true WHERE requirement_id=%s",
+                "INSERT INTO tft.requirement_versions SELECT (jsonb_populate_record(v, "
+                "jsonb_build_object('version', v.version + 1, 'needs_review', true))).* "
+                "FROM tft.requirement_versions v JOIN tft.requirements r ON r.id = v.requirement_id "
+                "AND v.version = r.latest_version WHERE r.id = %s",
+                (chain["requirement"],),
+            )
+            conn.execute(
+                "UPDATE tft.requirements SET latest_version = latest_version + 1 WHERE id = %s",
                 (chain["requirement"],),
             )
         else:
@@ -515,7 +529,7 @@ def test_review_export_snapshot_survives_live_changes_and_put_before_db_retry(
         client, "POST", chain, "/review-versions", {"version": 1}, "current-review-blocked"
     )
     assert blocked.status_code == 422 and blocked.json()["error"]["code"] == "TFT_DRAFT_INCOMPLETE"
-    assert draft_exports.render_docx(asyncio.run(frozen()), 1, names, title) == expected
+    assert draft_exports.render_docx(asyncio.run(frozen()), 1, names, title, context) == expected
     asyncio.run(execute(lambda event: None))
     response = call(client, "GET", chain, f"/exports/{export_id}/file")
     assert response.status_code == 200 and response.content == expected
@@ -948,3 +962,213 @@ def test_draft_gives_readable_evidence_numbers(client, app_dsn, chain, admin):
         )
     data = call(client, "GET", chain).json()["data"]
     assert data["evidence_labels"][str(chain["requirement"])] == "2.4.E.1.a-2"
+
+
+def stored_grades(admin, chain):
+    """다시 만들기가 건드리면 안 되는 요구 판본·등급 행."""
+    with psycopg.connect(admin) as conn:
+        return (
+            conn.execute(
+                "SELECT row_to_json(v)::text FROM tft.requirement_versions v "
+                "JOIN tft.requirements r ON r.id=v.requirement_id WHERE r.project_id=%s "
+                "ORDER BY v.requirement_id, v.version",
+                (chain["project"],),
+            ).fetchall(),
+            conn.execute(
+                "SELECT id, latest_version FROM tft.requirements WHERE project_id=%s ORDER BY id",
+                (chain["project"],),
+            ).fetchall(),
+            conn.execute(
+                "SELECT row_to_json(g)::text FROM tft.partner_grades g WHERE project_id=%s "
+                "ORDER BY 1",
+                (chain["project"],),
+            ).fetchall(),
+        )
+
+
+def test_regenerate_keeps_human_text_grades_and_replays(client, app_dsn, chain, admin, monkeypatch):
+    def no_model(*args, **kwargs):
+        raise AssertionError("regenerate must not call a model")
+
+    monkeypatch.setattr("backend.shared.ai.create_client", no_model)
+    generate(app_dsn, chain, uuid4())
+    row = first_sentence(call(client, "GET", chain).json()["data"])
+    edit = {
+        "version": 1,
+        "edits": [
+            {
+                "sentence_id": row["sentence_id"],
+                "text": "사람이 고친 문장은 그대로 남는다.",
+                "reason": "원문 확인",
+                "evidence": row["evidence"],
+            }
+        ],
+    }
+    assert call(client, "PATCH", chain, body=edit).status_code == 200
+    before = stored_grades(admin, chain)
+
+    first = call(client, "POST", chain, "/regenerate", {"version": 2}, "regenerate-once")
+    assert first.status_code == 201, first.text
+    data = first.json()["data"]
+    assert data["version"] == 3 and data["evidence_labels"]
+    human = [
+        r
+        for p in data["sections"]
+        for r in p["sentences"]
+        if r["sentence_id"] == row["sentence_id"]
+    ]
+    assert [(r["text"], r["provenance_kind"]) for r in human] == [
+        ("사람이 고친 문장은 그대로 남는다.", "human_input")
+    ]
+    assert stored_grades(admin, chain) == before
+
+    replay = call(client, "POST", chain, "/regenerate", {"version": 2}, "regenerate-once")
+    assert replay.status_code == 201 and replay.json()["data"] == data
+    other = call(client, "POST", chain, "/regenerate", {"version": 3}, "regenerate-once")
+    assert other.status_code == 409 and other.json()["error"]["code"] == "IDEMPOTENCY_CONFLICT"
+    stale = call(client, "POST", chain, "/regenerate", {"version": 2}, "regenerate-stale")
+    assert stale.status_code == 409 and stale.json()["error"]["code"] == "TFT_VERSION_CONFLICT"
+    body = {"version": 3}
+    assert (
+        call(client, "POST", chain, "/regenerate", body, "regen-ro", user=REVIEWER).status_code
+        == 403
+    )
+    assert (
+        call(client, "POST", chain, "/regenerate", body, "regen-out", user=OUTSIDER).status_code
+        == 404
+    )
+    assert call(client, "GET", chain, "?version=1").json()["data"]["version"] == 1
+    with psycopg.connect(admin) as conn:
+        versions = conn.execute(
+            "SELECT version, provenance_kind, source_job_id FROM tft.draft_versions "
+            "WHERE project_id=%s ORDER BY version",
+            (chain["project"],),
+        ).fetchall()
+        assert [v[0] for v in versions] == [1, 2, 3]
+        assert versions[2][1:] == (
+            "system_record",
+            drafts.regenerate_id(chain["project"], SALES, f"regenerate-once:{chain['project']}"),
+        )
+        assert conn.execute(
+            "SELECT count(*), min(detail->>'previous_version') FROM tft.rfp_audit_events "
+            "WHERE project_id=%s AND action='draft.regenerate' AND entity_id='3'",
+            (chain["project"],),
+        ).fetchone() == (1, "2")
+
+
+def test_regenerate_refuses_while_the_worker_holds_the_project(client, chain, admin):
+    with psycopg.connect(admin, autocommit=True) as worker:
+        worker.execute(
+            "SELECT pg_advisory_lock(hashtextextended(%s,187))", (str(chain["project"]),)
+        )
+        busy = call(client, "POST", chain, "/regenerate", {"version": 0}, "regenerate-busy")
+        assert busy.status_code == 409 and busy.json()["error"]["code"] == "TFT_DRAFT_JOB_ACTIVE"
+        assert call(client, "GET", chain).status_code == 404
+        worker.execute(
+            "SELECT pg_advisory_unlock(hashtextextended(%s,187))", (str(chain["project"]),)
+        )
+    created = call(client, "POST", chain, "/regenerate", {"version": 0}, "regenerate-busy")
+    assert created.status_code == 201, created.text
+    assert created.json()["data"]["version"] == 1
+
+
+def test_review_and_export_history_newest_first(
+    client, app_dsn, chain, admin, tmp_path, worker_dsn
+):
+    for user in (OWNER, REVIEWER):
+        for suffix in ("/review-versions", "/exports"):
+            empty = call(client, "GET", chain, suffix, user=user)
+            assert empty.status_code == 200 and empty.json()["data"] == {"items": []}
+    assert call(client, "GET", chain, "/review-versions", user=OUTSIDER).status_code == 404
+    assert call(client, "GET", chain, "/exports", user=OUTSIDER).status_code == 404
+    ready(app_dsn, admin, chain)
+    settle_decisions(client, admin, chain["project"])
+    for key, note in (("history-review-1", None), ("history-review-2", "두 번째 확인")):
+        saved = call(client, "POST", chain, "/review-versions", {"version": 1, "note": note}, key)
+        assert saved.status_code == 201, saved.text
+    reviews = call(client, "GET", chain, "/review-versions", user=REVIEWER).json()["data"]["items"]
+    assert [(r["review_version"], r["note"]) for r in reviews] == [(2, "두 번째 확인"), (1, None)]
+    assert set(reviews[0]) == {
+        "review_version",
+        "draft_version",
+        "note",
+        "output_status",
+        "judgement_status",
+        "saved_by",
+        "saved_by_name",
+        "saved_at",
+    }
+    assert reviews[0]["draft_version"] == 1 and reviews[0]["output_status"] == "REVIEW_DRAFT"
+    assert reviews[0]["saved_by"] == str(SALES) and reviews[0]["saved_by_name"] is None
+
+    jobs = Jobs()
+    client.app.state.processing_jobs = jobs
+    ids = []
+    for review in (1, 2):
+        accepted = call(
+            client,
+            "POST",
+            chain,
+            "/exports",
+            {"review_version": review, "format": "DOCX"},
+            f"history-export-{review}",
+        )
+        assert accepted.status_code == 202, accepted.text
+        ids.append(accepted.json()["data"]["export_id"])
+    items = call(client, "GET", chain, "/exports").json()["data"]["items"]
+    assert [i["export_id"] for i in items] == ids[::-1]
+    assert items[0]["status"] == "QUEUED" and items[0]["file_name"] is None
+    assert items[0]["finished_at"] is None and items[0]["requested_by"] == str(SALES)
+
+    job = TftJob(
+        job_id=jobs.id,
+        kind="rfp.export",
+        project_id=chain["project"],
+        input_version=jobs.calls[1][1]["input_version"],
+        actor_id=SALES,
+    )
+
+    async def execute():
+        async with await psycopg.AsyncConnection.connect(worker_dsn, row_factory=dict_row) as conn:
+            await draft_exports.process(conn, job, lambda event: None, LocalDocumentStore(tmp_path))
+
+    asyncio.run(execute())
+    done = call(client, "GET", chain, "/exports").json()["data"]["items"][0]
+    assert done["export_id"] == ids[1] and done["status"] == "SUCCEEDED"
+    assert done["review_version"] == 2 and done["format"] == "DOCX" and done["finished_at"]
+    assert done["file_name"] == f"rfp-{ids[1]}.docx" and done["requested_by_name"] is None
+
+
+def test_review_save_is_refused_until_decisions_and_reviews_are_done(client, app_dsn, chain, admin):
+    """KAN-220 저장 조건은 화면만이 아니라 서버도 막는다(2026-11-05). 본인 결정 프로젝트도 확인을 건너뛰지 않는다."""
+    ready(app_dsn, admin, chain)
+
+    def save(key):
+        return call(client, "POST", chain, "/review-versions", {"version": 1}, key)
+
+    def left(response):
+        assert response.status_code == 409, response.text
+        error = response.json()["error"]
+        assert error["code"] == "TFT_DECISION_GATE_OPEN"
+        return {item["field"]: int(item["reason"]) for item in error["details"]}
+
+    def decide(who, **body):
+        headers = principal_header(who) | {"Idempotency-Key": uuid4().hex}
+        url = f"/api/v1/tft/requirements/{chain['requirement']}/decision"
+        response = client.post(url, json={"version": 1, **body}, headers=headers)
+        assert response.status_code == 200, response.text
+        return response.json()["data"]
+
+    first = left(save("gate-open"))
+    assert first.get("undecided") == 1 and "review_pending" not in first
+    made = decide(OWNER, action="record_deviation", text="기준온도 120 °C 값만 보유")
+    assert left(save("gate-review")) == {"review_pending": 1}
+    # 담당 sales가 책임자도 맡으면 본인이 확인한다. 확인 전에는 여전히 막힌다.
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.projects SET responsible_user_id=%s WHERE id=%s", (SALES, chain["project"])
+        )
+    assert left(save("gate-self")) == {"review_pending": 1}
+    decide(OWNER, action="review_confirm", decision_id=made["decision_id"])
+    saved = save("gate-closed")
+    assert saved.status_code == 201, saved.text

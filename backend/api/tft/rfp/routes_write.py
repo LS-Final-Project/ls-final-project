@@ -95,7 +95,14 @@ async def project_fields(conn: AsyncConnection[Row], project_id: UUID) -> dict[s
         if row["latest_job_id"]
         else None,
         "integration_responsibility": integration_body(state),
+        "decision_gate": await decision_gate(conn, project_id),
     }
+
+
+async def decision_gate(conn: AsyncConnection[Row], project_id: UUID) -> s.DecisionGate:
+    from backend.api.tft.rfp.decisions import gate
+
+    return await gate(conn, project_id)
 
 
 async def project_detail(conn: AsyncConnection[Row], project_id: UUID) -> s.RfpProjectDetail:
@@ -190,6 +197,7 @@ async def create_project(
                             "off_list_permission",
                             "review_departments",
                             "data_origin",
+                            "submission_due_at",
                         )
                     },
                     **strategic_values(fields, principal.user_id, now),
@@ -246,6 +254,7 @@ async def update_project(
                 "supply_region",
                 "customer_manufacturer_list",
                 "off_list_permission",
+                "submission_due_at",
             )
             if k in fields
         }

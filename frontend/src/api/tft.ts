@@ -7,9 +7,9 @@ export type ProjectDetail = ProjectDetailResponse['data'];
 export type RfpRequirement = ProjectDetail['rfp_requirements'][number];
 
 export type ProjectSummary = ProjectListResponse['data']['items'][number];
-export type ProjectFilters = { output_status?: string; judgement_status?: string; q?: string };
-export function listProjects(filters: ProjectFilters = {}, cursor?: string) {
-  const query = new URLSearchParams(Object.entries({ ...filters, cursor }).filter(([, value]) => value) as [string, string][]);
+export type ProjectFilters = { output_status?: string; judgement_status?: string; q?: string; search_field?: 'all' | 'external_id' | 'name' };
+export function listProjects(filters: ProjectFilters = {}, cursor?: string, page?: number) {
+  const query = new URLSearchParams(Object.entries({ ...filters, cursor, ...(page ? { page: String(page), limit: '10' } : {}) }).filter(([, value]) => value) as [string, string][]);
   const text = query.toString();
   return request<ProjectListResponse>(`/api/v1/tft/projects${text ? `?${text}` : ''}`);
 }

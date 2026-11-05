@@ -20,6 +20,7 @@ from backend.api.tft.rfp.comparison import (
     compare,
     compare_in_family,
     confusion,
+    equipment_voltages,
     load_own_products,
     master_filter,
 )
@@ -309,7 +310,10 @@ def test_search_finds_similar_products_but_rules_compare_only_same_unit():
     trace = SearchTrace(filters=["family=SWITCHGEAR"], documents_searched=1, search_failed=False)
     gap = compare(requirement, [switchgear("12")], trace)
     assert (gap.status, gap.deficiency_cause) == ("SPEC_GAP", "RATING")
-    other_unit = compare(requirement, [switchgear("15000", "V")], trace)
+    # SI 접두만 다른 단위는 환산해 견준다(KAN-217): 15000 V = 15 kV.
+    volts = compare(requirement, [switchgear("15000", "V")], trace)
+    assert (volts.status, volts.candidates[0].result) == ("EVIDENCE_FOUND", "MEETS")
+    other_unit = compare(requirement, [switchgear("15", "kV peak")], trace)
     assert (other_unit.status, other_unit.candidates[0].result) == ("CONDITIONAL", "NOT_COMPARABLE")
     assert other_unit.candidates[0].comparable is False
     # Several candidates: the best one decides, every one is listed.
@@ -1017,7 +1021,7 @@ def test_unit_qualifiers_do_not_stop_the_duration_estimate(unit, duration_unit):
     assert not any("단위" in item for item in outcome.unresolved)
 
 
-@pytest.mark.parametrize("unit", ["kA peak", "kA asym", "kA crest", "A"])
+@pytest.mark.parametrize("unit", ["kA peak", "kA asym", "kA crest", "mA s"])
 def test_units_that_change_the_quantity_are_not_stripped(unit):
     """peak·asym·crest와 다른 크기는 다른 양이다. 같다고도 다르다고도 하지 않는다(단위 확인)."""
     trace = SearchTrace(filters=[], documents_searched=1, search_failed=False)
@@ -1026,6 +1030,19 @@ def test_units_that_change_the_quantity_are_not_stripped(unit):
     )
     assert (outcome.status, outcome.candidates[0].result) == ("CONDITIONAL", "NOT_COMPARABLE")
     assert any("단위 확인" in item for item in outcome.unresolved)
+
+
+def test_si_prefix_units_are_converted_and_thousands_commas_are_read():
+    """KAN-217: 38,000 A 요구와 자사 25 kA는 같은 양이다(천 단위 쉼표 F-1, kA↔A 환산). B-1과 같이 사양 차이다."""
+    trace = SearchTrace(filters=[], documents_searched=1, search_failed=False)
+    wanted = short_time("A").model_copy(update={"value": "38,000"})
+    outcome = compare(
+        wanted, [rated_product("short_time_withstand_current", "25", "kA", "3")], trace
+    )
+    assert outcome.status == "SPEC_GAP"
+    assert not any("단위" in item for item in outcome.unresolved)
+    assert grading._number("1,250") == 1250 and grading._number("1,5") is None
+    assert grading.unit_factor("V", "kV") == 1000 and grading.unit_factor("kV", "kA") is None
 
 
 @pytest.mark.parametrize(("korean", "english"), [("초", "s"), ("분", "min"), ("시간", "h")])
@@ -1861,3 +1878,134 @@ def test_only_breaker_candidates_leave_an_assembly_requirement_insufficient():
     outcome = compare(mv_voltage("medium-voltage switchgear"), breakers, trace)
     assert (outcome.status, outcome.next_owner) == ("INSUFFICIENT_EVIDENCE", "TECH")
     assert outcome.unresolved == ["medium-voltage switchgear 자료 확인"]
+
+
+def test_an_acb_requirement_is_not_met_by_mccb_evidence():
+    """KAN-217 F-2(RFP-91 R-22): 저압 차단기 계열 안에서도 ACB 요구의 근거는 ACB 제품뿐이다. MCCB는 후보 목록에만 남는다."""
+    products = load_own_products()
+    wanted = Requirement(
+        clause_no="제8조.4",
+        item="low-voltage air circuit breaker",
+        attribute="breaking_capacity_icu",
+        value="25",
+        unit="kA",
+        operator="GTE",
+        conditions=[Condition(name="voltage", value="415", unit="V")],
+    )
+    outcome = compare_in_family(wanted, "LV_BREAKER", products)
+    best = next(c for c in outcome.candidates if c.reason == outcome.reason)
+    assert best.product_code == "ACB-AS-2000"
+    mccb = next(c for c in outcome.candidates if c.product_code == "MCCB-ABS-103c")
+    assert (mccb.status, mccb.comparable) == ("INSUFFICIENT_EVIDENCE", False)
+    assert "MCCB 차단기라 ACB 요구의 근거로 쓰지 않음" in mccb.reason
+    # 차단 방식을 적지 않은 요구는 전처럼 계열 전체와 견준다.
+    plain = compare_in_family(
+        wanted.model_copy(update={"item": "인입 차단기"}), "LV_BREAKER", products
+    )
+    assert all(c.comparable for c in plain.candidates if c.product_code.startswith("MCCB-ABS-103c"))
+
+
+def test_equipment_of_another_voltage_class_is_not_a_candidate():
+    """KAN-217(D22 점검): 170 kV GIS 요구를 25.8 kV VCB와 견주지 않는다. 사양 차이가 아니라 검색 범위에 맞는 제품 없음이다."""
+    products = load_own_products()
+    gis = Requirement(
+        clause_no="3.1",
+        item="GIS",
+        attribute="rated_max_voltage",
+        value="170",
+        unit="kV",
+        operator="GTE",
+    )
+    outcome = compare_in_family(gis, "MV_EQUIP", products)
+    assert (outcome.status, outcome.candidates) == ("INSUFFICIENT_EVIDENCE", [])
+    assert "voltage_class=HV" in outcome.search_trace.filters
+    assert "자사 후보를 찾지 못함" in outcome.reason
+    # 같은 등급이면 그대로 비교한다(기획서 B-1: 15 kV 요구 ↔ 12 kV 개폐반은 사양 차이).
+    same = compare_in_family(
+        gis.model_copy(update={"item": "개폐반", "value": "15"}), "MV_EQUIP", products
+    )
+    assert same.status == "SPEC_GAP"
+    # 같은 설비의 다른 요구(154 kV 1차)가 등급을 정한다. 임피던스 요구도 11 kV 변압기와 견주지 않는다.
+    voltages = equipment_voltages([("주변압기", "primary_voltage", "154", "kV")])
+    impedance = Requirement(
+        clause_no="4.2",
+        item="주변압기",
+        attribute="impedance",
+        value="12",
+        unit="%",
+        equipment_voltage_kv=voltages["주변압기"],
+    )
+    assert compare_in_family(impedance, "TRANSFORMER", products).candidates == []
+    # 저압 2차 전압만으로는 등급을 정하지 않는다(1차를 모르면 거르지 않음).
+    assert equipment_voltages([("tr", "secondary_voltage", "415", "V")]) == {}
+    assert equipment_voltages([("tr", "secondary_voltage", "154", "kV")]) == {"tr": 154}
+
+
+@pytest.mark.parametrize(
+    "item", ["저압 붓싱", "LV bushings", "Current Transformers", "계기용 변성기", "변류기"]
+)
+def test_part_requirement_is_not_compared_with_assembly_product(item):
+    """KAN-229: 부품(붓싱·변류기·계기용 변성기) 요구를 본체 설비 제품과 견주지 않는다(감사: 붓싱 vs 유입 변압기)."""
+    wanted = Requirement(
+        clause_no="5.2", item=item, attribute="secondary_voltage", value="400", unit="V"
+    )
+    outcome = compare_in_family(wanted, "TRANSFORMER", load_own_products())
+    assert outcome.status == "INSUFFICIENT_EVIDENCE"
+    assert not outcome.candidates
+    assert "부품 요구라 본체 제품과 비교하지 않음" in outcome.reason
+
+
+def test_transformer_tap_requirement_is_still_compared():
+    """탭 범위는 변압기 자체 사양이다. 부품 규칙에 걸리지 않는다."""
+    wanted = Requirement(
+        clause_no="2.5.M", item="tap changer", attribute="tap", value="±2×2.5%", operator="TEXT"
+    )
+    outcome = compare_in_family(wanted, "TRANSFORMER", load_own_products())
+    assert any(c.comparable for c in outcome.candidates)
+
+
+def test_dry_transformer_requirement_never_uses_oil_product():
+    """KAN-217: 건식(몰드) 변압기 요구에 유입 제품(TRF-OIL-1000)을 후보·자사 보증값으로 쓰지 않는다."""
+    from backend.api.tft.rfp.comparison import equipment_insulations, insulation
+    from backend.api.tft.rfp.requirement_fields import pick
+
+    assert insulation("몰드(cast resin) 건식") == "DRY"
+    assert insulation("Oil-immersed transformer 1000kVA, ONAN") == "OIL"
+    assert insulation("유입식 아닌 건식") is None
+    # TR-01 정격 용량 행은 장비 이름만으로 형식을 모른다. 같은 설비의 형식 요구가 근거다.
+    forms = equipment_insulations(
+        [("TR-01", "form", "몰드 건식 변압기"), ("TR-01", "rated_power", "630")]
+    )
+    wanted = Requirement(
+        clause_no="OCR-DOCX-0001.12",
+        item="TR-01",
+        attribute="rated_power",
+        value="630",
+        unit="kVA",
+        equipment_insulation=forms.get("tr-01"),
+    )
+    outcome = compare_in_family(wanted, "TRANSFORMER", load_own_products())
+    assert [c.product_code for c in outcome.candidates] == ["TRF-DRY-630"]
+    assert "insulation=DRY" in outcome.search_trace.filters
+    # 형식을 모르면 두 후보가 남고 자사 보증값에 형식 미확인을 붙인다. 판정 사유에 나온 후보를 먼저 고른다.
+    unknown = compare_in_family(
+        wanted.model_copy(update={"equipment_insulation": None}), "TRANSFORMER", load_own_products()
+    )
+    assert {c.product_code for c in unknown.candidates} == {"TRF-DRY-630", "TRF-OIL-1000"}
+    rows = [
+        {
+            "product_code": c.product_code,
+            "variant": None,
+            "result": c.result,
+            "our_value": c.our_value,
+            "our_unit": c.our_unit,
+            "our_conditions": [],
+        }
+        for c in unknown.candidates
+    ]
+    chosen = pick(rows, "근거 TRF-OIL-1000 1000 kVA")
+    assert (
+        chosen is not None
+        and chosen.product_code == "TRF-OIL-1000"
+        and chosen.note == "형식 미확인"
+    )

@@ -83,29 +83,46 @@ export const businessRoutes = [
   ['/api/v1/cs/assignments/apply', ['POST'], []],
   ['/api/v1/cs/assignments/improvements/preview', ['POST'], []],
   ['/api/v1/cs/assignments/improvements/apply', ['POST'], []],
-  ['/api/v1/tft/projects', ['GET', 'POST'], ['limit', 'cursor', 'output_status', 'judgement_status', 'q']],
+  ['/api/v1/tft/projects', ['GET', 'POST'], ['limit', 'cursor', 'output_status', 'judgement_status', 'q', 'page', 'search_field']],
   ['/api/v1/tft/projects/{uuid}', ['GET', 'PATCH'], []],
   ['/api/v1/tft/projects/{uuid}/assignment', ['PATCH'], []],
   ['/api/v1/tft/projects/{uuid}/documents', ['GET', 'POST'], []],
   ['/api/v1/tft/documents/{uuid}', ['GET'], []],
   ['/api/v1/tft/documents/{uuid}/file', ['GET'], []],
+  ['/api/v1/tft/documents/{uuid}/diagrams', ['GET'], ['document_version_id']],
+  ['/api/v1/tft/documents/{uuid}/diagrams/{evidence}/image', ['GET'], ['document_version_id']],
   ['/api/v1/tft/projects/{uuid}/draft', ['GET', 'PATCH'], ['version']],
   ['/api/v1/tft/projects/{uuid}/draft/rewrite', ['POST'], []],
   ['/api/v1/tft/projects/{uuid}/draft/rewrites/{uuid}', ['GET'], []],
-  ['/api/v1/tft/projects/{uuid}/draft/review-versions', ['POST'], []],
-  ['/api/v1/tft/projects/{uuid}/draft/exports', ['POST'], []],
+  ['/api/v1/tft/projects/{uuid}/draft/regenerate', ['POST'], []],
+  ['/api/v1/tft/projects/{uuid}/draft/review-versions', ['GET', 'POST'], []],
+  ['/api/v1/tft/projects/{uuid}/draft/exports', ['GET', 'POST'], []],
   ['/api/v1/tft/projects/{uuid}/draft/exports/{uuid}/file', ['GET'], []],
   ['/api/v1/tft/documents/{uuid}/clauses', ['GET'], ['parent', 'limit', 'cursor']],
+  ['/api/v1/tft/projects/{uuid}/context', ['GET', 'PATCH'], ['version']],
+  ['/api/v1/tft/projects/{uuid}/context/process', ['POST'], []],
   ['/api/v1/tft/projects/{uuid}/process', ['POST'], []],
-  ['/api/v1/tft/projects/{uuid}/requirements', ['GET'], ['limit', 'cursor', 'document_version_id', 'equipment', 'task', 'necessity', 'status', 'needs_rereview', 'needs_review', 'has_open_question', 'next_owner_field', 'unresolved_mandatory']],
+  ['/api/v1/tft/projects/{uuid}/requirements', ['GET', 'POST'], ['limit', 'cursor', 'document_version_id', 'equipment', 'task', 'necessity', 'status', 'needs_rereview', 'needs_review', 'has_open_question', 'next_owner_field', 'unresolved_mandatory', 'excluded']],
   ['/api/v1/tft/requirements/{uuid}', ['GET'], []],
   ['/api/v1/tft/requirements/{uuid}/comparison', ['GET'], []],
+  ['/api/v1/tft/requirements/{uuid}/recompare', ['POST'], []],
+  ['/api/v1/tft/requirements/{uuid}/decision', ['POST'], []],
+  ['/api/v1/tft/requirements/{uuid}/history', ['GET'], ['kind', 'actor', 'limit', 'cursor']],
+  ['/api/v1/tft/projects/{uuid}/history', ['GET'], ['kind', 'actor', 'limit', 'cursor']],
+  ['/api/v1/tft/projects/{uuid}/equipment', ['GET'], []],
+  ['/api/v1/tft/projects/{uuid}/analysis', ['GET'], []],
+  ['/api/v1/tft/projects/{uuid}/decisions/bulk', ['POST'], []],
+  ['/api/v1/tft/projects/{uuid}/decisions/bulk/{uuid}/undo', ['POST'], []],
   ['/api/v1/tft/requirements/{uuid}/supplement-options', ['GET'], []],
   ['/api/v1/tft/requirements/{uuid}/supplement-selection', ['POST'], []],
+  ['/api/v1/tft/projects/{uuid}/supplement-selections/batch', ['POST'], []],
   ['/api/v1/tft/projects/{uuid}/partner-candidates', ['GET'], ['requirement_id']],
   ['/api/v1/tft/projects/{uuid}/questions', ['GET', 'POST'], ['status', 'requirement_id', 'target', 'target_dept']],
+  ['/api/v1/tft/projects/{uuid}/questions/batch', ['POST'], []],
+  ['/api/v1/tft/projects/{uuid}/questions/sent', ['POST'], []],
   ['/api/v1/tft/projects/{uuid}/questions/{uuid}/confirm', ['POST'], []],
   ['/api/v1/tft/questions/{uuid}/reply', ['POST'], []],
+  ['/api/v1/tft/questions/{uuid}/reply/read', ['POST'], []],
   ['/api/v1/tft/projects/{uuid}/proposals', ['GET', 'POST'], ['status', 'origin', 'requirement_id']],
   ['/api/v1/tft/proposals/{uuid}/approve', ['POST'], []],
   ['/api/v1/tft/proposals/{uuid}/reject', ['POST'], []],
@@ -135,9 +152,11 @@ const mailRoutes = [
 export const placeholders = { '{uuid}': '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '{customer}': '[A-Za-z0-9][A-Za-z0-9._-]{0,63}', '{evidence}': '[A-Za-z0-9][A-Za-z0-9._-]{0,63}', '{dept}': '[A-Z][A-Z0-9_]{0,63}' };
 // 파일이 지나가는 두 경로만 1 MiB·JSON 규칙의 예외다. backend/api/platform/relay.py의 FILE_LIMIT·FILE_TYPES와 같아야 한다.
 const fileLimit = 26 * 1024 * 1024;
-const fileTypes = new Set(['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']);
+const fileTypes = new Set(['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);
 const uploadPath = new RegExp(`^/api/v1/tft/projects/${placeholders['{uuid}']}/documents$`);
 const downloadPath = new RegExp(`^(?:/api/v1/tft/documents/${placeholders['{uuid}']}/file|/api/v1/tft/projects/${placeholders['{uuid}']}/draft/exports/${placeholders['{uuid}']}/file)$`);
+const diagramTypes = new Set(['application/pdf', 'image/png', 'image/jpeg', 'image/webp']);
+const diagramPath = new RegExp(`^/api/v1/tft/documents/${placeholders['{uuid}']}/diagrams/OCR-(?:DOCX-\\d{4,}|PDF-P\\d{4,})/image$`);
 const compiledRoutes = businessRoutes.map(([template, methods, query]) => [new RegExp(`^${template.split(/(\{uuid\}|\{customer\}|\{evidence\}|\{dept\})/).map(part => placeholders[part] ?? part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('')}$`), methods, query]);
 
 /**
@@ -168,7 +187,7 @@ async function limitedBody(result, limit) {
 }
 
 const authenticationCookies = new Set(['__Host-team4_session', '__Host-team4_oauth', '__Host-team4_mailbox_oauth']);
-const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
+const mime = { '.wasm': 'application/wasm', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
 
 function json(response, status, body) {
   response.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
@@ -271,7 +290,7 @@ export function handler({ directory, upstream, tokenProvider, fetcher = fetch, b
         }
         const result = await fetcher(new URL(path + (business.length || assignees ? parsed.search : ''), target), { method: request.method, headers, body: form, signal: AbortSignal.timeout((authMethod || business.length) ? 45000 : 15000), redirect: authMethod ? 'manual' : 'error' });
         const resultType = (result.headers.get('content-type') || '').split(';', 1)[0].trim().toLowerCase();
-        const isFile = business.length > 0 && request.method === 'GET' && result.status === 200 && downloadPath.test(path) && fileTypes.has(resultType);
+        const isFile = business.length > 0 && request.method === 'GET' && result.status === 200 && (downloadPath.test(path) && fileTypes.has(resultType) || diagramPath.test(path) && diagramTypes.has(resultType));
         if (business.length && (result.status >= 300 && result.status < 400 || (result.status !== 204 && resultType !== 'application/json' && !isFile))) {
           await result.body?.cancel();
           throw new Error('Invalid business response');

@@ -39,6 +39,18 @@ MIGRATIONS = (
     "20261112_KAN-187_project_constraints.sql",
     "20261113_KAN-188_rewrite_summary.sql",
     "20261114_KAN-188_export_title.sql",
+    "20261117_KAN-188_document_diagrams.sql",
+    "20261118_KAN-188_context_analysis.sql",
+    "20261119_KAN-188_context_commands.sql",
+    "20261120_KAN-188_workflow_snapshot.sql",
+    "20261121_KAN-218_decisions.sql",
+    "20261122_KAN-224_question_follow_up.sql",
+    "20261122_KAN-225_manual_requirements.sql",
+    "20261123_KAN-221_xlsx_exports.sql",
+    "20261124_KAN-227_drawing_check.sql",
+    "20261124_KAN-228_bulk_and_sends.sql",
+    "20261125_KAN-224_reply_value_reads.sql",
+    "20261126_KAN-232_regrade.sql",
 )
 # 다시 적용해도 깨지지 않는 KAN-182 마이그레이션(매번 적용한다).
 RERUNNABLE = MIGRATIONS[2:]

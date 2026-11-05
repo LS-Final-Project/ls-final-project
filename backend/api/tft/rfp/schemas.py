@@ -17,6 +17,8 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 from backend.api.tft.partners.grading import Grade
 from backend.api.tft.partners.schemas import Attribute, LeadTime, Scope
 from backend.api.tft.rfp.integration import FallbackPath
+from backend.engine.documents.diagrams import DiagramGraph
+from backend.engine.rfp.vocabulary import AttributeKeyOrOther, FamilyOrOther
 
 # --- 공통 축 -----------------------------------------------------------------------------
 
@@ -89,8 +91,11 @@ DepartmentKind = Literal["SALES", "RND", "TECH", "PURCHASE", "OTHER"]
 ProposalOrigin = Literal["web", "customer_reply", "pdf_annot"]
 ProposalStatus = Literal["PENDING", "APPROVED", "REJECTED"]
 ProposerKind = Literal["user", "system"]
-JobKind = Literal["rfp.process", "rfp.export", "rfp.annotate", "rfp.draft_rewrite"]
+JobKind = Literal["rfp.process", "rfp.export", "rfp.annotate", "rfp.draft_rewrite", "rfp.context"]
 JobStep = Literal[
+    "context_map",
+    "context_link",
+    "context_validate",
     "parse",
     "extract",
     "search",
@@ -116,13 +121,20 @@ DraftSection = Literal[
     "QUESTIONS_NEXT_ACTIONS",
 ]
 EvidenceType = Literal["requirement", "product", "partner", "clause", "question"]
-ExportFormat = Literal["DOCX", "PDF"]
+# XLSX: 편차표·질의서·현황표·요구별 네 시트(KAN-221). PDF는 받지 않는다(422).
+ExportFormat = Literal["DOCX", "PDF", "XLSX"]
 Purpose = Literal["INITIAL_PROPOSAL"]
 ConfirmationStatus = Literal["UNCONFIRMED", "CONTACT_PLANNED", "CONFIRMED"]
 
 
 class Model(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class ContextProcess(Model):
+    """Reorganize existing requirements; never upload or re-extract the source."""
+
+    reason: str | None = Field(default=None, max_length=2000)
 
 
 class Provenance(Model):
@@ -159,6 +171,8 @@ class ProjectCreate(Model):
     # 영업 입력 표시값(가설). 상태·등급·경로 순위·검토본 조건·평가 어디에도 입력으로 쓰지 않는다(명세 v1.3 §6).
     strategic_customer: bool | None = None
     strategic_customer_note: str | None = Field(default=None, min_length=1, max_length=200)
+    # KAN-228: 제안서 제출 마감(입력 안 하면 null).
+    submission_due_at: date | None = None
 
 
 class IntegrationUpdate(Model):
@@ -185,6 +199,8 @@ class ProjectUpdate(Model):
     strategic_customer: bool | None = None
     strategic_customer_note: str | None = Field(default=None, min_length=1, max_length=200)
     integration_responsibility: IntegrationUpdate | None = None
+    # null이면 마감을 지운다.
+    submission_due_at: date | None = None
 
 
 class Assignment(Model):
@@ -256,6 +272,7 @@ class RfpProjectSummary(Provenance):
     # 명세 v1.3 §4 #1: 화면은 "전략 고객(영업 입력, 가설)" 배지로만 보여 준다.
     strategic_customer: bool | None = None
     integration_responsibility: IntegrationSummary = Field(default_factory=IntegrationSummary)
+    submission_due_at: date | None = None
 
 
 class RfpProjectList(Model):
@@ -278,6 +295,7 @@ class RfpProjectDetail(RfpProjectSummary):
     integration_responsibility: IntegrationResponsibility = Field(
         default_factory=IntegrationResponsibility
     )
+    decision_gate: "DecisionGate" = Field(default_factory=lambda: DecisionGate())
 
 
 # --- 문서·조항 (§4.2) -------------------------------------------------------------------
@@ -285,6 +303,7 @@ class RfpProjectDetail(RfpProjectSummary):
 
 # 저장 행에서 그대로 옮기는 프로젝트 칸. 집계 칸은 routes_write.project_detail이 채운다.
 PROJECT_COLUMNS = (
+    "submission_due_at",
     "external_id",
     "id",
     "version",
@@ -352,6 +371,7 @@ class DocumentList(Model):
 class DocumentDetail(DocumentVersion):
     clauses_count: int
     deleted_values_count: int
+    extraction_warnings: list[str] = Field(default_factory=list)
 
 
 class DeletedValue(Model):
@@ -415,6 +435,52 @@ class Condition(Model):
     name: str
     value: str
     unit: str | None
+
+
+class OwnValue(Model):
+    """자사 보증값(KAN-227). 저장된 비교의 대표 후보에서 읽는다(충족 → 다름 → 비교 불가 → 자료 없음)."""
+
+    product_code: str
+    variant: str | None
+    value: str
+    unit: str | None
+    conditions: list[Condition]
+    result: Literal["MEETS", "DIFFERS", "NOT_COMPARABLE", "NO_DATA"]
+    # "형식 미확인": 요구의 변압기 절연 형식(건식·유입)을 몰라 형식이 다른 후보가 함께 남은 경우(KAN-217).
+    note: str | None = None
+
+
+class RequirementGroup(Model):
+    """요구가 속한 설비 묶음(KAN-231). 최신 맥락 결과(KAN-216)의 묶음 ID·원문 제목 태그·이름."""
+
+    group_id: str
+    tag: str | None
+    name: str
+
+
+class DuplicateInfo(Model):
+    """원문 여러 곳에 반복된 같은 요구(KAN-223). 대표만 결정하고 구성원은 대표를 따른다(KAN-231)."""
+
+    representative_id: UUID
+    member_count: int
+    is_representative: bool
+
+
+# 설비 계열 묶음(KAN-231): 중전압·변압기·저압·그 밖의 계열·공통(계열 없음, 과업, 제출물).
+Bucket = Literal["MV", "TR", "LV", "OTHER", "COMMON"]
+
+
+class Equipment(Model):
+    """프로젝트 설비 하나(KAN-227). tag는 원문 제목의 설비 태그(KAN-216), 없으면 null."""
+
+    tag: str | None
+    name: str
+
+
+class EquipmentList(Model):
+    # context: 최신 맥락 결과의 설비 묶음. requirements: 맥락이 없어 요구 판본의 설비 칸을 모은 것.
+    source: Literal["context", "requirements"]
+    items: list[Equipment]
 
 
 class RequirementOrigin(Model):
@@ -499,6 +565,15 @@ class RequirementSummary(Model):
     provenance_kind: ProvenanceKind
     rnd_check: RndCheck = "NOT_REQUIRED"
     is_designated_item: bool = False
+    bid_verdict: "BidVerdict | None" = None
+    decision: "DecisionState | None" = None
+    # KAN-227: 비교에 쓴 자사 값. 비교가 없거나 자사 값이 없으면 null.
+    own_value: OwnValue | None = None
+    # KAN-231: 설비 계열 묶음은 늘 있다. 묶음·중복·context_stale은 맥락이 없으면 null(규칙은 rfp-data.md).
+    bucket: Bucket = "COMMON"
+    group: RequirementGroup | None = None
+    duplicate: DuplicateInfo | None = None
+    context_stale: bool | None = None
 
 
 class RequirementList(Model):
@@ -506,7 +581,14 @@ class RequirementList(Model):
     next_cursor: str | None
 
 
+class RequirementWorkflow(Model):
+    comparison_stale: bool = False
+    supplement_stale: bool = False
+    draft_sentence_ids: list[UUID] = Field(default_factory=list)
+
+
 class RequirementDetail(Provenance):
+    workflow: RequirementWorkflow = Field(default_factory=RequirementWorkflow)
     requirement_id: UUID
     code: str
     origin: RequirementOrigin
@@ -515,6 +597,15 @@ class RequirementDetail(Provenance):
     links: RequirementLinks
     needs_rereview: bool
     needs_review: bool = False
+    bid_verdict: "BidVerdict | None" = None
+    decision: "DecisionState | None" = None
+    # KAN-227: 비교에 쓴 자사 값. 비교가 없거나 자사 값이 없으면 null.
+    own_value: OwnValue | None = None
+    # KAN-231: 설비 계열 묶음은 늘 있다. 묶음·중복·context_stale은 맥락이 없으면 null(규칙은 rfp-data.md).
+    bucket: Bucket = "COMMON"
+    group: RequirementGroup | None = None
+    duplicate: DuplicateInfo | None = None
+    context_stale: bool | None = None
 
 
 # --- 자사 비교 (§4.5) -------------------------------------------------------------------
@@ -604,6 +695,24 @@ class SupplementSelection(Model):
     rnd_check_waiver_reason: str | None = Field(default=None, min_length=20, max_length=1000)
 
 
+class SupplementBatchItem(Model):
+    requirement_id: UUID
+    version: int = Field(ge=1)
+
+
+class SupplementBatchSelection(Model):
+    """보완 경로 묶음 선택. 건마다 읽은 요구 판본을 받고 나머지 칸은 단건 선택과 같은 규칙이다."""
+
+    dry_run: bool
+    path: SupplementPath
+    candidate_codes: list[str] = Field(default_factory=list, max_length=10)
+    role_split: str = Field(min_length=1, max_length=2000)
+    conditions: list[str] = Field(default_factory=list)
+    note: str | None = Field(default=None, max_length=1000)
+    rnd_check_waiver_reason: str | None = Field(default=None, min_length=20, max_length=1000)
+    items: list[SupplementBatchItem] = Field(min_length=1, max_length=50)
+
+
 class SupplementSelected(Provenance):
     requirement_id: UUID
     path: SupplementPath
@@ -614,6 +723,29 @@ class SupplementSelected(Provenance):
     provenance_kind: ProvenanceKind
     decided_by: UUID
     decided_at: datetime
+
+
+class SupplementBatchAllowed(Model):
+    requirement_id: UUID
+
+
+class SupplementBatchSaved(Model):
+    requirement_id: UUID
+    selection: SupplementSelected
+
+
+class SupplementBatchBlocked(Model):
+    requirement_id: UUID
+    code: str
+    message: str
+
+
+class SupplementBatchResult(Model):
+    """dry_run이면 saved가 비고 allowed에 담긴다. 저장이면 allowed가 비고 saved에 담긴다."""
+
+    saved: list[SupplementBatchSaved]
+    allowed: list[SupplementBatchAllowed]
+    blocked: list[SupplementBatchBlocked]
 
 
 class MandatoryCheck(Model):
@@ -687,6 +819,8 @@ class QuestionCreate(Model):
     # 명세 v1.3 §5.3: INTERNAL은 프로젝트 검토 부서 안의 target_dept가 필요하다(서버가 범위를 검사한다).
     target: QuestionTarget = "CUSTOMER"
     target_dept: str | None = Field(default=None, min_length=1, max_length=32)
+    # 후속 질의(TQ-1-2): 같은 프로젝트의 원래 질의(KAN-224).
+    follows_question_id: UUID | None = None
 
     @model_validator(mode="after")
     def check_target(self) -> Self:
@@ -695,6 +829,12 @@ class QuestionCreate(Model):
         if self.issue_type in INTERNAL_ISSUES and self.target != "INTERNAL":
             raise ValueError("This issue type is for internal questions")
         return self
+
+
+class QuestionBatchCreate(Model):
+    """질문 묶음 작성. 모든 건에 requirement_id가 있어야 한다(서버가 건별로 검사한다)."""
+
+    items: list[QuestionCreate] = Field(min_length=1, max_length=50)
 
 
 class QuestionReply(Model):
@@ -709,6 +849,46 @@ class QuestionReply(Model):
     schedule_fits: bool | None = None
 
 
+class RecordedReply(Model):
+    reply_id: UUID
+    reply_text: str
+    source_ref: str | None
+    received_at: datetime
+    recorded_at: datetime
+    recorded_by: UUID
+    rnd_feasibility: RndFeasibility | None = None
+    earliest_available_on: date | None = None
+    schedule_fits: bool | None = None
+
+
+class ReplyValueCandidate(Model):
+    """회신에서 읽은 새 요구값 후보(KAN-224). 후보일 뿐 요구값을 바꾸지 않는다.
+
+    method: rule(규칙), ai(AI, 근거 검사 통과), none(못 읽음, reason에 이유).
+    """
+
+    method: Literal["rule", "ai", "none"]
+    value: str | None = None
+    unit: str | None = None
+    conditions: list[Condition] = Field(default_factory=list)
+    quote: str | None = None
+    reason: (
+        Literal[
+            "NO_VALUE",
+            "MULTIPLE_VALUES",
+            "CORRECTION",
+            "CONDITIONAL",
+            "MULTIPLE_QUESTIONS",
+            "AI_UNGROUNDED",
+            "AI_FAILED",
+        ]
+        | None
+    ) = None
+    # AI 읽기 작업(worker rfp.reply_read) 상태. QUEUED 대기, UNAVAILABLE 접수 못 함(다시 읽기 가능),
+    # DONE 끝(method가 ai 또는 none), FAILED 모델 호출 실패. 규칙만 쓴 후보는 null이다.
+    ai: Literal["QUEUED", "UNAVAILABLE", "DONE", "FAILED"] | None = None
+
+
 class Question(Provenance):
     question_id: UUID
     requirement_id: UUID | None
@@ -718,11 +898,18 @@ class Question(Provenance):
     internal_assumption: InternalAssumption | None
     status: QuestionStatus
     reply_received_at: datetime | None
+    reply: RecordedReply | None = None
     created_by: UUID
     created_at: datetime
     target: QuestionTarget = "CUSTOMER"
     target_dept: str | None = None
     rnd_feasibility: RndFeasibility | None = None
+    follows_question_id: UUID | None = None
+    # 요구에 이어진 CUSTOMER 질의의 회신에서 읽은 새 요구값 후보(KAN-224). 회신 전이나 대상 밖이면 없다.
+    value_candidate: ReplyValueCandidate | None = None
+    # KAN-228: 질의서를 메일로 처음 보낸 시각과, 보냈는데 회신이 없으면 보낸 뒤 지난 날수(질문 목록에서만 채운다).
+    sent_at: datetime | None = None
+    waiting_days: int | None = None
 
 
 class QuestionList(Model):
@@ -732,16 +919,28 @@ class QuestionList(Model):
 # --- 변경 제안 (§4.8) -------------------------------------------------------------------
 
 
+class ProposedSpec(Model):
+    value: str | None = Field(max_length=4000)
+    unit: str | None = Field(max_length=128)
+    operator: Operator
+    tolerance: str | None = Field(max_length=1000)
+
+
 class ProposedChange(Model):
+    spec: ProposedSpec | None = None
     status: RequirementStatus | None = None
     necessity: Necessity | None = None
     reason: str | None = None
     conditions: list[Condition] | None = None
     unresolved: list[str] | None = None
+    # 담당 부서(영업·기술·구매·고객·R&D). 값이 오면 승인한 판본의 next_owner_field가 된다.
+    next_owner_field: NextOwner | None = None
 
 
 class ProposalCreate(Model):
     requirement_id: UUID
+    requirement_version: int | None = Field(default=None, ge=1)
+    source_question_id: UUID | None = None
     proposed: ProposedChange
     rationale: str = Field(min_length=1, max_length=2000)
     evidence_refs: list[str] = Field(default_factory=list, max_length=20)
@@ -764,6 +963,7 @@ class Proposal(Provenance):
     requirement_id: UUID | None
     # 조항에 맞출 수 없는 메모(pdf_annot)는 요구 없이 남긴다.
     clause_unresolved: bool
+    evidence_refs: list[str] = Field(default_factory=list)
     current: ProposedChange
     proposed: ProposedChange
     rationale: str
@@ -812,7 +1012,14 @@ class Section(Model):
     sentences: list[Sentence]
 
 
+class DraftFreshness(Model):
+    status: Literal["CURRENT", "STALE", "UNKNOWN"] = "UNKNOWN"
+    changed_requirement_ids: list[UUID] = Field(default_factory=list)
+    preserved_human_sentence_ids: list[UUID] = Field(default_factory=list)
+
+
 class Draft(Provenance):
+    freshness: DraftFreshness = Field(default_factory=DraftFreshness)
     project_id: UUID
     sections: list[Section]
     # 고정 문구: 검토용 초안입니다. 고객 제출 전 담당자 확인이 필요합니다.
@@ -866,11 +1073,286 @@ class ReviewVersion(Model):
     saved_at: datetime
 
 
+class ReviewVersionItem(Model):
+    """검토본 이력 한 줄. tft에는 사용자 이름이 없어 이름은 null이다."""
+
+    review_version: int
+    draft_version: int
+    note: str | None
+    output_status: OutputStatus
+    judgement_status: JudgementStatus
+    saved_by: UUID
+    saved_by_name: str | None = None
+    saved_at: datetime
+
+
+class ReviewVersionList(Model):
+    items: list[ReviewVersionItem]
+
+
+class DraftRegenerate(Model):
+    """화면이 본 최신 초안 판본. 초안이 아직 없으면 0이다."""
+
+    version: int = Field(ge=0)
+
+
 class ExportRequest(Model):
     review_version: int = Field(ge=1)
     format: ExportFormat
 
 
+class ExportItem(Model):
+    """내보내기 이력 한 줄. tft는 완료만 기록하므로 끝나지 않은 작업은 QUEUED다."""
+
+    export_id: UUID
+    review_version: int
+    format: ExportFormat
+    status: Literal["QUEUED", "SUCCEEDED"]
+    requested_by: UUID
+    requested_by_name: str | None = None
+    requested_at: datetime
+    finished_at: datetime | None
+    file_name: str | None
+
+
+class ExportList(Model):
+    items: list[ExportItem]
+
+
 class AnnotationProcess(Model):
     document_version_id: UUID
     base_document_version_id: UUID
+
+
+# Diagram candidates are source observations, never confirmed electrical topology.
+class DiagramRequirementLink(Model):
+    node_id: str
+    requirement_id: UUID
+    requirement_version: int = Field(ge=1)
+    code: str
+    equipment: str | None = None
+
+
+class DiagramItem(Model):
+    source_id: str
+    location: str
+    page: int | None
+    mime: Literal["application/pdf", "image/png", "image/jpeg", "image/webp"]
+    sha256: str
+    size: int
+    graph: DiagramGraph | None
+    requirement_links: list[DiagramRequirementLink]
+
+
+class DiagramList(Model):
+    document_id: UUID
+    document_version_id: UUID
+    processing_status: Literal["NOT_ANALYZED", "ANALYZED", "PARTIAL"]
+    warnings: list[str]
+    items: list[DiagramItem]
+
+
+class RecompareRequest(Model):
+    version: int = Field(ge=1)
+
+
+class RecompareResult(Model):
+    comparison: Comparison
+    proposal: Proposal | None = None
+
+
+# --- 결정 패널 (KAN-219) -------------------------------------------------------------------
+
+# 입찰 판정. 충족·충족 확인·편차·질의·보완·배정.
+BidVerdict = Literal["MET", "CONFIRM", "DEVIATION", "QUERY", "SUPPLEMENT", "ASSIGN"]
+DecisionAction = Literal[
+    "confirm_met",
+    "record_deviation",
+    "request_check",
+    "add_query",
+    "select_partner",
+    "ask_rnd",
+    "assign",
+    "change_verdict",
+    "undo",
+    "review_confirm",
+    "review_return",
+    # KAN-225: 요구에서 빼기·되살리기.
+    "exclude_requirement",
+    "restore_requirement",
+    # KAN-227: 도면 출처 요구를 규격서와 맞는다고 확인. 다르면 질의서에 넣는다(add_query).
+    "confirm_drawing",
+]
+# 기록에 남는 행동. 원문에서 직접 추가(KAN-225)는 결정 API가 아니라 요구 추가 경로로만 한다.
+RecordedAction = Literal[DecisionAction, "add_requirement"]
+# 과업 수행 주체. 공동 수행(JOINT_PROPOSAL)은 과업 요구의 보완 경로가 아니라 받지 않는다(supplement.FIRST_PATHS).
+ExecutionHolder = Literal["OWN", "PARTNER"]
+AssignOwner = Literal["SALES", "TECH", "PURCHASE"]
+REQUIRED_BY_ACTION: dict[str, tuple[str, ...]] = {
+    "record_deviation": ("text",),
+    "request_check": ("text", "target_dept"),
+    "select_partner": ("text", "candidate_codes"),
+    "assign": ("holder", "owner"),
+    "change_verdict": ("verdict",),
+    "undo": ("decision_id",),
+    "review_confirm": ("decision_id",),
+    "review_return": ("decision_id",),
+    # 빼는 사유는 필수다(text).
+    "exclude_requirement": ("text",),
+}
+
+
+class DecisionRequest(Model):
+    """결정 하나. 누르면 바로 확정한다(제안 작성과 승인을 같은 트랜잭션에서)."""
+
+    version: int = Field(ge=1)
+    action: DecisionAction
+    # 편차 내용·확인 요청·질의 문장·협력사 역할. AI 초안을 사람이 고친 한 줄.
+    text: str | None = Field(default=None, min_length=1, max_length=2000)
+    target_dept: str | None = Field(default=None, min_length=1, max_length=32)
+    candidate_codes: list[str] = Field(default_factory=list, max_length=10)
+    holder: ExecutionHolder | None = None
+    owner: AssignOwner | None = None
+    verdict: BidVerdict | None = None
+    decision_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def check_action_fields(self) -> Self:
+        missing = [f for f in REQUIRED_BY_ACTION.get(self.action, ()) if not getattr(self, f)]
+        if missing:
+            raise ValueError(f"{self.action} needs {', '.join(missing)}")
+        return self
+
+
+class DecisionResult(Model):
+    decision_id: UUID
+    action: RecordedAction
+    summary: str
+    requirement_id: UUID
+    requirement_version: int
+    question_id: UUID | None = None
+
+
+class DecisionState(Model):
+    """요구의 결정 상태(KAN-220). 저장된 결정 기록에서 계산한다."""
+
+    # 충족은 결정이 필요 없다. 그 밖의 판정은 지금 판본에 결정 기록이 있어야 결정함이다.
+    needed: bool
+    decided: bool
+    decision_id: UUID | None = None
+    action: RecordedAction | None = None
+    summary: str | None = None
+    # 사람이 적은 편차 내용(record_deviation). summary는 행동 이름("편차표에 기재")이라 편차표 칸에는 이것을 쓴다.
+    note: str | None = None
+    decided_at: datetime | None = None
+    # 책임자가 출력 전에 확인했는지.
+    reviewed: bool = False
+    # KAN-225: 원문에서 사람이 직접 추가한 요구인지, 요구에서 뺐는지(빼도 지우지 않는다).
+    manually_added: bool = False
+    # KAN-227: 도면 OCR 조항에서 나온 요구. 판정과 관계없이 도면 확인(맞음 confirm_drawing, 다름 add_query)이 필요하다.
+    drawing_check: bool = False
+    excluded: bool = False
+    excluded_reason: str | None = None
+    # 추가·빼기·되살리기 중 마지막 것. 책임자 확인 대상이다(review_confirm의 decision_id로 확인).
+    change_id: UUID | None = None
+    change_action: RecordedAction | None = None
+    change_reviewed: bool = False
+    # KAN-231: 중복 묶음의 구성원이면 대표 요구 ID. 대표가 결정하고 이 요구는 결정 대상이 아니다(대표를 빼면 null).
+    follows: UUID | None = None
+
+
+# 일괄 결정(KAN-228)으로 할 수 있는 행동. 묶음 되돌리기가 늘 되는 결정 행동만 받는다.
+BULK_ACTIONS = frozenset(
+    {
+        "confirm_met",
+        "record_deviation",
+        "request_check",
+        "add_query",
+        "select_partner",
+        "ask_rnd",
+        "assign",
+        "change_verdict",
+        # 책임자 "모두 확인"(2026-11-05). 확인은 판단을 바꾸지 않아 묶음 되돌리기 대상이 아니다.
+        "review_confirm",
+    }
+)
+
+
+class BulkDecisionItem(DecisionRequest):
+    requirement_id: UUID
+
+    @model_validator(mode="after")
+    def check_bulk_action(self) -> Self:
+        if self.action not in BULK_ACTIONS:
+            raise ValueError(f"{self.action} cannot be applied in bulk")
+        return self
+
+
+class BulkDecisionRequest(Model):
+    """같은 프로젝트의 결정 여러 건을 한 트랜잭션으로. 한 건이라도 실패하면 모두 저장하지 않는다."""
+
+    items: list[BulkDecisionItem] = Field(min_length=1, max_length=200)
+
+
+class BulkDecisionResult(Model):
+    # 같은 사용자·Idempotency-Key면 같은 값이다. 묶음 되돌리기에 쓴다.
+    batch_id: UUID
+    items: list[DecisionResult]
+
+
+class QuestionsSent(Model):
+    """질의서를 메일로 보냈다는 기록(KAN-228). 질문마다 처음 보낸 시각만 남는다."""
+
+    question_ids: list[UUID] = Field(min_length=1, max_length=200)
+    # 플랫폼 메일 발송 ID 등. 없으면 비운다.
+    mail_ref: str | None = Field(default=None, min_length=1, max_length=200)
+
+
+class QuestionSend(Model):
+    question_id: UUID
+    sent_at: datetime
+    sent_by: UUID
+    mail_ref: str | None = None
+
+
+class QuestionSendList(Model):
+    items: list[QuestionSend]
+
+
+class DecisionGate(Model):
+    """검토본 저장 조건과 책임자 확인 대기(KAN-220). 0이면 통과다."""
+
+    undecided: int = 0
+    deviation_missing: int = 0
+    open_queries: int = 0
+    review_pending: int = 0
+    # 담당 sales와 책임자가 같은 사람이면 결정한 사람이 확인도 한다. 확인 대기는 그대로 두고 화면에 "본인 결정"으로 표시한다.
+    self_review: bool = False
+
+
+class ManualRequirementRequest(Model):
+    """원문에서 고른 글로 요구를 직접 추가한다(KAN-225). 값은 사람이 넣고 AI는 쓰지 않는다."""
+
+    clause_id: UUID
+    # 고른 글 그대로. 조항 현행 텍스트 안에 있어야 한다(추출과 같은 근거 검사, 공백·따옴표 정규화).
+    quote: str = Field(min_length=1, max_length=4000)
+    kind: Literal["SPEC", "TASK", "DOCUMENT"]
+    equipment: str | None = Field(default=None, max_length=200)
+    task: str | None = Field(default=None, max_length=200)
+    attribute: str = Field(min_length=1, max_length=200)
+    # 비교 어휘 키·제품 계열. 고르지 않으면 OTHER·None이고 자사 비교를 하지 않는다.
+    attribute_key: AttributeKeyOrOther = "OTHER"
+    equipment_family: FamilyOrOther | None = None
+    # 값은 인용 안에 있어야 한다. 값 없는 요구(과업·제출물)는 null.
+    value: str | None = Field(default=None, min_length=1, max_length=200)
+    unit: str | None = Field(default=None, max_length=32)
+    operator: Operator = "EQ"
+    conditions: list[Condition] = Field(default_factory=list, max_length=10)
+    necessity: Necessity = "MANDATORY"
+    # 설비·속성·값이 같은 요구가 있어도 추가한다(첫 요청은 409 TFT_REQUIREMENT_DUPLICATE로 알린다).
+    allow_duplicate: bool = False
+
+
+RequirementSummary.model_rebuild()
+RequirementDetail.model_rebuild()
+RfpProjectDetail.model_rebuild()

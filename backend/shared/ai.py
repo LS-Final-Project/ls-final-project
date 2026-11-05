@@ -313,6 +313,7 @@ def generate(
     thinking_budget: int | None = None,
     thinking_level: str | None = None,
     max_output_tokens: int | None = None,
+    inline_media: tuple[str, bytes] | None = None,
 ) -> Generation:
     """프롬프트 하나를 생성 호출한다. 조절 항목이 None이면 설정 기본값을 쓰고 thinking 설정을 보내지 않는다.
 
@@ -324,6 +325,7 @@ def generate(
         thinking_budget: thinking 토큰 예산(ThinkingConfig.thinking_budget).
         thinking_level: thinking 수준(ThinkingConfig.thinking_level, 예 LOW·HIGH).
         max_output_tokens: 이번 호출의 출력 상한(thinking 토큰 포함). None이면 settings.gemini_max_output_tokens다.
+        inline_media: 선택한 단일 PDF 페이지 또는 이미지의 MIME·바이트. 파일 업로드 API를 쓰지 않는다.
 
     Returns:
         Generation: 응답 텍스트·사용량·모델 판본·종료 사유. 타임아웃·429·5xx는 settings.gemini_transient_retries만큼
@@ -344,13 +346,24 @@ def generate(
         response_json_schema=response_schema.model_json_schema() if response_schema else None,
         thinking_config=thinking,
     )
+    contents: str | list[types.Part] = prompt
+    if inline_media is not None:
+        mime, data = inline_media
+        if mime not in {"application/pdf", "image/png", "image/jpeg", "image/webp"} or not (
+            isinstance(data, bytes) and 0 < len(data) <= 8 * 1024 * 1024
+        ):
+            raise ValueError("INVALID_INLINE_MEDIA")
+        contents = [
+            types.Part.from_bytes(data=data, mime_type=mime),
+            types.Part.from_text(text=prompt),
+        ]
     started = time.perf_counter()
     attempts = 0
     while True:
         attempts += 1
         try:
             response = client.models.generate_content(
-                model=settings.gemini_model, contents=prompt, config=config
+                model=settings.gemini_model, contents=contents, config=config
             )
             break
         except (errors.APIError, httpx.TimeoutException, TimeoutError) as error:

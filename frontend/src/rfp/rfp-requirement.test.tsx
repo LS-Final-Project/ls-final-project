@@ -5,6 +5,13 @@ import { setApiMode } from '../api/client';
 import { MOCK_DETAIL } from '../mocks/rfp-table';
 import { errorBody, jsonResponse, renderApp } from '../test/render';
 
+// The return destination is covered by the unified review integration tests.
+// Keep these tests focused on detail editing and verify the real route parameter.
+vi.mock('./RfpWorkspace', async () => {
+  const { useParams } = await import('react-router-dom');
+  return { default: function ReviewDestination() { const { projectId } = useParams(); return <p data-testid="review-destination">{projectId}</p>; } };
+});
+
 const PROJECT = '33333333-3333-4333-8333-333333333333';
 const ID = MOCK_DETAIL.requirement_id;
 const PATH = `/tft/projects/${PROJECT}/requirements/${ID}`;
@@ -81,7 +88,7 @@ describe('요구 상세', () => {
 });
 
 describe('제목 줄', () => {
-  it('F6은 변경 제안을 열고 Esc는 폼이 없을 때만 대응표로 돌아간다', async () => {
+  it('F6은 변경 제안을 열고 Esc는 폼이 없을 때만 RFP 검토로 돌아간다', async () => {
     await open();
     fireEvent.keyDown(window, { key: 'F6' });
     await screen.findByRole('button', { name: '제안 저장' });
@@ -90,6 +97,7 @@ describe('제목 줄', () => {
     fireEvent.click(screen.getByRole('button', { name: '취소' }));
     fireEvent.keyDown(window, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('group', { name: '순회' })).toBeNull());
+    expect((await screen.findByTestId('review-destination')).textContent).toBe(PROJECT);
   });
 
   it('Esc는 입력 요소와 열린 메뉴 안에서는 화면을 떠나지 않는다', async () => {
@@ -103,6 +111,7 @@ describe('제목 줄', () => {
     more.open = false;
     fireEvent.keyDown(window, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('group', { name: '순회' })).toBeNull());
+    expect((await screen.findByTestId('review-destination')).textContent).toBe(PROJECT);
   });
 
   it('연결 표의 보완 경로는 코드가 아니라 라벨이다', async () => {
@@ -289,7 +298,7 @@ describe('질문', () => {
   it('회신된 질문은 다시 기록하지 않고 받은 일시를 보인다', async () => {
     questions = [question('q1', { status: 'REPLIED', reply_received_at: '2026-10-27T00:30:00Z' })];
     await open();
-    expect(screen.getByText('회신 기록됨')).toBeTruthy();
+    expect(screen.getByText('회신 도착')).toBeTruthy();
     expect(screen.queryByRole('button', { name: '회신 기록' })).toBeNull();
   });
 });
@@ -314,13 +323,15 @@ describe('회신', () => {
 
   it.each([
     [{ proposal_id: 'p' }, '변경 제안이 생겼고 승인 전에는 요구가 바뀌지 않습니다'],
-    [null, '변경 제안은 생기지 않았습니다'],
+    [null, '내용을 읽고 요구에 반영할 항목을 선택하세요'],
   ])('제안 생성 %j 를 사실대로 알린다', async (created_proposal, text) => {
     write = () => ok({ ...question('q1'), created_proposal });
     await form();
     fireEvent.change(screen.getByLabelText('받은 일시'), { target: { value: '2026-10-27T09:30' } });
     send();
     expect((await screen.findByRole('status')).textContent).toContain(text);
+    if (created_proposal) expect(screen.getByRole('link', { name: '회신으로 생긴 변경 제안 검토' }).getAttribute('href')).toBe(`/tft/projects/${PROJECT}/table/approvals`);
+    else expect(screen.getByRole('button', { name: '근거 확인 후 판정 변경 제안' })).toBeTruthy();
   });
 
   it('다시 읽어 이미 회신된 질문이면 폼을 닫는다', async () => {
@@ -332,7 +343,7 @@ describe('회신', () => {
     questions = [question('q1', { status: 'REPLIED' })];
     fireEvent.click(screen.getByRole('button', { name: '다시 불러오기' }));
     await waitFor(() => expect(screen.queryByLabelText('회신 내용')).toBeNull());
-    expect(screen.getByText('회신 기록됨')).toBeTruthy();
+    expect(screen.getByText('회신 도착')).toBeTruthy();
   });
 
   it('충돌은 입력을 지키고 다시 읽는다', async () => {
@@ -398,7 +409,8 @@ describe('R&D 회신', () => {
     fireEvent.click(submit());
     await waitFor(() => expect(posts('/reply')).toHaveLength(1));
     expect(posts('/reply')[0].body).toMatchObject({ rnd_feasibility: 'FEASIBLE', earliest_available_on: null, schedule_fits: null });
-    expect((await screen.findByRole('status')).textContent).toBe('회신을 기록했습니다.');
+    expect((await screen.findByRole('status')).textContent).toContain('가능 여부와 일정 조건을 확인한 뒤 대응 방안을 검토하세요');
+    expect(screen.getByRole('link', { name: '개발 회신에 맞는 대응 방안 검토' }).getAttribute('href')).toBe(`/tft/projects/${PROJECT}/supplement`);
   });
 
   it('일정 조건부는 납기 부합까지 있어야 기록되고 시점을 함께 보낸다', async () => {
@@ -463,4 +475,45 @@ describe('변경 제안', () => {
     await waitFor(() => expect(posts('/proposals')).toHaveLength(1));
     await waitFor(() => expect(screen.queryByRole('button', { name: '제안 저장' })).toBeNull());
   });
+});
+
+
+it('내부 회신 기록 뒤 판정 변경 제안을 열되 자동 저장하지 않는다', async () => {
+  questions = [question('q1', { target: 'INTERNAL', target_dept: 'SCM', issue_type: 'TECH_ADVICE' })];
+  await open();
+  fireEvent.click(screen.getByRole('button', { name: '회신 기록' }));
+  fireEvent.change(screen.getByLabelText('회신 내용'), { target: { value: '자료 확인 필요' } });
+  fireEvent.change(screen.getByLabelText('받은 일시'), { target: { value: '2026-11-04T10:00' } });
+  fireEvent.click(screen.getByLabelText('회신 내용').closest('form')!.querySelector('button[type=submit]')!);
+  const next = await screen.findByRole('button', { name: '근거 확인 후 판정 변경 제안' });
+  expect(screen.getByRole('status').textContent).toContain('판정은 자동으로 바뀌지 않습니다');
+  expect(posts('/proposals')).toHaveLength(0);
+  fireEvent.click(next);
+  expect(screen.getByLabelText('제안 사유')).toBeTruthy();
+  expect(posts('/proposals')).toHaveLength(0);
+});
+
+it('다른 요구 질문의 회신으로 현재 요구의 변경 제안을 열지 않는다', async () => {
+  questions = [question('q1', { requirement_id: 'other-requirement', target: 'INTERNAL', target_dept: 'SCM', issue_type: 'TECH_ADVICE' })];
+  await open();
+  fireEvent.click(screen.getByRole('button', { name: '회신 기록' }));
+  fireEvent.change(screen.getByLabelText('회신 내용'), { target: { value: '자료 확인 필요' } });
+  fireEvent.change(screen.getByLabelText('받은 일시'), { target: { value: '2026-11-04T10:00' } });
+  fireEvent.click(screen.getByLabelText('회신 내용').closest('form')!.querySelector('button[type=submit]')!);
+  const next = await screen.findByRole('link', { name: '회신이 연결된 요구 검토' });
+  expect(next.getAttribute('href')).toBe(`/tft/projects/${PROJECT}/requirements/other-requirement`);
+  expect(screen.queryByRole('button', { name: '근거 확인 후 판정 변경 제안' })).toBeNull();
+});
+
+it('요구 변경 영향은 보여주되 재비교는 사용자가 선택해야 실행한다', async () => {
+  detail = { ...MOCK_DETAIL, workflow: { comparison_stale: true, supplement_stale: true, draft_sentence_ids: ['sentence-1'] } };
+  write = () => ok({ comparison: {}, proposal: { proposal_id: 'proposal-1' } });
+  await open();
+  expect(posts('/recompare')).toHaveLength(0);
+  fireEvent.click(screen.getByRole('button', { name: '저장된 자료로 다시 비교' }));
+  await waitFor(() => expect(posts('/recompare')).toHaveLength(1));
+  expect(posts('/recompare')[0].body).toEqual({ version: MOCK_DETAIL.version });
+  expect(posts('/recompare')[0].key).toBeTruthy();
+  expect(await screen.findByRole('link', { name: '재비교 변경 제안 검토' })).toBeTruthy();
+  expect(posts('/approve')).toHaveLength(0);
 });

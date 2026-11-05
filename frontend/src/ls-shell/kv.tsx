@@ -147,15 +147,15 @@ export function KvGrid<T>({ label, columns, rows, rowKey, fallback, frozen = fal
   </div>;
 }
 
-// 대화상자. 바깥을 누르거나 Esc를 누르면 onClose가 불린다. 안의 첫 입력칸으로 초점을 옮긴다.
-export function KvModal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+// 대화상자. 바깥을 누르거나 Esc를 누르면 onClose가 불린다(keepOnBackdrop이면 바깥을 눌러도 닫지 않는다. 입력이 많은 대화상자용). 안의 첫 입력칸으로 초점을 옮긴다.
+export function KvModal({ title, onClose, children, className, keepOnBackdrop = false }: { title: string; onClose: () => void; children: ReactNode; className?: string; keepOnBackdrop?: boolean }) {
   const id = useId();
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => { box.current?.querySelector<HTMLElement>('select,textarea,input,button')?.focus(); }, []);
   useHotkey('Escape', onClose);
   return <>
-    <div className="kv-modal-bg" onClick={onClose} />
-    <div className="kv-modal" role="dialog" aria-modal="true" aria-labelledby={id} ref={box}>
+    <div className="kv-modal-bg" onClick={keepOnBackdrop ? undefined : onClose} />
+    <div className={className ? `kv-modal ${className}` : 'kv-modal'} role="dialog" aria-modal="true" aria-labelledby={id} ref={box}>
       <h2 id={id}>{title}</h2>
       <div className="body">{children}</div>
     </div>

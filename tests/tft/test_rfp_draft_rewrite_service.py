@@ -11,7 +11,7 @@ import pytest
 
 from backend.agent.processor_registry import TftJob
 from backend.api.tft.rfp import draft_rewrite as service
-from backend.engine.rfp.draft_rewrite import fake_provider
+from backend.engine.rfp.draft_rewrite import PROMPT_VERSION, fake_provider
 from backend.shared.ai import Generation, Usage
 from tests.tft.test_rfp_draft_rewrite import draft
 
@@ -127,7 +127,7 @@ def test_provider_runs_outside_transaction_and_human_edit_wins_cas(monkeypatch, 
         assert (
             conn.version == 2 and conn.saved.sections[0].sentences[0].provenance_kind == "ai_draft"
         )
-    assert conn.calls and conn.calls[0][5] == "rfp-draft-rewrite-v4"
+    assert conn.calls and conn.calls[0][5] == PROMPT_VERSION
     assert original == before
 
 

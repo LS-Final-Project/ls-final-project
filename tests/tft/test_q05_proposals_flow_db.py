@@ -12,6 +12,7 @@ Q05 완료 조건만 본다: (1) 기각하면 요구 판본은 그대로이고 �
 
 import asyncio
 import io
+import re
 import zipfile
 from uuid import uuid4
 
@@ -19,6 +20,7 @@ import psycopg
 from psycopg.rows import dict_row
 
 from backend.engine.rfp.draft import DISCLAIMER
+from tests.tft.decision_gate import settle_decisions
 from tests.tft.test_a09_demo_flow_db import (  # noqa: F401
     DEMO_A,
     client_for,
@@ -229,10 +231,12 @@ def test_partner_draft_and_export_keep_synthetic_and_review_markers(
         assert partner_rows
         assert all(row["unconfirmed"] for row in partner_rows)
         assert all(
-            any(c.startswith("가상 협력사 요구별 등급") for c in row["conditions"])
+            # 한 방안 문장에 여러 협력사가 모일 수 있어 등급 조건에 협력사 코드를 붙인다.
+            any(re.match(r"가상 협력사 \S+ 요구별 등급: ", c) for c in row["conditions"])
             for row in partner_rows
             if any(e["type"] == "partner" for e in row["evidence"])
         )
+        settle_decisions(client, admin, project["project"])
         saved = client.post(
             f"{base}/review-versions",
             json={"version": data["version"]},

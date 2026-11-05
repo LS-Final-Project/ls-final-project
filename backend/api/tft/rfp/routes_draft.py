@@ -94,6 +94,95 @@ async def edit_draft(
     return display
 
 
+async def regenerate(
+    request: Request,
+    principal: Principal,
+    project_id: UUID,
+    payload: s.DraftRegenerate,
+    key: str,
+) -> s.Draft:
+    """처리 작업 없이 저장된 결과로 초안 판본을 새로 만든다. 권한은 검토본 저장과 같다."""
+    async with connection(request.app.state.settings) as conn:
+        await visible(conn, principal, project_id, write=True)
+        result = await drafts.regenerate(conn, project_id, principal.user_id, payload.version, key)
+        result.evidence_labels = await db.evidence_labels(conn, project_id)
+    return result
+
+
+async def review_versions(
+    request: Request, principal: Principal, project_id: UUID
+) -> s.ReviewVersionList:
+    """검토본 이력, 최신순. 저장은 언제나 REVIEW_DRAFT로 바꾸므로 그 값을 준다."""
+    async with connection(request.app.state.settings) as conn:
+        await visible(conn, principal, project_id)
+        cursor = await conn.execute(
+            "SELECT review_version,draft_version,note,judgement_status,saved_by,saved_at "
+            "FROM tft.review_versions WHERE project_id=%s ORDER BY review_version DESC",
+            (project_id,),
+        )
+        rows = await cursor.fetchall()
+    return s.ReviewVersionList(
+        items=[s.ReviewVersionItem(**row, output_status="REVIEW_DRAFT") for row in rows]
+    )
+
+
+async def exports(request: Request, principal: Principal, project_id: UUID) -> s.ExportList:
+    """내보내기 이력, 최신순. 파일 이름은 내려받기 응답의 이름과 같다."""
+    async with connection(request.app.state.settings) as conn:
+        await visible(conn, principal, project_id)
+        cursor = await conn.execute(
+            "SELECT id,review_version,format,created_by,created_at,completed_at "
+            "FROM tft.exports WHERE project_id=%s ORDER BY created_at DESC, id DESC",
+            (project_id,),
+        )
+        rows = await cursor.fetchall()
+    return s.ExportList(
+        items=[
+            s.ExportItem(
+                export_id=row["id"],
+                review_version=row["review_version"],
+                format=row["format"],
+                status="SUCCEEDED" if row["completed_at"] else "QUEUED",
+                requested_by=row["created_by"],
+                requested_at=row["created_at"],
+                finished_at=row["completed_at"],
+                file_name=draft_exports.file_name(row["id"], row["format"])
+                if row["completed_at"]
+                else None,
+            )
+            for row in rows
+        ]
+    )
+
+
+GATE_FIELDS = ("undecided", "deviation_missing", "open_queries", "review_pending")
+
+
+async def gate_closed(conn: AsyncConnection[dict], project_id: UUID) -> None:
+    """저장 조건(KAN-220 decision_gate)이 남으면 409 TFT_DECISION_GATE_OPEN. 화면과 같은 규칙이다.
+
+    결정은 요구 행을, 질문 확정·회신은 질문 행을 FOR UPDATE로 잠그므로 FOR SHARE로 그 쓰기를 기다리게 한 뒤 센다.
+    """
+    from backend.api.tft.rfp.decisions import gate
+
+    # ponytail: 새 요구·질문 INSERT(직접 추가, 질문 작성)는 행 잠금에 안 걸린다. 경합이 실제로 보이면 결정 쪽도 db.lock을 잡는다.
+    await conn.execute(
+        "SELECT 1 FROM tft.requirements WHERE project_id=%s FOR SHARE", (project_id,)
+    )
+    await conn.execute(
+        "SELECT 1 FROM tft.customer_questions WHERE project_id=%s FOR SHARE", (project_id,)
+    )
+    found = await gate(conn, project_id)
+    left = [(name, getattr(found, name)) for name in GATE_FIELDS if getattr(found, name)]
+    if left:
+        raise ApplicationError(
+            409,
+            "TFT_DECISION_GATE_OPEN",
+            "Decisions remain before saving a review version.",
+            details=[{"field": name, "reason": str(n)} for name, n in left],
+        )
+
+
 async def save_review(
     request: Request,
     principal: Principal,
@@ -113,9 +202,14 @@ async def save_review(
             if current.version != payload.version:
                 raise repository.version_conflict()
             requirements = await drafts.requirements_of(conn, project_id)
+            # 담당이 결정하고 책임자가 확인한 요구는 그 결정이 다음 행동이다(KAN-219·220). 사양 차이(편차 기재 등)는
+            # 상태가 조건부로 남아도 미해결로 세지 않는다. 남은 결정은 아래 gate_closed가 따로 막는다.
+            settled = await drafts.settled_requirements(conn, project_id)
             missing = []
             for req in requirements:
                 if req.spec.necessity not in {"MANDATORY", "CONDITION_BOUND"}:
+                    continue
+                if req.requirement_id in settled:
                     continue
                 grounded = bool(req.origin.quote.strip() and req.judgement.reason.strip())
                 resolved = grounded and not is_unresolved_mandatory(req) and not req.needs_review
@@ -158,6 +252,7 @@ async def save_review(
                         ),
                     ],
                 )
+            await gate_closed(conn, project_id)
             cursor = await conn.execute(
                 "SELECT coalesce(max(review_version),0)+1 AS version FROM tft.review_versions WHERE project_id=%s",
                 (project_id,),
@@ -181,6 +276,7 @@ async def save_review(
                     saved,
                 ),
             )
+            await db.capture_review_context(conn, project_id, review_version)
             await conn.execute(
                 "UPDATE tft.projects SET review_version=%s,output_status='REVIEW_DRAFT',judgement_status=%s,version=version+1 WHERE id=%s",
                 (review_version, judgement, project_id),
@@ -213,8 +309,8 @@ async def save_review(
 async def export(
     request: Request, principal: Principal, project_id: UUID, payload: s.ExportRequest, key: str
 ) -> s.ExportAccepted:
-    """PDF는 아무 예약/접수도 하기 전에 거부한다. DOCX는 기존 비동기 worker로 넘긴다."""
-    draft_exports.require_docx(payload.format)
+    """PDF는 아무 예약/접수도 하기 전에 거부한다. DOCX·XLSX는 기존 비동기 worker로 넘긴다."""
+    draft_exports.require_supported(payload.format)
     accepted = await jobs.admit(request, principal, project_id, "rfp.export", payload, key)
     return s.ExportAccepted(
         **accepted.model_dump(),
@@ -236,7 +332,7 @@ async def download(
         raise ApplicationError(404, "TFT_EXPORT_NOT_FOUND", "The export was not found.")
     if row["completed_at"] is None:
         raise ApplicationError(409, "TFT_EXPORT_NOT_READY", "The export is not complete.")
-    draft_exports.require_docx(row["format"])
+    draft_exports.require_supported(row["format"])
     store = storage.document_store(storage.DocumentStorageSettings())
     if store is None:
         raise ApplicationError(503, "TFT_DOCUMENT_NOT_READABLE", "Export storage is unavailable.")
@@ -250,9 +346,10 @@ async def download(
         ) from None
     return Response(
         data,
-        media_type=draft_exports.DOCX_MIME,
+        media_type=draft_exports.MIME[row["format"]],
         headers={
-            "Content-Disposition": f'attachment; filename="rfp-{export_id}.docx"',
+            "Content-Disposition": "attachment; "
+            f'filename="{draft_exports.file_name(export_id, row["format"])}"',
             "Cache-Control": "no-store",
             "X-Content-Type-Options": "nosniff",
         },

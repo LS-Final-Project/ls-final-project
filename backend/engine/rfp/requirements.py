@@ -298,11 +298,12 @@ def build_inputs(tree: ClauseTree, section_nos: list[str]) -> list[ExtractionInp
                     table_rows=clause.table_rows,
                 )
             )
-        if not clauses and is_korean_section(head) and (head.text.strip() or head.table_rows):
-            clauses.append(
+        if is_korean_section(head) and (head.text.strip() or head.table_rows):
+            clauses.insert(
+                0,
                 ClauseInput(
                     clause_no=head.clause_no, path="", text=head.text, table_rows=head.table_rows
-                )
+                ),
             )
         item = ExtractionInput(section_no=section_no, section_title=head.title, clauses=clauses)
         if any(len(_clause_text(c)) > MAX_SECTION_CHARS for c in clauses):

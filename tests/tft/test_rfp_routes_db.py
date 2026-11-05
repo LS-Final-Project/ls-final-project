@@ -26,9 +26,10 @@ from backend.api.tft.rfp import commands, repository
 from backend.shared.access import Principal, principal_header
 from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
-from tests.tft.test_rfp_draft_routes_db import generate
 
 # 고정물을 가져와 쓴다(pytest가 이름으로 찾는다).
+from tests.tft.decision_gate import settle_decisions
+from tests.tft.test_rfp_draft_routes_db import generate
 from tests.tft.test_rfp_http_base_db import SALES, admin, app_dsn, chain  # noqa: F401
 
 RND = Principal(user_id=uuid4(), roles=frozenset({"dept_staff"}), dept="RND_FW")
@@ -162,8 +163,8 @@ def test_rnd_answer_fields_follow_the_target_department(client, gap):
     assert data["created_proposal"] is None
 
 
-def test_customer_reply_proposes_dropping_the_answered_unresolved_item(client, gap, admin):
-    """CUSTOMER 회신은 본문에 든 미해결 항목만 뺀 제안을 만들고, 맞는 항목이 없으면 제안이 없다."""
+def test_customer_reply_does_not_resolve_by_question_substring(client, gap, admin):
+    """모호한 회신은 질문에 미해결 문구가 있어도 해결하거나 변경 제안을 만들지 않는다."""
     asked = ask(
         client,
         gap,
@@ -173,18 +174,9 @@ def test_customer_reply_proposes_dropping_the_answered_unresolved_item(client, g
         question_text="BIL 시험 조건을 알려 주십시오",
     ).json()["data"]
     data = answer(client, asked, OWNER).json()["data"]
-    proposal = data["created_proposal"]
-    assert audit_actions(admin, gap["project"]).count("proposal.create") == 1
-    assert (proposal["origin"], proposal["status"], proposal["proposer_kind"]) == (
-        "customer_reply",
-        "PENDING",
-        "system",
-    )
-    assert proposal["proposer_user_id"] is None
-    assert proposal["rationale"] == "회신 내용 미검증(담당자 확인 필요). 고객 회신: 확인했습니다"
-    assert proposal["source_ref"]["question_id"] == asked["question_id"]
-    assert proposal["current"]["unresolved"] == ["BIL 시험 조건"]
-    assert proposal["proposed"] == {**proposal["current"], "unresolved": []}
+    assert data["created_proposal"] is None
+    assert data["reply"]["reply_text"] == "확인했습니다"
+    assert audit_actions(admin, gap["project"]).count("proposal.create") == 0
     other = ask(
         client, gap, issue_type="SCOPE_UNCLEAR", target="CUSTOMER", target_dept=None
     ).json()["data"]
@@ -194,6 +186,58 @@ def test_customer_reply_proposes_dropping_the_answered_unresolved_item(client, g
         assert conn.execute(
             "SELECT latest_version FROM tft.requirements WHERE id=%s", (gap["requirement"],)
         ).fetchone() == (1,)
+
+
+def test_customer_reply_returns_a_value_candidate_and_follow_up_links(client, gap, admin):
+    """KAN-224: 회신 기록은 새 요구값 후보를 돌려주지만 요구값을 바꾸지 않는다. 후속 질의는 원래 질의를 잇는다."""
+    asked = ask(client, gap, issue_type="EMPTY_VALUE", target="CUSTOMER", target_dept=None).json()[
+        "data"
+    ]
+    reply = "BIL은 125 kV로 적용 바랍니다(기존 95 kV 표기는 오기)."
+    data = answer(client, asked, OWNER, reply_text=reply).json()["data"]
+    assert data["value_candidate"] == {
+        "method": "rule",
+        "value": "125",
+        "unit": "kV",
+        "conditions": [],
+        "quote": reply,
+        "reason": None,
+        "ai": None,
+    }
+    assert data["created_proposal"] is None
+    # 작업 공간은 질문 목록으로 회신을 읽는다. 저장한 후보가 그대로 나와야 한다.
+    listed = call(client, "GET", f"/projects/{gap['project']}/questions", OWNER).json()["data"]
+    (row,) = [q for q in listed["items"] if q["question_id"] == asked["question_id"]]
+    assert row["value_candidate"] == data["value_candidate"]
+    with psycopg.connect(admin) as conn:
+        assert conn.execute(
+            "SELECT value FROM tft.requirement_versions WHERE requirement_id=%s",
+            (gap["requirement"],),
+        ).fetchall() == [("95",)]
+    vague = ask(client, gap, issue_type="EMPTY_VALUE", target="CUSTOMER", target_dept=None).json()[
+        "data"
+    ]
+    got = answer(client, vague, OWNER, reply_text="기존 사양대로 해 주세요").json()["data"]
+    assert got["value_candidate"]["method"] == "none"
+    follow = ask(
+        client,
+        gap,
+        issue_type="EMPTY_VALUE",
+        target="CUSTOMER",
+        target_dept=None,
+        follows_question_id=vague["question_id"],
+    )
+    assert follow.status_code == 201, follow.text
+    assert follow.json()["data"]["follows_question_id"] == vague["question_id"]
+    stray = ask(
+        client,
+        gap,
+        issue_type="EMPTY_VALUE",
+        target="CUSTOMER",
+        target_dept=None,
+        follows_question_id=str(uuid4()),
+    )
+    assert error(stray) == (422, "VALIDATION_ERROR")
 
 
 def test_selection_refuses_candidates_outside_the_path(client, gap):
@@ -1272,7 +1316,9 @@ def test_approval_writes_a_new_version_and_keeps_other_fields(client, gap, admin
     assert [p["decided_by"] for p in listed] == [str(SALES)]
 
 
-def review(client, gap, version=1):
+def review(client, gap, version=1, admin=None):
+    if admin is not None:  # 저장 조건(KAN-220)을 결정 경로로 채운다.
+        settle_decisions(client, admin, gap["project"])
     url = f"/projects/{gap['project']}/draft/review-versions"
     return call(client, "POST", url, OWNER, {"version": version}, uuid4().hex)
 
@@ -1356,7 +1402,7 @@ def test_a_flagged_sentence_is_released_by_the_approved_check(client, app_dsn, g
     url = f"/projects/{gap['project']}/proposals"
     made = call(client, "POST", url, OWNER, body, uuid4().hex).json()["data"]
     assert decide(client, made).status_code == 200
-    saved = review(client, gap)
+    saved = review(client, gap, admin=admin)
     assert saved.status_code == 201, saved.text
 
 
@@ -1387,7 +1433,7 @@ def test_no_path_approval_leaves_the_sentence_mark_for_a_person_to_clear(
     edited = call(client, "PATCH", url, OWNER, {"version": 1, "edits": edits}, uuid4().hex)
     assert edited.status_code == 200, edited.text
     assert not any(r["needs_rereview"] for p in data(edited)["sections"] for r in p["sentences"])
-    saved = review(client, gap, version=2)
+    saved = review(client, gap, version=2, admin=admin)
     assert saved.status_code == 201, saved.text
 
 
@@ -1408,7 +1454,7 @@ def test_review_takes_an_owner_or_a_saved_supplement_as_the_next_action(
     else:
         chosen = choose(client, gap, "EXTERNAL_PRODUCT")
         assert chosen.status_code == 200, chosen.text
-    saved = review(client, gap)
+    saved = review(client, gap, admin=admin)
     assert saved.status_code == 201, saved.text
     assert saved.json()["data"]["judgement_status"] == "CONDITION_CHECK"
 
@@ -1623,3 +1669,28 @@ def test_draft_trace_input_reads_the_latest_draft_and_project_references(admin, 
         }
     ]
     assert ("requirement", str(chain["requirement"])) in data["references"]
+
+
+def test_numbered_project_search_counts_only_the_authorized_filtered_rows(client, chain, admin):
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "UPDATE tft.projects SET external_id='PAGE-23', name='Pagination_100%%', "
+            "client_name='Other Customer' WHERE id=%s",
+            (chain["project"],),
+        )
+    number = data(get(client, "/projects?page=1&limit=1&search_field=external_id&q=PAGE-23"))
+    assert number["total"] == 1
+    assert [row["id"] for row in number["items"]] == [str(chain["project"])]
+    second = data(get(client, "/projects?page=2&limit=1&search_field=external_id&q=PAGE-23"))
+    assert second == {"items": [], "next_cursor": None, "total": 1}
+    wrong_field = data(get(client, "/projects?page=1&search_field=name&q=PAGE-23"))
+    assert wrong_field["total"] == 0 and wrong_field["items"] == []
+    literal = data(get(client, "/projects?page=1&search_field=name&q=_100%25"))
+    assert literal["total"] == 1
+    assert data(get(client, "/projects?page=1&search_field=name&q=x_100%25"))["total"] == 0
+    assert data(get(client, "/projects?page=1&q=PAGE-23"))["total"] == 1
+    hidden = data(get(client, "/projects?page=1&q=PAGE-23", OUTSIDER))
+    assert hidden == {"items": [], "next_cursor": None, "total": 0}
+    # The authorized review department follows the identical scope for both rows and total.
+    department = data(get(client, "/projects?page=1&q=PAGE-23", RND))
+    assert department["total"] == 1 and len(department["items"]) == 1

@@ -59,8 +59,36 @@ BEGIN
         EXECUTE 'GRANT SELECT ON tft.draft_rewrites TO tft_worker';
         EXECUTE 'GRANT UPDATE(state,result_version) ON tft.draft_rewrites TO tft_worker';
     END IF;
+    IF to_regclass('tft.document_diagrams') IS NOT NULL THEN
+        EXECUTE 'GRANT SELECT,INSERT ON tft.document_diagrams TO tft_worker';
+    END IF;
+    IF to_regclass('tft.context_versions') IS NOT NULL THEN
+        EXECUTE 'GRANT SELECT,INSERT ON tft.context_versions TO tft_worker';
+    END IF;
+    IF to_regclass('tft.requirement_recomparisons') IS NOT NULL THEN
+        EXECUTE 'GRANT SELECT ON tft.requirement_recomparisons TO tft_worker';
+        -- KAN-232: 다시 채점이 비교 사본을 남긴다.
+        EXECUTE 'GRANT INSERT ON tft.requirement_recomparisons TO tft_worker';
+    END IF;
+    IF to_regclass('tft.review_context_snapshots') IS NOT NULL THEN
+        EXECUTE 'GRANT SELECT ON tft.review_context_snapshots TO tft_worker';
+    END IF;
     IF to_regclass('tft.draft_rewrite_calls') IS NOT NULL THEN
         EXECUTE 'GRANT SELECT,INSERT ON tft.draft_rewrite_calls TO tft_worker';
+    END IF;
+    -- KAN-225: 초안·맥락은 뺀 요구를 넣지 않는다(빼기 표시 열만 읽는다).
+    IF to_regclass('tft.requirement_decisions') IS NOT NULL THEN
+        EXECUTE 'GRANT SELECT (id,requirement_id,detail,created_at) ON tft.requirement_decisions TO tft_worker';
+    END IF;
+    -- KAN-221: 내보내기(XLSX·요약서)는 판정·결정·편차·철회 기록을 읽는다.
+    IF to_regclass('tft.deviations') IS NOT NULL THEN
+        EXECUTE 'GRANT SELECT ON tft.requirement_decisions, tft.deviations, tft.question_withdrawals TO tft_worker';
+    END IF;
+    -- KAN-232: 다시 채점이 AI 판단의 새 판본(system_record)을 쓰고 최신 판본 번호를 올린다.
+    EXECUTE 'GRANT UPDATE (latest_version) ON tft.requirements TO tft_worker';
+    -- KAN-224: 회신 값 AI 읽기 작업은 요청을 읽고 결과를 더한다.
+    IF to_regclass('tft.reply_value_reads') IS NOT NULL THEN
+        EXECUTE 'GRANT SELECT, INSERT ON tft.reply_value_reads TO tft_worker';
     END IF;
 END $$;
 COMMIT;

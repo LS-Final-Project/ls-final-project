@@ -33,7 +33,7 @@ export function localHandler(settings, web) {
         'Referrer-Policy': 'no-referrer',
         'Content-Security-Policy': "default-src 'none'; form-action 'self'; frame-ancestors 'none'",
       });
-      res.end(`<!doctype html><html lang="ko"><meta charset="utf-8"><title>로컬 합성 계정 선택</title><h1>로컬 업무용 합성 계정</h1><p>실제 Microsoft 로그인이 아닙니다. 명시적으로 enable-real을 실행한 뒤 허가된 신규 작업만 모델을 호출합니다. 메일·push·평가 실행은 꺼져 있습니다.</p><form method="post" action="/api/v1/platform/auth/callback"><input type="hidden" name="state" value="${state}"><button name="code" value="local-1">C/S 담당자</button><button name="code" value="local-2">변압기 기술지원</button><button name="code" value="local-3">수주 담당자</button><button name="code" value="local-4">관리자</button></form></html>`);
+      res.end(`<!doctype html><html lang="ko"><meta charset="utf-8"><title>로컬 합성 계정 선택</title><h1>로컬 업무용 합성 계정</h1><p>실제 Microsoft 로그인이 아닙니다. 명시적으로 enable-real을 실행한 뒤 허가된 신규 작업만 모델을 호출합니다. 메일·push·평가 실행은 꺼져 있습니다.</p><form method="post" action="/api/v1/platform/auth/callback"><input type="hidden" name="state" value="${state}"><button name="code" value="local-1">C/S 담당자</button><button name="code" value="local-2">변압기 기술지원</button><button name="code" value="local-3">수주 담당자</button><button name="code" value="local-4">관리자</button><button name="code" value="local-5">R&amp;D 검토자</button></form></html>`);
       return;
     }
     return web(req, res);

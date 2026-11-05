@@ -28,7 +28,13 @@ FILE_TYPES = frozenset(
     (
         "application/pdf",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        # KAN-221 입찰 대응 XLSX 내보내기.
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+)
+DIAGRAM_TYPES = frozenset(("application/pdf", "image/png", "image/jpeg", "image/webp"))
+DIAGRAM_PATH = re.compile(
+    rf"/api/v1/tft/documents/{UUID_PATH}/diagrams/OCR-(?:DOCX-\d{{4,}}|PDF-P\d{{4,}})/image"
 )
 UPLOAD_PATH = re.compile(rf"/api/v1/tft/projects/{UUID_PATH}/documents")
 DOWNLOAD_PATH = re.compile(
@@ -133,24 +139,29 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     (
         "/api/v1/tft/projects",
         ("GET", "POST"),
-        ("limit", "cursor", "output_status", "judgement_status", "q"),
+        ("limit", "cursor", "output_status", "judgement_status", "q", "page", "search_field"),
     ),
     ("/api/v1/tft/projects/{uuid}", ("GET", "PATCH"), ()),
     ("/api/v1/tft/projects/{uuid}/assignment", ("PATCH",), ()),
     ("/api/v1/tft/projects/{uuid}/documents", ("GET", "POST"), ()),
     ("/api/v1/tft/documents/{uuid}", ("GET",), ()),
     ("/api/v1/tft/documents/{uuid}/file", ("GET",), ()),
+    ("/api/v1/tft/documents/{uuid}/diagrams", ("GET",), ("document_version_id",)),
+    ("/api/v1/tft/documents/{uuid}/diagrams/{evidence}/image", ("GET",), ("document_version_id",)),
     ("/api/v1/tft/projects/{uuid}/draft", ("GET", "PATCH"), ("version",)),
     ("/api/v1/tft/projects/{uuid}/draft/rewrite", ("POST",), ()),
     ("/api/v1/tft/projects/{uuid}/draft/rewrites/{uuid}", ("GET",), ()),
-    ("/api/v1/tft/projects/{uuid}/draft/review-versions", ("POST",), ()),
-    ("/api/v1/tft/projects/{uuid}/draft/exports", ("POST",), ()),
+    ("/api/v1/tft/projects/{uuid}/draft/regenerate", ("POST",), ()),
+    ("/api/v1/tft/projects/{uuid}/draft/review-versions", ("GET", "POST"), ()),
+    ("/api/v1/tft/projects/{uuid}/draft/exports", ("GET", "POST"), ()),
     ("/api/v1/tft/projects/{uuid}/draft/exports/{uuid}/file", ("GET",), ()),
     ("/api/v1/tft/documents/{uuid}/clauses", ("GET",), ("parent", "limit", "cursor")),
+    ("/api/v1/tft/projects/{uuid}/context", ("GET", "PATCH"), ("version",)),
+    ("/api/v1/tft/projects/{uuid}/context/process", ("POST",), ()),
     ("/api/v1/tft/projects/{uuid}/process", ("POST",), ()),
     (
         "/api/v1/tft/projects/{uuid}/requirements",
-        ("GET",),
+        ("GET", "POST"),
         (
             "limit",
             "cursor",
@@ -164,20 +175,33 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
             "has_open_question",
             "next_owner_field",
             "unresolved_mandatory",
+            "excluded",
         ),
     ),
     ("/api/v1/tft/requirements/{uuid}", ("GET",), ()),
     ("/api/v1/tft/requirements/{uuid}/comparison", ("GET",), ()),
+    ("/api/v1/tft/requirements/{uuid}/recompare", ("POST",), ()),
+    ("/api/v1/tft/requirements/{uuid}/decision", ("POST",), ()),
+    ("/api/v1/tft/requirements/{uuid}/history", ("GET",), ("kind", "actor", "limit", "cursor")),
+    ("/api/v1/tft/projects/{uuid}/history", ("GET",), ("kind", "actor", "limit", "cursor")),
+    ("/api/v1/tft/projects/{uuid}/equipment", ("GET",), ()),
+    ("/api/v1/tft/projects/{uuid}/analysis", ("GET",), ()),
+    ("/api/v1/tft/projects/{uuid}/decisions/bulk", ("POST",), ()),
+    ("/api/v1/tft/projects/{uuid}/decisions/bulk/{uuid}/undo", ("POST",), ()),
     ("/api/v1/tft/requirements/{uuid}/supplement-options", ("GET",), ()),
     ("/api/v1/tft/requirements/{uuid}/supplement-selection", ("POST",), ()),
+    ("/api/v1/tft/projects/{uuid}/supplement-selections/batch", ("POST",), ()),
     ("/api/v1/tft/projects/{uuid}/partner-candidates", ("GET",), ("requirement_id",)),
     (
         "/api/v1/tft/projects/{uuid}/questions",
         ("GET", "POST"),
         ("status", "requirement_id", "target", "target_dept"),
     ),
+    ("/api/v1/tft/projects/{uuid}/questions/batch", ("POST",), ()),
+    ("/api/v1/tft/projects/{uuid}/questions/sent", ("POST",), ()),
     ("/api/v1/tft/projects/{uuid}/questions/{uuid}/confirm", ("POST",), ()),
     ("/api/v1/tft/questions/{uuid}/reply", ("POST",), ()),
+    ("/api/v1/tft/questions/{uuid}/reply/read", ("POST",), ()),
     (
         "/api/v1/tft/projects/{uuid}/proposals",
         ("GET", "POST"),
@@ -275,8 +299,16 @@ def forward(method: str, url: str, headers: dict[str, str], body: bytes) -> Resp
             is_file = (
                 method == "GET"
                 and upstream.status_code == 200
-                and content_type in FILE_TYPES
-                and DOWNLOAD_PATH.fullmatch(urlsplit(url).path) is not None
+                and (
+                    (
+                        content_type in FILE_TYPES
+                        and DOWNLOAD_PATH.fullmatch(urlsplit(url).path) is not None
+                    )
+                    or (
+                        content_type in DIAGRAM_TYPES
+                        and DIAGRAM_PATH.fullmatch(urlsplit(url).path) is not None
+                    )
+                )
             )
             if 300 <= upstream.status_code < 400 or (
                 upstream.status_code != 204 and content_type != "application/json" and not is_file

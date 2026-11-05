@@ -16,7 +16,8 @@ SUMMARY_COLUMNS = (
     "p.id, p.external_id, p.name, p.company_code, p.status, p.data_origin, p.derivation_kind, "
     "p.responsible_user_id, p.sales_user_id, p.created_at, p.version, p.known_at, p.client_name, "
     "p.output_status, p.judgement_status, p.strategic_customer, p.integration_holder, "
-    "p.supply_region, p.customer_manufacturer_list, p.off_list_permission, " + PROJECT_COUNTS
+    "p.supply_region, p.customer_manufacturer_list, p.off_list_permission, p.submission_due_at, "
+    + PROJECT_COUNTS
 )
 DETAIL_COLUMNS = (
     "id, external_id, version, data_origin, derivation_kind, known_at, created_at, "
@@ -33,23 +34,16 @@ REQUIREMENT_COLUMNS = (
 )
 
 
-async def list_projects(
-    conn: AsyncConnection[Row],
-    limit: int,
-    after: tuple[datetime, UUID] | None,
+def project_scope(
     managed_projects: list[UUID],
     user_id: UUID,
-    department: str | None = None,
-    *,
-    output_status: str | None = None,
-    judgement_status: str | None = None,
-    q: str | None = None,
-) -> list[Row]:
-    """Newest first, only projects the user may see (access.sees_project).
-
-    Fetches one extra row so the caller knows whether a next page exists. `department` is the
-    dept_staff department. Filters and counts run in this one statement, never per project.
-    """
+    department: str | None,
+    output_status: str | None,
+    judgement_status: str | None,
+    q: str | None,
+    search_field: str,
+) -> tuple[str, list[Any]]:
+    """Shared authorization and literal search for numbered totals and list rows."""
     scope = "(p.id = ANY(%s) OR p.responsible_user_id = %s OR p.sales_user_id = %s"
     params: list[Any] = [managed_projects, user_id, user_id]
     if department is not None:
@@ -65,13 +59,43 @@ async def list_projects(
     if q is not None:
         # 검색어의 %·_는 글자 그대로 찾는다.
         escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        scope += " AND (p.name ILIKE %s OR p.client_name ILIKE %s)"
-        params += [f"%{escaped}%", f"%{escaped}%"]
+        columns = {
+            "all": ("p.external_id", "p.name", "p.client_name"),
+            "external_id": ("p.external_id",),
+            "name": ("p.name",),
+        }[search_field]
+        scope += " AND (" + " OR ".join(f"{column} ILIKE %s" for column in columns) + ")"
+        params += [f"%{escaped}%"] * len(columns)
+    return scope, params
+
+
+async def list_projects(
+    conn: AsyncConnection[Row],
+    limit: int,
+    after: tuple[datetime, UUID] | None,
+    managed_projects: list[UUID],
+    user_id: UUID,
+    department: str | None = None,
+    *,
+    output_status: str | None = None,
+    judgement_status: str | None = None,
+    q: str | None = None,
+    search_field: str = "all",
+    offset: int = 0,
+) -> list[Row]:
+    """Newest first, only projects the user may see (access.sees_project).
+
+    Fetches one extra row so the caller knows whether a next page exists. `department` is the
+    dept_staff department. Filters and counts run in this one statement, never per project.
+    """
+    scope, params = project_scope(
+        managed_projects, user_id, department, output_status, judgement_status, q, search_field
+    )
     if after is None:
         cursor = await conn.execute(
             f"SELECT {SUMMARY_COLUMNS} FROM tft.projects p WHERE {scope} "
-            "ORDER BY p.created_at DESC, p.id DESC LIMIT %s",
-            (*params, limit + 1),
+            "ORDER BY p.created_at DESC, p.id DESC LIMIT %s OFFSET %s",
+            (*params, limit + 1, offset),
         )
     else:
         cursor = await conn.execute(
@@ -81,6 +105,28 @@ async def list_projects(
             (*params, *after, limit + 1),
         )
     return await cursor.fetchall()
+
+
+async def count_projects(
+    conn: AsyncConnection[Row],
+    managed_projects: list[UUID],
+    user_id: UUID,
+    department: str | None = None,
+    *,
+    output_status: str | None = None,
+    judgement_status: str | None = None,
+    q: str | None = None,
+    search_field: str = "all",
+) -> int:
+    scope, params = project_scope(
+        managed_projects, user_id, department, output_status, judgement_status, q, search_field
+    )
+    cursor = await conn.execute(
+        f"SELECT count(*) AS total FROM tft.projects p WHERE {scope}", params
+    )
+    row = await cursor.fetchone()
+    assert row is not None
+    return int(row["total"])
 
 
 async def get_project(conn: AsyncConnection[Row], project_id: UUID) -> Row | None:

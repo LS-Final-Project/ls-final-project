@@ -275,7 +275,7 @@ def test_sections_are_the_top_numbered_groups():
 
 
 def test_process_stores_every_step_once_and_a_rerun_reuses_it(worker_dsn, project, admin, profile):
-    """새 작업의 재실행은 모델·원문판본을 재사용하고 저장 요구 등급만 새 판본으로 쌓는다."""
+    """새 작업의 재실행은 모델·원문판본을 재사용하고 저장 요구의 자사 비교와 등급을 새로 쌓는다."""
     extractor = FakeExtractor()
     summary, events = run(worker_dsn, project, extractor)
     # extract는 모델 호출마다(counts 없음)와 절(2.1·2.2)마다(누적 counts) 남는다(lease 연장).
@@ -336,7 +336,12 @@ def test_process_stores_every_step_once_and_a_rerun_reuses_it(worker_dsn, projec
     assert [e["step"] for e in events] == STEPS
     assert extractor.calls == 2
     assert again["counts"] == {"requirements": 0, "proposals": 0}
-    assert stored(admin, project) == {**first, "grades": first["grades"] * 2}
+    # 다시 채점(KAN-232)은 자사 비교도 다시 쓴다. 판단이 같으면 판본은 그대로이고 비교 행만 새 비교 판본으로 쌓인다.
+    assert stored(admin, project) == {
+        **first,
+        "grades": first["grades"] * 2,
+        "comparisons": first["comparisons"] * 2,
+    }
 
 
 def test_a_transformer_rating_is_not_met_by_breaker_evidence_on_the_worker_path(
@@ -379,8 +384,11 @@ def test_a_transformer_rating_is_not_met_by_breaker_evidence_on_the_worker_path(
             (project["project"],),
         ).fetchall()
     assert status == [("INSUFFICIENT_EVIDENCE",)]
-    assert {code for code, _ in compared} == {"TRF-DRY-630", "TRF-OIL-1000"}
-    assert all(trace["filters"] == ["family=TRANSFORMER"] for _, trace in compared)
+    # 장비가 "dry-type transformer"라 유입 제품(TRF-OIL-1000)은 후보에서 빠진다(KAN-217 후속, 절연 형식).
+    assert {code for code, _ in compared} == {"TRF-DRY-630"}
+    assert all(
+        trace["filters"] == ["family=TRANSFORMER", "insulation=DRY"] for _, trace in compared
+    )
 
 
 def test_annotate_fails_instead_of_reporting_empty_success(worker_dsn, project):
@@ -474,12 +482,14 @@ def test_every_model_call_extends_the_lease_and_a_stop_is_not_swallowed(worker_d
 
     def emit(values):
         seen.append(values)
-        if values == {"step": "extract"}:
+        # 호출마다 남기는 진행(counts 없음). 읽는 절 한 줄(focus, KAN-232)이 함께 실린다.
+        if values.get("step") == "extract" and "counts" not in values:
             raise Stop
 
     with pytest.raises(Stop):
         processor(job, emit)
-    assert extractor.calls == 1 and seen[-1] == {"step": "extract"}
+    assert extractor.calls == 1 and seen[-1]["step"] == "extract" and "counts" not in seen[-1]
+    assert seen[-1]["focus"]["kind"] == "section"
     assert stored(admin, project)["requirements"] == 0
 
 
@@ -958,3 +968,86 @@ def test_rewrite_worker_uses_fake_provider_and_human_save_wins(
     calls = len(called)
     processor(job, lambda _: None)
     assert len(called) == calls
+
+
+def test_graph_only_drawing_manifest_commits_and_replay_skips_models(worker_dsn, admin, tmp_path):
+    """A graph with no OCR lines is reviewable without manufacturing text requirements."""
+    from backend.engine.documents.model import DOCX_MIME
+    from tests.tft.test_rfp_diagrams import diagram
+    from tests.tft.test_rfp_image_transcription import IMAGE, PNG, docx
+
+    original = docx(IMAGE)
+    project = make_project(admin, tmp_path, original)
+    with psycopg.connect(admin) as conn:
+        conn.execute("UPDATE tft.documents SET kind='DRAWING' WHERE id=%s", (project["document"],))
+        conn.execute(
+            "UPDATE tft.document_versions SET mime=%s WHERE id=%s", (DOCX_MIME, project["docver"])
+        )
+    calls = []
+
+    def vision(image):
+        calls.append(image)
+        return Generation(
+            json.dumps(
+                {"lines": [], "uncertain": [], "contains_diagram": True, "diagram": diagram()}
+            ),
+            Usage(),
+            "fake",
+            ["STOP"],
+        )
+
+    settings = Settings(_env_file=None, environment="test", database_url=SecretStr(worker_dsn))
+    files = LocalDocumentStore(project["root"])
+    processor = make_processor(
+        settings,
+        provider=lambda _: pytest.fail("graph topology sent to text model"),
+        image_provider=vision,
+        store=files,
+    )
+    job = TftJob(
+        uuid4(), "rfp.process", project["project"], input_version([project["docver"]]), SALES
+    )
+    result = processor(job, lambda _: None)
+    assert result["counts"]["requirements"] == 0 and result["needs_review"]
+    with psycopg.connect(admin, row_factory=dict_row) as conn:
+        manifest = conn.execute(
+            "SELECT source_sha256,payload FROM tft.document_diagrams WHERE document_version_id=%s",
+            (project["docver"],),
+        ).fetchone()
+    assert manifest["source_sha256"] == hashlib.sha256(original).hexdigest()
+    assert manifest["payload"]["items"][0]["graph"]["review_required"] is True
+    asset = manifest["payload"]["items"][0]
+    assert asyncio.run(files.get(asset["storage_key"])) == PNG
+    assert (project["root"] / f"rfp/{project['docver']}.md").read_bytes() == original
+    replay = TftJob(uuid4(), "rfp.process", project["project"], job.input_version, SALES)
+    replay_result = processor(replay, lambda _: None)
+    assert replay_result["needs_review"] is True
+    assert len(calls) == 1
+    assert stored(admin, project)["requirements"] == 0
+
+
+def test_empty_image_manifest_rolls_back_with_late_worker_failure(worker_dsn, project, admin):
+    """A manifest never marks a document processed when the final business transaction fails."""
+    settings = Settings(_env_file=None, environment="test", database_url=SecretStr(worker_dsn))
+    processor = make_processor(
+        settings, provider=FakeExtractor(), store=LocalDocumentStore(project["root"])
+    )
+    job = TftJob(
+        uuid4(), "rfp.process", project["project"], input_version([project["docver"]]), SALES
+    )
+
+    def emit(event):
+        if event["step"] == "supplement":
+            raise RuntimeError("SYNTHETIC_LEASE_LOST")
+
+    with pytest.raises(RuntimeError, match="SYNTHETIC_LEASE_LOST"):
+        processor(job, emit)
+    with psycopg.connect(admin) as conn:
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM tft.document_diagrams WHERE document_version_id=%s",
+                (project["docver"],),
+            ).fetchone()[0]
+            == 0
+        )
+    assert stored(admin, project)["clauses"] == 0

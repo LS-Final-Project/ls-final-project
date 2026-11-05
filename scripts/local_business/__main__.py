@@ -15,9 +15,15 @@ import urllib.request
 from pathlib import Path
 
 from scripts.local_business.config import ROOT, clean_env, settings, state_path
-from scripts.local_business.permit import Permit, require_unlimited_snapshot, validate_limits
+from scripts.local_business.permit import (
+    Permit,
+    require_concurrency_snapshot,
+    require_unlimited_snapshot,
+    validate_concurrency,
+    validate_limits,
+)
 from scripts.local_business.setup import docker, fresh, inspect, owned
-from scripts.local_business.stack import running_drivers, start, stop, tunnel
+from scripts.local_business.stack import DEMO_MANAGER, running_drivers, start, stop, tunnel
 
 
 def process_identity(pid):
@@ -272,6 +278,12 @@ def enable(state, args):
     unlimited = getattr(args, "unlimited", False)
     if unlimited:
         require_unlimited_snapshot(state)
+    concurrent_jobs = getattr(args, "concurrent_jobs", 1)
+    concurrent_calls = getattr(args, "concurrent_calls", 6)
+    validate_concurrency(concurrent_jobs, concurrent_calls)
+    if args.owner == "cs" and concurrent_jobs != 1:
+        raise ValueError("LOCAL_CS_CONCURRENCY_REQUIRES_ONE_JOB")
+    require_concurrency_snapshot(state)
     key = Path(args.key_file).expanduser()
     if key.is_symlink():
         raise ValueError("LOCAL_PRIVATE_KEY_FILE_REQUIRED")
@@ -291,6 +303,8 @@ def enable(state, args):
         reserve_usd=args.reserve_usd,
         budget_usd=args.budget_usd,
         unlimited=unlimited,
+        concurrent_jobs=concurrent_jobs,
+        concurrent_calls=concurrent_calls,
     )
     name = ns + "-driver-" + token[:8]
     try:
@@ -359,6 +373,96 @@ def enable(state, args):
     print("UNKNOWN/interrupted reservations still block work; provider quotas remain in effect.")
 
 
+def set_concurrency(state, args):
+    """Change only the current authorization's scheduling caps, without a key or restart."""
+    if os.environ.get("ENVIRONMENT", "local") != "local" or "K_SERVICE" in os.environ:
+        raise ValueError("LOCAL_RUNNER_REQUIRES_LOCAL_ENVIRONMENT")
+    validate_concurrency(args.concurrent_jobs, args.concurrent_calls)
+    config = owned(state)
+    require_concurrency_snapshot(state)
+    drivers = running_drivers(config)
+    if len(drivers) != 1:
+        raise ValueError("LOCAL_SINGLE_DRIVER_REQUIRED")
+    row = inspect(drivers[0])
+    command = row["Config"]["Cmd"]
+    if (
+        not row["State"]["Running"]
+        or row["Image"] != config["images"]["runtime"]
+        or command[-3:] != ["python", "-m", "scripts.local_business.dispatcher"]
+        or not all(
+            any(
+                m.get("Source") == str(state / source)
+                and m["Destination"] == destination
+                and m["RW"] is False
+                for m in row["Mounts"]
+            )
+            for source, destination in (
+                ("source", "/workspace"),
+                ("settings.json", "/local/state/settings.json"),
+            )
+        )
+        or not any(
+            m.get("Source") == str(state / "control")
+            and m["Destination"] == "/local/control"
+            and m["RW"] is True
+            for m in row["Mounts"]
+        )
+    ):
+        raise ValueError("LOCAL_DRIVER_IDENTITY_MISMATCH")
+    tokens = [v.split("=", 1)[1] for v in command if v.startswith("LOCAL_DRIVER_TOKEN=")]
+    owners = [v.split("=", 1)[1] for v in command if v.startswith("LOCAL_JOB_OWNER=")]
+    if len(tokens) != 1 or owners not in (["cs"], ["tft"]):
+        raise ValueError("LOCAL_DRIVER_IDENTITY_MISMATCH")
+    if owners == ["cs"] and args.concurrent_jobs != 1:
+        raise ValueError("LOCAL_CS_CONCURRENCY_REQUIRES_ONE_JOB")
+    Permit(state / "control/permit.sqlite3").update_concurrency(
+        tokens[0], concurrent_jobs=args.concurrent_jobs, concurrent_calls=args.concurrent_calls
+    )
+    print(
+        json.dumps(
+            {
+                "concurrent_jobs": args.concurrent_jobs,
+                "concurrent_calls": args.concurrent_calls,
+                "running_work_cancelled": False,
+            }
+        )
+    )
+
+
+def manage_project(state, number):
+    """Grant the demo manager (local-4) one RFP project, like the server-external registration script.
+
+    A manager only sees projects listed in identity.manager_projects (contracts/platform/permissions.md 1.2);
+    no API grants it, so a project created in the local demo needs this before 책임자 지정.
+    """
+    if not re.fullmatch(r"P\d{2}-\d{4}", number):
+        raise ValueError("LOCAL_PROJECT_NUMBER_INVALID")
+    owned(state)
+    ns = state.name
+    sql = (
+        "INSERT INTO identity.manager_projects(user_id, project_id) "
+        f"SELECT '{DEMO_MANAGER}', id FROM tft.projects WHERE external_id = '{number}' "
+        "ON CONFLICT DO NOTHING RETURNING project_id"
+    )
+    out = docker(
+        "exec",
+        ns + "-pg",
+        "psql",
+        "-X",
+        "-U",
+        "postgres",
+        "-d",
+        "team4",
+        "-At",
+        "-v",
+        "ON_ERROR_STOP=1",
+        "-c",
+        sql,
+    ).decode()
+    rows = [line for line in out.splitlines() if re.fullmatch(r"[0-9a-f-]{36}", line)]
+    print(json.dumps({"project": number, "granted": len(rows)}))
+
+
 def mail_on(state, args):
     from scripts.local_business import mail
 
@@ -392,17 +496,44 @@ def main():
         "tunnel",
         "enable-real",
         "disable-real",
+        "set-concurrency",
+        "manage-project",
+        "settle-unknown",
         "mail-on",
         "mail-off",
     ):
         p = sub.add_parser(command)
         p.add_argument("--namespace", required=True)
+        if command == "settle-unknown":
+            p.add_argument(
+                "--charge", required=True, help="UNKNOWN charge id in control/permit.sqlite3"
+            )
+            p.add_argument("--reason", required=True, help="Why this amount is accepted")
+            p.add_argument("--operator", required=True, help="Who reviewed it")
+            p.add_argument("--actual", help="Confirmed USD; default is the reservation")
         if command == "setup":
             p.add_argument("--runtime-image", required=True)
             p.add_argument("--web-image", required=True)
             p.add_argument("--web-port", type=int, default=38443)
+        if command == "manage-project":
+            p.add_argument("--project", required=True, help="RFP project number, e.g. P26-0002")
         if command == "tunnel":
             p.add_argument("--tunnel-token", help=argparse.SUPPRESS)
+        if command in {"enable-real", "set-concurrency"}:
+            p.add_argument(
+                "--concurrent-jobs",
+                type=int,
+                default=1,
+                required=command == "set-concurrency",
+                help="Simultaneous RFP jobs",
+            )
+            p.add_argument(
+                "--concurrent-calls",
+                type=int,
+                default=6,
+                required=command == "set-concurrency",
+                help="Simultaneous SDK calls across all jobs",
+            )
         if command == "enable-real":
             p.add_argument("--owner", choices=["cs", "tft"], required=True)
             p.add_argument("--key-file", required=True)
@@ -428,6 +559,11 @@ def main():
             p.add_argument("--secret-file", help="0600 JSON with client_id and client_secret")
             p.add_argument("--interval", type=int, default=60, help="Seconds between sync runs")
     args = parser.parse_args()
+    if args.command in {"enable-real", "set-concurrency"}:
+        try:
+            validate_concurrency(args.concurrent_jobs, args.concurrent_calls)
+        except ValueError:
+            parser.error("Concurrency must be positive integers")
     if args.command == "enable-real":
         if args.unlimited and any(
             v is not None for v in (args.max_jobs, args.max_calls, args.budget_usd)
@@ -470,6 +606,18 @@ def main():
         tunnel(state)
     elif args.command == "enable-real":
         enable(state, args)
+    elif args.command == "set-concurrency":
+        set_concurrency(state, args)
+    elif args.command == "manage-project":
+        manage_project(state, args.project)
+    elif args.command == "settle-unknown":
+        # 실행 중 driver가 있으면 같은 원장에 쓰는 중일 수 있으므로 먼저 disable-real을 요구한다.
+        if running_drivers(owned(state)):
+            raise ValueError("LOCAL_DRIVER_ACTIVE_DISABLE_FIRST")
+        record = Permit(state / "control/permit.sqlite3").settle_unknown(
+            args.charge, reason=args.reason, operator=args.operator, actual_usd=args.actual
+        )
+        print(json.dumps(record, ensure_ascii=False))
     elif args.command == "mail-on":
         mail_on(state, args)
     elif args.command == "mail-off":

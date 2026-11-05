@@ -109,3 +109,51 @@ def test_korean_decimal_leaf_body_is_extracted_without_repeating_chapter_title()
     [item] = build_inputs(tree, sections_of(tree))
     assert item.section_title == "범위"
     assert [(c.clause_no, c.text) for c in item.clauses] == [("1.1", "외함은 도장한다.")]
+
+
+def test_compact_headings_repeated_per_chapter_are_not_page_noise():
+    """KAN-215(D22 유형): 장마다 같은 모양으로 반복되는 공백 없는 번호 제목을 머리말·바닥글로 빼지 않는다."""
+    lines = ["제8장 송변전설비"]
+    for n in (1, 2, 3):
+        lines += [
+            f"{n}.1적용 범위",
+            f"{n}.1.1본 규격은 설비의 설계와 제작에 적용한다.",
+            f"{n}.4설계 및 제작 기술기준",
+            f"{n}.4.1운전조건",
+            f"{n}.4.3성능보증",
+            "1)계약상대자는 성능을 보증하여야 한다.",
+        ]
+    tree = tree_of(*lines)
+    numbers = [c.clause_no for c in tree.clauses]
+    assert {"1.4", "1.4.3", "2.4", "3.4.1"} <= set(numbers)
+    assert not [n for n in numbers if "~" in n]
+    assert not [e for e in tree.excluded if e.reason == "PAGE_NOISE"]
+
+
+def test_table_of_contents_lines_and_chapter_item_children():
+    """KAN-215(D20 유형): 점선 목차 줄은 조항이 아니고, 장 안의 "1.발전설비" 아래 "1.2설비 구성"은 자식 조항이다."""
+    tree = tree_of(
+        "제 2 장 계통설명서",
+        "목 차",
+        "1.발전설비 .......................",
+        "1.2설비 구성 ......................",
+        "1.발전설비 태양에너지를 전기에너지로 변환한다.",
+        "1.2설비 구성",
+        "1)수상전기실과 154kV 변전소를 연계한다.",
+        "2)인버터를 설치한다.",
+        "1.3설비 운영",
+        "1)차단기는 고장 시 차단하여야 한다.",
+    )
+    numbers = [c.clause_no for c in tree.clauses]
+    assert {"1.2", "1.3"} <= set(numbers)
+    assert not [n for n in numbers if "~" in n]
+    assert {e.text for e in tree.excluded if e.reason == "TABLE_OF_CONTENTS"} == {
+        "1.발전설비 .......................",
+        "1.2설비 구성 ......................",
+    }
+
+
+@pytest.mark.parametrize("line", ["3.25배 이상이어야 한다.", "0.5초 이내에 동작하여야 한다."])
+def test_attached_measures_are_not_headings(line):
+    tree = tree_of("제1장 일반", "1.1적용 범위", line)
+    assert [c.clause_no for c in tree.clauses] == ["제1장", "1.1"]

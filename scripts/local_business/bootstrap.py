@@ -15,7 +15,12 @@ from pathlib import Path
 from scripts.cs_import_provided import Target
 from scripts.local_business import download
 from scripts.local_business.config import ROOT, clean_env, policy_mapping, save, state_path
-from scripts.local_business.permit import require_unlimited_snapshot, validate_limits
+from scripts.local_business.permit import (
+    require_concurrency_snapshot,
+    require_unlimited_snapshot,
+    validate_concurrency,
+    validate_limits,
+)
 from scripts.local_business.register_inputs import FIELDS, register_inputs
 from scripts.local_business.setup import PG_IMAGE, docker, owned
 from scripts.local_business.stack import no_active_driver, running_drivers
@@ -527,6 +532,8 @@ def enable_selected(
     reserve_usd="0.15",
     budget_usd="1.50",
     unlimited=False,
+    concurrent_jobs=1,
+    concurrent_calls=6,
 ):
     """Explicit opt-in only; verify a live driver before advertising model readiness."""
     state = state_path(namespace)
@@ -535,6 +542,8 @@ def enable_selected(
         no_active_driver(config)
         if unlimited:
             require_unlimited_snapshot(state)
+        validate_concurrency(concurrent_jobs, concurrent_calls)
+        require_concurrency_snapshot(state)
         args = [
             os.sys.executable,
             "-m",
@@ -552,6 +561,10 @@ def enable_selected(
             "gemini-3.6-flash",
             "--reserve-usd",
             reserve_usd,
+            "--concurrent-jobs",
+            str(concurrent_jobs),
+            "--concurrent-calls",
+            str(concurrent_calls),
         ]
         if unlimited:
             args += ["--unlimited"]
@@ -595,6 +608,10 @@ def enable_selected(
                         and data.get("mode") == "real"
                         and data.get("owner") == owner
                         and ready_limits
+                        and type(data.get("concurrent_jobs")) is int
+                        and data["concurrent_jobs"] == concurrent_jobs
+                        and type(data.get("concurrent_calls")) is int
+                        and data["concurrent_calls"] == concurrent_calls
                         and 0 <= time.time() - marker.stat().st_mtime < 5
                     ):
                         return
@@ -629,6 +646,8 @@ def main():
         help="With --enable-model: remove tool job/call/USD caps; preserve UNKNOWN blocking",
     )
     parser.add_argument("--max-jobs", type=int, help="Limited mode default: 1")
+    parser.add_argument("--concurrent-jobs", type=int, default=1)
+    parser.add_argument("--concurrent-calls", type=int, default=6)
     parser.add_argument("--max-calls", type=int, help="Limited mode default: 20")
     parser.add_argument("--reserve-usd", default="0.15")
     parser.add_argument("--budget-usd", help="Limited mode default: 1.50")
@@ -646,6 +665,9 @@ def main():
     args.max_calls = 20 if args.max_calls is None else args.max_calls
     args.budget_usd = "1.50" if args.budget_usd is None else args.budget_usd
     try:
+        validate_concurrency(args.concurrent_jobs, args.concurrent_calls)
+        if args.enable_model == "cs" and args.concurrent_jobs != 1:
+            parser.error("C/S supports one job at a time")
         validate_limits(
             args.max_jobs, args.max_calls, args.reserve_usd, args.budget_usd, args.unlimited
         )
@@ -656,6 +678,10 @@ def main():
             state = state_path(args.namespace)
             owned(state)
             require_unlimited_snapshot(state)
+        if args.enable_model and state_path(args.namespace).exists():
+            state = state_path(args.namespace)
+            owned(state)
+            require_concurrency_snapshot(state)
         result = bootstrap(args.namespace, args.profile, args.port, plan_only=args.plan)
         if args.enable_model:
             enable_selected(
@@ -667,6 +693,8 @@ def main():
                 reserve_usd=args.reserve_usd,
                 budget_usd=args.budget_usd,
                 unlimited=args.unlimited,
+                concurrent_jobs=args.concurrent_jobs,
+                concurrent_calls=args.concurrent_calls,
             )
             result["model_enabled"] = True
             result["model_owner"] = args.enable_model

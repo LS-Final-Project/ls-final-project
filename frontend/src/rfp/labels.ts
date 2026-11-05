@@ -39,7 +39,7 @@ export const ISSUE_LABEL: Record<string, string> = {
   EMPTY_VALUE: '값 없음', CONFLICT: '상충', SCOPE_UNCLEAR: '범위 불명확', CONDITION_MISSING: '조건 없음',
   RND_FEASIBILITY: 'R&D 개발 가능성', TECH_ADVICE: '기술 자문', PURCHASE_TERMS: '구매 조건',
 };
-export const QUESTION_STATUS_LABEL: Record<string, string> = { DRAFT: '초안', OPEN: '회신 대기', REPLIED: '회신 기록됨' };
+export const QUESTION_STATUS_LABEL: Record<string, string> = { DRAFT: '초안', OPEN: '회신 대기', REPLIED: '회신 도착' };
 export const BLOCKED_LABEL: Record<string, string> = { OWN_DEVELOPMENT_FEASIBLE: '자사 개발 가능', OWN_DEVELOPMENT_NOT_FEASIBLE: 'R&D 개발 불가 회신', DESIGNATED_ITEM: '지정품 요구' };
 export const RND_CHECK_LABEL: Record<string, string> = { NOT_REQUIRED: '확인 불필요', PENDING: 'R&D 확인 대기', CONFIRMED_FEASIBLE: '자사 개발 가능', CONFIRMED_NOT_FEASIBLE: '자사 개발 불가', CONFIRMED_SCHEDULE_MISMATCH: '일정 불일치', WAIVED: '확인 면제' };
 export const FEASIBILITY_LABEL: Record<string, string> = {
@@ -50,8 +50,11 @@ export const FEASIBILITY_LABEL: Record<string, string> = {
 export const RND_DEPARTMENTS = ['RND_FW'];
 // 요구 code(판본앞8자:조항:순번)의 표시 번호. 원시 값은 화면에 내지 않는다.
 export function requirementNo(code: string) {
-  const [, clause, order] = code.split(':');
-  return clause ? `${clause}-${order}` : code;
+  const stored = code.match(/^[^:]+:([^:]+):(\d+)$/i);
+  if (stored && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(stored[1])) return '요구 번호 미기재';
+  if (stored) return stored[1].startsWith('OCR-') ? `이미지 요구 ${stored[2]}` : `${stored[1]}-${stored[2]}`;
+  if (!code || /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(code)) return '요구 번호 미기재';
+  return code;
 }
 // 표 칸에 맞는 짧은 일시(2026-10-26 14:20, 사용자 시간대).
 export function shortDateTime(at: string) {
@@ -78,3 +81,84 @@ export const INTEGRATION_HOLDER_LABEL: Record<string, string> = {
 };
 
 export const OFF_LIST_PERMISSION_LABEL: Record<string, string> = { ALLOWED: '허용', FORBIDDEN: '금지', UNSTATED: '미확인' };
+
+export const OCR_CLAUSE = /^OCR-(DOCX-|PDF-P)(\d+)(?:\.|$)/;
+/** 조항 번호를 사람이 읽는 말로: 이미지 전사는 "본문 이미지 n"·"PDF n쪽", 나머지는 원문 번호(제n조.m 등) 그대로. */
+export function clauseLabel(clauseNo?: string | null, page?: number | null) {
+  const ocr = clauseNo?.match(OCR_CLAUSE);
+  return !ocr ? clauseNo ?? '' : ocr[1] === 'DOCX-' ? `본문 이미지 ${Number(ocr[2])}` : `PDF ${page ?? Number(ocr[2])}쪽`;
+}
+/** 요구 코드(문서 판본 앞 8자:조항 번호:순번, 직접 추가는 m순번)를 조항 표시로 바꾼다. 형식이 다르면 그대로 둔다.
+ * 직접 추가는 백엔드 bid_outputs.requirement_label과 같게 "제3조.2 직접 추가 1". */
+export function codeLabel(code?: string | null) {
+  const m = code?.match(/^[0-9a-f]{8}:(.+):(m?)(\d+)$/);
+  if (!m) return clauseLabel(code);
+  return m[2] ? `${clauseLabel(m[1])} 직접 추가 ${m[3]}` : clauseLabel(m[1]);
+}
+const VERDICT_WORD: Record<string, string> = {
+  '값 다름': '값이 다릅니다', 미달: '요구에 못 미칩니다', 초과: '요구를 넘습니다', '범위 밖': '범위를 벗어납니다', 충족: '충족합니다',
+};
+// vocabulary.ConditionName. 서버 판단 문장은 영문 이름의 밑줄을 공백으로 바꿔 쓴다.
+const CONDITION_WORD: Record<string, string> = {
+  duration: '지속 시간', 'ambient temperature': '주위온도', 'temperature rise': '온도 상승', 'reference temperature': '기준온도',
+  frequency: '주파수', altitude: '표고', voltage: '전압', 'current type': '전류 종류', duty: '사용 조건', cooling: '냉각 방식',
+  'tap type': '탭 방식', 'arc current': '아크 전류',
+};
+// 서버가 쓰는 고정 문장을 화면 말로(비교기·등급 함수의 문구, KAN-217·220).
+const FIXED: [RegExp, string][] = [
+  [/요구값 미정\(자리표시자\)\.\s*충족 판정에서 제외\./, '원문에 값이 비어 있습니다. 고객 질의가 필요합니다.'],
+  [/^검색 범위\([^)]*\)에서 자사 후보를 찾지 못함\..*$/, '자사 제품 자료에서 맞는 후보를 찾지 못했습니다.'],
+  [/수행 과업 요구\.\s*수행 주체 확인\(자사\/협력사\) 필요\./, '수행 과업입니다. 자사가 할지 협력사가 할지 정하세요.'],
+  [/값은 충족하나 조건이 달라 확인 필요\./, '값은 맞지만 조건이 다릅니다.'],
+];
+/**
+ * 비교 판단 문장(서버 원문, 근거 ID·조항 코드·영문 속성 키 포함)을 화면용으로 줄인다. 원문은 title로 남긴다.
+ * 예 "이미지 전사 원문 확인 필요. 원문 OCR-DOCX-0001.7 rated_voltage 요구 11 kV, 자사 25.8 kV(근거 DS-VCB 2.1): 값 다름."
+ *  → "요구 11 kV, 자사 25.8 kV. 값이 다릅니다."
+ */
+export function reasonText(reason?: string | null) {
+  if (!reason) return '';
+  let short = reason
+    .replace(/^이미지 전사 원문 확인 필요\.\s*/, '')
+    .replace(/^원문\s+\S+(?:\s+(?:(?!요구 )[^:]){1,30})?:\s*/, '')
+    .replace(/^원문\s+\S+\s+.*?(?=요구 )/, '')
+    .replace(/\s*\(근거 [^)]*\)/g, '')
+    .replace(/:\s*(값 다름|미달|초과|범위 밖|충족)\.?$/, (_, w: string) => `. ${VERDICT_WORD[w]}.`)
+    .replace(/조건 차이:\s*([a-z][a-z ]*?) 요구/g, (_, n: string) => `${CONDITION_WORD[n] ?? n} 차이: 요구`)
+    .replace(/,\s*(?:후보|자사 근거)\s/g, ', 자사 ');
+  for (const [from, to] of FIXED) short = short.replace(from, to);
+  return short.trim();
+}
+
+const PARTNER_WORD: Record<string, string> = { 충족: '충족', 미달: '미달', 초과: '초과', '값 다름': '값 다름', '범위 밖': '범위 밖' };
+/**
+ * 협력사 등급 사유(서버 문장, KAN-185 등급 함수)를 후보 행 한 줄로 줄인다. 원문은 full로 남겨 title에 쓴다.
+ * 예 "원문 제2조.1 단시간 내전류 요구 25 kA 이상, 후보 20 kA(근거 SYN-DS-SB-01 2.2): 미달." → "단시간 내전류 20 kA, 요구 25 kA 이상 미달"
+ *    "조립품 공급이라 통합 책임(연동)이 필요: 후보 미확인." 여러 줄 → "통합 책임 미확인: 연동·보증"
+ */
+export function partnerNote(grade?: { reasons?: string[]; exclusion_reasons?: string[] } | null) {
+  // 제외 사유를 먼저, 나머지 사유를 뒤에 둔다(제외 행은 왜 못 고르는지가 먼저 보여야 한다).
+  const summarize = (lines: string[]) => {
+    const spec: string[] = [];
+    const duty: Record<string, string[]> = {};
+    for (const line of lines) {
+      const d = line.match(/통합 책임\((\S+?)\)이 필요:\s*후보 (\S+?)\.?$/);
+      if (d) { (duty[d[2]] ??= []).push(d[1]); continue; }
+      const m = line.match(/^원문 \S+ (.+?) 요구 (.+?)(?:, 후보 ([^(:]+?))?(?:\(근거[^)]*\))?:\s*(.+?)\.?$/);
+      if (!m) { spec.push(line); continue; }
+      const [, attr, want, got, word] = m;
+      spec.push(got ? `${attr} ${got.trim()}, 요구 ${want} ${PARTNER_WORD[word] ?? word}` : `${attr} 자료 없음, 확인 필요`);
+    }
+    if (duty['불가']) spec.push(`통합 책임 불가: ${duty['불가'].join('·')}`);
+    if (duty['미확인']) spec.push(`통합 책임 미확인: ${duty['미확인'].join('·')}`);
+    return spec;
+  };
+  const parts = [...new Set([...summarize(grade?.exclusion_reasons ?? []), ...summarize(grade?.reasons ?? [])])];
+  return { text: parts.join(' / '), full: [...(grade?.exclusion_reasons ?? []), ...(grade?.reasons ?? [])].join('\n') };
+}
+export const PARTNER_GRADE_LABEL: Record<string, string> = { MANDATORY_CONFIRMED: '필수 조건 확인', REVIEW: '검토', REFERENCE_ONLY: '확인용', EXCLUDED: '제외' };
+// 내려받는 출력 파일 이름: 서버가 준 이름이 없거나 `rfp-<uuid>`면 "프로젝트 번호_문서 종류"로 만든다.
+export function exportFileName(projectNo: string | null | undefined, format: 'XLSX' | 'DOCX', serverName?: string | null): string {
+  if (serverName && !/^rfp-[0-9a-f-]{36}\./i.test(serverName)) return serverName;
+  return `${projectNo || 'RFP'}_${format === 'XLSX' ? '대응현황표' : '요약서'}.${format.toLowerCase()}`;
+}

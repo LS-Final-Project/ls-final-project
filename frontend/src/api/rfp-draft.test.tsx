@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { downloadExport, getDraft, getExportJob, getRewriteJob, sendCommand, UncertainWrite, DOCX_MIME } from './rfp-draft';
+import { downloadExport, getDraft, getExportJob, getExports, getReviewVersions, getRewriteJob, sendCommand, UncertainWrite, DOCX_MIME } from './rfp-draft';
 
 const P = '11111111-1111-4111-8111-111111111111';
 const JOB = '22222222-2222-4222-8222-222222222222';
@@ -52,4 +52,24 @@ it('rewrite도 현재 actor가 바뀌면 POST를 보내지 않고 다른 종류�
   expect(f).toHaveBeenCalledTimes(1);
   vi.stubGlobal('fetch', vi.fn(async () => response({ job_id: JOB, project_id: P, owner: 'tft', kind: 'rfp.export', status: 'SUCCEEDED' })));
   await expect(getRewriteJob(P, JOB)).rejects.toThrow('대상을 확인하지 못했습니다');
+});
+
+const session = () => new Response(JSON.stringify({ data: { id: P } }), { headers: { 'X-CSRF-Token': 'csrf' } });
+it('초안 다시 만들기는 같은 프로젝트의 초안 응답만 받는다', async () => {
+  const f = vi.fn(async (url: string) => url.endsWith('/me') ? session() : response({ project_id: P, version: 5, sections: [] }));
+  vi.stubGlobal('fetch', f);
+  await expect(sendCommand(P, { actorId: P, kind: 'regenerate', key: 'regen-key', body: { version: 4 } })).resolves.toMatchObject({ version: 5 });
+  expect(f.mock.calls[1][0]).toBe(`/api/v1/tft/projects/${P}/draft/regenerate`);
+  expect(new Headers((f.mock.calls[1] as unknown as [string, RequestInit])[1].headers).get('Idempotency-Key')).toBe('regen-key');
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.endsWith('/me') ? session() : response({ project_id: 'other', version: 5, sections: [] })));
+  await expect(sendCommand(P, { actorId: P, kind: 'regenerate', key: 'regen-key', body: { version: 4 } })).rejects.toBeInstanceOf(UncertainWrite);
+});
+it('초안 다시 만들기 409는 코드를 그대로 넘긴다', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.endsWith('/me') ? session() : Response.json({ error: { code: 'TFT_DRAFT_JOB_ACTIVE', message: '작업 중' } }, { status: 409 })));
+  await expect(sendCommand(P, { actorId: P, kind: 'regenerate', key: 'k', body: { version: 0 } })).rejects.toMatchObject({ status: 409, code: 'TFT_DRAFT_JOB_ACTIVE' });
+});
+it('검토 이력과 내보내기 목록은 items를 읽는다', async () => {
+  const f = vi.fn(async (url: string) => response({ items: [{ url }] })); vi.stubGlobal('fetch', f);
+  await expect(getReviewVersions(P)).resolves.toEqual([{ url: `/api/v1/tft/projects/${P}/draft/review-versions` }]);
+  await expect(getExports(P)).resolves.toEqual([{ url: `/api/v1/tft/projects/${P}/draft/exports` }]);
 });

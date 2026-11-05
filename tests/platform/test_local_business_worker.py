@@ -163,6 +163,15 @@ def test_partial_or_invalid_usage_never_settles_partial_estimate(tmp_path, field
     assert len(calls) == 1
 
 
+def test_omitted_thoughts_count_is_zero_only_when_the_total_proves_it(tmp_path):
+    permit = FakePermit()
+    meter = worker.Meter(permit, configuration(tmp_path), PRICES)
+    client, _ = client_for(meter, response(thoughts_token_count=None, total_token_count=120))
+    client.models.generate_content(model=MODEL)
+    assert permit.settlements[0][1] is not None
+    assert permit.settlements[0][2]["thought_tokens"] == 0
+
+
 def test_absent_or_boolean_usage_is_unknown(tmp_path):
     for raw in [
         None,
@@ -504,3 +513,256 @@ def test_dispatcher_enabled_values_match_explicit_local_worker_gate(
 def test_no_claim_means_no_finish_and_only_fixed_diagnostic(capsys):
     worker.fail_claimed(job_runtime, [], "LOCAL_COST_UNKNOWN")
     assert capsys.readouterr().err == "LOCAL_FAILURE_NOT_RECORDED_NO_LEASE\n"
+
+
+@pytest.mark.parametrize("parallel_count", [3, 6])
+@pytest.mark.parametrize("fail_first", [False, True])
+def test_real_journal_parallel_calls_settle_inflight_and_block_after_unknown(
+    tmp_path, fail_first, parallel_count
+):
+    from concurrent.futures import ThreadPoolExecutor
+    from dataclasses import replace
+    from threading import Barrier, Event
+
+    from scripts.local_business.permit import Denied, Permit
+
+    p = Permit(tmp_path / "concurrent.sqlite3")
+    token = p.authorize(max_jobs=1, max_calls=8, reserve_usd="0.15", unlimited=True)
+    config = replace(configuration(tmp_path), token=token)
+    p.grant(token, str(config.job_id))
+    meter = worker.Meter(p, config, PRICES)
+    barrier = Barrier(parallel_count, timeout=3)
+    failed = Event()
+
+    def generate_content(**kwargs):
+        barrier.wait()
+        if fail_first and kwargs["contents"] == "first":
+            raise TimeoutError("provider details must not leak")
+        if fail_first:
+            assert failed.wait(3)
+        return response()
+
+    def call(name):
+        try:
+            return meter.generate(generate_content, model=MODEL, contents=name)
+        except worker.LocalStop as error:
+            failed.set()
+            return error.code
+
+    with ThreadPoolExecutor(parallel_count) as pool:
+        results = list(pool.map(call, ["first", *[f"other{i}" for i in range(parallel_count - 1)]]))
+    with p.transaction() as db:
+        states = [r[0] for r in db.execute("SELECT state FROM charges")]
+        assert states.count("RESERVED") == 0
+        assert states.count("UNKNOWN") == int(fail_first)
+        assert states.count("SETTLED") == parallel_count - int(fail_first)
+    assert not meter.active_charges
+    if fail_first:
+        assert results == ["LOCAL_PROVIDER_CALL_FAILED"] * parallel_count
+        with pytest.raises(worker.LocalStop, match="LOCAL_PROVIDER_CALL_FAILED"):
+            meter.generate(lambda **_: pytest.fail("no more SDK"), model=MODEL)
+        p.close_driver(token)
+        with pytest.raises(Denied, match="LOCAL_COST_UNKNOWN_REVIEW_REQUIRED"):
+            p.authorize(max_jobs=1, max_calls=8, reserve_usd="0.15", unlimited=True)
+    else:
+        assert all(r.usage_metadata.total_token_count == 130 for r in results)
+
+
+@pytest.mark.parametrize(
+    "error,expected",
+    [
+        (TimeoutError("secret-token"), {"kind": "TIMEOUT_ERROR"}),
+        (ConnectionError("secret-url"), {"kind": "CONNECTION_ERROR"}),
+        (KeyboardInterrupt("secret-body"), {"kind": "KEYBOARD_INTERRUPT"}),
+        (ValueError("secret-input"), {"kind": "OTHER"}),
+    ],
+)
+def test_provider_diagnostic_fixed_non_api_kinds(tmp_path, capsys, error, expected):
+    permit = FakePermit()
+    client, calls = client_for(worker.Meter(permit, configuration(tmp_path), PRICES), error=error)
+    with pytest.raises(worker.LocalStop, match="LOCAL_PROVIDER_CALL_FAILED"):
+        client.models.generate_content(model=MODEL, contents="secret-prompt")
+    captured = capsys.readouterr()
+    assert not captured.out and "secret" not in captured.err
+    assert json.loads(captured.err) == {
+        "event": "LOCAL_PROVIDER_CALL_FAILED",
+        **expected,
+        "http_status": None,
+        "provider_status": None,
+    }
+    assert permit.settlements == [("offline-charge", None, None)]
+    with pytest.raises(worker.LocalStop, match="LOCAL_PROVIDER_CALL_FAILED"):
+        client.models.generate_content(model=MODEL)
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("http_code,status", [(403, "PERMISSION_DENIED"), (500, "INTERNAL")])
+def test_api_diagnostic_only_allowed_status_and_http_code(tmp_path, capsys, http_code, status):
+    from google.genai.errors import APIError
+
+    error = APIError(
+        http_code,
+        {"error": {"status": status, "message": "secret-token-input-body"}},
+        response=SimpleNamespace(headers={"Authorization": "secret-token"}),
+    )
+    permit = FakePermit()
+    client, calls = client_for(worker.Meter(permit, configuration(tmp_path), PRICES), error=error)
+    with pytest.raises(worker.LocalStop, match="LOCAL_PROVIDER_CALL_FAILED"):
+        client.models.generate_content(model=MODEL, contents="secret-prompt")
+    captured = capsys.readouterr()
+    assert not captured.out and "secret" not in captured.err
+    assert json.loads(captured.err) == {
+        "event": "LOCAL_PROVIDER_CALL_FAILED",
+        "kind": "API_ERROR",
+        "http_status": http_code,
+        "provider_status": status,
+    }
+    assert permit.settlements == [("offline-charge", None, None)] and len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    "code,status",
+    [(True, "secret-key"), (400.0, "400"), (99, "invalid_argument"), (600, {"secret": "body"})],
+)
+def test_api_diagnostic_drops_non_exact_or_unlisted_values(tmp_path, capsys, code, status):
+    from google.genai.errors import APIError
+
+    error = APIError(400, {"error": {"message": "secret-body"}})
+    error.code, error.status = code, status
+    client, _ = client_for(worker.Meter(FakePermit(), configuration(tmp_path), PRICES), error=error)
+    with pytest.raises(worker.LocalStop, match="LOCAL_PROVIDER_CALL_FAILED"):
+        client.models.generate_content(model=MODEL)
+    assert json.loads(capsys.readouterr().err) == {
+        "event": "LOCAL_PROVIDER_CALL_FAILED",
+        "kind": "API_ERROR",
+        "http_status": None,
+        "provider_status": None,
+    }
+
+
+def test_provider_diagnostic_does_not_call_exception_accessors_or_stringification(tmp_path, capsys):
+    from google.genai.errors import APIError
+
+    accessed = []
+
+    class HostileValue(str):
+        def __str__(self):
+            accessed.append("str-value")
+            raise AssertionError("secret-value")
+
+    class HostileAPI(APIError):
+        def __getattribute__(self, name):
+            if name in {"code", "status", "message", "details", "response", "__dict__"}:
+                accessed.append(name)
+                raise AssertionError("secret-accessor")
+            return super().__getattribute__(name)
+
+        def __str__(self):
+            accessed.append("str-exception")
+            raise AssertionError("secret-exception")
+
+        __repr__ = __str__
+
+    error = HostileAPI.__new__(HostileAPI)
+    attributes = BaseException.__dict__["__dict__"].__get__(error)
+    attributes.update(code=HostileValue("400"), status=HostileValue("INVALID_ARGUMENT"))
+    client, _ = client_for(worker.Meter(FakePermit(), configuration(tmp_path), PRICES), error=error)
+    with pytest.raises(worker.LocalStop, match="LOCAL_PROVIDER_CALL_FAILED"):
+        client.models.generate_content(model=MODEL)
+    assert json.loads(capsys.readouterr().err) == {
+        "event": "LOCAL_PROVIDER_CALL_FAILED",
+        "kind": "API_ERROR",
+        "http_status": None,
+        "provider_status": None,
+    }
+    assert not accessed
+
+    class NonAPI(Exception):
+        @property
+        def code(self):
+            accessed.append("non-api-code")
+            raise AssertionError("secret-code")
+
+        @property
+        def status(self):
+            accessed.append("non-api-status")
+            raise AssertionError("secret-status")
+
+    client, _ = client_for(
+        worker.Meter(FakePermit(), configuration(tmp_path), PRICES), error=NonAPI("secret")
+    )
+    with pytest.raises(worker.LocalStop, match="LOCAL_PROVIDER_CALL_FAILED"):
+        client.models.generate_content(model=MODEL)
+    assert json.loads(capsys.readouterr().err)["kind"] == "OTHER"
+    assert not accessed
+
+
+def test_diagnostic_output_failure_preserves_unknown_and_local_stop(tmp_path, monkeypatch):
+    permit = FakePermit()
+    client, calls = client_for(
+        worker.Meter(permit, configuration(tmp_path), PRICES), error=TimeoutError("secret")
+    )
+
+    def broken_stderr(_):
+        raise OSError("secret-log-device")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(worker.sys, "stderr", SimpleNamespace(write=broken_stderr))
+        with pytest.raises(worker.LocalStop, match="LOCAL_PROVIDER_CALL_FAILED"):
+            client.models.generate_content(model=MODEL)
+    assert permit.settlements == [("offline-charge", None, None)] and len(calls) == 1
+
+
+@pytest.mark.parametrize("owner,expected", [("tft", 6), ("cs", 1)])
+def test_actual_sdk_gate_bounds_waiting_calls_and_releases_all(tmp_path, owner, expected):
+    from concurrent.futures import ThreadPoolExecutor
+    from dataclasses import replace
+    from threading import Event, Lock
+
+    from scripts.local_business.permit import Permit
+
+    p = Permit(tmp_path / "bounded.sqlite3")
+    token = p.authorize(max_jobs=1, max_calls=8, reserve_usd="0.15", unlimited=True)
+    config = replace(configuration(tmp_path), owner=owner, token=token)
+    p.grant(token, str(config.job_id))
+    meter = worker.Meter(p, config, PRICES)
+    saturated, release, lock = Event(), Event(), Lock()
+    active = peak = calls = 0
+
+    def generate_content(**kwargs):
+        nonlocal active, peak, calls
+        with lock:
+            active += 1
+            calls += 1
+            peak = max(peak, active)
+            if active == expected:
+                saturated.set()
+        assert release.wait(3)
+        with lock:
+            active -= 1
+        return response()
+
+    with ThreadPoolExecutor(8) as pool:
+        futures = [pool.submit(meter.generate, generate_content, model=MODEL) for _ in range(8)]
+        try:
+            assert saturated.wait(2)
+            with p.transaction() as db:
+                assert (
+                    db.execute("SELECT count(*) FROM charges WHERE state='RESERVED'").fetchone()[0]
+                    == expected
+                )
+            assert peak == expected
+        finally:
+            release.set()
+        results = [f.result() for f in futures]
+    assert active == 0 and peak == expected and calls == 8
+    assert len(results) == 8 and not meter.active_charges
+    with p.transaction() as db:
+        assert db.execute("SELECT count(*) FROM charges WHERE state='SETTLED'").fetchone()[0] == 8
+
+
+def test_context_graph_and_local_sdk_limits_agree():
+    from backend.engine.rfp.context_graph import MAX_PARALLEL
+    from scripts.local_business.permit import MAX_PARALLEL_TFT_CALLS
+
+    assert MAX_PARALLEL == MAX_PARALLEL_TFT_CALLS == 6

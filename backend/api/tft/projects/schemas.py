@@ -5,13 +5,14 @@ staffing requests, recommendations, checks, compositions, responsible decisions)
 removed from the API in KAN-181; their tables stay in the database.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
 from backend.api.tft.rfp.schemas import (
+    DecisionGate,
     IntegrationResponsibility,
     IntegrationSummary,
     JobRef,
@@ -59,11 +60,16 @@ class ProjectSummary(BaseModel):
     open_questions_count: int
     strategic_customer: bool | None = None
     integration_responsibility: IntegrationSummary
+    # KAN-228: 목록의 마감과 남은 일. 남은 수는 상세의 decision_gate와 같은 계산이다.
+    submission_due_at: date | None = None
+    decisions_remaining: int = 0
+    review_pending: int = 0
 
 
 class ProjectList(BaseModel):
     items: list[ProjectSummary]
     next_cursor: str | None
+    total: int | None = None
 
 
 class RfpRequirement(BaseModel):
@@ -127,4 +133,8 @@ class ProjectDetail(BaseModel):
             "Assembly integration responsibility (RFP API spec v1.3 §7), computed on read. "
             "Null when migration T12 is not applied yet, which is not the same as not required."
         ),
+    )
+    decision_gate: DecisionGate = Field(
+        default_factory=DecisionGate,
+        description="Save conditions and owner-review backlog of the decision panel (KAN-220).",
     )

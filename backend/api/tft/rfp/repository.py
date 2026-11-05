@@ -12,12 +12,14 @@
 import json
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
 from psycopg import AsyncConnection
 from psycopg.types.json import Jsonb
 
+from backend.api.tft.rfp import comparison
 from backend.api.tft.rfp.rnd import DeptKind, RndQuestion, rnd_check_of
 from backend.api.tft.rfp.schemas import UploadForm
 from backend.api.tft.rfp.supplement import RndCheck
@@ -27,8 +29,14 @@ Row = dict[str, Any]
 QUESTION_COLUMNS = (
     "q.id, q.project_id, q.requirement_id, q.clause_id, q.page, q.issue_type, q.question_text, "
     "q.internal_assumption, q.status, q.version, q.target, q.target_dept, q.data_origin, "
-    "q.derivation_kind, q.known_at, q.created_by, q.created_at, "
-    "r.received_at AS reply_received_at, r.recorded_at AS reply_recorded_at, r.rnd_feasibility"
+    "q.derivation_kind, q.known_at, q.created_by, q.created_at, q.follows_question_id, "
+    "r.received_at AS reply_received_at, r.recorded_at AS reply_recorded_at, r.rnd_feasibility, "
+    "r.id AS reply_id, r.reply_text, r.source_ref AS reply_source_ref, r.recorded_by, "
+    "r.earliest_available_on, r.schedule_fits, "
+    # KAN-224: 가장 최근 AI 읽기 요청·결과가 있으면 그 결과(없으면 규칙 결과)에 작업 상태를 붙인다.
+    "coalesce((SELECT coalesce(v.candidate, r.value_candidate) || jsonb_build_object('ai', v.status) "
+    "FROM tft.reply_value_reads v WHERE v.reply_id = r.id ORDER BY v.seq DESC LIMIT 1), "
+    "r.value_candidate) AS value_candidate"
 )
 
 
@@ -323,7 +331,7 @@ async def project_detail_parts(
         "(SELECT count(*) FROM tft.documents d WHERE d.project_id = p.id) "
         "AS documents_count, (SELECT d.latest_version FROM tft.drafts d WHERE d.project_id = p.id) "
         "AS draft_version, (SELECT c.result->>'job_id' FROM tft.rfp_commands c "
-        "WHERE c.project_id = p.id AND c.operation = 'project.process' "
+        "WHERE c.project_id = p.id AND c.operation IN ('project.process','context.process') "
         "ORDER BY c.created_at DESC LIMIT 1) AS latest_job_id "
         "FROM tft.projects p WHERE p.id = %s",
         (project_id,),
@@ -453,12 +461,22 @@ async def latest_requirement_version(
     Returns:
         Row | None: requirement_versions 열과 project_id·latest_version·code·clause_no. 없으면 None.
     """
+    if lock:
+        # Lock the head first, then read its joined version in a fresh statement.
+        # A join that started before another approval committed may otherwise see
+        # the old version while EvalPlanQual has already advanced the head.
+        cursor = await conn.execute(
+            "SELECT id FROM tft.requirements WHERE id=%s AND project_id=%s FOR UPDATE",
+            (requirement_id, project_id),
+        )
+        if await cursor.fetchone() is None:
+            return None
     cursor = await conn.execute(
         "SELECT v.*, req.project_id, req.latest_version, req.code, c.clause_no "
         "FROM tft.requirements req "
         "JOIN tft.requirement_versions v ON v.requirement_id = req.id AND v.version = req.latest_version "
         "LEFT JOIN tft.clauses c ON c.id = v.clause_id "
-        "WHERE req.id = %s AND req.project_id = %s" + (" FOR UPDATE OF req" if lock else ""),
+        "WHERE req.id = %s AND req.project_id = %s",
         (requirement_id, project_id),
     )
     return await cursor.fetchone()
@@ -477,6 +495,7 @@ async def insert_question(
     target: str,
     target_dept: str | None,
     actor: UUID,
+    follows_question_id: UUID | None = None,
 ) -> Row:
     """질문 하나를 OPEN·판본 1로 저장한다(사람 입력이라 derivation_kind PROVIDED).
 
@@ -500,8 +519,8 @@ async def insert_question(
     await conn.execute(
         "INSERT INTO tft.customer_questions (id, project_id, requirement_id, clause_id, page, "
         "issue_type, question_text, internal_assumption, target, target_dept, data_origin, "
-        "derivation_kind, known_at, created_by) "
-        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'PROVIDED',now(),%s)",
+        "derivation_kind, known_at, created_by, follows_question_id) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'PROVIDED',now(),%s,%s)",
         (
             question_id,
             project["id"],
@@ -515,6 +534,7 @@ async def insert_question(
             target_dept,
             project["data_origin"],
             actor,
+            follows_question_id,
         ),
     )
     question = await get_question(conn, question_id)
@@ -674,6 +694,7 @@ async def insert_reply(
     earliest_available_on: date | None,
     schedule_fits: bool | None,
     actor: UUID,
+    value_candidate: Mapping[str, Any] | None = None,
 ) -> Row:
     """회신을 저장하고 질문을 REPLIED·판본+1로 바꾼다. 질문 하나에 회신은 하나다.
 
@@ -697,7 +718,8 @@ async def insert_reply(
     await conn.execute(
         "INSERT INTO tft.question_replies (id, question_id, reply_text, received_at, source_ref, "
         "recorded_by, rnd_feasibility, earliest_available_on, schedule_fits, data_origin, "
-        "derivation_kind, known_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'PROVIDED',%s)",
+        "derivation_kind, known_at, value_candidate) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'PROVIDED',%s,%s)",
         (
             uuid4(),
             question["id"],
@@ -710,6 +732,7 @@ async def insert_reply(
             schedule_fits,
             question["data_origin"],
             received_at,
+            Jsonb(dict(value_candidate)) if value_candidate is not None else None,
         ),
     )
     await conn.execute(
@@ -942,6 +965,7 @@ async def insert_web_proposal(
     rationale: str,
     evidence_refs: Sequence[str],
     actor: UUID,
+    source_ref: Mapping[str, str] | None = None,
 ) -> Row:
     """사람이 웹에서 쓴 변경 제안(origin web, PENDING).
 
@@ -959,9 +983,9 @@ async def insert_web_proposal(
     """
     cursor = await conn.execute(
         "INSERT INTO tft.change_proposals (id, project_id, requirement_id, "
-        "base_requirement_version, origin, current, proposed, rationale, evidence_refs, "
+        "base_requirement_version, origin, current, proposed, rationale, evidence_refs, source_ref, "
         "proposer_kind, proposer_user_id, data_origin, derivation_kind, known_at) "
-        "VALUES (%s,%s,%s,%s,'web',%s,%s,%s,%s,'user',%s,%s,'PROVIDED',now()) RETURNING *",
+        "VALUES (%s,%s,%s,%s,'web',%s,%s,%s,%s,%s,'user',%s,%s,'PROVIDED',now()) RETURNING *",
         (
             uuid4(),
             requirement["project_id"],
@@ -971,6 +995,7 @@ async def insert_web_proposal(
             Jsonb(dict(proposed)),
             rationale,
             Jsonb(list(evidence_refs)),
+            Jsonb(dict(source_ref)) if source_ref is not None else None,
             actor,
             requirement["data_origin"],
         ),
@@ -1045,6 +1070,12 @@ async def insert_approved_version(
         # 코드 전용 경고는 사람이 승인한 판본에 잇지 않는다.
         "needs_review": False,
     }
+    if proposed.get("next_owner_field") is not None:
+        changed["next_owner_field"] = proposed["next_owner_field"]
+    if proposed.get("spec") is not None:
+        changed.update(proposed["spec"])
+        if proposed["spec"] != proposal["current"].get("spec"):
+            changed["canonical_value"] = None
     kept = [
         c for c in base if c not in changed and c not in ("decided_at", "known_at", "created_at")
     ]
@@ -1229,6 +1260,7 @@ async def judgement_of(
         (requirement["requirement_id"], requirement["version"]),
     )
     return {
+        "spec": {key: requirement.get(key) for key in ("value", "unit", "operator", "tolerance")},
         "status": requirement["status"],
         "necessity": requirement["necessity"],
         "reason": requirement["reason"],
@@ -1479,8 +1511,9 @@ async def insert_requirement(
     clause: Mapping[str, Any] | None,
     spec: Mapping[str, Any],
     judgement: Mapping[str, Any],
+    actor: UUID | None = None,
 ) -> UUID:
-    """AI 초안 요구와 판본 1(판단 포함)·조건을 쓴다.
+    """AI 초안 요구와 판본 1(판단 포함)·조건을 쓴다. actor가 있으면 사람이 원문에서 직접 추가한 요구다(KAN-225).
 
     Args:
         conn: 진행 중 트랜잭션.
@@ -1492,6 +1525,7 @@ async def insert_requirement(
             designated_manufacturer·assembly_clause·tolerance·needs_review·attribute_key·
             equipment_family·conditions(name·value·unit 목록).
         judgement: status·reason·unresolved·next_owner.
+        actor: 직접 추가한 사람. 판본은 human_input·PROVIDED이고 판단자가 남는다.
 
     Returns:
         UUID: 요구 ID.
@@ -1499,10 +1533,11 @@ async def insert_requirement(
     requirement_id = uuid4()
     origin = document_version["data_origin"]
     designated = spec["designated_model"] is not None
+    derivation = "DERIVED" if actor is None else "PROVIDED"
     await conn.execute(
         "INSERT INTO tft.requirements (id, project_id, code, data_origin, derivation_kind, known_at) "
-        "VALUES (%s,%s,%s,%s,'DERIVED',now())",
-        (requirement_id, project_id, code[:64], origin),
+        "VALUES (%s,%s,%s,%s,%s,now())",
+        (requirement_id, project_id, code[:64], origin, derivation),
     )
     await conn.execute(
         "INSERT INTO tft.requirement_versions (requirement_id, version, document_version_id, "
@@ -1510,9 +1545,10 @@ async def insert_requirement(
         "necessity, designated_model, designated_manufacturer, designated_clause_id, "
         "designated_procurement, assembly_clause, tolerance, "
         "needs_review, attribute_key, equipment_family, status, reason, unresolved, "
-        "next_owner_field, kind, certification_listed, canonical_value, provenance_kind, data_origin, derivation_kind, known_at) "
+        "next_owner_field, kind, certification_listed, canonical_value, provenance_kind, data_origin, derivation_kind, "
+        "decided_by, decided_at, known_at) "
         "VALUES (%s,1,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
-        "%s,%s,%s,'ai_draft',%s,'DERIVED',now())",
+        "%s,%s,%s,%s,%s,%s,%s,CASE WHEN %s::uuid IS NULL THEN NULL ELSE now() END,now())",
         (
             requirement_id,
             document_version["id"],
@@ -1544,7 +1580,11 @@ async def insert_requirement(
             spec.get("kind"),
             spec.get("certification_listed"),
             spec.get("canonical_value"),
+            "ai_draft" if actor is None else "human_input",
             origin,
+            derivation,
+            actor,
+            actor,
         ),
     )
     for ordinal, condition in enumerate(spec["conditions"]):
@@ -1564,6 +1604,9 @@ async def insert_comparison(
     matched_attribute: str | None,
     search_trace: Mapping[str, Any],
     data_origin: str,
+    requirement_version: int = 1,
+    comparison_version: int = 1,
+    provenance_kind: str = "ai_draft",
 ) -> None:
     """자사 후보 비교 한 건과 근거를 쓴다(요구 판본 1).
 
@@ -1578,13 +1621,15 @@ async def insert_comparison(
     comparison_id = uuid4()
     await conn.execute(
         "INSERT INTO tft.product_comparisons (id, requirement_id, requirement_version, product_code, "
-        "lifecycle_status, matched_attribute, our_value, our_unit, our_conditions, comparable, result, "
+        "version, lifecycle_status, matched_attribute, our_value, our_unit, our_conditions, comparable, result, "
         "search_trace, provenance_kind, data_origin, derivation_kind, known_at) "
-        "VALUES (%s,%s,1,%s,%s,%s,%s,%s,%s,%s,%s,%s,'ai_draft',%s,'DERIVED',now())",
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'DERIVED',now())",
         (
             comparison_id,
             requirement_id,
+            requirement_version,
             candidate["product_code"],
+            comparison_version,
             candidate["lifecycle_status"],
             matched_attribute,
             candidate["our_value"],
@@ -1593,6 +1638,7 @@ async def insert_comparison(
             candidate["comparable"],
             candidate["result"],
             Jsonb(dict(search_trace)),
+            provenance_kind,
             data_origin,
         ),
     )
@@ -1619,8 +1665,9 @@ async def insert_option(
     deficiency_cause: str | None,
     customer_permission: str,
     data_origin: str,
+    requirement_version: int = 1,
 ) -> None:
-    """보완 선택지 한 행을 쓴다(요구 판본 1, 계산 시점의 값).
+    """보완 선택지 한 행을 쓴다(계산 시점의 값). 처리 함수는 판본 1, 다시 채점은 새 판본에 쓴다.
 
     Args:
         conn: 진행 중 트랜잭션.
@@ -1633,10 +1680,11 @@ async def insert_option(
     await conn.execute(
         "INSERT INTO tft.supplement_options (id, requirement_id, requirement_version, deficiency_cause, "
         "customer_permission, path, allowed, conditions_to_confirm, required_expertise, blocked_reason, "
-        "data_origin, derivation_kind, known_at) VALUES (%s,%s,1,%s,%s,%s,%s,%s,%s,%s,%s,'DERIVED',now())",
+        "data_origin, derivation_kind, known_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'DERIVED',now())",
         (
             uuid4(),
             requirement_id,
+            requirement_version,
             deficiency_cause,
             customer_permission,
             option["path"],
@@ -1692,6 +1740,45 @@ async def stored_grading_requirements(conn: AsyncConnection[Row], project_id: UU
         (project_id,),
     )
     return await cursor.fetchall()
+
+
+async def equipment_voltages(
+    conn: AsyncConnection[Row], project_id: UUID, document_version_id: UUID
+) -> dict[str, Decimal]:
+    """같은 문서 판본 요구(현행 판본)의 설비별 최고 전압(kV). 다시 비교·직접 추가가 처리 때와 같은 전압 등급을 쓴다(KAN-217).
+
+    Args:
+        conn: dict_row 연결.
+        project_id: 프로젝트 ID.
+        document_version_id: 문서 판본 ID.
+
+    Returns:
+        dict[str, Decimal]: comparison.equipment_voltages 결과.
+    """
+    cursor = await conn.execute(
+        "SELECT v.equipment, v.attribute_key, v.value, v.unit FROM tft.requirements r "
+        "JOIN tft.requirement_versions v ON v.requirement_id=r.id AND v.version=r.latest_version "
+        "WHERE r.project_id=%s AND v.document_version_id=%s AND v.attribute_key = ANY(%s)",
+        (project_id, document_version_id, sorted(comparison.VOLTAGE_KEYS)),
+    )
+    return comparison.equipment_voltages(
+        (r["equipment"], r["attribute_key"], r["value"], r["unit"]) for r in await cursor.fetchall()
+    )
+
+
+async def equipment_insulations(
+    conn: AsyncConnection[Row], project_id: UUID, document_version_id: UUID
+) -> dict[str, comparison.Insulation]:
+    """같은 문서 판본 요구(현행 판본)의 설비별 변압기 절연 형식. 다시 비교·직접 추가가 처리 때와 같은 형식을 쓴다."""
+    cursor = await conn.execute(
+        "SELECT v.equipment, v.attribute_key, v.value FROM tft.requirements r "
+        "JOIN tft.requirement_versions v ON v.requirement_id=r.id AND v.version=r.latest_version "
+        "WHERE r.project_id=%s AND v.document_version_id=%s",
+        (project_id, document_version_id),
+    )
+    return comparison.equipment_insulations(
+        (r["equipment"], r["attribute_key"], r["value"]) for r in await cursor.fetchall()
+    )
 
 
 async def prior_grades_for_regrading(conn: AsyncConnection[Row], project_id: UUID) -> list[Row]:
@@ -1890,6 +1977,14 @@ REQUIREMENT_STATUS_RANK = (
 )
 
 
+# KAN-225: 요구를 뺐는지. 빼기·되살리기·책임자 되돌림 행의 detail.excluded 중 마지막 값이다(행은 지우지 않는다).
+EXCLUDED = (
+    "coalesce((SELECT (d.detail->>'excluded')::boolean FROM tft.requirement_decisions d "
+    "WHERE d.requirement_id = {requirement} AND d.detail ? 'excluded' "
+    "ORDER BY d.created_at DESC, d.id DESC LIMIT 1), false)"
+)
+
+
 def requirement_sort_key(rank: str, code: str) -> str:
     """대응표 정렬·쪽 비교에 함께 쓰는 값 묶음(SQL 조각)을 만든다.
 
@@ -1963,6 +2058,9 @@ async def list_requirements(
     if filters.get("unresolved_mandatory") is not None:
         where.append(f"({UNRESOLVED_MANDATORY}) = %s")
         params.append(filters["unresolved_mandatory"])
+    if filters.get("excluded") is not None:
+        where.append(f"{EXCLUDED.format(requirement='req.id')} = %s")
+        params.append(filters["excluded"])
     if after is not None:
         where.append(
             f"{requirement_sort_key(REQUIREMENT_STATUS_RANK, 'req.code')} > "
@@ -2171,3 +2269,80 @@ async def profiles_of(
     )
     rows = await cursor.fetchall()
     return {(r["candidate_code"], r["profile_version"]): r for r in rows}
+
+
+async def extraction_warnings(conn: AsyncConnection[Row], document_version_id: UUID) -> list[str]:
+    """Application-generated OCR notices for an already authorized exact document version."""
+    cursor = await conn.execute(
+        "SELECT text FROM tft.clauses WHERE document_version_id=%s "
+        "AND clause_no LIKE 'OCR-REVIEW-%%' ORDER BY ordinal",
+        (document_version_id,),
+    )
+    return [row["text"] for row in await cursor.fetchall()]
+
+
+async def human_owned_requirements(conn: AsyncConnection[Row], project_id: UUID) -> set[UUID]:
+    """사람이 판단을 정한 요구: 현행 판본이 사람 입력이거나, 되돌리지 않은 결정 기록이 있다(확인·되돌려 보내기 제외).
+
+    다시 채점은 이 요구의 판단을 덮지 않는다(비교 결과만 갱신).
+    """
+    cursor = await conn.execute(
+        "SELECT v.requirement_id FROM tft.requirements r JOIN tft.requirement_versions v "
+        "ON v.requirement_id = r.id AND v.version = r.latest_version "
+        "WHERE r.project_id = %(p)s AND v.provenance_kind = 'human_input' "
+        "UNION SELECT d.requirement_id FROM tft.requirement_decisions d WHERE d.project_id = %(p)s "
+        "AND d.requirement_id IS NOT NULL AND d.undoes IS NULL "
+        "AND d.action NOT IN ('review_confirm', 'review_return') "
+        "AND NOT EXISTS (SELECT 1 FROM tft.requirement_decisions u WHERE u.undoes = d.id)",
+        {"p": project_id},
+    )
+    return {r["requirement_id"] for r in await cursor.fetchall()}
+
+
+async def insert_system_version(
+    conn: AsyncConnection[Row],
+    requirement: Mapping[str, Any],
+    *,
+    status: str,
+    reason: str,
+    unresolved: Sequence[str],
+) -> int:
+    """다시 채점한 AI 판단을 새 판본(system_record)으로 쓴다. 판단 칸만 바꾸고 나머지 칸·조건은 잇는다.
+
+    Returns:
+        int: 새 판본 번호.
+    """
+    requirement_id = requirement["requirement_id"]
+    old = requirement["version"]
+    changed = {
+        "version": old + 1,
+        "status": status,
+        "reason": reason,
+        "unresolved": Jsonb(list(unresolved)),
+        "provenance_kind": "system_record",
+        "derivation_kind": "DERIVED",
+    }
+    cursor = await conn.execute(
+        "SELECT * FROM tft.requirement_versions WHERE requirement_id = %s AND version = %s",
+        (requirement_id, old),
+    )
+    base = await cursor.fetchone()
+    if base is None:
+        raise ValueError("TFT_REQUIREMENT_MISSING")
+    kept = [c for c in base if c not in changed and c not in ("known_at", "created_at")]
+    await conn.execute(
+        f"INSERT INTO tft.requirement_versions ({', '.join(kept)}, {', '.join(changed)}, known_at) "
+        f"SELECT {', '.join(kept)}, {', '.join(['%s'] * len(changed))}, now() "
+        "FROM tft.requirement_versions WHERE requirement_id = %s AND version = %s",
+        (*changed.values(), requirement_id, old),
+    )
+    await conn.execute(
+        "INSERT INTO tft.requirement_conditions (requirement_id, version, ordinal, name, value, unit) "
+        "SELECT requirement_id, %s, ordinal, name, value, unit FROM tft.requirement_conditions "
+        "WHERE requirement_id = %s AND version = %s",
+        (old + 1, requirement_id, old),
+    )
+    await conn.execute(
+        "UPDATE tft.requirements SET latest_version = %s WHERE id = %s", (old + 1, requirement_id)
+    )
+    return int(old + 1)

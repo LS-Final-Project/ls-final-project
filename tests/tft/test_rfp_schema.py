@@ -52,8 +52,11 @@ SPEC = {
     "QuestionStatus": ["DRAFT", "OPEN", "REPLIED"],
     "ProposalOrigin": ["web", "customer_reply", "pdf_annot"],
     "ProposalStatus": ["PENDING", "APPROVED", "REJECTED"],
-    "JobKind": ["rfp.process", "rfp.export", "rfp.annotate", "rfp.draft_rewrite"],
+    "JobKind": ["rfp.process", "rfp.export", "rfp.annotate", "rfp.draft_rewrite", "rfp.context"],
     "JobStep": [
+        "context_map",
+        "context_link",
+        "context_validate",
         "parse",
         "extract",
         "search",

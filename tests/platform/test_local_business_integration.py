@@ -222,7 +222,8 @@ def test_actual_sqlite_permit_is_used_at_sdk_boundary(tmp_path, outcome):
         prompt_token_count=tokens,
         candidates_token_count=1,
         thoughts_token_count=None if outcome == "unknown" else 0,
-        total_token_count=tokens + 1,
+        # 생각 토큰이 빠져도 합계가 입력+출력과 같으면 0으로 정산한다. 알 수 없는 경우는 합계가 맞지 않는 응답이다.
+        total_token_count=tokens + 1 + (4 if outcome == "unknown" else 0),
         cached_content_token_count=None,
     )
     response = SimpleNamespace(usage_metadata=usage)

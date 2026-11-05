@@ -5,19 +5,23 @@ the claim observer are intercepted; product graphs, DB leases and results stay r
 Unknown spend retains its reservation and escapes Exception-based product fallbacks.
 """
 
+import json
 import os
 import runpy
 import sys
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from threading import BoundedSemaphore, Event, RLock
 from uuid import UUID
 
+from google.genai.errors import APIError
 from pydantic import SecretStr
 
 from backend.shared import ai
-from scripts.local_business.permit import Denied
+from scripts.local_business.permit import MAX_PARALLEL_TFT_CALLS, Busy, Denied
 
+CONCURRENCY_PROTOCOL = 1
 ADMISSION_LIMIT_CODES = frozenset({"LOCAL_JOB_LIMIT", "LOCAL_CALL_LIMIT", "LOCAL_BUDGET_EXHAUSTED"})
 
 
@@ -91,6 +95,10 @@ def complete_usage(response) -> ai.Usage:
             "total_token_count",
         )
     ]
+    # Gemini omits thoughtsTokenCount when the call did no thinking (e.g. thinking LOW on a short reply read,
+    # 40444 2026-11-05). Count it as 0 only when the total proves it: total == prompt + candidates.
+    if values[2] is None and values[3] == (values[0] or 0) + (values[1] or 0):
+        values[2] = 0
     if any(type(value) is not int or value < 0 for value in values):
         raise ValueError("LOCAL_USAGE_INCOMPLETE")
     # Shared Usage contract: Gemini omits cachedContentTokenCount for an uncached call.
@@ -103,16 +111,79 @@ def complete_usage(response) -> ai.Usage:
     return ai.Usage(values[0], values[1], values[2], cached, values[3])
 
 
+_PROVIDER_STATUSES = frozenset(
+    {
+        "INVALID_ARGUMENT",
+        "UNAUTHENTICATED",
+        "PERMISSION_DENIED",
+        "RESOURCE_EXHAUSTED",
+        "UNAVAILABLE",
+        "INTERNAL",
+        "DEADLINE_EXCEEDED",
+        "NOT_FOUND",
+    }
+)
+
+
+def provider_failure_diagnostic(error: BaseException) -> None:
+    """Emit fixed metadata only, never provider messages, bodies, URLs or credentials.
+
+    GenAI stores code/status as instance fields. Reading the base exception dictionary
+    avoids arbitrary subclass accessors and never stringifies an exception or field.
+    Logging failure must not prevent the existing UNKNOWN settlement and LocalStop.
+    """
+    try:
+        kind, code, status = "OTHER", None, None
+        error_type = type(error)
+        if issubclass(error_type, APIError):
+            kind = "API_ERROR"
+            attributes = BaseException.__dict__["__dict__"].__get__(error)
+            raw_code, raw_status = attributes.get("code"), attributes.get("status")
+            if type(raw_code) is int and 100 <= raw_code <= 599:
+                code = raw_code
+            if type(raw_status) is str and raw_status in _PROVIDER_STATUSES:
+                status = raw_status
+        elif issubclass(error_type, TimeoutError):
+            kind = "TIMEOUT_ERROR"
+        elif issubclass(error_type, ConnectionError):
+            kind = "CONNECTION_ERROR"
+        elif issubclass(error_type, KeyboardInterrupt):
+            kind = "KEYBOARD_INTERRUPT"
+        record = {
+            "event": "LOCAL_PROVIDER_CALL_FAILED",
+            "kind": kind,
+            "http_status": code,
+            "provider_status": status,
+        }
+        sys.stderr.write(json.dumps(record, separators=(",", ":")) + "\n")
+    except BaseException:
+        pass
+
+
 class Meter:
     """One shared gate for every client/model created during the regular worker run."""
 
     def __init__(self, permit, config: Configuration, prices: dict[str, ai.ModelPrice]):
         self.permit, self.config, self.prices = permit, config, prices
         self.stopped: str | None = None
+        self.stop_event = Event()
+        self.lock = RLock()
+        self.slots = BoundedSemaphore(MAX_PARALLEL_TFT_CALLS if config.owner == "tft" else 1)
+        self.active_charges: set[str] = set()
 
     def stop(self, code: str, *, admission_reason: str | None = None) -> None:
-        self.stopped = code
-        raise LocalStop(code, admission_reason=admission_reason) from None
+        with self.lock:
+            self.stopped = self.stopped or code
+            self.stop_event.set()
+            # Reaching an explicit admission limit spent nothing and needs no cost review,
+            # so it does not halt the driver. Unknown spend and authorization failures do.
+            halt = None if admission_reason else getattr(self.permit, "halt", None)
+            if halt is not None:
+                try:
+                    halt(self.config.token)
+                except Exception:
+                    pass  # Keep the original stop; unresolved charges stay fail-closed.
+            raise LocalStop(self.stopped, admission_reason=admission_reason) from None
 
     def priced(self, model) -> str:
         if self.stopped:
@@ -134,30 +205,53 @@ class Meter:
         return model
 
     def unknown(self, charge: str, code: str) -> None:
-        try:
-            self.permit.settle(charge, actual_usd=None)
-        except Exception:
-            # The outstanding reservation still blocks later calls if settlement failed.
-            self.stop("LOCAL_SETTLEMENT_FAILED")
-        self.stop(code)
+        with self.lock:
+            try:
+                self.permit.settle(charge, actual_usd=None)
+                self.active_charges.discard(charge)
+            except Exception:
+                self.stop("LOCAL_SETTLEMENT_FAILED")
+            self.stop(code)
 
     def generate(self, generate_content, *args, **kwargs):
+        with self.slots:
+            return self._generate(generate_content, *args, **kwargs)
+
+    def _generate(self, generate_content, *args, **kwargs):
         if args:
             self.stop("LOCAL_SDK_OPERATION_BLOCKED")
-        model = self.priced(kwargs.get("model"))
-        try:
-            charge = self.permit.reserve(self.config.token, str(self.config.job_id), model)
-        except Exception as error:
-            # Preserve only known admission limits for synchronous callers. The worker's
-            # stop code and fail-closed handling of unknown spend/authorization stay intact.
-            reason = str(error) if isinstance(error, Denied) else None
-            self.stop(
-                "LOCAL_RESERVATION_DENIED",
-                admission_reason=reason if reason in ADMISSION_LIMIT_CODES else None,
-            )
+        while True:
+            with self.lock:
+                model = self.priced(kwargs.get("model"))
+                try:
+                    if self.active_charges:
+                        charge = self.permit.reserve(
+                            self.config.token,
+                            str(self.config.job_id),
+                            model,
+                            active_charges=tuple(sorted(self.active_charges)),
+                        )
+                    else:
+                        charge = self.permit.reserve(
+                            self.config.token, str(self.config.job_id), model
+                        )
+                    self.active_charges.add(charge)
+                    break
+                except Busy:
+                    pass  # Release Meter/SQLite locks before waiting; no reservation exists.
+                except Exception as error:
+                    # Preserve only known admission limits for synchronous callers (C/S summary
+                    # bridge). Unknown spend and authorization failures stay fail-closed.
+                    reason = str(error) if isinstance(error, Denied) else None
+                    self.stop(
+                        "LOCAL_RESERVATION_DENIED",
+                        admission_reason=reason if reason in ADMISSION_LIMIT_CODES else None,
+                    )
+            self.stop_event.wait(0.05)
         try:
             response = generate_content(**kwargs)
-        except BaseException:
+        except BaseException as error:
+            provider_failure_diagnostic(error)
             self.unknown(charge, "LOCAL_PROVIDER_CALL_FAILED")
         try:
             usage = complete_usage(response)
@@ -169,29 +263,33 @@ class Meter:
                 raise ValueError("LOCAL_COST_INCOMPLETE")
         except Exception:
             self.unknown(charge, "LOCAL_COST_UNKNOWN")
-        try:
-            reason = self.permit.settle(
-                charge,
-                actual_usd=str(cost.total),
-                usage={
-                    name: getattr(usage, name)
-                    for name in (
-                        "input_tokens",
-                        "output_tokens",
-                        "thought_tokens",
-                        "cached_input_tokens",
-                        "total_tokens",
-                    )
-                },
-            )
-        except Exception:
-            self.stop("LOCAL_SETTLEMENT_FAILED")
-        if reason is not None:
-            self.stop(
-                "LOCAL_RESERVATION_EXCEEDED"
-                if reason == "LOCAL_RESERVATION_EXCEEDED"
-                else "LOCAL_COST_UNKNOWN"
-            )
+        with self.lock:
+            try:
+                reason = self.permit.settle(
+                    charge,
+                    actual_usd=str(cost.total),
+                    usage={
+                        name: getattr(usage, name)
+                        for name in (
+                            "input_tokens",
+                            "output_tokens",
+                            "thought_tokens",
+                            "cached_input_tokens",
+                            "total_tokens",
+                        )
+                    },
+                )
+            except Exception:
+                self.stop("LOCAL_SETTLEMENT_FAILED")
+            self.active_charges.discard(charge)
+            if reason is not None:
+                self.stop(
+                    "LOCAL_RESERVATION_EXCEEDED"
+                    if reason == "LOCAL_RESERVATION_EXCEEDED"
+                    else "LOCAL_COST_UNKNOWN"
+                )
+            if self.stopped:
+                self.stop(self.stopped)
         return response
 
 
@@ -234,6 +332,18 @@ def intercept(meter: Meter, key: SecretStr, runtime, claimed: list):
     def observe(settings, owner, lease_seconds, job_id):
         if owner != meter.config.owner or job_id != meter.config.job_id or claimed:
             meter.stop("LOCAL_JOB_SCOPE_MISMATCH")
+        check = getattr(meter.permit, "check_worker", None)
+        if check is not None:
+            while True:
+                try:
+                    check(meter.config.token, str(meter.config.job_id))
+                    break
+                except Busy:
+                    meter.stop_event.wait(0.05)
+                    if meter.stopped:
+                        meter.stop(meter.stopped)
+                except Exception:
+                    meter.stop("LOCAL_RESERVATION_DENIED")
         lease = claim(settings, owner, lease_seconds, job_id)
         if isinstance(lease, runtime.Lease):
             claimed.append((settings, lease))
@@ -272,11 +382,25 @@ def main() -> None:
         module = f"backend.agent.{config.owner}_worker"
         if module in sys.modules:
             raise LocalStop("LOCAL_WORKER_ALREADY_IMPORTED")
+        permit = Permit(config.control / "permit.sqlite3")
+        # Parent registers the child PID after Popen. Do not read keys or claim regular
+        # work until that registration is visible; pending saturation is not failure.
+        check_worker = getattr(permit, "check_worker", None)
+        while check_worker is not None:
+            try:
+                check_worker(config.token, str(config.job_id))
+                break
+            except Busy:
+                import time
+
+                time.sleep(0.05)
+            except Exception:
+                raise LocalStop("LOCAL_RESERVATION_DENIED") from None
         prices = ai.load_price_table(config.prices_file)
         key = SecretStr(config.key_file.read_text().strip())
         if not key.get_secret_value():
             raise LocalStop("LOCAL_MODEL_KEY_REQUIRED")
-        meter = Meter(Permit(config.control / "permit.sqlite3"), config, prices)
+        meter = Meter(permit, config, prices)
         with intercept(meter, key, runtime, claimed):
             runpy.run_module(module, run_name="__main__")
     except LocalStop as error:

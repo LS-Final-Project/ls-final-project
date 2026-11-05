@@ -157,8 +157,10 @@ async def get_document(
     """
     async with connection(request.app.state.settings) as conn:
         row = await visible_document(conn, principal, document_id)
+        warnings = await repository.extraction_warnings(conn, row["id"])
     return s.DocumentDetail(
         **document_out(row),
+        extraction_warnings=warnings,
         clauses_count=row["clauses_count"],
         deleted_values_count=row["deleted_values_count"],
     )
@@ -309,6 +311,13 @@ def requirement_cursor(value: str | None) -> tuple[int, str] | None:
     return int(rank), code
 
 
+def value_text(value: str | None, unit: str | None) -> str | None:
+    """값과 단위를 한 칸으로. 추출 값에 단위가 이미 붙어 있으면(예 "±2×2.5 %") 다시 붙이지 않는다."""
+    if value and unit and value.rstrip().endswith(unit):
+        return value
+    return " ".join(part for part in (value, unit) if part) or None
+
+
 async def summary_of(conn: AsyncConnection[Row], row: Mapping[str, Any]) -> s.RequirementSummary:
     """요구 행 → 목록 칸. 요구 응답에 칸을 더할 때는 이 함수와 detail_of만 고친다.
 
@@ -321,7 +330,7 @@ async def summary_of(conn: AsyncConnection[Row], row: Mapping[str, Any]) -> s.Re
     """
     # ponytail: 요구당 질의 1회(쪽 크기만큼). 목록이 느려지면 repository.rnd_check를 묶음 질의로 바꾼다.
     state, _ = await repository.rnd_check(conn, row["requirement_id"])
-    value = " ".join(part for part in (row["value"], row["unit"]) if part) or None
+    value = value_text(row["value"], row["unit"])
     return s.RequirementSummary(
         requirement_id=row["requirement_id"],
         code=row["code"],
@@ -374,6 +383,19 @@ async def list_requirements(
         )
         page = rows[:limit]
         items = [await summary_of(conn, row) for row in page]
+        from backend.api.tft.rfp.decisions import states
+        from backend.api.tft.rfp.grouping import marks
+        from backend.api.tft.rfp.requirement_fields import own_values
+
+        ids = [item.requirement_id for item in items]
+        marked = await marks(conn, project_id)
+        found = await states(conn, project_id, ids, marked)
+        own = await own_values(conn, project_id, ids)
+        for item in items:
+            if item.requirement_id in found:
+                item.bid_verdict, item.decision = found[item.requirement_id]  # type: ignore[assignment]
+            item.own_value = own.get(item.requirement_id)
+            marked.apply(item)
     more = len(rows) > limit
     return s.RequirementList(
         items=items,
@@ -521,9 +543,21 @@ async def requirement_out(
     parts = await repository.requirement_detail_parts(conn, requirement)
     state, question = await repository.rnd_check(conn, requirement_id)
     rereview = await repository.needs_rereview(conn, requirement_id)
-    return detail_of(
+    detail = detail_of(
         requirement, parts, state=state, rnd_question=question, needs_rereview=rereview
     )
+    from backend.api.tft.rfp.decisions import states
+    from backend.api.tft.rfp.grouping import marks
+    from backend.api.tft.rfp.requirement_fields import own_values
+
+    marked = await marks(conn, requirement["project_id"])
+    found = await states(conn, requirement["project_id"], [requirement_id], marked)
+    if requirement_id in found:
+        detail.bid_verdict, detail.decision = found[requirement_id]  # type: ignore[assignment]
+    own = await own_values(conn, requirement["project_id"], [requirement_id])
+    detail.own_value = own.get(requirement_id)
+    marked.apply(detail)
+    return detail
 
 
 async def get_requirement(
@@ -541,7 +575,11 @@ async def get_requirement(
     """
     async with connection(request.app.state.settings) as conn:
         requirement = await latest_visible_requirement(conn, principal, requirement_id)
-        return await requirement_out(conn, requirement)
+        result = await requirement_out(conn, requirement)
+        from backend.api.tft.rfp.workflow import impact
+
+        result.workflow = await impact(conn, dict(requirement))
+        return result
 
 
 def candidate_out(
@@ -606,9 +644,19 @@ async def get_comparison(
         return await comparison_of(conn, requirement)
 
 
-async def comparison_of(conn: AsyncConnection[Row], requirement: Mapping[str, Any]) -> s.Comparison:
+async def comparison_of(
+    conn: AsyncConnection[Row], requirement: Mapping[str, Any], *, stored_recomparison: bool = True
+) -> s.Comparison:
     """같은 연결에서 읽은 최신 요구에 대응하는 비교 응답을 만든다."""
     requirement_id = requirement["requirement_id"]
+    if stored_recomparison:
+        cursor = await conn.execute(
+            "SELECT result FROM tft.requirement_recomparisons WHERE requirement_id=%s AND requirement_version=%s ORDER BY created_at DESC,id DESC LIMIT 1",
+            (requirement_id, requirement["version"]),
+        )
+        snapshot = await cursor.fetchone()
+        if snapshot:
+            return s.Comparison.model_validate(snapshot["result"])
     rows = await repository.latest_comparisons(conn, requirement_id)
     evidence = await repository.comparison_evidence(conn, [row["id"] for row in rows])
     if not rows:

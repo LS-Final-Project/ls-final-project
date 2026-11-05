@@ -13,7 +13,11 @@ from fastapi import APIRouter, Depends, Header, Query, Request, Response
 
 from backend.api.tft.projects.access import require_project_list
 from backend.api.tft.rfp import (
+    analysis,
+    context_routes,
+    history,
     jobs,
+    routes_diagrams,
     routes_draft,
     routes_proposals,
     routes_questions,
@@ -22,6 +26,7 @@ from backend.api.tft.rfp import (
     routes_write,
 )
 from backend.api.tft.rfp import schemas as s
+from backend.api.tft.rfp.context_schemas import ContextCorrection, ContextResponse
 from backend.shared.access import Principal, current_principal
 from backend.shared.errors import ApplicationError
 from backend.shared.logs import bind_path_ids
@@ -258,6 +263,70 @@ async def process(
 
 
 @router.get(
+    P + "/context",
+    response_model=SuccessResponse[ContextResponse],
+    operation_id="tft_get_rfp_context",
+)
+async def get_context(
+    request: Request,
+    user: User,
+    project_id: UUID,
+    version: Annotated[int | None, Query(ge=1)] = None,
+) -> SuccessResponse[ContextResponse]:
+    return respond(request, await context_routes.get_context(request, user, project_id, version))
+
+
+@router.patch(
+    P + "/context",
+    response_model=SuccessResponse[ContextResponse],
+    operation_id="tft_correct_rfp_context",
+)
+async def correct_context(
+    request: Request,
+    user: User,
+    project_id: UUID,
+    payload: ContextCorrection,
+    idempotency_key: Key,
+) -> SuccessResponse[ContextResponse]:
+    return respond(
+        request,
+        await context_routes.correct_context(
+            request,
+            user,
+            project_id,
+            payload,
+            idempotency_key,
+        ),
+    )
+
+
+@router.post(
+    P + "/context/process",
+    status_code=202,
+    response_model=SuccessResponse[s.JobAccepted],
+    operation_id="tft_process_rfp_context",
+)
+async def process_context(
+    request: Request,
+    user: User,
+    project_id: UUID,
+    payload: s.ContextProcess,
+    idempotency_key: Key,
+) -> SuccessResponse[s.JobAccepted]:
+    return respond(
+        request,
+        await jobs.admit(
+            request,
+            user,
+            project_id,
+            "rfp.context",
+            payload,
+            idempotency_key,
+        ),
+    )
+
+
+@router.get(
     P + "/requirements",
     response_model=SuccessResponse[s.RequirementList],
     operation_id="tft_list_rfp_requirements",
@@ -278,8 +347,9 @@ async def list_requirements(
     has_open_question: bool | None = None,
     next_owner_field: s.NextOwner | None = None,
     unresolved_mandatory: bool | None = None,
+    excluded: bool = False,
 ) -> SuccessResponse[s.RequirementList]:
-    """12. 요구 목록·필터 10개."""
+    """12. 요구 목록·필터 11개. 뺀 요구는 excluded=true일 때만 나온다(KAN-225 별도 목록)."""
     data = await routes_read.list_requirements(
         request,
         principal,
@@ -295,6 +365,7 @@ async def list_requirements(
             "has_open_question": has_open_question,
             "next_owner_field": next_owner_field,
             "unresolved_mandatory": unresolved_mandatory,
+            "excluded": excluded,
         },
         limit=limit,
         cursor=cursor,
@@ -355,6 +426,29 @@ async def select_supplement(
     data = await routes_supplement.select_supplement(
         request, principal, requirement_id, payload, idempotency_key
     )
+    return respond(request, data)
+
+
+@router.post(
+    P + "/supplement-selections/batch",
+    response_model=SuccessResponse[s.SupplementBatchResult],
+    operation_id="tft_select_rfp_supplement_batch",
+)
+async def select_supplement_batch(
+    project_id: UUID,
+    payload: s.SupplementBatchSelection,
+    request: Request,
+    response: Response,
+    principal: User,
+    idempotency_key: Annotated[
+        str | None, Header(alias="Idempotency-Key", min_length=8, max_length=128)
+    ] = None,
+) -> SuccessResponse[s.SupplementBatchResult]:
+    """16-b. 같은 보완 경로를 요구 여러 건에 선택한다. dry_run이면 쓰지 않고 가능 여부만 돌려준다."""
+    data = await routes_supplement.select_supplement_batch(
+        request, principal, project_id, payload, idempotency_key
+    )
+    response.status_code = 201 if data.saved else 200
     return respond(request, data)
 
 
@@ -419,6 +513,26 @@ async def create_question(
 
 
 @router.post(
+    P + "/questions/batch",
+    status_code=201,
+    response_model=SuccessResponse[s.QuestionList],
+    operation_id="tft_create_rfp_questions_batch",
+)
+async def create_questions_batch(
+    project_id: UUID,
+    payload: s.QuestionBatchCreate,
+    idempotency_key: Key,
+    request: Request,
+    principal: User,
+) -> SuccessResponse[s.QuestionList]:
+    """19-b. 질문 여러 건을 한 번에 작성한다. 한 건이라도 어긋나면 아무것도 저장하지 않는다."""
+    data = await routes_questions.create_questions_batch(
+        request, principal, project_id, payload, idempotency_key
+    )
+    return respond(request, data)
+
+
+@router.post(
     P + "/questions/{question_id}/confirm",
     response_model=SuccessResponse[s.Question],
     operation_id="tft_confirm_rfp_question",
@@ -457,6 +571,24 @@ async def reply_question(
         request, principal, question_id, payload, idempotency_key
     )
     return respond(request, data)
+
+
+@router.post(
+    "/questions/{question_id}/reply/read",
+    response_model=SuccessResponse[s.Question],
+    operation_id="tft_read_rfp_question_reply",
+)
+async def read_question_reply(
+    question_id: UUID,
+    idempotency_key: Key,
+    request: Request,
+    principal: User,
+) -> SuccessResponse[s.Question]:
+    """KAN-224. 규칙이 못 읽은 고객 회신을 AI로 다시 읽는다(worker 작업, 모델 비용). 요구값은 바꾸지 않는다."""
+    return respond(
+        request,
+        await routes_questions.read_again(request, principal, question_id, idempotency_key),
+    )
 
 
 @router.get(
@@ -584,6 +716,50 @@ async def get_draft_rewrite(
 
 
 @router.post(
+    P + "/draft/regenerate",
+    status_code=201,
+    response_model=SuccessResponse[s.Draft],
+    operation_id="tft_regenerate_rfp_draft",
+)
+async def regenerate_draft(
+    request: Request,
+    user: User,
+    project_id: UUID,
+    payload: s.DraftRegenerate,
+    idempotency_key: Key,
+) -> SuccessResponse[s.Draft]:
+    """34. 저장된 결과로 초안 새 판본을 만든다. 모델·원문 해석 없음, 처리 중이면 409."""
+    return respond(
+        request,
+        await routes_draft.regenerate(request, user, project_id, payload, idempotency_key),
+    )
+
+
+@router.get(
+    P + "/draft/review-versions",
+    response_model=SuccessResponse[s.ReviewVersionList],
+    operation_id="tft_list_rfp_review_versions",
+)
+async def list_review_versions(
+    request: Request, user: User, project_id: UUID
+) -> SuccessResponse[s.ReviewVersionList]:
+    """35. 검토본 이력, 최신순."""
+    return respond(request, await routes_draft.review_versions(request, user, project_id))
+
+
+@router.get(
+    P + "/draft/exports",
+    response_model=SuccessResponse[s.ExportList],
+    operation_id="tft_list_rfp_exports",
+)
+async def list_exports(
+    request: Request, user: User, project_id: UUID
+) -> SuccessResponse[s.ExportList]:
+    """36. 내보내기 이력, 최신순."""
+    return respond(request, await routes_draft.exports(request, user, project_id))
+
+
+@router.post(
     P + "/draft/review-versions",
     status_code=201,
     response_model=SuccessResponse[s.ReviewVersion],
@@ -654,3 +830,226 @@ async def process_annotations(
         request, principal, project_id, "rfp.annotate", payload, idempotency_key
     )
     return respond(request, data)
+
+
+@router.get(
+    "/documents/{document_id}/diagrams",
+    response_model=SuccessResponse[s.DiagramList],
+    operation_id="tft_list_document_diagrams",
+)
+async def list_document_diagrams(
+    document_id: UUID, document_version_id: UUID, request: Request, principal: User
+) -> SuccessResponse[s.DiagramList]:
+    return respond(
+        request,
+        await routes_diagrams.list_diagrams(request, principal, document_id, document_version_id),
+    )
+
+
+@router.get(
+    "/documents/{document_id}/diagrams/{source_id}/image",
+    operation_id="tft_download_diagram_image",
+    response_class=Response,
+)
+async def download_diagram_image(
+    document_id: UUID, source_id: str, document_version_id: UUID, request: Request, principal: User
+) -> Response:
+    return await routes_diagrams.image(
+        request, principal, document_id, document_version_id, source_id
+    )
+
+
+@router.post(
+    "/requirements/{requirement_id}/recompare",
+    response_model=SuccessResponse[s.RecompareResult],
+    operation_id="tft_recompare_rfp_requirement",
+)
+async def recompare_requirement(
+    requirement_id: UUID,
+    payload: s.RecompareRequest,
+    idempotency_key: Key,
+    request: Request,
+    principal: User,
+) -> SuccessResponse[s.RecompareResult]:
+    from backend.api.tft.rfp.workflow import recompare
+
+    return respond(
+        request, await recompare(request, principal, requirement_id, payload, idempotency_key)
+    )
+
+
+@router.post(
+    "/requirements/{requirement_id}/decision",
+    response_model=SuccessResponse[s.DecisionResult],
+    operation_id="tft_decide_rfp_requirement",
+)
+async def decide_requirement(
+    requirement_id: UUID,
+    payload: s.DecisionRequest,
+    idempotency_key: Key,
+    request: Request,
+    principal: User,
+) -> SuccessResponse[s.DecisionResult]:
+    """결정 패널의 결정 하나를 바로 확정한다(KAN-219)."""
+    from backend.api.tft.rfp.decisions import decide
+
+    return respond(
+        request, await decide(request, principal, requirement_id, payload, idempotency_key)
+    )
+
+
+@router.post(
+    P + "/decisions/bulk",
+    response_model=SuccessResponse[s.BulkDecisionResult],
+    operation_id="tft_bulk_decide_rfp_requirements",
+)
+async def bulk_decide(
+    project_id: UUID,
+    payload: s.BulkDecisionRequest,
+    idempotency_key: Key,
+    request: Request,
+    principal: User,
+) -> SuccessResponse[s.BulkDecisionResult]:
+    """같은 프로젝트의 결정 여러 건을 한 트랜잭션으로 확정한다(KAN-228). 한 건이라도 실패하면 모두 저장하지 않는다."""
+    from backend.api.tft.rfp.bulk import bulk_decide as run
+
+    return respond(request, await run(request, principal, project_id, payload, idempotency_key))
+
+
+@router.post(
+    P + "/decisions/bulk/{batch_id}/undo",
+    response_model=SuccessResponse[s.BulkDecisionResult],
+    operation_id="tft_bulk_undo_rfp_decisions",
+)
+async def bulk_undo(
+    project_id: UUID,
+    batch_id: UUID,
+    idempotency_key: Key,
+    request: Request,
+    principal: User,
+) -> SuccessResponse[s.BulkDecisionResult]:
+    """일괄 결정 한 묶음을 되돌린다(KAN-228)."""
+    from backend.api.tft.rfp.bulk import bulk_undo as run
+
+    return respond(request, await run(request, principal, project_id, batch_id, idempotency_key))
+
+
+@router.post(
+    P + "/questions/sent",
+    response_model=SuccessResponse[s.QuestionSendList],
+    operation_id="tft_mark_rfp_questions_sent",
+)
+async def mark_questions_sent(
+    project_id: UUID, payload: s.QuestionsSent, request: Request, principal: User
+) -> SuccessResponse[s.QuestionSendList]:
+    """질의서를 메일로 보낸 시각을 질문마다 남긴다(KAN-228). 다시 보내도 처음 기록을 그대로 둔다."""
+    from backend.api.tft.rfp.bulk import mark_sent
+
+    return respond(request, await mark_sent(request, principal, project_id, payload))
+
+
+@router.get(
+    P + "/analysis",
+    response_model=SuccessResponse[analysis.AnalysisOverview],
+    operation_id="tft_get_rfp_analysis_overview",
+)
+async def analysis_overview(
+    request: Request, user: User, project_id: UUID
+) -> SuccessResponse[analysis.AnalysisOverview]:
+    """분석 접수 목록(지난 기록은 플랫폼 작업 이벤트로 재생)과 다음 처리 실행 방식(KAN-232)."""
+    return respond(request, await analysis.overview(request, user, project_id))
+
+
+# KAN-226 변경 이력(읽기 전용). 이벤트 종류와 출처는 history.py와 contracts/tft/rfp-data.md.
+# 두 중계가 같은 query 키 반복을 막아 kind는 쉼표로 잇는다(kind=decision,recompared).
+HistoryKinds = Annotated[str | None, Query(pattern=history.KIND_PATTERN, max_length=200)]
+
+
+@router.get(
+    P + "/history",
+    response_model=SuccessResponse[history.HistoryPage],
+    operation_id="tft_list_rfp_project_history",
+)
+async def project_history(
+    request: Request,
+    user: User,
+    project_id: UUID,
+    kind: HistoryKinds = None,
+    actor: UUID | None = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    cursor: str | None = None,
+) -> SuccessResponse[history.HistoryPage]:
+    """프로젝트 변경 이력, 최신순. 사람(actor)·종류(kind) 필터."""
+    return respond(
+        request,
+        await history.project_history(
+            request,
+            user,
+            project_id,
+            kinds=history.split_kinds(kind),
+            actor=actor,
+            limit=limit,
+            cursor=cursor,
+        ),
+    )
+
+
+@router.get(
+    "/requirements/{requirement_id}/history",
+    response_model=SuccessResponse[history.HistoryPage],
+    operation_id="tft_list_rfp_requirement_history",
+)
+async def requirement_history(
+    request: Request,
+    user: User,
+    requirement_id: UUID,
+    kind: HistoryKinds = None,
+    actor: UUID | None = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    cursor: str | None = None,
+) -> SuccessResponse[history.HistoryPage]:
+    """요구 한 건의 이력, 최신순."""
+    return respond(
+        request,
+        await history.requirement_history(
+            request,
+            user,
+            requirement_id,
+            kinds=history.split_kinds(kind),
+            actor=actor,
+            limit=limit,
+            cursor=cursor,
+        ),
+    )
+
+
+@router.post(
+    P + "/requirements",
+    response_model=SuccessResponse[s.DecisionResult],
+    operation_id="tft_add_rfp_requirement",
+)
+async def add_requirement(
+    project_id: UUID,
+    payload: s.ManualRequirementRequest,
+    idempotency_key: Key,
+    request: Request,
+    principal: User,
+) -> SuccessResponse[s.DecisionResult]:
+    """원문에서 고른 글로 요구를 직접 추가하고 규칙 비교로 바로 판정한다(KAN-225)."""
+    from backend.api.tft.rfp.manual_requirements import add
+
+    return respond(request, await add(request, principal, project_id, payload, idempotency_key))
+
+
+@router.get(
+    P + "/equipment",
+    response_model=SuccessResponse[s.EquipmentList],
+    operation_id="tft_list_rfp_equipment",
+)
+async def list_equipment(
+    project_id: UUID, request: Request, user: User
+) -> SuccessResponse[s.EquipmentList]:
+    """KAN-227 프로젝트 설비 목록(직접 추가 칸의 설비 선택). 최신 맥락의 설비 묶음, 없으면 요구 설비 칸."""
+    from backend.api.tft.rfp.requirement_fields import list_equipment as equipment
+
+    return respond(request, await equipment(request, user, project_id))

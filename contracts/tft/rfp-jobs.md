@@ -16,8 +16,10 @@
 | `kind` | 만드는 경로(멱등 범위) | 단계 `step` |
 | --- | --- | --- |
 | `rfp.process` | `POST /api/v1/tft/projects/{project_id}/process` | `parse`·`extract`·`search`·`compare`·`supplement`·`candidates`·`draft` |
+| `rfp.context` | `POST /api/v1/tft/projects/{project_id}/context/process` | `context_map`·`context_link`·`context_validate` |
 | `rfp.export` | `POST /api/v1/tft/projects/{project_id}/draft/exports` | `export` |
 | `rfp.annotate` | `POST /api/v1/tft/projects/{project_id}/annotations/process` | 지원 범위 밖: 접수 422 `TFT_ANNOTATION_UNAVAILABLE` |
+| `rfp.reply_read` | `POST /api/v1/tft/questions/{question_id}/reply`(·`/reply/read`) | 단계 이벤트 없음 |
 
 - DB CHECK 하나가 소유자·종류·경로 조합을 묶는다. 평가(`platform`·`evaluation.run`) 조합은 그대로다.
 - `subject_id`는 프로젝트 ID이고 tft 작업에만 있다. 같은 프로젝트에 `QUEUED`·`RUNNING` tft 작업은 하나뿐이다(부분 유일 인덱스, 409 `TFT_JOB_IN_PROGRESS`).
@@ -70,7 +72,7 @@ tft 서비스가 §2.2 접근 검사와 본문 검증을 마친 뒤 부른다. `
 
 ## SSE payload 허용 키 (명세 §4.3)
 
-`state`(공통 작업 상태), `step`(위 단계 값), `document_version_id`(표준 하이픈 소문자 UUID 문자열), `counts`(`requirements`·`proposals` 둘 다 0 이상 정수, 다른 키 없음), `needs_review`(bool). 원문·프롬프트·모델 응답은 이벤트에 넣지 않는다. 플랫폼 `EventPayload`가 이 키만 SSE로 내보내고 모르는 키(오류 코드 등)는 버린다. 표에 없는 `step` 값이나 형식이 틀린 값이 저장되면 SSE는 503 `EVENT_DATA_UNAVAILABLE`이다.
+`state`(공통 작업 상태), `step`(위 단계 값), `document_version_id`(표준 하이픈 소문자 UUID 문자열), `counts`(`requirements`·`proposals` 둘 다 0 이상 정수, 다른 키 없음), `needs_review`(bool), `focus`(진행 화면 한 줄, KAN-232: `kind`는 `section`(그 절을 읽는 중, 호출마다)·`found`(절에서 요구 `n`건)·`ocr`(이미지 글자 읽기)·`compare`(요구 `n`건 자사 제품 비교), `label`은 처리 상태에서 만든 절 번호·제목·위치 이름만 허용 문자 `[0-9A-Za-z가-힣 .,()·/~-]` 1~40자, `n`은 0 이상 정수. 새 이벤트는 만들지 않고 모델 호출마다·절마다·이미지마다 남기던 기존 진행 이벤트에 싣는다). 원문·프롬프트·모델 응답은 이벤트에 넣지 않는다. 플랫폼 `EventPayload`가 이 키만 SSE로 내보내고 모르는 키(오류 코드 등)는 버린다. 표에 없는 `step` 값이나 형식이 틀린 값이 저장되면 SSE는 503 `EVENT_DATA_UNAVAILABLE`이다.
 
 ## worker (KAN-199 2/2)
 
@@ -109,7 +111,7 @@ tft 서비스가 §2.2 접근 검사와 본문 검증을 마친 뒤 부른다. `
 - **lease 검사**: 처리 함수를 만들 때(gemini) `TFT_WORKER_LEASE_SECONDS`가 호출 하나의 최악 시간(시간 제한 × (`GEMINI_TRANSIENT_RETRIES`+1) + 재시도 대기 1·2·…초)보다 길지 않으면 모델 클라이언트를 만들기 전에 `INVALID_WORKER_CONFIGURATION`으로 멈춘다(기본 120초×2+1초 = 241초 < 300초). 인수 뒤의 load 실패라 그 작업은 FAILED(`TFT_WORKER_PROCESSING_FAILED`)로 남는다.
 - **트랜잭션**: 조항과 `compare`부터 `candidates`까지 쓰는 행은 한 트랜잭션이다. 그 사이에 멈추면(소유권 상실·취소·오류) 조항도 요구 행도 남지 않는다. **그래서 조항(경로 9 조항 트리 포함)은 그 문서 판본의 처리가 끝난 뒤에만 보인다**(처리 중에는 빈 목록이다. 경로 9 구현은 KAN-188). `parse` 직후 조항을 읽는 소비자는 없다(2026-10-30 확인: 조항 트리 경로 9는 미구현, 질문의 조항 확인·요구 상세의 조항 조인은 처리가 끝난 뒤에만 의미가 있다).
 - **재채점 직렬화**: 모델·원문 처리가 끝난 뒤 같은 autocommit 연결에서 프로젝트별 session advisory lock을 획득하고 업무 REPEATABLE READ TX를 시작한다. 잠금 SELECT의 독립 snapshot은 문장 종료로 끝나므로, 대기한 선행 작업의 커밋을 업무 TX의 첫 데이터 snapshot에 포함한다. commit/rollback 뒤 finally에서 같은 키를 unlock하며 취소·unlock 실패 때는 연결 종료가 잠금을 해제한다. 재채점 함수 안에서 xact lock을 중복 획득하지 않는다.
-- **재실행 멱등**: 새 작업의 재실행은 저장된 현행 요구의 협력사 등급만 무모델로 새 판본에 쌓고 기존 초안 생성으로 이어진다. 같은 job의 완료 초안이 있으면 중복 재채점하지 않는다. 조항이 저장된 문서 판본(= 끝까지 처리된 판본, 요구 0건 문서 포함)은 다시 읽거나 추출하지 않는다(모델을 다시 부르지 않음). 그 실행의 counts는 새로 만든 요구 수라 0일 수 있다. 요구 코드는 `<문서 판본 ID 앞 8자>:<조항 번호>:<순번>`이다. 조항이 하나도 없는 문서는 처리 표시가 남지 않지만 절이 없어 모델도 부르지 않는다.
+- **재실행 멱등**: 새 작업의 재실행(다시 채점)은 저장된 현행 요구를 무모델로 자사 사양과 다시 비교하고(KAN-232, 요구별 다시 비교와 같은 `workflow.stored_outcome`·`store_outcome`), 협력사 등급을 새 판본에 쌓은 뒤 기존 초안 생성으로 이어진다. 다시 비교는 사람이 판단을 정하지 않은 요구(현행 판본이 사람 입력이 아니고, 되돌리지 않은 결정 기록이 없음)만 판단이 바뀔 때 새 판본(`system_record`)과 그 판본의 보완 선택지를 쓴다. 사람이 정한 요구는 판단을 두고 비교 행과 비교 사본(자사 보증값)만 갱신한다. 이번 작업이 새로 추출한 요구는 처리 때 비교했으므로 다시 비교하지 않는다. 같은 job의 완료 초안이 있으면 중복 재채점하지 않는다. 조항이 저장된 문서 판본(= 끝까지 처리된 판본, 요구 0건 문서 포함)은 다시 읽거나 추출하지 않는다(모델을 다시 부르지 않음). 그 실행의 counts는 새로 만든 요구 수라 0일 수 있다. 요구 코드는 `<문서 판본 ID 앞 8자>:<조항 번호>:<순번>`이다. 조항이 하나도 없는 문서는 처리 표시가 남지 않지만 절이 없어 모델도 부르지 않는다.
 - **SSE 값**: 단계마다 `counts{requirements, proposals}`(proposals는 0). `skipped` 같은 새 키는 두지 않는다(허용 키 표 그대로).
 - `rfp.export`는 예약·작업 입력 판본·actor/job을 확인하고 저장된 검토본의 실제 DOCX를 private DocumentStore에 쓴 뒤 해시·크기·완료를 기록한다. 완료 재시도는 기존 파일의 무결성을 확인한다. 누락 예약·파일 실패를 성공으로 숨기지 않는다. `rfp.annotate`는 지원하지 않는다. 경로30은 DB/명령/플랫폼 접수 전에 422 `TFT_ANNOTATION_UNAVAILABLE`로 거절하고, 이미 접수된 작업도 worker가 같은 코드로 실패시켜 0건 성공으로 숨기지 않는다.
 - **권한(`20261104_KAN-199_tft_worker.sql`)**: `tft_worker`는 문서·문서 판본·요구 판본·협력사 프로필 SELECT, 조항 SELECT·INSERT, 위 표 INSERT만 가진다. UPDATE·DELETE는 없다.
@@ -131,3 +133,22 @@ SHA-256이며 문서 hash나 export hash와 섞지 않는다. 자동 연쇄 접�
 사람이 먼저 저장한 결과는 덮어쓰지 않으며, stale 결과를 버려도 이미 저장된 N/사람 판본은 남는다.
 호출 실패/검사 실패의 양식 대체는 needs_review 요약으로 보고하고 작업 자체를 실패로 꾸미지 않는다.
 [초안 모델 작성과 실패 정책](rfp-draft.md#경로32-모델-문장-작성)을 따른다. T19/P33은 미적용이며 운영 적용은 별도다.
+
+## 맥락 정리 후속
+
+정규 process의 초안 저장 뒤 맥락 후보를 연결하며, 기존 추출 결과는 별도 `rfp.context`로 정리한다.
+입력 고정·병렬 호출·불변 검토본·실패 경계는 [맥락별 정리 계약](rfp-context.md)을 따른다.
+
+## 회신 값 AI 읽기 / rfp.reply_read (KAN-224)
+
+API 프로세스는 모델 클라이언트를 만들지 않는다. 회신 기록(경로 20)은 규칙으로만 새 요구값 후보를 읽고, 규칙이 못 읽은
+고객 회신이며 `TFT_REPLY_AI_ENABLED`가 켜져 있으면 `tft.reply_value_reads`에 요청 행(QUEUED)을 남긴 뒤 이 작업을 접수한다.
+입력 판본은 `sha256(["rfp.reply_read", reply_id, Idempotency-Key])`, 플랫폼 멱등 키는 회신 기록의 키다. 접수가
+거절되면(진행 중 작업 409, 미연결 503, 응답 모름) UNAVAILABLE 행을 남기고 회신 기록은 그대로 성공한다.
+`POST /questions/{id}/reply/read`(새 키)로 다시 접수한다(값을 이미 읽었으면 409 `TFT_REPLY_ALREADY_READ`, 꺼져 있으면
+503 `TFT_REPLY_AI_DISABLED`). worker는 입력 판본으로 요청을 찾아 같은 근거 검사(`read_reply_value`)를 거친 결과를
+DONE(모델 실패는 FAILED) 행으로 더한다. 이미 결과가 있는 요청을 다시 받으면 모델을 부르지 않는다. 모델 호출은 worker의
+`ai.create_client`로만 만들므로 로컬 원장(permit)과 운영 비용 기록이 다른 모델 작업과 같다. 모델은 `TFT_REPLY_READ_MODEL`
+(기본 gemini-3.6-flash, thinking LOW, 운송 재시도 0), 공급자는 `TFT_EXTRACTION_PROVIDER`(fake면 값 없음 고정 응답)다.
+질문 응답의 `value_candidate`는 가장 최근 읽기 행의 결과(없으면 규칙 결과)에 `ai`(QUEUED·UNAVAILABLE·DONE·FAILED)를
+붙인다. 요구값은 바꾸지 않는다.

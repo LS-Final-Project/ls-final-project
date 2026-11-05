@@ -36,6 +36,13 @@ STATUS_TEXT: dict[s.RequirementStatus, str] = {
     "SPEC_GAP": "사양 차이",
     "INSUFFICIENT_EVIDENCE": "근거 부족(미충족 확정 아님)",
 }
+# 본문용 쉬운 말. 판단 상태의 정확한 표기(STATUS_TEXT)는 문장 조건으로 남긴다.
+STATUS_PLAIN: dict[s.RequirementStatus, str] = {
+    "EVIDENCE_FOUND": "근거는 있으나 확인할 조건이 남은 요구",
+    "CONDITIONAL": "적용 조건을 확인해야 대응 여부를 판단할 수 있는 요구",
+    "SPEC_GAP": "자사 자료와 사양 차이가 있는 요구",
+    "INSUFFICIENT_EVIDENCE": "자사 자료에서 대응 근거를 아직 찾지 못한 요구",
+}
 RESULT_TEXT: dict[s.ComparisonResult, str] = {
     "MEETS": "해당 비교 항목의 근거 일치",
     "DIFFERS": "해당 비교 항목의 차이",
@@ -44,8 +51,15 @@ RESULT_TEXT: dict[s.ComparisonResult, str] = {
 }
 
 
-MAX_SENTENCES_PER_SECTION = 8
-MAX_REPRESENTATIVES = 3
+# 비교 결과별 본문 제목. 정확한 결과 표기(RESULT_TEXT)는 문장 조건으로 남긴다.
+COMPARISON_PLAIN: dict[s.ComparisonResult, str] = {
+    "MEETS": "자사 제품 자료와 일치하는 비교 항목",
+    "DIFFERS": "자사 후보와 차이가 있는 비교 항목",
+    "NOT_COMPARABLE": "단위·조건·적용 범위를 확인해야 비교할 수 있는 항목",
+    "NO_DATA": "자사 비교 자료가 부족한 항목",
+}
+# 문장 하나에 나열할 항목 수. 넘으면 문장을 나누고 문장마다 자기 항목의 근거만 단다.
+MAX_ITEMS_PER_SENTENCE = 6
 REPRESENTATIVE_CHARS = 120
 COMPARISON_REPRESENTATIVE_CHARS = 1000
 COMPARISON_VALUE_CHARS = 900
@@ -159,7 +173,10 @@ class _Summary:
     priority: int = 9
     evidence: set[tuple[s.EvidenceType, str]] = field(default_factory=set)
     conditions: set[str] = field(default_factory=set)
-    representatives: list[tuple[tuple[str, ...], str]] = field(default_factory=list)
+    # (정렬 키, 본문 항목, 그 항목의 근거, 재검토). 문장을 나눌 때 근거·표시도 함께 나눈다.
+    representatives: list[
+        tuple[tuple[str, ...], str, frozenset[tuple[s.EvidenceType, str]], bool]
+    ] = field(default_factory=list)
     unconfirmed: bool = False
     rereview: bool = False
 
@@ -401,10 +418,9 @@ def build_draft(
         unconfirmed: bool = False,
         rereview: bool = False,
         priority: int = 9,
-        display_codes: bool = True,
-        representative_limit: int = REPRESENTATIVE_CHARS,
         literal_conditions: Sequence[str] = (),
     ) -> None:
+        """representative는 호출자가 본문 표기로 만든 항목이다. 고객 인용은 여기서 다시 바꾸지 않는다."""
         proofs = {(e.type, e.id) for e in evidence}
         shown_conditions = {_display(value) for value in conditions if value.strip()} | set(
             literal_conditions
@@ -414,7 +430,7 @@ def build_draft(
             and proofs
             and any(
                 part.section == section
-                and (row.template_text or row.text).startswith(title + ".")
+                and (row.template_text or row.text).startswith((title + ":", title + "."))
                 and proofs.issubset({(e.type, e.id) for e in row.evidence})
                 and shown_conditions.issubset(row.conditions)
                 for part in replaced
@@ -431,33 +447,35 @@ def build_draft(
                 {(e.type, e.id) for e in evidence},
                 {_display(value) for value in conditions if value.strip()}
                 | set(literal_conditions),
-                [
-                    (
-                        sort_key,
-                        _sample(representative, representative_limit, display_codes=display_codes),
-                    )
-                ],
+                [(sort_key, representative, frozenset(proofs), rereview)],
                 unconfirmed or bool(conditions) or bool(literal_conditions) or rereview,
                 rereview,
             )
         )
 
+    labels: dict[UUID, str] = {}
     for req in sorted(requirements, key=order):
         evidence = _requirement_evidence(req)
         conditions = _conditions(req)
         review = req.needs_rereview or req.needs_review
         unconfirmed = req.judgement.status != "EVIDENCE_FOUND" or bool(conditions) or review
-        equipment_key = " ".join(
-            (req.spec.equipment or ("수행 과업" if req.spec.task else "장비 미정")).split()
+        # 과업마다 다른 일이다. 장비가 없을 때 '수행 과업' 하나로 뭉치지 않는다.
+        subject_raw = req.spec.equipment or req.spec.task or "대상 미정"
+        subject_key = " ".join(subject_raw.split())
+        subject = _sample(subject_raw, 80, display_codes=False)
+        detail = (
+            _display(req.spec.attribute)
+            if req.spec.attribute
+            else None
+            if req.spec.task and not req.spec.equipment
+            else _sample(req.origin.quote, 60, display_codes=False)
         )
-        equipment = _sample(
-            req.spec.equipment or ("수행 과업" if req.spec.task else "장비 미정"),
-            80,
-            display_codes=False,
-        )
+        # 장비·과업 이름과 같은 말이면 항목 이름을 다시 붙이지 않는다.
+        if detail and "".join(detail.split()) in "".join(subject.split()):
+            detail = None
+        label = labels[req.requirement_id] = subject + (f" · {detail}" if detail else "")
         status = req.judgement.status
-        kind = "과업" if req.spec.task else "요구"
-        base_group = (equipment_key, status, kind)
+        status_condition = f"판단 상태: {STATUS_TEXT[status]}"
         priority = {
             "SPEC_GAP": 0,
             "CONDITIONAL": 1,
@@ -466,16 +484,15 @@ def build_draft(
         }[status]
         add(
             "CUSTOMER_GOAL_SCOPE",
-            base_group,
-            f"{equipment}의 고객 {kind} 검토 범위 · {STATUS_TEXT[status]}",
+            (subject_key,),
+            subject,
             evidence,
-            req.origin.quote,
+            f"「{_sample(req.origin.quote, display_codes=False)}」",
             order(req),
             conditions=conditions,
             unconfirmed=unconfirmed,
             rereview=review,
             priority=priority,
-            display_codes=False,
         )
         comp = comps.get(req.requirement_id)
         if comp:
@@ -497,20 +514,30 @@ def build_draft(
                         )
                     )
                 representative, raw_comparison = _comparison_sample(req, candidate)
+                # 일치한 비교만 자사 대응 근거다. 차이는 사양 차이, 비교 불가·자료 없음은 미확인이다.
+                comparison_section: s.DraftSection = (
+                    "OUR_RESPONSE"
+                    if match.result == "MEETS"
+                    else "DEVIATIONS"
+                    if match.result == "DIFFERS"
+                    else "ASSUMPTIONS_EXCLUSIONS"
+                )
                 add(
-                    "OUR_RESPONSE",
-                    (*base_group, match.result),
-                    f"{equipment}의 자사 후보 비교 · {RESULT_TEXT[match.result]}. 전체 요구 충족이나 공급 확약이 아님",
+                    comparison_section,
+                    (subject_key, "comparison", match.result),
+                    f"{subject} — {COMPARISON_PLAIN[match.result]}",
                     [*evidence, s.Evidence(type="product", id=candidate.product_code)],
-                    representative,
+                    f"「{representative}」",
                     (*order(req), candidate.product_code),
                     conditions=candidate_conditions,
                     unconfirmed=True,
                     rereview=review,
                     priority=priority,
-                    display_codes=False,
-                    representative_limit=COMPARISON_REPRESENTATIVE_CHARS,
-                    literal_conditions=raw_comparison,
+                    literal_conditions=[
+                        *raw_comparison,
+                        f"비교 결과: {RESULT_TEXT[match.result]}",
+                        "비교 항목 기록이며 전체 요구 충족이나 공급 확약이 아님",
+                    ],
                 )
         if unconfirmed or status == "SPEC_GAP":
             destination: s.DraftSection = (
@@ -518,16 +545,16 @@ def build_draft(
             )
             add(
                 destination,
-                (*base_group, "judgement"),
-                f"{equipment}의 {kind} · {STATUS_TEXT[status]}",
+                ("judgement", status),
+                STATUS_PLAIN[status],
                 evidence,
-                req.origin.quote,
+                label,
                 order(req),
                 conditions=conditions,
                 unconfirmed=True,
                 rereview=review,
                 priority=priority,
-                display_codes=False,
+                literal_conditions=[status_condition],
             )
         option_set = opts.get(req.requirement_id)
         if option_set:
@@ -566,21 +593,7 @@ def build_draft(
                 destination = "PARTNER_SUPPLEMENT" if option.path in PARTNER_PATHS else "DEVIATIONS"
                 if option.path == "NONE":
                     destination = "ASSUMPTIONS_EXCLUSIONS"
-                path_key = (*base_group, option.path, str(is_selected))
-                title = f"{equipment}의 {PATH_TEXT[option.path]} · {'사람 선택 기록 있음' if is_selected else '미선택 선택지'}. 이행·공급·납기 확약이 아님"
-                add(
-                    destination,
-                    path_key,
-                    title,
-                    path_evidence,
-                    req.origin.quote,
-                    order(req),
-                    conditions=path_conditions,
-                    unconfirmed=True,
-                    rereview=review,
-                    priority=priority,
-                    display_codes=False,
-                )
+                partner_codes = []
                 for code in sorted(option.candidate_codes if option.path in PARTNER_PATHS else []):
                     partner = candidates[code]
                     grade = next(
@@ -588,39 +601,46 @@ def build_draft(
                     )
                     if partner.overall_grade == "EXCLUDED" or grade.grade == "EXCLUDED":
                         continue
-                    add(
-                        destination,
-                        path_key,
-                        title,
-                        [*path_evidence, s.Evidence(type="partner", id=code)],
-                        req.origin.quote,
-                        (*order(req), code),
-                        conditions=[
-                            *path_conditions,
+                    partner_codes.append(code)
+                    path_evidence.append(s.Evidence(type="partner", id=code))
+                    path_conditions.extend(
+                        [
                             *map(check_text, partner.conditions_to_confirm),
                             *map(check_text, grade.mandatory_check.unknown),
-                            f"가상 협력사 요구별 등급: {GRADE_TEXT[grade.grade]}",
-                            f"가상 협력사 확인 상태: {CONFIRMATION_TEXT[partner.confirmation_status]}",
-                        ],
-                        unconfirmed=True,
-                        rereview=review,
-                        priority=priority,
-                        display_codes=False,
+                            f"가상 협력사 {code} 요구별 등급: {GRADE_TEXT[grade.grade]}",
+                            f"가상 협력사 {code} 확인 상태: {CONFIRMATION_TEXT[partner.confirmation_status]}",
+                        ]
                     )
+                # 같은 방안을 검토할 대상을 한 문장에 이름으로 나열한다. 선택한 방안과 미선택 대안은 섞지 않는다.
+                add(
+                    destination,
+                    ("path", option.path, str(is_selected)),
+                    f"{'선택한 방안' if is_selected else '검토 가능한 대안(미선택)'} — {PATH_TEXT[option.path]}",
+                    path_evidence,
+                    label + (f" (가상 협력사 {', '.join(partner_codes)})" if partner_codes else ""),
+                    order(req),
+                    conditions=path_conditions,
+                    unconfirmed=True,
+                    rereview=review,
+                    priority=priority,
+                    literal_conditions=[
+                        "사람이 선택한 방안 기록이며 이행·공급·납기 확약이 아님"
+                        if is_selected
+                        else "선택되지 않은 검토 대안이며 이행·공급·납기 확약이 아님"
+                    ],
+                )
         if req.judgement.next_owner_field:
             owner = req.judgement.next_owner_field
             add(
                 "QUESTIONS_NEXT_ACTIONS",
-                (equipment_key, "next_action", owner),
-                f"{equipment}의 다음 확인 담당: {OWNER_TEXT[owner]}",
+                ("next_action", owner),
+                f"{OWNER_TEXT[owner]} 확인 대상",
                 evidence,
-                req.origin.quote,
+                label,
                 order(req),
-                conditions=conditions,
                 unconfirmed=True,
                 rereview=review,
                 priority=priority,
-                display_codes=False,
             )
 
     if integration.required:
@@ -668,9 +688,10 @@ def build_draft(
         add(
             "QUESTIONS_NEXT_ACTIONS",
             (question.target, question.target_dept or "", question.status),
-            f"{target} · {state}",
+            f"{target} — {state}",
             evidence,
-            question.question_text,
+            (f"{labels[related.requirement_id]} — " if related else "")
+            + f"「{_sample(question.question_text)}」",
             order(related) if related else (str(question.question_id),),
             unconfirmed=question.status != "REPLIED",
             rereview=bool(related and (related.needs_rereview or related.needs_review)),
@@ -682,67 +703,71 @@ def build_draft(
                 ("internal_assumption", question.target, question.status),
                 "회신 전 내부 가정(충족 판정에 사용 금지)",
                 evidence,
-                assumption.value,
+                f"「{_sample(assumption.value)}」",
                 order(related) if related else (str(question.question_id),),
                 conditions=[assumption.value],
                 unconfirmed=True,
                 rereview=bool(related and (related.needs_rereview or related.needs_review)),
             )
 
-    def sentence(section: s.DraftSection, group: _Summary) -> s.Sentence:
+    def sentences_of(section: s.DraftSection, group: _Summary) -> list[s.Sentence]:
         if not group.evidence or not group.evidence.issubset(registry):
             raise ValueError("RFP_DRAFT_SENTENCE_EVIDENCE_MISSING")
-        representatives = list(
-            dict.fromkeys(text for _, text in sorted(group.representatives) if text)
-        )[:MAX_REPRESENTATIVES]
-        counts = []
-        for kind, label in (
-            ("requirement", "요구"),
-            ("product", "자사 후보"),
-            ("partner", "가상 협력사"),
-            ("question", "질문"),
+        items: dict[str, set[tuple[s.EvidenceType, str]]] = {}
+        flagged: set[str] = set()
+        for _, text, item_proofs, rereview in sorted(
+            group.representatives, key=lambda value: value[:2]
         ):
-            count = sum(e_type == kind for e_type, _ in group.evidence)
-            if count:
-                counts.append(f"{label} {count}건")
-        text = f"{group.title}. {' · '.join(counts)}."
-        if representatives:
-            text += " 대표 항목: " + " / ".join(f"「{value}」" for value in representatives) + "."
-        unique, conditions = sorted(group.evidence), sorted(group.conditions)
-        return s.Sentence(
-            sentence_id=uuid5(
-                project_id, repr((version, section, group.key, text, unique, conditions))
-            ),
-            text=text,
-            template_text=text,
-            evidence=[s.Evidence(type=kind, id=ref) for kind, ref in unique],
-            conditions=conditions,
-            unconfirmed=group.unconfirmed or bool(conditions) or group.rereview,
-            needs_rereview=group.rereview,
-            evidence_missing=False,
-            provenance_kind="system_record",
-        )
+            if text:
+                items.setdefault(text, set()).update(item_proofs)
+                if rereview:
+                    flagged.add(text)
+        texts = list(items)
+        chunks = [
+            texts[at : at + MAX_ITEMS_PER_SENTENCE]
+            for at in range(0, len(texts), MAX_ITEMS_PER_SENTENCE)
+        ] or [[]]
+        conditions = sorted(group.conditions)
+        result = []
+        for chunk in chunks:
+            text = f"{group.title}: {' / '.join(chunk)}." if chunk else f"{group.title}."
+            split = len(chunks) > 1
+            proofs = set().union(*(items[value] for value in chunk)) if split else group.evidence
+            rereview = any(value in flagged for value in chunk) if split else group.rereview
+            unique = sorted(proofs)
+            result.append(
+                s.Sentence(
+                    sentence_id=uuid5(
+                        project_id, repr((version, section, group.key, text, unique, conditions))
+                    ),
+                    text=text,
+                    template_text=text,
+                    evidence=[s.Evidence(type=kind, id=ref) for kind, ref in unique],
+                    conditions=conditions,
+                    unconfirmed=group.unconfirmed or bool(conditions) or rereview,
+                    needs_rereview=rereview,
+                    evidence_missing=False,
+                    provenance_kind="system_record",
+                )
+            )
+        return result
 
     output = []
     for section, groups in sections.items():
+        # 건수 상한으로 서로 다른 장비·과업을 한 문장에 합치지 않는다. 통합 책임은 맨 앞이다.
         ordered = sorted(
-            groups.values(), key=lambda group: (not group.rereview, group.priority, group.key)
+            groups.values(),
+            key=lambda group: (
+                group.key != ("integration",),
+                not group.rereview,
+                group.priority,
+                group.key,
+            ),
         )
-        reserved = [group for group in ordered if group.key == ("integration",)]
-        ordered = [group for group in ordered if group.key != ("integration",)]
-        slots = MAX_SENTENCES_PER_SECTION - len(reserved)
-        if len(ordered) > slots:
-            overflow = _Summary(
-                ("overflow",),
-                "혼합 항목 추가 검토: 서로 다른 장비·조건·선택 여부의 묶음이며 동일 항목이나 공급 가능 판단이 아님",
-            )
-            for group in ordered[slots - 1 :]:
-                overflow.include(group)
-            ordered = [*ordered[: slots - 1], overflow]
         output.append(
             s.Section(
                 section=section,
-                sentences=[sentence(section, group) for group in [*reserved, *ordered]],
+                sentences=[row for group in ordered for row in sentences_of(section, group)],
             )
         )
     return s.Draft(

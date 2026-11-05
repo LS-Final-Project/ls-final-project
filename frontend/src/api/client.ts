@@ -17,7 +17,8 @@ export function setApiMode(value: ApiMode) {
 // message는 화면에 보일 문구다. 업무 코드는 한국어로 바꾸고(error-text.ts), 서버 원문은 serverMessage에 남긴다.
 export class ApiError extends Error {
   public serverMessage: string;
-  constructor(public status: number, message: string, public requestId?: string, public code?: string) {
+  // details: 서버 error.details 그대로. 묶음 쓰기의 건별 사유(index·code·message)가 여기 온다.
+  constructor(public status: number, message: string, public requestId?: string, public code?: string, public details?: unknown) {
     super(errorText(code, message));
     this.serverMessage = message;
   }
@@ -39,7 +40,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   if (response.status === 401) csrfToken = null;
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new ApiError(response.status, body.error?.message || `HTTP ${response.status}`, body.meta?.request_id, body.error?.code);
+    throw new ApiError(response.status, body.error?.message || `HTTP ${response.status}`, body.meta?.request_id, body.error?.code, body.error?.details);
   }
   return response.status === 204 ? undefined as T : response.json() as Promise<T>;
 }

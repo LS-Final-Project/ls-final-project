@@ -192,6 +192,12 @@ def jobs_database(auth_database, request):
             "infra/migrations/platform/20261109_KAN-188_draft_rewrite_jobs.sql"
         ).read_text()
         conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
+        migration = Path("infra/migrations/platform/20261118_KAN-188_context_jobs.sql").read_text()
+        conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
+        migration = Path(
+            "infra/migrations/platform/20261125_KAN-224_reply_read_jobs.sql"
+        ).read_text()
+        conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
         migration = Path(
             "infra/migrations/platform/20261110_KAN-201_notification_expansion.sql"
         ).read_text()

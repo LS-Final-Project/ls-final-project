@@ -39,6 +39,9 @@ __all__ = ["TftWorkerSettings", "execute_job", "main", "parse_job_id"]
 
 # contracts/tft/rfp-jobs.md 단계 표.
 STEPS = (
+    "context_map",
+    "context_link",
+    "context_validate",
     "parse",
     "extract",
     "search",
@@ -52,6 +55,9 @@ STEPS = (
 # 처리 함수 load 구간에서 worker가 그대로 인정하는 고정 실패 코드. 그 밖은 TFT_WORKER_PROCESSING_FAILED로 저장한다.
 LOAD_CODES = frozenset({"TFT_WORKER_PROCESSOR_MISSING"})
 UUID_TEXT = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+# 진행 화면의 한 줄(KAN-232): 처리 상태에서 만든 사실만. 원문 문장·모델 응답은 넣지 않는다(조 번호·제목·위치 이름만).
+FOCUS_KINDS = ("section", "found", "ocr", "compare")
+FOCUS_LABEL = re.compile(r"[0-9A-Za-z가-힣 .,()·/~-]{1,40}")
 
 
 class TftWorkerSettings(BaseSettings):
@@ -75,7 +81,7 @@ def event_payload(values: dict[str, Any], *, final: bool = False) -> dict[str, A
         final: 종료 요약이면 True(step을 받지 않는다).
 
     Returns:
-        dict: step·document_version_id·counts·needs_review 중 있는 것. 형식이 틀리면 ValueError다.
+        dict: step·document_version_id·counts·needs_review·focus 중 있는 것. 형식이 틀리면 ValueError다.
     """
     payload: dict[str, Any] = {}
     if not final:
@@ -100,6 +106,18 @@ def event_payload(values: dict[str, Any], *, final: bool = False) -> dict[str, A
         if type(values["needs_review"]) is not bool:
             raise ValueError("TFT_WORKER_BAD_EVENT")
         payload["needs_review"] = values["needs_review"]
+    if "focus" in values:
+        focus = values["focus"]
+        if (
+            not isinstance(focus, dict)
+            or not {"kind", "label"} <= set(focus) <= {"kind", "label", "n"}
+            or focus["kind"] not in FOCUS_KINDS
+            or not isinstance(focus["label"], str)
+            or not FOCUS_LABEL.fullmatch(focus["label"])
+            or ("n" in focus and not (type(focus["n"]) is int and focus["n"] >= 0))
+        ):
+            raise ValueError("TFT_WORKER_BAD_EVENT")
+        payload["focus"] = dict(focus)
     return payload
 
 

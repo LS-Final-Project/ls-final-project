@@ -196,6 +196,45 @@ test('business upstream redirects, HTML, oversized responses and timeouts stay f
 });
 
 
+test('serves PDF module workers as JavaScript with nosniff', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'team4-module-'));
+  await writeFile(join(directory, 'pdf.worker.mjs'), 'export const worker = true;');
+  const server = createServer(handler({ directory, upstream: 'https://platform.example.invalid', tokenProvider: async () => 'fixture' }));
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/pdf.worker.mjs`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'text/javascript; charset=utf-8');
+    assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(await response.text(), 'export const worker = true;');
+  } finally {
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+    await rm(directory, { recursive: true });
+  }
+});
+
+test('serves the local Rive runtime as WebAssembly with original bytes and nosniff', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'team4-wasm-'));
+  const bytes = Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]);
+  await writeFile(join(directory, 'rive.wasm'), bytes);
+  const server = createServer(handler({ directory, upstream: 'https://platform.example.invalid', tokenProvider: async () => 'fixture' }));
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/rive.wasm`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'application/wasm');
+    assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+    assert.deepEqual(Buffer.from(await response.arrayBuffer()), bytes);
+  } finally {
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+    await rm(directory, { recursive: true });
+  }
+});
+
 test('serves a symlinked static root but rejects a file symlink outside it', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'team4-root-'));
   const content = join(directory, 'content');
@@ -743,6 +782,19 @@ test('web relay preserves DOCX attachment on the exact RFP export file route', a
   }, async () => new Response('PK-docx', { headers: { 'Content-Type': mime, 'Content-Disposition': 'attachment; filename="review.docx"' } }), true);
 });
 
+test('web relay preserves XLSX attachment on the RFP export file route', async () => {
+  const path = '/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/exports/22222222-2222-4222-8222-222222222222/file';
+  const mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const disposition = "attachment; filename=\"status.xlsx\"; filename*=UTF-8''RFP-91%20%ED%98%84%ED%99%A9%ED%91%9C.xlsx";
+  await fixture(async origin => {
+    const response = await fetch(origin + path);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), mime);
+    assert.equal(response.headers.get('content-disposition'), disposition);
+    assert.equal(await response.text(), 'PK-xlsx');
+  }, async () => new Response('PK-xlsx', { headers: { 'Content-Type': mime, 'Content-Disposition': disposition } }), true);
+});
+
 test('mail relay forwards only the reads and writes the mail screens use', async () => {
   const calls = [];
   const id = '11111111-1111-4111-8111-111111111111';
@@ -874,4 +926,42 @@ test('root service worker is JavaScript with revalidation instead of a one-hour 
     assert.equal(response.status, 200); assert.match(response.headers.get('content-type'), /javascript/);
     assert.equal(response.headers.get('cache-control'), 'no-cache');
   } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await rm(directory, { recursive: true }); }
+});
+
+
+test('diagram images retain exact version query and binary only on image path', async () => {
+  const id = '11111111-1111-4111-8111-111111111111';
+  const path = `/api/v1/tft/documents/${id}/diagrams/OCR-DOCX-0001/image`;
+  const calls = [];
+  await fixture(async origin => {
+    const response = await fetch(origin + path + `?document_version_id=${id}`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'image/png');
+    assert.equal(await response.text(), 'original-image');
+    assert.equal((await fetch(origin + `/api/v1/tft/documents/${id}/file`)).status, 502);
+    assert.equal((await fetch(origin + path.replace('OCR-DOCX-0001', 'unknown'))).status, 502);
+  }, async url => { calls.push(String(url)); return new Response('original-image', { headers: { 'Content-Type': 'image/png' } }); }, true);
+  assert.ok(calls[0].endsWith(path + `?document_version_id=${id}`));
+});
+
+test('RFP context relay preserves versioned reads, CSRF and idempotent writes within exact paths', async () => {
+  const id='11111111-1111-4111-8111-111111111111', calls=[];
+  await fixture(async origin=>{
+    const base=`/api/v1/tft/projects/${id}/context`;
+    const headers={Cookie:'__Host-team4_session=session; unrelated=secret',Origin:origin,'X-CSRF-Token':'context-csrf','Idempotency-Key':'context-key','Content-Type':'application/json',Authorization:'Bearer browser-secret'};
+    assert.equal((await fetch(origin+base+'?version=2',{headers})).status,200);
+    assert.equal((await fetch(origin+base,{method:'PATCH',headers,body:'{"expected_version":2,"reason":"synthetic"}'})).status,200);
+    assert.equal((await fetch(origin+base+'/process',{method:'POST',headers,body:'{}'})).status,202);
+    const total=calls.length;
+    for(const path of [base+'?target=other',base+'?version=1&version=2'])assert.equal((await fetch(origin+path,{headers})).status,400);
+    assert.equal((await fetch(origin+base+'/process?version=2',{method:'POST',headers,body:'{}'})).status,400);
+    assert.equal((await fetch(origin+base+'/confirm',{method:'POST',headers,body:'{}'})).status,405);
+    assert.equal((await fetch(origin+base,{method:'DELETE',headers})).status,405);
+    assert.equal(calls.length,total);
+  },async(url,options)=>{calls.push({url:String(url),options});return Response.json({data:{}},{status:String(url).endsWith('/process')?202:200});},true);
+  assert.equal(calls.length,3);
+  assert.match(calls[0].url,/context\?version=2$/);
+  for(const {options} of calls){assert.equal(options.headers.Authorization,'Bearer fixture-server-token');assert.equal(options.headers.Cookie,'__Host-team4_session=session');assert.equal(options.headers['X-CSRF-Token'],'context-csrf');assert.equal(options.headers['idempotency-key'],'context-key');assert.equal(options.redirect,'error');}
+  assert.equal(calls[1].options.body.toString(),'{"expected_version":2,"reason":"synthetic"}');
+  assert.equal(calls[2].options.body.toString(),'{}');
 });

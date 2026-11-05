@@ -39,6 +39,10 @@ def test_docx_is_valid_ooxml_with_all_sections_proofs_conditions_and_unicode(sna
             "[Content_Types].xml",
             "_rels/.rels",
             "word/document.xml",
+            "word/styles.xml",
+            "word/header1.xml",
+            "word/footer1.xml",
+            "word/_rels/document.xml.rels",
         }
         for name in package.namelist():
             ET.fromstring(package.read(name))
@@ -279,6 +283,8 @@ def test_export_retry_reuses_immutable_bytes_after_live_review_changes(snapshot,
             return SimpleNamespace(
                 fetchone=AsyncMock(return_value={"draft_version": original.version})
             )
+        if "FROM tft.review_context_snapshots" in sql:
+            return SimpleNamespace(fetchone=AsyncMock(return_value=None))
         return AsyncMock()
 
     conn.execute.side_effect = execute
@@ -373,3 +379,92 @@ def test_edit_stores_snapshot_flags_and_returns_live_display(snapshot):
     assert result.json()["data"]["sections"][0]["sentences"][0]["needs_rereview"] is True
     frozen.assert_awaited_once()
     display.assert_awaited_once()
+
+
+def test_docx_layout_uses_a4_repeating_tables_headings_and_linked_appendix(snapshot):
+    # 자사 대응 표는 일치한 비교가 있을 때만 생긴다(차이는 사양 차이 표로 간다).
+    snapshot["comparisons"][0].candidates[0].attribute_match.result = "MEETS"
+    draft = build_draft(**snapshot)
+    data = draft_exports.render_docx(draft, 7)
+    w = draft_exports.W
+    with zipfile.ZipFile(io.BytesIO(data)) as package:
+        root = ET.fromstring(package.read("word/document.xml"))
+        assert len(list(root.iter(w + "tbl"))) >= 3
+        assert len(list(root.iter(w + "tblHeader"))) == len(list(root.iter(w + "tbl")))
+        page = root.find(f".//{w}pgSz")
+        assert page is not None and page.attrib == {w + "w": "11906", w + "h": "16838"}
+        assert not list(root.iter(w + "trHeight"))
+        assert not list(root.iter(w + "vMerge"))
+        assert not list(root.iter(w + "noWrap"))
+        anchors = {row.get(w + "name") for row in root.iter(w + "bookmarkStart")}
+        links = {row.get(w + "anchor") for row in root.iter(w + "hyperlink")}
+        total = sum(len(section.sentences) for section in draft.sections)
+        assert anchors == links == {f"sentence_{n}" for n in range(1, total + 1)}
+        styles = ET.fromstring(package.read("word/styles.xml"))
+        assert {"Heading1", "Heading2", "Title"} <= {
+            style.get(w + "styleId") for style in styles.iter(w + "style")
+        }
+        footer = ET.fromstring(package.read("word/footer1.xml"))
+        assert any(row.get(w + "instr") == " PAGE " for row in footer.iter(w + "fldSimple"))
+
+
+def test_docx_layout_keeps_empty_sections_long_text_flags_and_missing_label_ids(snapshot):
+    draft = build_draft(**snapshot)
+    for section in draft.sections:
+        section.sentences = []
+    row = s.Sentence(
+        sentence_id=UUID(int=900),
+        text="긴 비교 내용 <원문> & 조건 " * 300 + "마지막 문장",
+        evidence=[s.Evidence(type="requirement", id="unmapped-requirement")],
+        conditions=["여러 조건\r\n둘째 줄\t탭 <>&", "긴 조건 " * 400 + "마지막 조건"],
+        unconfirmed=True,
+        needs_rereview=True,
+        evidence_missing=True,
+        provenance_kind="human_input",
+    )
+    draft.sections[1].sentences = [row]
+    data = draft_exports.render_docx(draft, 4)
+    with zipfile.ZipFile(io.BytesIO(data)) as package:
+        root = ET.fromstring(package.read("word/document.xml"))
+    texts = [node.text or "" for node in root.iter(draft_exports.W + "t")]
+    assert texts.count("등록된 문장 없음") == 5
+    assert row.text in texts and row.conditions[1] in "\n".join(texts)
+    assert "unmapped-requirement" in "\n".join(texts)
+    assert all(name in texts for name in draft_exports.SECTION_TITLES.values())
+    assert "미확약: 예 / 재검토: 예 / 근거 누락: 예" in texts
+    assert "작성 유형: 담당자 입력" in texts
+    assert data == draft_exports.render_docx(draft, 4)
+
+
+def test_docx_has_no_ocr_codes_or_english_condition_heads(snapshot):
+    # 2026-11-05 흐름 점검: 검토서 조항 경로에 OCR 코드 166개, 조건 칸에 영문 이름이 남았다.
+    draft = build_draft(**snapshot)
+    row = draft.sections[0].sentences[0]
+    row.text = "근거 조항 2건: 제2조.1, OCR-DOCX-0001.7 / cb11aed0:OCR-PDF-P3.2"
+    row.conditions.append("cooling AN")
+    data = draft_exports.render_docx(draft, 2, {"c": "OCR-DOCX-0001.12-3"})
+    with zipfile.ZipFile(io.BytesIO(data)) as package:
+        root = ET.fromstring(package.read("word/document.xml"))
+    text = "\n".join(node.text or "" for node in root.iter(draft_exports.W + "t"))
+    assert "OCR-" not in text and "cooling" not in text
+    assert "본문 이미지 1" in text and "PDF 3쪽" in text and "냉각 방식 AN" in text
+
+
+def test_listing_sections_keep_human_sentences_and_point_the_rest_to_xlsx(snapshot):
+    # 요구를 하나씩 나열하는 절은 상한까지만 싣는다. 담당자 입력 문장은 늘 싣는다.
+    draft = build_draft(**snapshot)
+    section = next(p for p in draft.sections if p.section == "CUSTOMER_GOAL_SCOPE")
+    base = section.sentences[0]
+    rows = [
+        base.model_copy(update={"sentence_id": UUID(int=1000 + n), "text": f"나열 문장 {n}"})
+        for n in range(10)
+    ]
+    rows[9] = rows[9].model_copy(update={"provenance_kind": "human_input"})
+    section.sentences = rows
+    data = draft_exports.render_docx(draft, 3)
+    with zipfile.ZipFile(io.BytesIO(data)) as package:
+        root = ET.fromstring(package.read("word/document.xml"))
+    text = "\n".join(node.text or "" for node in root.iter(draft_exports.W + "t"))
+    limit = draft_exports.LISTING_LIMIT
+    assert "나열 문장 9" in text and f"나열 문장 {limit - 1}" not in text
+    assert f"이 절의 나머지 {10 - limit}건은" in text

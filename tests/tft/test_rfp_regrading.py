@@ -48,7 +48,9 @@ def test_new_requirement_preserves_actual_extraction_semantics_without_dto_chang
     query, params = conn.execute.await_args_list[1].args
     assert "kind, certification_listed, canonical_value" in query
     assert query.count("%s") == len(params)
-    assert params[-4:-1] == ("SPEC", False, "overcurrent")
+    # 뒤 다섯 칸은 출처·자료 출처·파생·판단자(KAN-225)다.
+    assert params[-8:-5] == ("SPEC", False, "overcurrent")
+    assert params[-5:] == ("ai_draft", "synthetic", "DERIVED", None, None)
 
 
 @pytest.mark.parametrize("failure", [None, "draft", "cancel", "unlock", "acquire"])
@@ -151,6 +153,7 @@ def test_processed_document_rerun_regrades_actual_saved_version_with_zero_models
         ),
     )
     monkeypatch.setattr(repository, "document_processed", AsyncMock(return_value=True))
+    monkeypatch.setattr(worker.diagram_repository, "read_diagrams", AsyncMock(return_value=None))
     monkeypatch.setattr(repository, "stored_grading_requirements", AsyncMock(return_value=[row]))
     monkeypatch.setattr(
         repository,
@@ -171,6 +174,8 @@ def test_processed_document_rerun_regrades_actual_saved_version_with_zero_models
         ),
     )
     monkeypatch.setattr(repository, "prior_grades_for_regrading", AsyncMock(return_value=[]))
+    # 자사 다시 비교(KAN-232)는 DB 시험(test_rfp_regrading_db)이 본다. 여기서는 잠금·TX 순서만 본다.
+    monkeypatch.setattr(worker, "recompare_stored", AsyncMock(return_value=0))
 
     async def first_data(*_):
         assert conn.in_transaction

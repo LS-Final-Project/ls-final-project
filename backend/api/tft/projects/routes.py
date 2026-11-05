@@ -2,7 +2,7 @@ import base64
 import binascii
 import json
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -19,6 +19,7 @@ from backend.api.tft.projects.schemas import (
     ProjectSummary,
     RfpRequirement,
 )
+from backend.api.tft.rfp import routes_write
 from backend.api.tft.rfp import schemas as rfp
 from backend.api.tft.rfp.routes_write import project_fields
 from backend.shared.access import Principal, current_principal
@@ -91,13 +92,18 @@ async def list_projects(
     request: Request,
     limit: int = Query(20, ge=1, le=100),
     cursor: str | None = Query(None, max_length=200),
+    page: int | None = Query(None, ge=1, le=1000000),
+    search_field: Literal["all", "external_id", "name"] = "all",
     output_status: rfp.OutputStatus | None = None,
     judgement_status: rfp.JudgementStatus | None = None,
     q: str | None = Query(None, min_length=2, max_length=100),
     principal: Principal = Depends(current_principal),
 ) -> SuccessResponse[ProjectList]:
     require_project_list(principal)
+    if page is not None and cursor is not None:
+        raise ApplicationError(400, "TFT_INVALID_PAGINATION", "Use page or cursor, not both.")
     after = decode_cursor(cursor) if cursor else None
+    total = None
     async with connection(request.app.state.settings) as conn:
         rows = await repository.list_projects(
             conn,
@@ -109,10 +115,32 @@ async def list_projects(
             output_status=output_status,
             judgement_status=judgement_status,
             q=q,
+            search_field=search_field,
+            offset=(page - 1) * limit if page is not None else 0,
         )
+        if page is not None:
+            total = await repository.count_projects(
+                conn,
+                sorted(principal.managed_projects),
+                principal.user_id,
+                principal.dept if "dept_staff" in principal.roles else None,
+                output_status=output_status,
+                judgement_status=judgement_status,
+                q=q,
+                search_field=search_field,
+            )
+        # ponytail: 쪽마다 프로젝트별 decision_gate 계산(최대 limit번). 목록이 느려지면 states를 프로젝트 여러 개로 묶는다.
+        gates = {
+            row["id"]: await routes_write.decision_gate(conn, row["id"]) for row in rows[:limit]
+        }
     items = [
         ProjectSummary.model_validate(
-            {**row, "integration_responsibility": {"holder": row["integration_holder"]}}
+            {
+                **row,
+                "integration_responsibility": {"holder": row["integration_holder"]},
+                "decisions_remaining": gates[row["id"]].undecided,
+                "review_pending": gates[row["id"]].review_pending,
+            }
         )
         for row in rows[:limit]
     ]
@@ -120,7 +148,7 @@ async def list_projects(
     if len(rows) > limit:
         last = rows[limit - 1]
         next_cursor = encode_cursor(last["created_at"], last["id"])
-    return respond(request, ProjectList(items=items, next_cursor=next_cursor))
+    return respond(request, ProjectList(items=items, next_cursor=next_cursor, total=total))
 
 
 @router.get(

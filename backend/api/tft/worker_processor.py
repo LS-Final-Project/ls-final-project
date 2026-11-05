@@ -17,8 +17,10 @@ import itertools
 import json
 import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import date
 from decimal import Decimal
+from threading import RLock, local
 from typing import Any, Literal
 from uuid import UUID
 
@@ -34,6 +36,8 @@ from backend.api.tft.partners.loader import PROFILE_FAMILIES, load_document_pool
 from backend.api.tft.partners.schemas import Condition, PartnerProfile
 from backend.api.tft.rfp import (
     comparison,
+    diagram_artifacts,
+    diagram_repository,
     draft_exports,
     draft_repository,
     draft_rewrite,
@@ -49,13 +53,19 @@ from backend.api.tft.rfp.storage import (
     document_store,
     read_document,
 )
+from backend.engine.documents import vision
 from backend.engine.documents.router import extract
 from backend.engine.rfp.clauses import ClauseTree, build_clause_tree, is_korean_section
+from backend.engine.rfp.context_graph import ContextProvider, Stage, create_gemini_context_provider
+from backend.engine.rfp.context_graph import fake_provider as fake_context_provider
+from backend.engine.rfp.context_models import ContextProposal
 from backend.engine.rfp.questions import QuestionDraft, generate_question_drafts
 from backend.engine.rfp.requirements import (
     ExtractedRequirement,
+    ExtractionInput,
     Operator,
     ResponseSchema,
+    SectionResult,
     StandardSystem,
     build_inputs,
     extract_section,
@@ -66,8 +76,8 @@ from backend.shared.settings import Settings
 
 Provider = Callable[[str], Generation]
 ZERO = {"requirements": 0, "proposals": 0}
-# 요구를 뽑는 문서 종류. 도면·자료표·메모 PDF는 처리 단계에서 읽지 않는다.
-SPEC_KINDS = ("RFP_SPEC", "ADDENDUM")
+# 도면은 별도 연결 후보와 명시된 OCR 문자만 보존한다. 자료표·메모 PDF는 포함하지 않는다.
+SPEC_KINDS = ("RFP_SPEC", "ADDENDUM", "DRAWING")
 # 접수 입력 판본(input_version)을 찾을 때 조합을 다 볼 문서 판본 수 상한.
 MAX_VERSIONS = 12
 
@@ -80,6 +90,7 @@ class ProcessorSettings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(env_prefix="TFT_", env_file=".env", extra="ignore")
+    extraction_concurrency: int = Field(default=3, ge=1, le=3)
     extraction_provider: Literal["gemini", "fake"] = "gemini"
     extraction_model: str = Field(default="gemini-3.6-flash", pattern=r"^[a-zA-Z0-9._-]+$")
     extraction_max_output_tokens: int = Field(default=16384, ge=1, le=65536)
@@ -88,6 +99,9 @@ class ProcessorSettings(BaseSettings):
     draft_rewrite_model: str = Field(default="gemini-3.6-flash", pattern=r"^[a-zA-Z0-9._-]+$")
     draft_rewrite_max_output_tokens: int = Field(default=8192, ge=1, le=65536)
     draft_rewrite_timeout_ms: int = Field(default=120000, ge=1000, le=300000)
+    # KAN-224 회신 값 AI 읽기(rfp.reply_read). 공급자는 추출 공급자(fake·gemini)를 따른다.
+    reply_read_model: str = Field(default="gemini-3.6-flash", pattern=r"^[a-zA-Z0-9._-]+$")
+    reply_read_max_output_tokens: int = Field(default=2048, ge=256, le=65536)
 
 
 def fake_provider(_prompt: str) -> Generation:
@@ -157,7 +171,35 @@ def rewrite_provider(config: ProcessorSettings) -> Provider:
 
         if client is None:
             client = create_client(ai)
-        return generate(client, ai, text, response_schema=RewriteOutput)
+        # 글을 다듬는 일이라 깊은 추론이 필요 없다. 기본 thinking은 호출 비용의 대부분이었다(D21 실측).
+        return generate(client, ai, text, response_schema=RewriteOutput, thinking_level="LOW")
+
+    return provide
+
+
+def reply_provider(config: ProcessorSettings) -> Provider:
+    """회신 값 읽기 공급자. 실제 작업이 부를 때만 클라이언트를 만든다. fake는 값을 찾지 못하는 고정 응답이다."""
+    if config.extraction_provider == "fake":
+        return lambda _prompt: Generation(
+            text='{"value": null}', usage=Usage(), model_version=None, finish_reasons=[]
+        )
+    ai = AISettings(
+        gemini_model=config.reply_read_model,
+        gemini_max_output_tokens=config.reply_read_max_output_tokens,
+        gemini_transient_retries=0,
+    )
+    check_lease(ai, TftWorkerSettings().lease_seconds)
+    client = None
+
+    def provide(text: str) -> Generation:
+        nonlocal client
+        from backend.engine.rfp.reply_values import AiOutput
+        from backend.shared.ai import create_client, generate
+
+        if client is None:
+            client = create_client(ai)
+        # 짧은 회신에서 값 하나를 고르는 일이라 깊은 추론이 필요 없다.
+        return generate(client, ai, text, response_schema=AiOutput, thinking_level="LOW")
 
     return provide
 
@@ -180,12 +222,32 @@ def build(settings: Settings) -> Processor:
         # 잘못된 조합이면 모델을 부르기 전에 멈춘다(worker는 처리 함수 load 실패로 작업을 FAILED로 남긴다).
         check_lease(ai, TftWorkerSettings().lease_seconds)
         provider = gemini_provider(ai)
+    context_provider: ContextProvider | None = fake_context_provider
+    if config.extraction_provider == "gemini":
+        # SDK creation is lazy; exports and previously completed jobs do not create a model client.
+        context_client: ContextProvider | None = None
+
+        async def organize(stage: Stage, payload: dict[str, Any]) -> ContextProposal:
+            nonlocal context_client
+            if context_client is None:
+                context_client = create_gemini_context_provider(extraction_settings(config))
+            return await context_client(stage, payload)
+
+        context_provider = organize
     return make_processor(
         settings,
         provider=provider,
         store=document_store(DocumentStorageSettings()),
         draft_provider=rewrite_provider(config),
         rewrite_model=config.draft_rewrite_model,
+        reply_provider=reply_provider(config),
+        extraction_concurrency=config.extraction_concurrency,
+        context_provider=context_provider,
+        image_provider=(
+            vision.gemini_image_provider(extraction_settings(config))
+            if config.extraction_provider == "gemini"
+            else None
+        ),
     )
 
 
@@ -198,6 +260,10 @@ def make_processor(
     today: Callable[[], date] = date.today,
     draft_provider: Provider | None = None,
     rewrite_model: str = "gemini-3.6-flash",
+    extraction_concurrency: int = 3,
+    image_provider: Callable[[vision.ImageInput], Generation] | None = None,
+    context_provider: ContextProvider | None = None,
+    reply_provider: Provider | None = None,
 ) -> Processor:
     """처리 함수를 만든다(검사는 추출 공급자·원문 폴더를 바꿔 끼운다).
 
@@ -214,15 +280,43 @@ def make_processor(
     own = list(products) if products is not None else comparison.load_own_products()
 
     def processor(job: TftJob, emit: Emit) -> dict[str, Any] | None:
+        from backend.api.tft.rfp.context_worker import process_context
+
+        if job.kind == "rfp.context":
+            if context_provider is None:
+                raise ValueError("TFT_CONTEXT_PROVIDER_MISSING")
+            return asyncio.run(process_context(settings, job, emit, context_provider))
         if job.kind == "rfp.draft_rewrite":
             if draft_provider is None:
                 raise ValueError("TFT_DRAFT_REWRITE_PROVIDER_MISSING")
             return asyncio.run(rewrite_job(settings, job, emit, draft_provider, rewrite_model))
         if job.kind == "rfp.export":
             return asyncio.run(export_job(settings, job, emit, store))
+        if job.kind == "rfp.reply_read":
+            if reply_provider is None:
+                raise ValueError("TFT_REPLY_READ_PROVIDER_MISSING")
+            return asyncio.run(reply_job(settings, job, reply_provider))
         if job.kind == "rfp.annotate":
             raise ValueError("TFT_ANNOTATION_UNAVAILABLE")
-        return asyncio.run(process(settings, job, emit, provider, store, own, today()))
+        result = asyncio.run(
+            process(
+                settings,
+                job,
+                emit,
+                provider,
+                store,
+                own,
+                today(),
+                extraction_concurrency,
+                image_provider,
+            )
+        )
+        if context_provider is not None:
+            organized = asyncio.run(
+                process_context(settings, job, emit, context_provider, check_input=False)
+            )
+            result["needs_review"] = bool(result.get("needs_review") or organized["needs_review"])
+        return result
 
     return processor
 
@@ -235,6 +329,16 @@ async def rewrite_job(
         dsn, row_factory=dict_row, autocommit=True
     ) as conn:
         return await draft_rewrite.process(conn, job, emit, provider, model)
+
+
+async def reply_job(settings: Settings, job: TftJob, provider: Provider) -> dict[str, Any]:
+    from backend.api.tft.rfp import reply_read
+
+    dsn = settings.database_url.get_secret_value() if settings.database_url else ""
+    async with await psycopg.AsyncConnection.connect(
+        dsn, row_factory=dict_row, autocommit=True
+    ) as conn:
+        return await reply_read.process(conn, job, provider)
 
 
 async def export_job(
@@ -272,11 +376,31 @@ def sections_of(tree: ClauseTree) -> list[str]:
         if no not in groups | leaves:
             continue
         parent = parents[no]
+        # 한글 장 번호와 독립된 1.1 절은 제8장.7 같은 앞 항목의 번호 묶음에 포함되지 않는다.
+        if parent is not None and not no.startswith(parent + "."):
+            parent = None
         while parent is not None and parent not in groups:
             parent = parents.get(parent)
         if parent is None:
             out.append(no)
     return out
+
+
+def document_inputs(tree: ClauseTree) -> tuple[list[ExtractionInput], bool]:
+    """모델 호출 전에 문서 입력을 검사한다. 전절 거절은 처리 완료로 저장하지 않는다."""
+    inputs: list[ExtractionInput] = []
+    skipped = False
+    for section in sections_of(tree):
+        try:
+            [item] = build_inputs(tree, [section])
+        except ValueError:
+            skipped = True
+            continue
+        if item.clauses:
+            inputs.append(item)
+    if not inputs:
+        raise ValueError("TFT_DOCUMENT_EXTRACTION_INPUT_INVALID")
+    return inputs, skipped
 
 
 # 질문 초안 종류 → 질문 유형. 승인 절차는 demo_cases(2.1 제조사 목록)와 같이 조건 누락으로 본다.
@@ -309,8 +433,12 @@ MINIMUM_RATINGS = frozenset(
 
 
 def rating_operator(item: ExtractedRequirement) -> Operator:
-    """비교 연산자. 하한 정격(MINIMUM_RATINGS)의 LTE는 GTE로 바로잡는다. 원문·저장 값은 그대로다(KAN-208)."""
-    if item.operator == "LTE" and item.attribute_key in MINIMUM_RATINGS:
+    """비교 연산자. 하한 정격(MINIMUM_RATINGS)의 LTE·EQ는 GTE로 바로잡는다. 원문·저장 값은 그대로다(KAN-208).
+
+    정격은 높을수록 만족하므로 "정격 전압 11 kV"(계통 11 kV)도 12 kV·25.8 kV 제품이 충족이다. EQ로 비교하면
+    값이 다르다고 사양 차이가 났다(40444 P26-0003). 허용 오차가 붙은 EQ는 tolerance_range가 범위로 바꾼다.
+    """
+    if item.operator in ("LTE", "EQ") and item.attribute_key in MINIMUM_RATINGS:
         return "GTE"
     return item.operator
 
@@ -373,7 +501,10 @@ def tolerance_range(item: ExtractedRequirement) -> tuple[Operator, str | None]:
 
 
 def to_comparison(
-    item: ExtractedRequirement, systems: dict[SectionKey, StandardSystem] | None = None
+    item: ExtractedRequirement,
+    systems: dict[SectionKey, StandardSystem] | None = None,
+    voltages: Mapping[str, Decimal] | None = None,
+    insulations: Mapping[str, comparison.Insulation] | None = None,
 ) -> comparison.Requirement:
     """추출 요구 → 자사 비교 입력. 매핑 규칙은 이 함수 한 곳에만 둔다.
 
@@ -386,6 +517,10 @@ def to_comparison(
         item: 추출 요구.
         systems: 같은 문서의 절별 규격 체계(section_systems). 요구 체계가 비어 있는 하한 정격(MINIMUM_RATINGS)만
             이어받는다(KAN-208).
+        voltages: 같은 문서의 설비별 최고 전압(comparison.equipment_voltages). 전압 등급이 다른 자사 제품을 후보에서
+            뺀다(KAN-217).
+        insulations: 같은 문서의 설비별 변압기 절연 형식(comparison.equipment_insulations). 건식 요구에 유입 제품을
+            쓰지 않는다(KAN-217).
 
     Returns:
         comparison.Requirement: 비교 입력.
@@ -418,6 +553,20 @@ def to_comparison(
         canonical_value=item.canonical_value,
         task=item.task,
         kind=item.kind,
+        equipment_voltage_kv=(voltages or {}).get(comparison.equipment_key(item.equipment)),
+        equipment_insulation=(insulations or {}).get(comparison.equipment_key(item.equipment)),
+    )
+
+
+def item_insulations(items: Iterable[ExtractedRequirement]) -> dict[str, comparison.Insulation]:
+    """한 문서 요구들의 설비별 변압기 절연 형식(to_comparison의 insulations)."""
+    return comparison.equipment_insulations((i.equipment, i.attribute_key, i.value) for i in items)
+
+
+def item_voltages(items: Iterable[ExtractedRequirement]) -> dict[str, Decimal]:
+    """한 문서 요구들의 설비별 최고 전압(to_comparison의 voltages)."""
+    return comparison.equipment_voltages(
+        (i.equipment, i.attribute_key, i.value, i.unit) for i in items
     )
 
 
@@ -492,35 +641,149 @@ def pick_documents(versions: Sequence[Mapping[str, Any]], wanted: str) -> list[M
     raise ValueError("TFT_WORKER_INPUT_NOT_FOUND")
 
 
-def lease_keeping(provider: Provider, emit: Emit) -> tuple[Provider, list[BaseException]]:
-    """모델 호출이 끝날 때마다 extract 진행을 남겨 lease를 연장하는 공급자.
+_FOCUS_DROP = re.compile(r"[^0-9A-Za-z가-힣 .,()·/~-]")
 
-    절 하나가 여러 번 부를 수 있어(긴 절 나눠 부르기·빠진 문장 보완) 절마다 남기면 lease를 넘을 수 있다. 호출마다
-    남기면 사이 간격은 호출 하나(gemini_timeout_ms×(재시도+1)+대기)다. emit이 올린 취소·소유권 상실은 엔진이
-    삼키지 않게 담아 두고, 그 뒤 호출은 하지 않는다.
 
-    Args:
-        provider: 추출 모델 호출.
-        emit: 단계 보고.
+def focus(kind: str, text: str, n: int | None = None) -> dict[str, Any]:
+    """진행 화면 한 줄의 재료(KAN-232). 허용 문자만 남겨 40자로 자른다(tft_worker.FOCUS_LABEL)."""
+    label = " ".join(_FOCUS_DROP.sub(" ", text).split())[:40].strip() or "문서"
+    return {"kind": kind, "label": label} | ({} if n is None else {"n": n})
 
-    Returns:
-        tuple: (감싼 공급자, 멈춤 예외 목록 — 비어 있지 않으면 호출자가 올린다).
+
+def section_label(item: Any) -> str:
+    """절 번호와 제목(예 "제7조 건식 변압기"). 시험의 가짜 입력은 그 값 자체를 쓴다.
+
+    한국어 "제n조 제목" 머리는 제목 칸이 비고 머리 조항 본문이 제목이다(build_inputs가 맨 앞에 넣는다).
+    """
+    no = getattr(item, "section_no", item)
+    title = getattr(item, "section_title", None)
+    if not title:
+        head = next(iter(getattr(item, "clauses", None) or []), None)
+        if head is not None and head.clause_no == no and len(head.text.strip()) <= 30:
+            title = head.text.strip()
+    return f"{no} {title or ''}"
+
+
+def lease_keeping(
+    provider: Provider, emit: Emit, reading: Callable[[], str | None] = lambda: None
+) -> tuple[Provider, list[BaseException]]:
+    """Serialize lease events and stop coverage calls after ownership/accounting loss.
+
+    reading: 이 호출이 읽는 절(진행 화면 한 줄, KAN-232). 새 이벤트를 만들지 않고 호출마다 남기는 진행에 싣는다.
     """
     stopped: list[BaseException] = []
+    lock = RLock()
 
     def tracked(prompt: str) -> Generation:
-        if stopped:
-            raise stopped[0]
+        with lock:
+            if stopped:
+                raise stopped[0]
         try:
             return provider(prompt)
+        except BaseException as error:
+            # Ordinary provider errors retain the engine's typed fallback contract.
+            if not isinstance(error, Exception):
+                with lock:
+                    if not stopped:
+                        stopped.append(error)
+            raise
         finally:
-            try:
-                emit({"step": "extract"})
-            except BaseException as error:
-                stopped.append(error)
-                raise
+            with lock:
+                if not stopped:
+                    try:
+                        label = reading()
+                        emit(
+                            {"step": "extract"}
+                            | ({} if label is None else {"focus": focus("section", label)})
+                        )
+                    except BaseException as error:
+                        stopped.append(error)
+                        raise
 
     return tracked, stopped
+
+
+def extract_sections(
+    inputs: Sequence[ExtractionInput], provider: Provider, emit: Emit, *, concurrency: int = 3
+) -> list[SectionResult]:
+    """At most three sections in flight; drain started calls before returning/raising.
+
+    Each section keeps its existing sequential splitting/coverage rules. Only the
+    independent sections overlap. Storage order is input order, never completion order.
+    """
+    if type(concurrency) is not int or not 1 <= concurrency <= 3:
+        raise ValueError("INVALID_EXTRACTION_CONCURRENCY")
+    lock = RLock()
+
+    def serialized_emit(values: dict[str, Any]) -> None:
+        with lock:
+            emit(values)
+
+    current = local()
+    tracked, stopped = lease_keeping(
+        provider, serialized_emit, lambda: getattr(current, "label", None)
+    )
+    results: dict[int, SectionResult] = {}
+    total = 0
+
+    def run(index: int) -> SectionResult:
+        with lock:
+            if stopped:
+                raise stopped[0]
+        try:
+            current.label = section_label(inputs[index])
+            result = extract_section(inputs[index], tracked)
+            with lock:
+                if stopped:
+                    raise stopped[0]
+            return result
+        except BaseException as error:
+            with lock:
+                if not stopped:
+                    stopped.append(error)
+            raise
+
+    # shutdown(wait=True) drains network calls and their cost settlements on failure.
+    with ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix="rfp-section") as pool:
+        next_index = 0
+        pending = {}
+        while next_index < min(concurrency, len(inputs)):
+            pending[pool.submit(run, next_index)] = next_index
+            next_index += 1
+        try:
+            while pending:
+                done, _ = wait(pending, return_when=FIRST_COMPLETED)
+                for future in done:
+                    index = pending.pop(future)
+                    result = future.result()
+                    with lock:
+                        if stopped:
+                            raise stopped[0]
+                        results[index] = result
+                        total += len(result.requirements)
+                        serialized_emit(
+                            {
+                                "step": "extract",
+                                "counts": counts(total),
+                                "focus": focus(
+                                    "found", section_label(inputs[index]), len(result.requirements)
+                                ),
+                            }
+                        )
+                with lock:
+                    if stopped:
+                        raise stopped[0]
+                    while len(pending) < concurrency and next_index < len(inputs):
+                        pending[pool.submit(run, next_index)] = next_index
+                        next_index += 1
+        except BaseException as error:
+            with lock:
+                if not stopped:
+                    stopped.append(error)
+            for future in pending:
+                future.cancel()
+            raise
+    return [results[index] for index in range(len(inputs))]
 
 
 def counts(requirements: int) -> dict[str, int]:
@@ -666,6 +929,71 @@ def legacy_grade(
     )
 
 
+async def recompare_stored(
+    conn: psycopg.AsyncConnection[dict[str, Any]],
+    project_id: UUID,
+    skip: Iterable[UUID] = (),
+) -> int:
+    """다시 채점: 저장된 요구 전부를 자사 사양과 다시 비교한다(모델 없음, 요구별 다시 비교와 같은 함수).
+
+    사람이 판단을 정하지 않은 요구(AI·시스템 판본, 결정 기록 없음)는 판단이 바뀌면 새 판본(system_record)과 그 판본의
+    보완 선택지를 쓴다. 사람이 정한 요구는 판단을 두고 비교 결과·자사 보증값만 갱신한다(바꾸려면 요구별 다시 비교의
+    변경 제안으로). 협력사 재채점·초안은 이어지는 regrade_stored·drafts.generate가 새 판본으로 한다.
+
+    Returns:
+        int: 판단을 새 판본으로 바꾼 요구 수.
+    """
+    from pydantic import ValidationError
+
+    from backend.api.tft.rfp import workflow
+
+    skipped = set(skip)
+    human = await repository.human_owned_requirements(conn, project_id)
+    products = comparison.load_own_products()
+    changed = 0
+    for row in await repository.stored_grading_requirements(conn, project_id):
+        if row["requirement_id"] in skipped:
+            continue
+        try:
+            item = stored_extraction(row)
+        except ValidationError:
+            continue
+        if item is None:
+            continue
+        outcome = await workflow.stored_outcome(conn, project_id, row, item, products)
+        target = row
+        judged = (row["status"], row["reason"], list(row["unresolved"]))
+        if row["requirement_id"] not in human and judged != (
+            outcome.status,
+            outcome.reason,
+            list(outcome.unresolved),
+        ):
+            version = await repository.insert_system_version(
+                conn,
+                row,
+                status=outcome.status,
+                reason=outcome.reason,
+                unresolved=outcome.unresolved,
+            )
+            target = {**row, "version": version}
+            options = supplement.options_for(
+                outcome, "UNSTATED", designated=item.designated_model is not None
+            )
+            for option in options.options:
+                await repository.insert_option(
+                    conn,
+                    row["requirement_id"],
+                    option.model_dump(),
+                    deficiency_cause=options.deficiency_cause,
+                    customer_permission=options.customer_permission,
+                    data_origin=row["data_origin"],
+                    requirement_version=version,
+                )
+            changed += 1
+        await workflow.store_outcome(conn, target, item, outcome)
+    return changed
+
+
 async def regrade_stored(
     conn: psycopg.AsyncConnection[dict[str, Any]],
     project_id: UUID,
@@ -715,6 +1043,18 @@ async def regrade_stored(
         _, grades = grading.grade_candidate(profile, requirements, context, reference_date)
         for grade in grades:
             row = by_id[grade.requirement_id]
+            if is_ocr(row.get("clause_no") or ""):
+                grade = grade.model_copy(
+                    update={
+                        "grade": "REVIEW" if grade.grade == "MANDATORY_CONFIRMED" else grade.grade,
+                        "reasons": [*grade.reasons, "이미지 전사 원문 확인 필요"],
+                        "mandatory_check": grade.mandatory_check.model_copy(
+                            update={
+                                "unknown": [*grade.mandatory_check.unknown, "ocr_source_review"]
+                            }
+                        ),
+                    }
+                )
             await repository.insert_grade(
                 conn,
                 project_id=project_id,
@@ -747,6 +1087,129 @@ async def regrade_stored(
     return not profiles or bool(legacy)
 
 
+def is_ocr(clause_no: str) -> bool:
+    return clause_no.startswith(("OCR-DOCX-", "OCR-PDF-P"))
+
+
+def image_comparison_review(
+    item: ExtractedRequirement, result: comparison.Outcome
+) -> comparison.Outcome:
+    """OCR quotes match a transcription, not verified source glyphs; never auto-confirm."""
+    if not is_ocr(item.clause_no):
+        return result
+    note = "이미지 전사 원문 확인 필요"
+    return result.model_copy(
+        update={
+            "status": "CONDITIONAL" if result.status == "EVIDENCE_FOUND" else result.status,
+            "reason": f"{note}. {result.reason}",
+            "unresolved": [*result.unresolved, note],
+            "next_owner": "TECH",
+            "candidates": [
+                candidate.model_copy(
+                    update={
+                        "status": "CONDITIONAL"
+                        if candidate.status == "EVIDENCE_FOUND"
+                        else candidate.status,
+                        "unresolved": [*candidate.unresolved, note],
+                        "comparable": False
+                        if candidate.status == "EVIDENCE_FOUND"
+                        else candidate.comparable,
+                        "result": "NOT_COMPARABLE"
+                        if candidate.status == "EVIDENCE_FOUND"
+                        else candidate.result,
+                    }
+                )
+                for candidate in result.candidates
+            ],
+        }
+    )
+
+
+def parse_with_images(
+    data: bytes,
+    mime: str,
+    image_provider: Callable[[vision.ImageInput], Generation] | None,
+    emit: Emit,
+    document_version_id: str,
+) -> tuple[ClauseTree, bool]:
+    document = extract(data, mime=mime)
+    tree = build_clause_tree(document)
+    plan = vision.image_inputs(data, document)
+    return apply_image_plan(tree, plan, image_provider, emit, document_version_id)
+
+
+def apply_image_plan(
+    tree: ClauseTree,
+    plan: vision.VisionPlan,
+    image_provider: Callable[[vision.ImageInput], Generation] | None,
+    emit: Emit,
+    document_version_id: str,
+) -> tuple[ClauseTree, bool]:
+    result = transcribe_image_plan(plan, image_provider, emit, document_version_id)
+    return vision.append_ocr_clauses(tree, result), bool(result.items or result.skipped)
+
+
+def transcribe_image_plan(
+    plan: vision.VisionPlan,
+    image_provider: Callable[[vision.ImageInput], Generation] | None,
+    emit: Emit,
+    document_version_id: str,
+) -> vision.VisionResult:
+    """Retain the observations for source preservation without changing the legacy parse tuple."""
+    if not plan.inputs and not plan.skipped:
+        return vision.VisionResult()
+    if image_provider is None:
+        result = vision.VisionResult(
+            skipped=[
+                *plan.skipped,
+                *[
+                    vision.VisionIssue(item.source_id, "OCR_PROVIDER_DISABLED")
+                    for item in plan.inputs
+                ],
+            ]
+        )
+    else:
+
+        def tracked(item: vision.ImageInput) -> Generation:
+            # Check ownership before each image and after a possibly long paid call.
+            emit(
+                {
+                    "step": "parse",
+                    "document_version_id": document_version_id,
+                    "focus": focus("ocr", item.location),
+                }
+            )
+            try:
+                return image_provider(item)
+            finally:
+                emit({"step": "parse", "document_version_id": document_version_id})
+
+        result = vision.transcribe(plan, tracked)
+    return result
+
+
+def drawing_inputs(
+    kind: str, tree: ClauseTree, observations: vision.VisionResult
+) -> tuple[list[ExtractionInput], bool]:
+    """Only a validated graph-only DRAWING may have zero textual requirement inputs.
+
+    Existing malformed/native sections and all specification documents still use the
+    normal extraction-input gate; topology is never turned into text requirements.
+    """
+    if (
+        kind == "DRAWING"
+        and not sections_of(tree)
+        and any(
+            row.diagram is not None
+            and row.diagram.diagram_type == "SINGLE_LINE"
+            and bool(row.diagram.nodes)
+            for row in observations.items
+        )
+    ):
+        return [], True
+    return document_inputs(tree)
+
+
 async def process(
     settings: Settings,
     job: TftJob,
@@ -755,6 +1218,8 @@ async def process(
     store: DocumentStore | None,
     products: Sequence[comparison.Product],
     today: date,
+    extraction_concurrency: int = 3,
+    image_provider: Callable[[vision.ImageInput], Generation] | None = None,
 ) -> dict[str, Any]:
     """rfp.process 한 번(단계 7개).
 
@@ -785,47 +1250,92 @@ async def process(
         # parse: 아직 처리하지 않은 판본만 원문을 읽는다. 조항은 여기서 쓰지 않고 compare 트랜잭션에서 요구와 함께
         # 쓴다. 그래서 조항이 있으면 그 판본은 끝까지 처리된 것이다(요구 0건 문서 포함).
         parsed: list[tuple[Mapping[str, Any], ClauseTree, dict[str, Any]]] = []
+        planned: list[tuple[Mapping[str, Any], ClauseTree, vision.VisionPlan]] = []
+        image_manifests: dict[UUID, dict[str, Any]] = {}
         for document in documents:
-            if not await repository.document_processed(conn, document["id"]):
+            processed = await repository.document_processed(conn, document["id"])
+            previous = await diagram_repository.read_diagrams(conn, document["id"])
+            if previous is not None:
+                if previous["source_sha256"] != document["sha256"]:
+                    raise ValueError("TFT_DIAGRAM_SOURCE_MISMATCH")
+                needs_review |= bool(
+                    previous["payload"]["items"] or previous["payload"]["warnings"]
+                )
+                processed = True
+            if not processed:
                 if store is None:
                     raise ValueError("TFT_DOCUMENT_ROOT_MISSING")
                 data = await read_document(
                     store, document["storage_key"], document["sha256"], document["size"]
                 )
-                tree = build_clause_tree(extract(data, mime=document["mime"]))
-                # 조항 번호 → 조항 행. compare 트랜잭션에서 채운다(추출 요구가 같은 dict를 가리킨다).
-                parsed.append((document, tree, {}))
+                native = await asyncio.to_thread(extract, data, mime=document["mime"])
+                tree = build_clause_tree(native)
+                plan = await asyncio.to_thread(vision.image_inputs, data, native)
+                planned.append((document, tree, plan))
             emit({"step": "parse", "document_version_id": str(document["id"])})
 
-        # extract: 절마다 모델을 부른다. 너무 긴 절·실패한 절은 건너뛰고 검토가 필요하다고 표시한다.
+        # Native inputs across all documents are checked before even the first OCR call.
+        # An image-only document may obtain its first usable section from transcription.
+        for _, tree, plan in planned:
+            if sections_of(tree) or not plan.inputs:
+                _, skipped = document_inputs(tree)
+                needs_review |= skipped
+
+        prepared = []
+        for document, tree, plan in planned:
+            observations = await asyncio.to_thread(
+                transcribe_image_plan, plan, image_provider, emit, str(document["id"])
+            )
+            tree = vision.append_ocr_clauses(tree, observations)
+            needs_review |= bool(observations.items or observations.skipped)
+            clauses: dict[str, Any] = {}
+            parsed.append((document, tree, clauses))
+            inputs, skipped = drawing_inputs(document["kind"], tree, observations)
+            needs_review |= skipped
+            if store is None:  # Already checked before reading each planned document.
+                raise ValueError("TFT_DOCUMENT_ROOT_MISSING")
+            image_manifests[document["id"]] = await diagram_artifacts.preserve_images(
+                store, document["id"], plan, observations
+            )
+            prepared.append((document, clauses, inputs))
+
+        # extract: 절마다 모델을 부른다. 일부 긴 절·실패한 절은 검토가 필요하다고 표시한다.
         # 절마다 진행을 남겨 lease를 연장한다(절이 많으면 모델 호출 중 lease가 끝나 다른 worker가 다시 부르지 않게).
         extracted: list[tuple[Mapping[str, Any], dict[str, Any], ExtractedRequirement]] = []
-        called = False
-        tracked, stopped = lease_keeping(provider, emit)
-        for document, tree, clauses in parsed:
-            for section in sections_of(tree):
-                try:
-                    [section_input] = build_inputs(tree, [section])
-                except ValueError:
-                    needs_review = True
-                    continue
-                result = await asyncio.to_thread(extract_section, section_input, tracked)
-                if stopped:
-                    # extract_section은 공급자 예외를 결과 코드로 바꾸므로 취소·소유권 상실을 여기서 다시 올린다.
-                    raise stopped[0]
-                # 요구별 검토 표시(허용 오차 불일치·목록 밖 키, KAN-185)도 작업 요약에 모은다.
-                needs_review |= result.outcome != "VALID" or any(
-                    r.needs_review for r in result.requirements
+        sections = [
+            (document, clauses, item) for document, clauses, inputs in prepared for item in inputs
+        ]
+        results = await asyncio.to_thread(
+            extract_sections,
+            [item for _, _, item in sections],
+            provider,
+            emit,
+            concurrency=extraction_concurrency,
+        )
+        for (document, clauses, _), result in zip(sections, results, strict=True):
+            needs_review |= result.outcome != "VALID" or any(
+                r.needs_review for r in result.requirements
+            )
+            extracted += [
+                (
+                    document,
+                    clauses,
+                    r.model_copy(update={"needs_review": True}) if is_ocr(r.clause_no) else r,
                 )
-                extracted += [(document, clauses, r) for r in result.requirements]
-                emit({"step": "extract", "counts": counts(len(extracted))})
-                called = True
+                for r in result.requirements
+            ]
         total = len(extracted)
-        if not called:
+        if not sections:
             emit({"step": "extract", "counts": counts(total)})
 
         # search: 문서 검색기 연결 전에는 요구마다 제품 마스터의 같은 계열 후보가 범위다(compare_in_family, trace에 남음).
-        emit({"step": "search", "counts": counts(total)})
+        emit(
+            {
+                "step": "search",
+                "counts": counts(total),
+                "focus": focus("compare", "자사 제품", total),
+            }
+        )
 
         # 요구 장비 계열의 자사 후보 안에서만 비교한다(KAN-199). 계열을 모르면 비교하지 않는다.
         # 절별 규격 체계는 문서마다 따로 본다(다른 문서의 같은 절 번호와 섞지 않는다).
@@ -833,9 +1343,27 @@ async def process(
             id(document): section_systems(r for d, _, r in extracted if d is document)
             for document, _, _ in extracted
         }
+        voltages_by_document = {
+            id(document): item_voltages(r for d, _, r in extracted if d is document)
+            for document, _, _ in extracted
+        }
+        insulations_by_document = {
+            id(document): item_insulations(r for d, _, r in extracted if d is document)
+            for document, _, _ in extracted
+        }
         outcomes = [
-            comparison.compare_in_family(
-                to_comparison(r, systems_by_document[id(document)]), r.equipment_family, products
+            image_comparison_review(
+                r,
+                comparison.compare_in_family(
+                    to_comparison(
+                        r,
+                        systems_by_document[id(document)],
+                        voltages_by_document[id(document)],
+                        insulations_by_document[id(document)],
+                    ),
+                    r.equipment_family,
+                    products,
+                ),
             )
             for document, _, r in extracted
         ]
@@ -849,6 +1377,9 @@ async def process(
                 await conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
                 for document, tree, clauses in parsed:
                     clauses.update(await repository.store_clauses(conn, document, tree.clauses))
+                    await diagram_repository.store_diagrams(
+                        conn, document["id"], document["sha256"], image_manifests[document["id"]]
+                    )
                 ids = await store_requirements(conn, job.project_id, extracted, outcomes)
                 await store_question_drafts(conn, job, parsed, extracted, ids)
                 emit({"step": "compare", "counts": counts(total)})
@@ -868,6 +1399,7 @@ async def process(
                 emit({"step": "supplement", "counts": counts(total)})
                 # 이미 처리한 문서도 모델 없이 현행 저장 요구를 재채점한다.
                 if await draft_repository.generated(conn, job.project_id, job.job_id) is None:
+                    await recompare_stored(conn, job.project_id, ids)
                     needs_review |= await regrade_stored(
                         conn,
                         job.project_id,

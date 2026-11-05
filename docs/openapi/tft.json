@@ -1,6 +1,75 @@
 {
   "components": {
     "schemas": {
+      "AnalysisJob": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_user_id": {
+            "format": "uuid",
+            "title": "Actor User Id",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "rfp.process",
+              "rfp.context"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "kind",
+          "requested_at",
+          "actor_user_id"
+        ],
+        "title": "AnalysisJob",
+        "type": "object"
+      },
+      "AnalysisOverview": {
+        "additionalProperties": false,
+        "properties": {
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/AnalysisJob"
+            },
+            "title": "Jobs",
+            "type": "array"
+          },
+          "process_mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "regrade",
+                  "extract"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Process Mode"
+          }
+        },
+        "required": [
+          "jobs",
+          "process_mode"
+        ],
+        "title": "AnalysisOverview",
+        "type": "object"
+      },
       "AnnotationProcess": {
         "additionalProperties": false,
         "properties": {
@@ -145,6 +214,223 @@
           "evidence"
         ],
         "title": "AttributeMatch",
+        "type": "object"
+      },
+      "BBox": {
+        "properties": {
+          "x_max": {
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "X Max",
+            "type": "number"
+          },
+          "x_min": {
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "X Min",
+            "type": "number"
+          },
+          "y_max": {
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Y Max",
+            "type": "number"
+          },
+          "y_min": {
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Y Min",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x_min",
+          "y_min",
+          "x_max",
+          "y_max"
+        ],
+        "title": "BBox",
+        "type": "object"
+      },
+      "BulkDecisionItem": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "confirm_met",
+              "record_deviation",
+              "request_check",
+              "add_query",
+              "select_partner",
+              "ask_rnd",
+              "assign",
+              "change_verdict",
+              "undo",
+              "review_confirm",
+              "review_return",
+              "exclude_requirement",
+              "restore_requirement",
+              "confirm_drawing"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "candidate_codes": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "title": "Candidate Codes",
+            "type": "array"
+          },
+          "decision_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Id"
+          },
+          "holder": {
+            "anyOf": [
+              {
+                "enum": [
+                  "OWN",
+                  "PARTNER"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holder"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "enum": [
+                  "SALES",
+                  "TECH",
+                  "PURCHASE"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
+          "requirement_id": {
+            "format": "uuid",
+            "title": "Requirement Id",
+            "type": "string"
+          },
+          "target_dept": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Dept"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "enum": [
+                  "MET",
+                  "CONFIRM",
+                  "DEVIATION",
+                  "QUERY",
+                  "SUPPLEMENT",
+                  "ASSIGN"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verdict"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "action",
+          "requirement_id"
+        ],
+        "title": "BulkDecisionItem",
+        "type": "object"
+      },
+      "BulkDecisionRequest": {
+        "additionalProperties": false,
+        "description": "\uac19\uc740 \ud504\ub85c\uc81d\ud2b8\uc758 \uacb0\uc815 \uc5ec\ub7ec \uac74\uc744 \ud55c \ud2b8\ub79c\uc7ad\uc158\uc73c\ub85c. \ud55c \uac74\uc774\ub77c\ub3c4 \uc2e4\ud328\ud558\uba74 \ubaa8\ub450 \uc800\uc7a5\ud558\uc9c0 \uc54a\ub294\ub2e4.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BulkDecisionItem"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "BulkDecisionRequest",
+        "type": "object"
+      },
+      "BulkDecisionResult": {
+        "additionalProperties": false,
+        "properties": {
+          "batch_id": {
+            "format": "uuid",
+            "title": "Batch Id",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DecisionResult"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "batch_id",
+          "items"
+        ],
+        "title": "BulkDecisionResult",
         "type": "object"
       },
       "CandidateGrade": {
@@ -625,6 +911,670 @@
         "title": "Condition",
         "type": "object"
       },
+      "ConflictValue": {
+        "additionalProperties": false,
+        "properties": {
+          "clause_nos": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Clause Nos",
+            "type": "array"
+          },
+          "requirement_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Requirement Ids",
+            "type": "array"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "requirement_ids",
+          "clause_nos"
+        ],
+        "title": "ConflictValue",
+        "type": "object"
+      },
+      "ContextAssignment": {
+        "additionalProperties": false,
+        "properties": {
+          "additional_categories": {
+            "items": {
+              "enum": [
+                "EQUIPMENT",
+                "TASK",
+                "DELIVERABLE",
+                "INTERFACE",
+                "QUALITY",
+                "SCHEDULE",
+                "QUALIFICATION",
+                "COMMERCIAL"
+              ],
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Additional Categories",
+            "type": "array"
+          },
+          "evidence_requirement_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 80,
+            "title": "Evidence Requirement Ids",
+            "type": "array"
+          },
+          "group_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 40,
+            "title": "Group Ids",
+            "type": "array"
+          },
+          "needs_review": {
+            "default": true,
+            "title": "Needs Review",
+            "type": "boolean"
+          },
+          "primary_category": {
+            "enum": [
+              "EQUIPMENT",
+              "TASK",
+              "DELIVERABLE",
+              "INTERFACE",
+              "QUALITY",
+              "SCHEDULE",
+              "QUALIFICATION",
+              "COMMERCIAL",
+              "UNCLASSIFIED"
+            ],
+            "title": "Primary Category",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 4000,
+            "title": "Reason",
+            "type": "string"
+          },
+          "relations": {
+            "items": {
+              "$ref": "#/components/schemas/ContextRelation"
+            },
+            "maxItems": 40,
+            "title": "Relations",
+            "type": "array"
+          },
+          "requirement_id": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Requirement Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requirement_id",
+          "primary_category",
+          "reason"
+        ],
+        "title": "ContextAssignment",
+        "type": "object"
+      },
+      "ContextCorrection": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_source_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Source Fingerprint",
+            "type": "string"
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/components/schemas/ContextResult"
+          }
+        },
+        "required": [
+          "expected_version",
+          "expected_source_fingerprint",
+          "reason",
+          "result"
+        ],
+        "title": "ContextCorrection",
+        "type": "object"
+      },
+      "ContextGroup": {
+        "additionalProperties": false,
+        "properties": {
+          "diagram_source_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 40,
+            "title": "Diagram Source Ids",
+            "type": "array"
+          },
+          "entity_id": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Entity Id",
+            "type": "string"
+          },
+          "evidence_requirement_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 4000,
+            "minItems": 1,
+            "title": "Evidence Requirement Ids",
+            "type": "array"
+          },
+          "kind": {
+            "enum": [
+              "SYSTEM",
+              "EQUIPMENT",
+              "TASK",
+              "COMMON"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "needs_review": {
+            "default": true,
+            "title": "Needs Review",
+            "type": "boolean"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "site": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site"
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag"
+          }
+        },
+        "required": [
+          "entity_id",
+          "name",
+          "kind",
+          "evidence_requirement_ids"
+        ],
+        "title": "ContextGroup",
+        "type": "object"
+      },
+      "ContextIssue": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "entity_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Entity Ids",
+            "type": "array"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "requirement_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Requirement Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ContextIssue",
+        "type": "object"
+      },
+      "ContextProcess": {
+        "additionalProperties": false,
+        "description": "Reorganize existing requirements; never upload or re-extract the source.",
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "title": "ContextProcess",
+        "type": "object"
+      },
+      "ContextRelation": {
+        "additionalProperties": false,
+        "properties": {
+          "group_id": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Group Id",
+            "type": "string"
+          },
+          "relation": {
+            "enum": [
+              "SAME_EQUIPMENT",
+              "PART_OF",
+              "APPLIES_TO",
+              "RELATED"
+            ],
+            "title": "Relation",
+            "type": "string"
+          }
+        },
+        "required": [
+          "group_id",
+          "relation"
+        ],
+        "title": "ContextRelation",
+        "type": "object"
+      },
+      "ContextRequirement": {
+        "additionalProperties": false,
+        "properties": {
+          "attribute": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attribute"
+          },
+          "clause_id": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clause Id"
+          },
+          "clause_no": {
+            "maxLength": 500,
+            "title": "Clause No",
+            "type": "string"
+          },
+          "conditions": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 80,
+            "title": "Conditions",
+            "type": "array"
+          },
+          "diagram_source_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 40,
+            "title": "Diagram Source Ids",
+            "type": "array"
+          },
+          "document_version_id": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Document Version Id",
+            "type": "string"
+          },
+          "equipment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Equipment"
+          },
+          "necessity": {
+            "title": "Necessity",
+            "type": "string"
+          },
+          "quote": {
+            "maxLength": 16000,
+            "title": "Quote",
+            "type": "string"
+          },
+          "requirement_id": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Requirement Id",
+            "type": "string"
+          },
+          "section_path": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 40,
+            "title": "Section Path",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "task": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "requirement_id",
+          "version",
+          "document_version_id",
+          "clause_id",
+          "clause_no",
+          "section_path",
+          "quote",
+          "status",
+          "necessity"
+        ],
+        "title": "ContextRequirement",
+        "type": "object"
+      },
+      "ContextResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "current_source_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Current Source Fingerprint",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "provenance": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ai_draft",
+                  "human_input"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provenance"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "requirements": {
+            "items": {
+              "$ref": "#/components/schemas/ContextRequirement"
+            },
+            "title": "Requirements",
+            "type": "array"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContextResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Fingerprint"
+          },
+          "source_refs": {
+            "items": {
+              "$ref": "#/components/schemas/SourceReference"
+            },
+            "title": "Source Refs",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "NOT_ANALYZED",
+              "CURRENT",
+              "STALE"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "project_id",
+          "status",
+          "current_source_fingerprint",
+          "requirements",
+          "source_refs"
+        ],
+        "title": "ContextResponse",
+        "type": "object"
+      },
+      "ContextResult": {
+        "additionalProperties": false,
+        "properties": {
+          "assignments": {
+            "items": {
+              "$ref": "#/components/schemas/ContextAssignment"
+            },
+            "maxItems": 4000,
+            "title": "Assignments",
+            "type": "array"
+          },
+          "duplicates": {
+            "items": {
+              "$ref": "#/components/schemas/DuplicateSet"
+            },
+            "title": "Duplicates",
+            "type": "array"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/ContextGroup"
+            },
+            "maxItems": 4000,
+            "title": "Groups",
+            "type": "array"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/ContextIssue"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "outcome": {
+            "enum": [
+              "VALID",
+              "PARTIAL"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "prompt_version": {
+            "default": "rfp-context-v2",
+            "enum": [
+              "rfp-context-v1",
+              "rfp-context-v2"
+            ],
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "rfp-context-v1",
+            "default": "rfp-context-v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "value_conflicts": {
+            "items": {
+              "$ref": "#/components/schemas/ValueConflict"
+            },
+            "title": "Value Conflicts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "groups",
+          "assignments"
+        ],
+        "title": "ContextResult",
+        "type": "object"
+      },
       "CrossReference": {
         "additionalProperties": false,
         "properties": {
@@ -650,6 +1600,419 @@
           "resolved_clause_id"
         ],
         "title": "CrossReference",
+        "type": "object"
+      },
+      "DecisionGate": {
+        "additionalProperties": false,
+        "description": "\uac80\ud1a0\ubcf8 \uc800\uc7a5 \uc870\uac74\uacfc \ucc45\uc784\uc790 \ud655\uc778 \ub300\uae30(KAN-220). 0\uc774\uba74 \ud1b5\uacfc\ub2e4.",
+        "properties": {
+          "deviation_missing": {
+            "default": 0,
+            "title": "Deviation Missing",
+            "type": "integer"
+          },
+          "open_queries": {
+            "default": 0,
+            "title": "Open Queries",
+            "type": "integer"
+          },
+          "review_pending": {
+            "default": 0,
+            "title": "Review Pending",
+            "type": "integer"
+          },
+          "self_review": {
+            "default": false,
+            "title": "Self Review",
+            "type": "boolean"
+          },
+          "undecided": {
+            "default": 0,
+            "title": "Undecided",
+            "type": "integer"
+          }
+        },
+        "title": "DecisionGate",
+        "type": "object"
+      },
+      "DecisionRequest": {
+        "additionalProperties": false,
+        "description": "\uacb0\uc815 \ud558\ub098. \ub204\ub974\uba74 \ubc14\ub85c \ud655\uc815\ud55c\ub2e4(\uc81c\uc548 \uc791\uc131\uacfc \uc2b9\uc778\uc744 \uac19\uc740 \ud2b8\ub79c\uc7ad\uc158\uc5d0\uc11c).",
+        "properties": {
+          "action": {
+            "enum": [
+              "confirm_met",
+              "record_deviation",
+              "request_check",
+              "add_query",
+              "select_partner",
+              "ask_rnd",
+              "assign",
+              "change_verdict",
+              "undo",
+              "review_confirm",
+              "review_return",
+              "exclude_requirement",
+              "restore_requirement",
+              "confirm_drawing"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "candidate_codes": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "title": "Candidate Codes",
+            "type": "array"
+          },
+          "decision_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Id"
+          },
+          "holder": {
+            "anyOf": [
+              {
+                "enum": [
+                  "OWN",
+                  "PARTNER"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holder"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "enum": [
+                  "SALES",
+                  "TECH",
+                  "PURCHASE"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
+          "target_dept": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Dept"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "enum": [
+                  "MET",
+                  "CONFIRM",
+                  "DEVIATION",
+                  "QUERY",
+                  "SUPPLEMENT",
+                  "ASSIGN"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verdict"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "action"
+        ],
+        "title": "DecisionRequest",
+        "type": "object"
+      },
+      "DecisionResult": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "confirm_met",
+              "record_deviation",
+              "request_check",
+              "add_query",
+              "select_partner",
+              "ask_rnd",
+              "assign",
+              "change_verdict",
+              "undo",
+              "review_confirm",
+              "review_return",
+              "exclude_requirement",
+              "restore_requirement",
+              "confirm_drawing",
+              "add_requirement"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "decision_id": {
+            "format": "uuid",
+            "title": "Decision Id",
+            "type": "string"
+          },
+          "question_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question Id"
+          },
+          "requirement_id": {
+            "format": "uuid",
+            "title": "Requirement Id",
+            "type": "string"
+          },
+          "requirement_version": {
+            "title": "Requirement Version",
+            "type": "integer"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision_id",
+          "action",
+          "summary",
+          "requirement_id",
+          "requirement_version"
+        ],
+        "title": "DecisionResult",
+        "type": "object"
+      },
+      "DecisionState": {
+        "additionalProperties": false,
+        "description": "\uc694\uad6c\uc758 \uacb0\uc815 \uc0c1\ud0dc(KAN-220). \uc800\uc7a5\ub41c \uacb0\uc815 \uae30\ub85d\uc5d0\uc11c \uacc4\uc0b0\ud55c\ub2e4.",
+        "properties": {
+          "action": {
+            "anyOf": [
+              {
+                "enum": [
+                  "confirm_met",
+                  "record_deviation",
+                  "request_check",
+                  "add_query",
+                  "select_partner",
+                  "ask_rnd",
+                  "assign",
+                  "change_verdict",
+                  "undo",
+                  "review_confirm",
+                  "review_return",
+                  "exclude_requirement",
+                  "restore_requirement",
+                  "confirm_drawing",
+                  "add_requirement"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action"
+          },
+          "change_action": {
+            "anyOf": [
+              {
+                "enum": [
+                  "confirm_met",
+                  "record_deviation",
+                  "request_check",
+                  "add_query",
+                  "select_partner",
+                  "ask_rnd",
+                  "assign",
+                  "change_verdict",
+                  "undo",
+                  "review_confirm",
+                  "review_return",
+                  "exclude_requirement",
+                  "restore_requirement",
+                  "confirm_drawing",
+                  "add_requirement"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Action"
+          },
+          "change_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Id"
+          },
+          "change_reviewed": {
+            "default": false,
+            "title": "Change Reviewed",
+            "type": "boolean"
+          },
+          "decided": {
+            "title": "Decided",
+            "type": "boolean"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "decision_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Id"
+          },
+          "drawing_check": {
+            "default": false,
+            "title": "Drawing Check",
+            "type": "boolean"
+          },
+          "excluded": {
+            "default": false,
+            "title": "Excluded",
+            "type": "boolean"
+          },
+          "excluded_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Excluded Reason"
+          },
+          "follows": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follows"
+          },
+          "manually_added": {
+            "default": false,
+            "title": "Manually Added",
+            "type": "boolean"
+          },
+          "needed": {
+            "title": "Needed",
+            "type": "boolean"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "reviewed": {
+            "default": false,
+            "title": "Reviewed",
+            "type": "boolean"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          }
+        },
+        "required": [
+          "needed",
+          "decided"
+        ],
+        "title": "DecisionState",
         "type": "object"
       },
       "DeletedValue": {
@@ -734,6 +2097,388 @@
         "title": "DesignatedItem",
         "type": "object"
       },
+      "DiagramEdge": {
+        "properties": {
+          "connection": {
+            "enum": [
+              "CONTINUOUS_LINE",
+              "JUNCTION_DOT",
+              "UNRESOLVED",
+              "CROSS_PAGE"
+            ],
+            "title": "Connection",
+            "type": "string"
+          },
+          "evidence": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Evidence",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+            "title": "Id",
+            "type": "string"
+          },
+          "off_page_reference": {
+            "anyOf": [
+              {
+                "maxLength": 320,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Off Page Reference"
+          },
+          "path": {
+            "items": {
+              "$ref": "#/components/schemas/Point"
+            },
+            "maxItems": 32,
+            "title": "Path",
+            "type": "array"
+          },
+          "source": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Source",
+            "type": "string"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "uncertainties": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16,
+            "title": "Uncertainties",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "source",
+          "connection",
+          "evidence"
+        ],
+        "title": "DiagramEdge",
+        "type": "object"
+      },
+      "DiagramGraph": {
+        "properties": {
+          "diagram_type": {
+            "enum": [
+              "SINGLE_LINE",
+              "OTHER",
+              "UNKNOWN"
+            ],
+            "title": "Diagram Type",
+            "type": "string"
+          },
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/DiagramEdge"
+            },
+            "maxItems": 160,
+            "title": "Edges",
+            "type": "array"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/DiagramNode"
+            },
+            "maxItems": 80,
+            "title": "Nodes",
+            "type": "array"
+          },
+          "review_required": {
+            "const": true,
+            "default": true,
+            "title": "Review Required",
+            "type": "boolean"
+          },
+          "title": {
+            "default": "",
+            "maxLength": 320,
+            "title": "Title",
+            "type": "string"
+          },
+          "uncertainties": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 64,
+            "title": "Uncertainties",
+            "type": "array"
+          }
+        },
+        "required": [
+          "diagram_type"
+        ],
+        "title": "DiagramGraph",
+        "type": "object"
+      },
+      "DiagramItem": {
+        "additionalProperties": false,
+        "properties": {
+          "graph": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DiagramGraph"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "location": {
+            "title": "Location",
+            "type": "string"
+          },
+          "mime": {
+            "enum": [
+              "application/pdf",
+              "image/png",
+              "image/jpeg",
+              "image/webp"
+            ],
+            "title": "Mime",
+            "type": "string"
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page"
+          },
+          "requirement_links": {
+            "items": {
+              "$ref": "#/components/schemas/DiagramRequirementLink"
+            },
+            "title": "Requirement Links",
+            "type": "array"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "location",
+          "page",
+          "mime",
+          "sha256",
+          "size",
+          "graph",
+          "requirement_links"
+        ],
+        "title": "DiagramItem",
+        "type": "object"
+      },
+      "DiagramList": {
+        "additionalProperties": false,
+        "properties": {
+          "document_id": {
+            "format": "uuid",
+            "title": "Document Id",
+            "type": "string"
+          },
+          "document_version_id": {
+            "format": "uuid",
+            "title": "Document Version Id",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DiagramItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "processing_status": {
+            "enum": [
+              "NOT_ANALYZED",
+              "ANALYZED",
+              "PARTIAL"
+            ],
+            "title": "Processing Status",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "document_id",
+          "document_version_id",
+          "processing_status",
+          "warnings",
+          "items"
+        ],
+        "title": "DiagramList",
+        "type": "object"
+      },
+      "DiagramNode": {
+        "properties": {
+          "bbox": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BBox"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evidence": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Evidence",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "TRANSFORMER",
+              "BREAKER",
+              "BUS",
+              "DISCONNECTOR",
+              "FUSE",
+              "LOAD",
+              "GENERATOR",
+              "GROUND",
+              "METER",
+              "TERMINAL",
+              "OTHER",
+              "UNKNOWN"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 320,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "ratings": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16,
+            "title": "Ratings",
+            "type": "array"
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag"
+          },
+          "uncertainties": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16,
+            "title": "Uncertainties",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "kind",
+          "evidence"
+        ],
+        "title": "DiagramNode",
+        "type": "object"
+      },
+      "DiagramRequirementLink": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "equipment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Equipment"
+          },
+          "node_id": {
+            "title": "Node Id",
+            "type": "string"
+          },
+          "requirement_id": {
+            "format": "uuid",
+            "title": "Requirement Id",
+            "type": "string"
+          },
+          "requirement_version": {
+            "minimum": 1.0,
+            "title": "Requirement Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "node_id",
+          "requirement_id",
+          "requirement_version",
+          "code"
+        ],
+        "title": "DiagramRequirementLink",
+        "type": "object"
+      },
       "DocumentDetail": {
         "additionalProperties": false,
         "properties": {
@@ -789,6 +2534,13 @@
           "edit_trace_support": {
             "title": "Edit Trace Support",
             "type": "boolean"
+          },
+          "extraction_warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Extraction Warnings",
+            "type": "array"
           },
           "kind": {
             "enum": [
@@ -1034,6 +2786,9 @@
             "title": "Evidence Missing Count",
             "type": "integer"
           },
+          "freshness": {
+            "$ref": "#/components/schemas/DraftFreshness"
+          },
           "known_at": {
             "format": "date-time",
             "title": "Known At",
@@ -1095,6 +2850,55 @@
         "title": "DraftEdit",
         "type": "object"
       },
+      "DraftFreshness": {
+        "additionalProperties": false,
+        "properties": {
+          "changed_requirement_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Changed Requirement Ids",
+            "type": "array"
+          },
+          "preserved_human_sentence_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Preserved Human Sentence Ids",
+            "type": "array"
+          },
+          "status": {
+            "default": "UNKNOWN",
+            "enum": [
+              "CURRENT",
+              "STALE",
+              "UNKNOWN"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "DraftFreshness",
+        "type": "object"
+      },
+      "DraftRegenerate": {
+        "additionalProperties": false,
+        "description": "\ud654\uba74\uc774 \ubcf8 \ucd5c\uc2e0 \ucd08\uc548 \ud310\ubcf8. \ucd08\uc548\uc774 \uc544\uc9c1 \uc5c6\uc73c\uba74 0\uc774\ub2e4.",
+        "properties": {
+          "version": {
+            "minimum": 0.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "DraftRegenerate",
+        "type": "object"
+      },
       "DraftRewrite": {
         "additionalProperties": false,
         "properties": {
@@ -1108,6 +2912,143 @@
           "version"
         ],
         "title": "DraftRewrite",
+        "type": "object"
+      },
+      "DuplicateInfo": {
+        "additionalProperties": false,
+        "description": "\uc6d0\ubb38 \uc5ec\ub7ec \uacf3\uc5d0 \ubc18\ubcf5\ub41c \uac19\uc740 \uc694\uad6c(KAN-223). \ub300\ud45c\ub9cc \uacb0\uc815\ud558\uace0 \uad6c\uc131\uc6d0\uc740 \ub300\ud45c\ub97c \ub530\ub978\ub2e4(KAN-231).",
+        "properties": {
+          "is_representative": {
+            "title": "Is Representative",
+            "type": "boolean"
+          },
+          "member_count": {
+            "title": "Member Count",
+            "type": "integer"
+          },
+          "representative_id": {
+            "format": "uuid",
+            "title": "Representative Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "representative_id",
+          "member_count",
+          "is_representative"
+        ],
+        "title": "DuplicateInfo",
+        "type": "object"
+      },
+      "DuplicateSet": {
+        "additionalProperties": false,
+        "description": "\uac19\uc740 \uc124\ube44 \ud0dc\uadf8\u00b7\uc18d\uc131\u00b7\uac12\uc73c\ub85c \uc5ec\ub7ec \uacf3(\ud45c\u00b7\ubcf8\ubb38\u00b7\ub3c4\uba74)\uc5d0 \ubc18\ubcf5\ub41c \uc694\uad6c. \uc6d0\ub798 \uc694\uad6c \ud589\uc740 \uadf8\ub300\ub85c \ub454\ub2e4(KAN-223).",
+        "properties": {
+          "attribute": {
+            "title": "Attribute",
+            "type": "string"
+          },
+          "canonical_requirement_id": {
+            "title": "Canonical Requirement Id",
+            "type": "string"
+          },
+          "clause_nos": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Clause Nos",
+            "type": "array"
+          },
+          "requirement_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 2,
+            "title": "Requirement Ids",
+            "type": "array"
+          },
+          "tag": {
+            "title": "Tag",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "canonical_requirement_id",
+          "requirement_ids",
+          "tag",
+          "attribute",
+          "value",
+          "clause_nos"
+        ],
+        "title": "DuplicateSet",
+        "type": "object"
+      },
+      "Equipment": {
+        "additionalProperties": false,
+        "description": "\ud504\ub85c\uc81d\ud2b8 \uc124\ube44 \ud558\ub098(KAN-227). tag\ub294 \uc6d0\ubb38 \uc81c\ubaa9\uc758 \uc124\ube44 \ud0dc\uadf8(KAN-216), \uc5c6\uc73c\uba74 null.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag"
+          }
+        },
+        "required": [
+          "tag",
+          "name"
+        ],
+        "title": "Equipment",
+        "type": "object"
+      },
+      "EquipmentList": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Equipment"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "source": {
+            "enum": [
+              "context",
+              "requirements"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "items"
+        ],
+        "title": "EquipmentList",
         "type": "object"
       },
       "ErrorData": {
@@ -1225,13 +3166,119 @@
         "title": "ExportAccepted",
         "type": "object"
       },
+      "ExportItem": {
+        "additionalProperties": false,
+        "description": "\ub0b4\ubcf4\ub0b4\uae30 \uc774\ub825 \ud55c \uc904. tft\ub294 \uc644\ub8cc\ub9cc \uae30\ub85d\ud558\ubbc0\ub85c \ub05d\ub098\uc9c0 \uc54a\uc740 \uc791\uc5c5\uc740 QUEUED\ub2e4.",
+        "properties": {
+          "export_id": {
+            "format": "uuid",
+            "title": "Export Id",
+            "type": "string"
+          },
+          "file_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Name"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "format": {
+            "enum": [
+              "DOCX",
+              "PDF",
+              "XLSX"
+            ],
+            "title": "Format",
+            "type": "string"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "requested_by": {
+            "format": "uuid",
+            "title": "Requested By",
+            "type": "string"
+          },
+          "requested_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested By Name"
+          },
+          "review_version": {
+            "title": "Review Version",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "QUEUED",
+              "SUCCEEDED"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "export_id",
+          "review_version",
+          "format",
+          "status",
+          "requested_by",
+          "requested_at",
+          "finished_at",
+          "file_name"
+        ],
+        "title": "ExportItem",
+        "type": "object"
+      },
+      "ExportList": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ExportItem"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "ExportList",
+        "type": "object"
+      },
       "ExportRequest": {
         "additionalProperties": false,
         "properties": {
           "format": {
             "enum": [
               "DOCX",
-              "PDF"
+              "PDF",
+              "XLSX"
             ],
             "title": "Format",
             "type": "string"
@@ -1317,6 +3364,139 @@
           "service"
         ],
         "title": "HealthData",
+        "type": "object"
+      },
+      "HistoryEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor User Id"
+          },
+          "after": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After"
+          },
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "ai_verdict",
+              "human_change",
+              "reply_applied",
+              "system_record",
+              "decision",
+              "decision_undone",
+              "review_confirmed",
+              "review_returned",
+              "recompared",
+              "reply_recorded"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "requirement_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requirement Id"
+          },
+          "requirement_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requirement Version"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "at",
+          "kind",
+          "actor_user_id",
+          "requirement_id",
+          "requirement_version",
+          "summary"
+        ],
+        "title": "HistoryEvent",
+        "type": "object"
+      },
+      "HistoryPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryEvent"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "HistoryPage",
         "type": "object"
       },
       "IntegrationResponsibility": {
@@ -1588,6 +3768,9 @@
             "anyOf": [
               {
                 "enum": [
+                  "context_map",
+                  "context_link",
+                  "context_validate",
                   "parse",
                   "extract",
                   "search",
@@ -1810,6 +3993,195 @@
         "title": "MandatoryCheck",
         "type": "object"
       },
+      "ManualRequirementRequest": {
+        "additionalProperties": false,
+        "description": "\uc6d0\ubb38\uc5d0\uc11c \uace0\ub978 \uae00\ub85c \uc694\uad6c\ub97c \uc9c1\uc811 \ucd94\uac00\ud55c\ub2e4(KAN-225). \uac12\uc740 \uc0ac\ub78c\uc774 \ub123\uace0 AI\ub294 \uc4f0\uc9c0 \uc54a\ub294\ub2e4.",
+        "properties": {
+          "allow_duplicate": {
+            "default": false,
+            "title": "Allow Duplicate",
+            "type": "boolean"
+          },
+          "attribute": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Attribute",
+            "type": "string"
+          },
+          "attribute_key": {
+            "default": "OTHER",
+            "enum": [
+              "form",
+              "rated_max_voltage",
+              "bil",
+              "short_time_withstand_current",
+              "rated_current",
+              "arc_resistant",
+              "internal_arc_classification",
+              "secondary_voltage",
+              "primary_voltage",
+              "rated_power",
+              "insulation_class",
+              "impedance",
+              "tap",
+              "forced_air_capacity_increase",
+              "protection_functions",
+              "arc_flash_reduction",
+              "winding_material",
+              "winding_temperature_sensor",
+              "communication_interface",
+              "warranty_months",
+              "rated_operational_voltage",
+              "busbar_rated_current",
+              "power_frequency_withstand",
+              "breaking_capacity_icu",
+              "breaking_capacity_ics",
+              "rated_short_circuit_breaking_current",
+              "frame_size",
+              "number_of_poles",
+              "vector_group",
+              "protection_degree",
+              "OTHER"
+            ],
+            "title": "Attribute Key",
+            "type": "string"
+          },
+          "clause_id": {
+            "format": "uuid",
+            "title": "Clause Id",
+            "type": "string"
+          },
+          "conditions": {
+            "items": {
+              "$ref": "#/components/schemas/Condition"
+            },
+            "maxItems": 10,
+            "title": "Conditions",
+            "type": "array"
+          },
+          "equipment": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Equipment"
+          },
+          "equipment_family": {
+            "anyOf": [
+              {
+                "enum": [
+                  "CONTROL",
+                  "DRIVE",
+                  "ESS",
+                  "HMI",
+                  "LV_BREAKER",
+                  "LV_SWITCHGEAR",
+                  "METER",
+                  "MV_EQUIP",
+                  "PLC",
+                  "PV",
+                  "TRANSFORMER",
+                  "UPS",
+                  "OTHER"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Equipment Family"
+          },
+          "kind": {
+            "enum": [
+              "SPEC",
+              "TASK",
+              "DOCUMENT"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "necessity": {
+            "default": "MANDATORY",
+            "enum": [
+              "MANDATORY",
+              "PREFERRED",
+              "CONDITION_BOUND",
+              "UNDETERMINED"
+            ],
+            "title": "Necessity",
+            "type": "string"
+          },
+          "operator": {
+            "default": "EQ",
+            "enum": [
+              "EQ",
+              "GTE",
+              "LTE",
+              "RANGE",
+              "TEXT"
+            ],
+            "title": "Operator",
+            "type": "string"
+          },
+          "quote": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Quote",
+            "type": "string"
+          },
+          "task": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "clause_id",
+          "quote",
+          "kind",
+          "attribute"
+        ],
+        "title": "ManualRequirementRequest",
+        "type": "object"
+      },
       "OptionGate": {
         "additionalProperties": false,
         "description": "\ud611\ub825\uc0ac \uacc4\uc5f4 \uacbd\ub85c\ub294 \uc790\uc0ac \uac1c\ubc1c \ud655\uc778(R&D)\uc744 \uac70\uce5c\ub2e4(\uba85\uc138 v1.3 \u00a75.2).",
@@ -1840,6 +4212,80 @@
           "status"
         ],
         "title": "OptionGate",
+        "type": "object"
+      },
+      "OwnValue": {
+        "additionalProperties": false,
+        "description": "\uc790\uc0ac \ubcf4\uc99d\uac12(KAN-227). \uc800\uc7a5\ub41c \ube44\uad50\uc758 \ub300\ud45c \ud6c4\ubcf4\uc5d0\uc11c \uc77d\ub294\ub2e4(\ucda9\uc871 \u2192 \ub2e4\ub984 \u2192 \ube44\uad50 \ubd88\uac00 \u2192 \uc790\ub8cc \uc5c6\uc74c).",
+        "properties": {
+          "conditions": {
+            "items": {
+              "$ref": "#/components/schemas/Condition"
+            },
+            "title": "Conditions",
+            "type": "array"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "product_code": {
+            "title": "Product Code",
+            "type": "string"
+          },
+          "result": {
+            "enum": [
+              "MEETS",
+              "DIFFERS",
+              "NOT_COMPARABLE",
+              "NO_DATA"
+            ],
+            "title": "Result",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          },
+          "variant": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variant"
+          }
+        },
+        "required": [
+          "product_code",
+          "variant",
+          "value",
+          "unit",
+          "conditions",
+          "result"
+        ],
+        "title": "OwnValue",
         "type": "object"
       },
       "PartnerCandidate": {
@@ -2082,6 +4528,28 @@
         "title": "PendingByOrigin",
         "type": "object"
       },
+      "Point": {
+        "properties": {
+          "x": {
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y"
+        ],
+        "title": "Point",
+        "type": "object"
+      },
       "ProcessRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2108,6 +4576,9 @@
           "steps": {
             "items": {
               "enum": [
+                "context_map",
+                "context_link",
+                "context_validate",
                 "parse",
                 "extract",
                 "search",
@@ -2241,6 +4712,18 @@
             ],
             "title": "Strategic Customer Note"
           },
+          "submission_due_at": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submission Due At"
+          },
           "supply_region": {
             "anyOf": [
               {
@@ -2318,6 +4801,10 @@
             ],
             "title": "Data Origin",
             "type": "string"
+          },
+          "decision_gate": {
+            "$ref": "#/components/schemas/DecisionGate",
+            "description": "Save conditions and owner-review backlog of the decision panel (KAN-220)."
           },
           "derivation_kind": {
             "enum": [
@@ -2607,6 +5094,17 @@
               }
             ],
             "title": "Next Cursor"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
           }
         },
         "required": [
@@ -2660,6 +5158,11 @@
             ],
             "title": "Data Origin",
             "type": "string"
+          },
+          "decisions_remaining": {
+            "default": 0,
+            "title": "Decisions Remaining",
+            "type": "integer"
           },
           "derivation_kind": {
             "enum": [
@@ -2752,6 +5255,11 @@
             "description": "Login user ID, never a candidate ID.",
             "title": "Responsible User Id"
           },
+          "review_pending": {
+            "default": 0,
+            "title": "Review Pending",
+            "type": "integer"
+          },
           "sales_user_id": {
             "anyOf": [
               {
@@ -2785,6 +5293,18 @@
               }
             ],
             "title": "Strategic Customer"
+          },
+          "submission_due_at": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submission Due At"
           },
           "supply_region": {
             "anyOf": [
@@ -2947,6 +5467,18 @@
             ],
             "title": "Strategic Customer Note"
           },
+          "submission_due_at": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submission Due At"
+          },
           "supply_region": {
             "anyOf": [
               {
@@ -3035,6 +5567,13 @@
             ],
             "title": "Derivation Kind",
             "type": "string"
+          },
+          "evidence_refs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence Refs",
+            "type": "array"
           },
           "known_at": {
             "format": "date-time",
@@ -3182,6 +5721,30 @@
             "format": "uuid",
             "title": "Requirement Id",
             "type": "string"
+          },
+          "requirement_version": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requirement Version"
+          },
+          "source_question_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Question Id"
           }
         },
         "required": [
@@ -3292,6 +5855,24 @@
             ],
             "title": "Necessity"
           },
+          "next_owner_field": {
+            "anyOf": [
+              {
+                "enum": [
+                  "SALES",
+                  "TECH",
+                  "PURCHASE",
+                  "CUSTOMER",
+                  "RND"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Owner Field"
+          },
           "reason": {
             "anyOf": [
               {
@@ -3302,6 +5883,16 @@
               }
             ],
             "title": "Reason"
+          },
+          "spec": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProposedSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "status": {
             "anyOf": [
@@ -3338,6 +5929,66 @@
         "title": "ProposedChange",
         "type": "object"
       },
+      "ProposedSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "operator": {
+            "enum": [
+              "EQ",
+              "GTE",
+              "LTE",
+              "RANGE",
+              "TEXT"
+            ],
+            "title": "Operator",
+            "type": "string"
+          },
+          "tolerance": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tolerance"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "value",
+          "unit",
+          "operator",
+          "tolerance"
+        ],
+        "title": "ProposedSpec",
+        "type": "object"
+      },
       "Question": {
         "additionalProperties": false,
         "properties": {
@@ -3369,6 +6020,18 @@
             ],
             "title": "Derivation Kind",
             "type": "string"
+          },
+          "follows_question_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follows Question Id"
           },
           "internal_assumption": {
             "anyOf": [
@@ -3409,6 +6072,16 @@
           "question_text": {
             "title": "Question Text",
             "type": "string"
+          },
+          "reply": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecordedReply"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "reply_received_at": {
             "anyOf": [
@@ -3451,6 +6124,18 @@
             ],
             "title": "Rnd Feasibility"
           },
+          "sent_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sent At"
+          },
           "status": {
             "enum": [
               "DRAFT",
@@ -3480,10 +6165,31 @@
             ],
             "title": "Target Dept"
           },
+          "value_candidate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReplyValueCandidate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "version": {
             "minimum": 1.0,
             "title": "Version",
             "type": "integer"
+          },
+          "waiting_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Waiting Days"
           }
         },
         "required": [
@@ -3505,9 +6211,41 @@
         "title": "Question",
         "type": "object"
       },
+      "QuestionBatchCreate": {
+        "additionalProperties": false,
+        "description": "\uc9c8\ubb38 \ubb36\uc74c \uc791\uc131. \ubaa8\ub4e0 \uac74\uc5d0 requirement_id\uac00 \uc788\uc5b4\uc57c \ud55c\ub2e4(\uc11c\ubc84\uac00 \uac74\ubcc4\ub85c \uac80\uc0ac\ud55c\ub2e4).",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/QuestionCreate"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "QuestionBatchCreate",
+        "type": "object"
+      },
       "QuestionCreate": {
         "additionalProperties": false,
         "properties": {
+          "follows_question_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follows Question Id"
+          },
           "internal_assumption": {
             "anyOf": [
               {
@@ -3724,6 +6462,18 @@
             "title": "Derivation Kind",
             "type": "string"
           },
+          "follows_question_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follows Question Id"
+          },
           "internal_assumption": {
             "anyOf": [
               {
@@ -3763,6 +6513,16 @@
           "question_text": {
             "title": "Question Text",
             "type": "string"
+          },
+          "reply": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecordedReply"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "reply_received_at": {
             "anyOf": [
@@ -3805,6 +6565,18 @@
             ],
             "title": "Rnd Feasibility"
           },
+          "sent_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sent At"
+          },
           "status": {
             "enum": [
               "DRAFT",
@@ -3834,10 +6606,31 @@
             ],
             "title": "Target Dept"
           },
+          "value_candidate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReplyValueCandidate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "version": {
             "minimum": 1.0,
             "title": "Version",
             "type": "integer"
+          },
+          "waiting_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Waiting Days"
           }
         },
         "required": [
@@ -3857,6 +6650,95 @@
           "created_at"
         ],
         "title": "QuestionReplyResult",
+        "type": "object"
+      },
+      "QuestionSend": {
+        "additionalProperties": false,
+        "properties": {
+          "mail_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mail Ref"
+          },
+          "question_id": {
+            "format": "uuid",
+            "title": "Question Id",
+            "type": "string"
+          },
+          "sent_at": {
+            "format": "date-time",
+            "title": "Sent At",
+            "type": "string"
+          },
+          "sent_by": {
+            "format": "uuid",
+            "title": "Sent By",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question_id",
+          "sent_at",
+          "sent_by"
+        ],
+        "title": "QuestionSend",
+        "type": "object"
+      },
+      "QuestionSendList": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/QuestionSend"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "QuestionSendList",
+        "type": "object"
+      },
+      "QuestionsSent": {
+        "additionalProperties": false,
+        "description": "\uc9c8\uc758\uc11c\ub97c \uba54\uc77c\ub85c \ubcf4\ub0c8\ub2e4\ub294 \uae30\ub85d(KAN-228). \uc9c8\ubb38\ub9c8\ub2e4 \ucc98\uc74c \ubcf4\ub0b8 \uc2dc\uac01\ub9cc \ub0a8\ub294\ub2e4.",
+        "properties": {
+          "mail_ref": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mail Ref"
+          },
+          "question_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Question Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "question_ids"
+        ],
+        "title": "QuestionsSent",
         "type": "object"
       },
       "ReadinessData": {
@@ -3890,6 +6772,231 @@
           "fts"
         ],
         "title": "ReadinessData",
+        "type": "object"
+      },
+      "RecompareRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "RecompareRequest",
+        "type": "object"
+      },
+      "RecompareResult": {
+        "additionalProperties": false,
+        "properties": {
+          "comparison": {
+            "$ref": "#/components/schemas/Comparison"
+          },
+          "proposal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Proposal"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "comparison"
+        ],
+        "title": "RecompareResult",
+        "type": "object"
+      },
+      "RecordedReply": {
+        "additionalProperties": false,
+        "properties": {
+          "earliest_available_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Earliest Available On"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "recorded_at": {
+            "format": "date-time",
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "recorded_by": {
+            "format": "uuid",
+            "title": "Recorded By",
+            "type": "string"
+          },
+          "reply_id": {
+            "format": "uuid",
+            "title": "Reply Id",
+            "type": "string"
+          },
+          "reply_text": {
+            "title": "Reply Text",
+            "type": "string"
+          },
+          "rnd_feasibility": {
+            "anyOf": [
+              {
+                "enum": [
+                  "FEASIBLE",
+                  "FEASIBLE_WITH_SCHEDULE",
+                  "NOT_FEASIBLE",
+                  "UNDETERMINED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rnd Feasibility"
+          },
+          "schedule_fits": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule Fits"
+          },
+          "source_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Ref"
+          }
+        },
+        "required": [
+          "reply_id",
+          "reply_text",
+          "source_ref",
+          "received_at",
+          "recorded_at",
+          "recorded_by"
+        ],
+        "title": "RecordedReply",
+        "type": "object"
+      },
+      "ReplyValueCandidate": {
+        "additionalProperties": false,
+        "description": "\ud68c\uc2e0\uc5d0\uc11c \uc77d\uc740 \uc0c8 \uc694\uad6c\uac12 \ud6c4\ubcf4(KAN-224). \ud6c4\ubcf4\uc77c \ubfd0 \uc694\uad6c\uac12\uc744 \ubc14\uafb8\uc9c0 \uc54a\ub294\ub2e4.\n\nmethod: rule(\uaddc\uce59), ai(AI, \uadfc\uac70 \uac80\uc0ac \ud1b5\uacfc), none(\ubabb \uc77d\uc74c, reason\uc5d0 \uc774\uc720).",
+        "properties": {
+          "ai": {
+            "anyOf": [
+              {
+                "enum": [
+                  "QUEUED",
+                  "UNAVAILABLE",
+                  "DONE",
+                  "FAILED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai"
+          },
+          "conditions": {
+            "items": {
+              "$ref": "#/components/schemas/Condition"
+            },
+            "title": "Conditions",
+            "type": "array"
+          },
+          "method": {
+            "enum": [
+              "rule",
+              "ai",
+              "none"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "quote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quote"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "NO_VALUE",
+                  "MULTIPLE_VALUES",
+                  "CORRECTION",
+                  "CONDITIONAL",
+                  "MULTIPLE_QUESTIONS",
+                  "AI_UNGROUNDED",
+                  "AI_FAILED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "method"
+        ],
+        "title": "ReplyValueCandidate",
         "type": "object"
       },
       "RequirementCounts": {
@@ -3946,9 +7053,51 @@
       "RequirementDetail": {
         "additionalProperties": false,
         "properties": {
+          "bid_verdict": {
+            "anyOf": [
+              {
+                "enum": [
+                  "MET",
+                  "CONFIRM",
+                  "DEVIATION",
+                  "QUERY",
+                  "SUPPLEMENT",
+                  "ASSIGN"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bid Verdict"
+          },
+          "bucket": {
+            "default": "COMMON",
+            "enum": [
+              "MV",
+              "TR",
+              "LV",
+              "OTHER",
+              "COMMON"
+            ],
+            "title": "Bucket",
+            "type": "string"
+          },
           "code": {
             "title": "Code",
             "type": "string"
+          },
+          "context_stale": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context Stale"
           },
           "data_origin": {
             "enum": [
@@ -3959,6 +7108,16 @@
             "title": "Data Origin",
             "type": "string"
           },
+          "decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecisionState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "derivation_kind": {
             "enum": [
               "PROVIDED",
@@ -3968,6 +7127,26 @@
             ],
             "title": "Derivation Kind",
             "type": "string"
+          },
+          "duplicate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DuplicateInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "group": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RequirementGroup"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "judgement": {
             "$ref": "#/components/schemas/Judgement"
@@ -3992,6 +7171,16 @@
           "origin": {
             "$ref": "#/components/schemas/RequirementOrigin"
           },
+          "own_value": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OwnValue"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "requirement_id": {
             "format": "uuid",
             "title": "Requirement Id",
@@ -4004,6 +7193,9 @@
             "minimum": 1.0,
             "title": "Version",
             "type": "integer"
+          },
+          "workflow": {
+            "$ref": "#/components/schemas/RequirementWorkflow"
           }
         },
         "required": [
@@ -4020,6 +7212,38 @@
           "needs_rereview"
         ],
         "title": "RequirementDetail",
+        "type": "object"
+      },
+      "RequirementGroup": {
+        "additionalProperties": false,
+        "description": "\uc694\uad6c\uac00 \uc18d\ud55c \uc124\ube44 \ubb36\uc74c(KAN-231). \ucd5c\uc2e0 \ub9e5\ub77d \uacb0\uacfc(KAN-216)\uc758 \ubb36\uc74c ID\u00b7\uc6d0\ubb38 \uc81c\ubaa9 \ud0dc\uadf8\u00b7\uc774\ub984.",
+        "properties": {
+          "group_id": {
+            "title": "Group Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag"
+          }
+        },
+        "required": [
+          "group_id",
+          "tag",
+          "name"
+        ],
+        "title": "RequirementGroup",
         "type": "object"
       },
       "RequirementLinks": {
@@ -4378,9 +7602,71 @@
             ],
             "title": "Attribute Key"
           },
+          "bid_verdict": {
+            "anyOf": [
+              {
+                "enum": [
+                  "MET",
+                  "CONFIRM",
+                  "DEVIATION",
+                  "QUERY",
+                  "SUPPLEMENT",
+                  "ASSIGN"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bid Verdict"
+          },
+          "bucket": {
+            "default": "COMMON",
+            "enum": [
+              "MV",
+              "TR",
+              "LV",
+              "OTHER",
+              "COMMON"
+            ],
+            "title": "Bucket",
+            "type": "string"
+          },
           "code": {
             "title": "Code",
             "type": "string"
+          },
+          "context_stale": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context Stale"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecisionState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "duplicate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DuplicateInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "equipment": {
             "anyOf": [
@@ -4392,6 +7678,16 @@
               }
             ],
             "title": "Equipment"
+          },
+          "group": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RequirementGroup"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "is_designated_item": {
             "default": false,
@@ -4420,6 +7716,16 @@
           "open_questions": {
             "title": "Open Questions",
             "type": "integer"
+          },
+          "own_value": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OwnValue"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "path": {
             "anyOf": [
@@ -4525,6 +7831,31 @@
         "title": "RequirementSummary",
         "type": "object"
       },
+      "RequirementWorkflow": {
+        "additionalProperties": false,
+        "properties": {
+          "comparison_stale": {
+            "default": false,
+            "title": "Comparison Stale",
+            "type": "boolean"
+          },
+          "draft_sentence_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Draft Sentence Ids",
+            "type": "array"
+          },
+          "supplement_stale": {
+            "default": false,
+            "title": "Supplement Stale",
+            "type": "boolean"
+          }
+        },
+        "title": "RequirementWorkflow",
+        "type": "object"
+      },
       "ResponseMeta": {
         "properties": {
           "request_id": {
@@ -4621,6 +7952,98 @@
           "version"
         ],
         "title": "ReviewVersionCreate",
+        "type": "object"
+      },
+      "ReviewVersionItem": {
+        "additionalProperties": false,
+        "description": "\uac80\ud1a0\ubcf8 \uc774\ub825 \ud55c \uc904. tft\uc5d0\ub294 \uc0ac\uc6a9\uc790 \uc774\ub984\uc774 \uc5c6\uc5b4 \uc774\ub984\uc740 null\uc774\ub2e4.",
+        "properties": {
+          "draft_version": {
+            "title": "Draft Version",
+            "type": "integer"
+          },
+          "judgement_status": {
+            "enum": [
+              "NEEDS_REVIEW",
+              "CONDITION_CHECK",
+              "OWNER_CONFIRMED"
+            ],
+            "title": "Judgement Status",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "output_status": {
+            "enum": [
+              "INTAKE",
+              "ANALYZING",
+              "REVIEW_DRAFT"
+            ],
+            "title": "Output Status",
+            "type": "string"
+          },
+          "review_version": {
+            "title": "Review Version",
+            "type": "integer"
+          },
+          "saved_at": {
+            "format": "date-time",
+            "title": "Saved At",
+            "type": "string"
+          },
+          "saved_by": {
+            "format": "uuid",
+            "title": "Saved By",
+            "type": "string"
+          },
+          "saved_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saved By Name"
+          }
+        },
+        "required": [
+          "review_version",
+          "draft_version",
+          "note",
+          "output_status",
+          "judgement_status",
+          "saved_by",
+          "saved_at"
+        ],
+        "title": "ReviewVersionItem",
+        "type": "object"
+      },
+      "ReviewVersionList": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewVersionItem"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "ReviewVersionList",
         "type": "object"
       },
       "RewriteSummary": {
@@ -4745,6 +8168,9 @@
             ],
             "title": "Data Origin",
             "type": "string"
+          },
+          "decision_gate": {
+            "$ref": "#/components/schemas/DecisionGate"
           },
           "derivation_kind": {
             "enum": [
@@ -4935,6 +8361,18 @@
               }
             ],
             "title": "Strategic Customer Set By"
+          },
+          "submission_due_at": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submission Due At"
           },
           "supply_region": {
             "anyOf": [
@@ -5332,6 +8770,106 @@
         "title": "SentenceEdit",
         "type": "object"
       },
+      "SourceReference": {
+        "additionalProperties": false,
+        "properties": {
+          "clause_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clause Id"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "document_id": {
+            "format": "uuid",
+            "title": "Document Id",
+            "type": "string"
+          },
+          "document_version_id": {
+            "format": "uuid",
+            "title": "Document Version Id",
+            "type": "string"
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page"
+          },
+          "quote": {
+            "title": "Quote",
+            "type": "string"
+          },
+          "requirement_id": {
+            "format": "uuid",
+            "title": "Requirement Id",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "requirement_id",
+          "version",
+          "code",
+          "document_id",
+          "document_version_id",
+          "clause_id",
+          "page",
+          "quote"
+        ],
+        "title": "SourceReference",
+        "type": "object"
+      },
+      "SuccessResponse_AnalysisOverview_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AnalysisOverview"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[AnalysisOverview]",
+        "type": "object"
+      },
+      "SuccessResponse_BulkDecisionResult_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/BulkDecisionResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[BulkDecisionResult]",
+        "type": "object"
+      },
       "SuccessResponse_ClauseList_": {
         "properties": {
           "data": {
@@ -5362,6 +8900,54 @@
           "meta"
         ],
         "title": "SuccessResponse[Comparison]",
+        "type": "object"
+      },
+      "SuccessResponse_ContextResponse_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ContextResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[ContextResponse]",
+        "type": "object"
+      },
+      "SuccessResponse_DecisionResult_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/DecisionResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[DecisionResult]",
+        "type": "object"
+      },
+      "SuccessResponse_DiagramList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/DiagramList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[DiagramList]",
         "type": "object"
       },
       "SuccessResponse_DocumentDetail_": {
@@ -5428,6 +9014,22 @@
         "title": "SuccessResponse[Draft]",
         "type": "object"
       },
+      "SuccessResponse_EquipmentList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/EquipmentList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[EquipmentList]",
+        "type": "object"
+      },
       "SuccessResponse_ExportAccepted_": {
         "properties": {
           "data": {
@@ -5444,6 +9046,22 @@
         "title": "SuccessResponse[ExportAccepted]",
         "type": "object"
       },
+      "SuccessResponse_ExportList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ExportList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[ExportList]",
+        "type": "object"
+      },
       "SuccessResponse_HealthData_": {
         "properties": {
           "data": {
@@ -5458,6 +9076,22 @@
           "meta"
         ],
         "title": "SuccessResponse[HealthData]",
+        "type": "object"
+      },
+      "SuccessResponse_HistoryPage_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/HistoryPage"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[HistoryPage]",
         "type": "object"
       },
       "SuccessResponse_JobAccepted_": {
@@ -5588,6 +9222,22 @@
         "title": "SuccessResponse[QuestionReplyResult]",
         "type": "object"
       },
+      "SuccessResponse_QuestionSendList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/QuestionSendList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[QuestionSendList]",
+        "type": "object"
+      },
       "SuccessResponse_Question_": {
         "properties": {
           "data": {
@@ -5620,6 +9270,22 @@
         "title": "SuccessResponse[ReadinessData]",
         "type": "object"
       },
+      "SuccessResponse_RecompareResult_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RecompareResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[RecompareResult]",
+        "type": "object"
+      },
       "SuccessResponse_RequirementDetail_": {
         "properties": {
           "data": {
@@ -5650,6 +9316,22 @@
           "meta"
         ],
         "title": "SuccessResponse[RequirementList]",
+        "type": "object"
+      },
+      "SuccessResponse_ReviewVersionList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ReviewVersionList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[ReviewVersionList]",
         "type": "object"
       },
       "SuccessResponse_ReviewVersion_": {
@@ -5700,6 +9382,22 @@
         "title": "SuccessResponse[RfpProjectDetail]",
         "type": "object"
       },
+      "SuccessResponse_SupplementBatchResult_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SupplementBatchResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[SupplementBatchResult]",
+        "type": "object"
+      },
       "SuccessResponse_SupplementOptions_": {
         "properties": {
           "data": {
@@ -5730,6 +9428,208 @@
           "meta"
         ],
         "title": "SuccessResponse[SupplementSelected]",
+        "type": "object"
+      },
+      "SupplementBatchAllowed": {
+        "additionalProperties": false,
+        "properties": {
+          "requirement_id": {
+            "format": "uuid",
+            "title": "Requirement Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requirement_id"
+        ],
+        "title": "SupplementBatchAllowed",
+        "type": "object"
+      },
+      "SupplementBatchBlocked": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "requirement_id": {
+            "format": "uuid",
+            "title": "Requirement Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requirement_id",
+          "code",
+          "message"
+        ],
+        "title": "SupplementBatchBlocked",
+        "type": "object"
+      },
+      "SupplementBatchItem": {
+        "additionalProperties": false,
+        "properties": {
+          "requirement_id": {
+            "format": "uuid",
+            "title": "Requirement Id",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "requirement_id",
+          "version"
+        ],
+        "title": "SupplementBatchItem",
+        "type": "object"
+      },
+      "SupplementBatchResult": {
+        "additionalProperties": false,
+        "description": "dry_run\uc774\uba74 saved\uac00 \ube44\uace0 allowed\uc5d0 \ub2f4\uae34\ub2e4. \uc800\uc7a5\uc774\uba74 allowed\uac00 \ube44\uace0 saved\uc5d0 \ub2f4\uae34\ub2e4.",
+        "properties": {
+          "allowed": {
+            "items": {
+              "$ref": "#/components/schemas/SupplementBatchAllowed"
+            },
+            "title": "Allowed",
+            "type": "array"
+          },
+          "blocked": {
+            "items": {
+              "$ref": "#/components/schemas/SupplementBatchBlocked"
+            },
+            "title": "Blocked",
+            "type": "array"
+          },
+          "saved": {
+            "items": {
+              "$ref": "#/components/schemas/SupplementBatchSaved"
+            },
+            "title": "Saved",
+            "type": "array"
+          }
+        },
+        "required": [
+          "saved",
+          "allowed",
+          "blocked"
+        ],
+        "title": "SupplementBatchResult",
+        "type": "object"
+      },
+      "SupplementBatchSaved": {
+        "additionalProperties": false,
+        "properties": {
+          "requirement_id": {
+            "format": "uuid",
+            "title": "Requirement Id",
+            "type": "string"
+          },
+          "selection": {
+            "$ref": "#/components/schemas/SupplementSelected"
+          }
+        },
+        "required": [
+          "requirement_id",
+          "selection"
+        ],
+        "title": "SupplementBatchSaved",
+        "type": "object"
+      },
+      "SupplementBatchSelection": {
+        "additionalProperties": false,
+        "description": "\ubcf4\uc644 \uacbd\ub85c \ubb36\uc74c \uc120\ud0dd. \uac74\ub9c8\ub2e4 \uc77d\uc740 \uc694\uad6c \ud310\ubcf8\uc744 \ubc1b\uace0 \ub098\uba38\uc9c0 \uce78\uc740 \ub2e8\uac74 \uc120\ud0dd\uacfc \uac19\uc740 \uaddc\uce59\uc774\ub2e4.",
+        "properties": {
+          "candidate_codes": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "title": "Candidate Codes",
+            "type": "array"
+          },
+          "conditions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Conditions",
+            "type": "array"
+          },
+          "dry_run": {
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SupplementBatchItem"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "path": {
+            "enum": [
+              "OTHER_OWN_PRODUCT",
+              "OWN_DEVELOPMENT",
+              "OWN_TERMS_REVIEW",
+              "ALTERNATIVE_SPEC",
+              "EXTERNAL_PRODUCT",
+              "TASK_SUBCONTRACT",
+              "JOINT_PROPOSAL",
+              "CUSTOMER_SPECIFIED_PROCUREMENT",
+              "NONE"
+            ],
+            "title": "Path",
+            "type": "string"
+          },
+          "rnd_check_waiver_reason": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "minLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rnd Check Waiver Reason"
+          },
+          "role_split": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Role Split",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dry_run",
+          "path",
+          "role_split",
+          "items"
+        ],
+        "title": "SupplementBatchSelection",
         "type": "object"
       },
       "SupplementOption": {
@@ -6143,6 +10043,51 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "ValueConflict": {
+        "additionalProperties": false,
+        "description": "\uac19\uc740 \ud0dc\uadf8\u00b7\uc18d\uc131\uc778\ub370 \uac12\uc774 \ub2e4\ub978 \uc694\uad6c. \ud569\uce58\uc9c0 \uc54a\uace0 \uc9c8\uc758 \ub300\uc0c1\uc73c\ub85c \ub0a8\uae34\ub2e4(drawing: \ub3c4\uba74 \ucd9c\ucc98 \ud3ec\ud568).",
+        "properties": {
+          "attribute": {
+            "title": "Attribute",
+            "type": "string"
+          },
+          "drawing": {
+            "title": "Drawing",
+            "type": "boolean"
+          },
+          "tag": {
+            "title": "Tag",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/ConflictValue"
+            },
+            "minItems": 2,
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tag",
+          "attribute",
+          "values",
+          "drawing"
+        ],
+        "title": "ValueConflict",
+        "type": "object"
       }
     }
   },
@@ -6386,6 +10331,214 @@
         ]
       }
     },
+    "/api/v1/tft/documents/{document_id}/diagrams": {
+      "get": {
+        "operationId": "tft_list_document_diagrams",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "document_version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_DiagramList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "List Document Diagrams",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
+    "/api/v1/tft/documents/{document_id}/diagrams/{source_id}/image": {
+      "get": {
+        "operationId": "tft_download_diagram_image",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "title": "Source Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "document_version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Download Diagram Image",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
     "/api/v1/tft/documents/{document_id}/file": {
       "get": {
         "description": "10. \uc6d0\ubb38 \ub0b4\ub824\ubc1b\uae30. \uc811\uadfc \uac80\uc0ac\ub294 \ud504\ub85c\uc81d\ud2b8 \uc870\ud68c\uc640 \uac19\ub2e4.",
@@ -6549,6 +10702,39 @@
                 }
               ],
               "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 1000000,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Page"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search_field",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "enum": [
+                "all",
+                "external_id",
+                "name"
+              ],
+              "title": "Search Field",
+              "type": "string"
             }
           },
           {
@@ -6980,6 +11166,100 @@
         ]
       }
     },
+    "/api/v1/tft/projects/{project_id}/analysis": {
+      "get": {
+        "description": "\ubd84\uc11d \uc811\uc218 \ubaa9\ub85d(\uc9c0\ub09c \uae30\ub85d\uc740 \ud50c\ub7ab\ud3fc \uc791\uc5c5 \uc774\ubca4\ud2b8\ub85c \uc7ac\uc0dd)\uacfc \ub2e4\uc74c \ucc98\ub9ac \uc2e4\ud589 \ubc29\uc2dd(KAN-232).",
+        "operationId": "tft_get_rfp_analysis_overview",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_AnalysisOverview_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Analysis Overview",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
     "/api/v1/tft/projects/{project_id}/annotations/process": {
       "post": {
         "description": "30. \ubc94\uc704 \ubc16\uc778 \uba54\ubaa8 PDF \ud574\uc11d\uc740 \uc811\uc218 \uc804\uc5d0 \uba85\uc2dc\uc801 422\ub85c \uac70\uc808\ud55c\ub2e4.",
@@ -7194,6 +11474,572 @@
           }
         },
         "summary": "Assign Project",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
+    "/api/v1/tft/projects/{project_id}/context": {
+      "get": {
+        "operationId": "tft_get_rfp_context",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ContextResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Get Context",
+        "tags": [
+          "rfp"
+        ]
+      },
+      "patch": {
+        "operationId": "tft_correct_rfp_context",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContextCorrection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ContextResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Correct Context",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
+    "/api/v1/tft/projects/{project_id}/context/process": {
+      "post": {
+        "operationId": "tft_process_rfp_context",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContextProcess"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_JobAccepted_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Process Context",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
+    "/api/v1/tft/projects/{project_id}/decisions/bulk": {
+      "post": {
+        "description": "\uac19\uc740 \ud504\ub85c\uc81d\ud2b8\uc758 \uacb0\uc815 \uc5ec\ub7ec \uac74\uc744 \ud55c \ud2b8\ub79c\uc7ad\uc158\uc73c\ub85c \ud655\uc815\ud55c\ub2e4(KAN-228). \ud55c \uac74\uc774\ub77c\ub3c4 \uc2e4\ud328\ud558\uba74 \ubaa8\ub450 \uc800\uc7a5\ud558\uc9c0 \uc54a\ub294\ub2e4.",
+        "operationId": "tft_bulk_decide_rfp_requirements",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkDecisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_BulkDecisionResult_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Bulk Decide",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
+    "/api/v1/tft/projects/{project_id}/decisions/bulk/{batch_id}/undo": {
+      "post": {
+        "description": "\uc77c\uad04 \uacb0\uc815 \ud55c \ubb36\uc74c\uc744 \ub418\ub3cc\ub9b0\ub2e4(KAN-228).",
+        "operationId": "tft_bulk_undo_rfp_decisions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Batch Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_BulkDecisionResult_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Bulk Undo",
         "tags": [
           "rfp"
         ]
@@ -7677,6 +12523,98 @@
       }
     },
     "/api/v1/tft/projects/{project_id}/draft/exports": {
+      "get": {
+        "description": "36. \ub0b4\ubcf4\ub0b4\uae30 \uc774\ub825, \ucd5c\uc2e0\uc21c.",
+        "operationId": "tft_list_rfp_exports",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ExportList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "List Exports",
+        "tags": [
+          "rfp"
+        ]
+      },
       "post": {
         "description": "28. DOCX \ube44\ub3d9\uae30 \ub0b4\ubcf4\ub0b4\uae30. PDF\ub294 \uba85\uc2dc\uc801 422 \ubbf8\uc9c0\uc6d0.",
         "operationId": "tft_export_rfp_draft",
@@ -7891,7 +12829,214 @@
         ]
       }
     },
+    "/api/v1/tft/projects/{project_id}/draft/regenerate": {
+      "post": {
+        "description": "34. \uc800\uc7a5\ub41c \uacb0\uacfc\ub85c \ucd08\uc548 \uc0c8 \ud310\ubcf8\uc744 \ub9cc\ub4e0\ub2e4. \ubaa8\ub378\u00b7\uc6d0\ubb38 \ud574\uc11d \uc5c6\uc74c, \ucc98\ub9ac \uc911\uc774\uba74 409.",
+        "operationId": "tft_regenerate_rfp_draft",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DraftRegenerate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Draft_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Regenerate Draft",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
     "/api/v1/tft/projects/{project_id}/draft/review-versions": {
+      "get": {
+        "description": "35. \uac80\ud1a0\ubcf8 \uc774\ub825, \ucd5c\uc2e0\uc21c.",
+        "operationId": "tft_list_rfp_review_versions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ReviewVersionList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "List Review Versions",
+        "tags": [
+          "rfp"
+        ]
+      },
       "post": {
         "description": "27. \uadfc\uac70\u00b7\ub2e4\uc74c \ud589\ub3d9\u00b7\ud1b5\ud569 \ucc45\uc784\uc744 \ud655\uc778\ud558\uace0 \uac80\ud1a0\ubcf8 \uc800\uc7a5.",
         "operationId": "tft_save_rfp_review_version",
@@ -8220,6 +13365,257 @@
           }
         },
         "summary": "Get Draft Rewrite",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
+    "/api/v1/tft/projects/{project_id}/equipment": {
+      "get": {
+        "description": "KAN-227 \ud504\ub85c\uc81d\ud2b8 \uc124\ube44 \ubaa9\ub85d(\uc9c1\uc811 \ucd94\uac00 \uce78\uc758 \uc124\ube44 \uc120\ud0dd). \ucd5c\uc2e0 \ub9e5\ub77d\uc758 \uc124\ube44 \ubb36\uc74c, \uc5c6\uc73c\uba74 \uc694\uad6c \uc124\ube44 \uce78.",
+        "operationId": "tft_list_rfp_equipment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_EquipmentList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "List Equipment",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
+    "/api/v1/tft/projects/{project_id}/history": {
+      "get": {
+        "description": "\ud504\ub85c\uc81d\ud2b8 \ubcc0\uacbd \uc774\ub825, \ucd5c\uc2e0\uc21c. \uc0ac\ub78c(actor)\u00b7\uc885\ub958(kind) \ud544\ud130.",
+        "operationId": "tft_list_rfp_project_history",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "pattern": "^(ai_verdict|human_change|reply_applied|system_record|decision|decision_undone|review_confirmed|review_returned|recompared|reply_recorded)(,(ai_verdict|human_change|reply_applied|system_record|decision|decision_undone|review_confirmed|review_returned|recompared|reply_recorded))*$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "actor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Actor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_HistoryPage_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Project History",
         "tags": [
           "rfp"
         ]
@@ -9000,6 +14396,225 @@
         ]
       }
     },
+    "/api/v1/tft/projects/{project_id}/questions/batch": {
+      "post": {
+        "description": "19-b. \uc9c8\ubb38 \uc5ec\ub7ec \uac74\uc744 \ud55c \ubc88\uc5d0 \uc791\uc131\ud55c\ub2e4. \ud55c \uac74\uc774\ub77c\ub3c4 \uc5b4\uae0b\ub098\uba74 \uc544\ubb34\uac83\ub3c4 \uc800\uc7a5\ud558\uc9c0 \uc54a\ub294\ub2e4.",
+        "operationId": "tft_create_rfp_questions_batch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuestionBatchCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_QuestionList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Create Questions Batch",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
+    "/api/v1/tft/projects/{project_id}/questions/sent": {
+      "post": {
+        "description": "\uc9c8\uc758\uc11c\ub97c \uba54\uc77c\ub85c \ubcf4\ub0b8 \uc2dc\uac01\uc744 \uc9c8\ubb38\ub9c8\ub2e4 \ub0a8\uae34\ub2e4(KAN-228). \ub2e4\uc2dc \ubcf4\ub0b4\ub3c4 \ucc98\uc74c \uae30\ub85d\uc744 \uadf8\ub300\ub85c \ub454\ub2e4.",
+        "operationId": "tft_mark_rfp_questions_sent",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuestionsSent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_QuestionSendList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Mark Questions Sent",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
     "/api/v1/tft/projects/{project_id}/questions/{question_id}/confirm": {
       "post": {
         "description": "31. \uc9c8\ubb38 \ucd08\uc548 \ud655\uc778. DRAFT\ub9cc OPEN\uc73c\ub85c \ubc14\uafbc\ub2e4(\uadf8 \uc804\uc5d0\ub294 \ubcf4\ub0b8 \uc9c8\ubb38\uc774 \uc544\ub2c8\ub2e4).",
@@ -9117,7 +14732,7 @@
     },
     "/api/v1/tft/projects/{project_id}/requirements": {
       "get": {
-        "description": "12. \uc694\uad6c \ubaa9\ub85d\u00b7\ud544\ud130 10\uac1c.",
+        "description": "12. \uc694\uad6c \ubaa9\ub85d\u00b7\ud544\ud130 11\uac1c. \ube80 \uc694\uad6c\ub294 excluded=true\uc77c \ub54c\ub9cc \ub098\uc628\ub2e4(KAN-225 \ubcc4\ub3c4 \ubaa9\ub85d).",
         "operationId": "tft_list_rfp_requirements",
         "parameters": [
           {
@@ -9337,6 +14952,16 @@
               ],
               "title": "Unresolved Mandatory"
             }
+          },
+          {
+            "in": "query",
+            "name": "excluded",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Excluded",
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -9412,6 +15037,241 @@
           }
         },
         "summary": "List Requirements",
+        "tags": [
+          "rfp"
+        ]
+      },
+      "post": {
+        "description": "\uc6d0\ubb38\uc5d0\uc11c \uace0\ub978 \uae00\ub85c \uc694\uad6c\ub97c \uc9c1\uc811 \ucd94\uac00\ud558\uace0 \uaddc\uce59 \ube44\uad50\ub85c \ubc14\ub85c \ud310\uc815\ud55c\ub2e4(KAN-225).",
+        "operationId": "tft_add_rfp_requirement",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualRequirementRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_DecisionResult_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Add Requirement",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
+    "/api/v1/tft/projects/{project_id}/supplement-selections/batch": {
+      "post": {
+        "description": "16-b. \uac19\uc740 \ubcf4\uc644 \uacbd\ub85c\ub97c \uc694\uad6c \uc5ec\ub7ec \uac74\uc5d0 \uc120\ud0dd\ud55c\ub2e4. dry_run\uc774\uba74 \uc4f0\uc9c0 \uc54a\uace0 \uac00\ub2a5 \uc5ec\ubd80\ub9cc \ub3cc\ub824\uc900\ub2e4.",
+        "operationId": "tft_select_rfp_supplement_batch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupplementBatchSelection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_SupplementBatchResult_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Select Supplement Batch",
         "tags": [
           "rfp"
         ]
@@ -9762,6 +15622,111 @@
         ]
       }
     },
+    "/api/v1/tft/questions/{question_id}/reply/read": {
+      "post": {
+        "description": "KAN-224. \uaddc\uce59\uc774 \ubabb \uc77d\uc740 \uace0\uac1d \ud68c\uc2e0\uc744 AI\ub85c \ub2e4\uc2dc \uc77d\ub294\ub2e4(worker \uc791\uc5c5, \ubaa8\ub378 \ube44\uc6a9). \uc694\uad6c\uac12\uc740 \ubc14\uafb8\uc9c0 \uc54a\ub294\ub2e4.",
+        "operationId": "tft_read_rfp_question_reply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "question_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Question Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Question_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Read Question Reply",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
     "/api/v1/tft/ready": {
       "get": {
         "operationId": "tft_readiness_api_v1_tft_ready_get",
@@ -9976,6 +15941,392 @@
           }
         },
         "summary": "Get Comparison",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
+    "/api/v1/tft/requirements/{requirement_id}/decision": {
+      "post": {
+        "description": "\uacb0\uc815 \ud328\ub110\uc758 \uacb0\uc815 \ud558\ub098\ub97c \ubc14\ub85c \ud655\uc815\ud55c\ub2e4(KAN-219).",
+        "operationId": "tft_decide_rfp_requirement",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requirement_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Requirement Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_DecisionResult_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Decide Requirement",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
+    "/api/v1/tft/requirements/{requirement_id}/history": {
+      "get": {
+        "description": "\uc694\uad6c \ud55c \uac74\uc758 \uc774\ub825, \ucd5c\uc2e0\uc21c.",
+        "operationId": "tft_list_rfp_requirement_history",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requirement_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Requirement Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "pattern": "^(ai_verdict|human_change|reply_applied|system_record|decision|decision_undone|review_confirmed|review_returned|recompared|reply_recorded)(,(ai_verdict|human_change|reply_applied|system_record|decision|decision_undone|review_confirmed|review_returned|recompared|reply_recorded))*$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "actor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Actor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_HistoryPage_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Requirement History",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
+    "/api/v1/tft/requirements/{requirement_id}/recompare": {
+      "post": {
+        "operationId": "tft_recompare_rfp_requirement",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requirement_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Requirement Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecompareRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RecompareResult_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Recompare Requirement",
         "tags": [
           "rfp"
         ]

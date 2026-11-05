@@ -125,11 +125,12 @@ function RequirementSupplement({ projectId, projectName, requirement, canSelect,
   </div>;
 }
 
-function SelectionEditor({ options, candidates, canSelect, onSaveReady, onSaved, attempts, actorId }: {
-  actorId: string; attempts: Map<string, string>; options: SupplementOptions; candidates: PartnerCandidate[]; canSelect: boolean; onSaveReady: SaveReady; onSaved: (value: SupplementSelected) => void;
+export function SelectionEditor({ options, candidates, canSelect, onSaveReady, onSaved, attempts, actorId, compact = false, context, initialPath }: {
+  initialPath?: string; context?: 'commercial' | 'designated' | 'task' | 'technical'; compact?: boolean; actorId: string; attempts: Map<string, string>; options: SupplementOptions; candidates: PartnerCandidate[]; canSelect: boolean; onSaveReady: SaveReady; onSaved: (value: SupplementSelected) => void;
 }) {
   const queryClient = useQueryClient();
-  const [path, setPath] = useState<SupplementOption['path'] | ''>('');
+  const allowedOptions = options.options.filter(option => option.allowed);
+  const [path, setPath] = useState<SupplementOption['path'] | ''>(() => allowedOptions.find(o => o.path === initialPath)?.path ?? (context && allowedOptions.length === 1 ? allowedOptions[0].path : ''));
   const [codes, setCodes] = useState<string[]>([]);
   const [roleSplit, setRoleSplit] = useState('');
   const [conditions, setConditions] = useState('');
@@ -137,6 +138,9 @@ function SelectionEditor({ options, candidates, canSelect, onSaveReady, onSaved,
   const [waiver, setWaiver] = useState('');
   const [conflict, setConflict] = useState(false);
   const option = options.options.find(o => o.path === path);
+  const partnerPath = !!option && ['EXTERNAL_PRODUCT', 'TASK_SUBCONTRACT', 'JOINT_PROPOSAL'].includes(option.path);
+  const roleLabel = !context ? '역할 분담' : context === 'commercial' ? '누가 어떤 조건을 확인할지' : context === 'designated' ? '조달·승인 확인 담당과 할 일' : context === 'task' ? '수행 담당과 업무 범위' : partnerPath ? '자사·협력사가 맡을 일' : '담당자와 후속 확인 사항';
+  const roleExample = context === 'commercial' ? '예: 영업 담당이 보증 연장 가능 여부와 승인 조건을 확인' : context === 'designated' ? '예: 구매 담당이 지정 모델 조달 가능 여부를 확인' : context === 'task' ? '예: 기술지원이 시험 범위를 검토하고 제출 자료를 준비' : partnerPath ? '예: 자사는 통합 검토, 협력사는 공급 범위 확인' : '예: 기술 담당이 적용 조건과 추가 자료를 확인';
   const needsWaiver = option?.gate.requires === 'OWN_DEVELOPMENT_CHECK' && option.gate.status === 'PENDING';
   const excluded = (code: string) => candidates.find(c => c.candidate_code === code)?.grades.some(g => g.requirement_id === options.requirement_id && g.grade === 'EXCLUDED') === true;
   const save = useMutation({ mutationFn: async (payload: SupplementSelection) => {
@@ -168,24 +172,24 @@ function SelectionEditor({ options, candidates, canSelect, onSaveReady, onSaved,
     { key: 'blocked', header: '막힌 이유', width: 240, cell: o => o.allowed ? '—' : label(BLOCKED_LABEL, o.blocked_reason) || '차단' },
   ];
   return <>
-    <KvGrid label="보완 경로 선택지" columns={columns} rows={[...options.options].sort((a, b) => a.rank - b.rank)} selectedKey={path} rowKey={o => o.path} fallback="현재 선택 가능한 보완 경로가 없습니다." />
-    <details className="supplement-source"><summary>경로 조건·차단 사유 전체</summary>{[...options.options].sort((a, b) => a.rank - b.rank).map(o => <div key={o.path}><strong>{PATH[o.path]}</strong><p>확인 조건: {text(o.conditions_to_confirm)}</p><p>필요 전문성: {text(o.required_expertise)} · R&D 확인: {label(RND_CHECK_LABEL, o.gate.status)}</p>{!o.allowed && <p>막힌 이유: {label(BLOCKED_LABEL, o.blocked_reason) || '차단'}</p>}</div>)}</details>
+    {!compact && <><KvGrid label="보완 경로 선택지" columns={columns} rows={[...options.options].sort((a, b) => a.rank - b.rank)} selectedKey={path} rowKey={o => o.path} fallback="현재 선택 가능한 보완 경로가 없습니다." />
+    <details className="supplement-source"><summary>경로 조건·차단 사유 전체</summary>{[...options.options].sort((a, b) => a.rank - b.rank).map(o => <div key={o.path}><strong>{PATH[o.path]}</strong><p>확인 조건: {text(o.conditions_to_confirm)}</p><p>필요 전문성: {text(o.required_expertise)} · R&D 확인: {label(RND_CHECK_LABEL, o.gate.status)}</p>{!o.allowed && <p>막힌 이유: {label(BLOCKED_LABEL, o.blocked_reason) || '차단'}</p>}</div>)}</details></>}
     <div className="supplement-bottom"><KvSplit columns="minmax(0,1.6fr) minmax(340px,1fr)">
-      <div id="supplement-candidates">
+      {!compact && <div id="supplement-candidates">
         <p className="supplement-candidate-heading">협력사 후보 {candidates.length} · 가상 협력사, 등급은 이 요구 기준</p>
         <CandidateEvidence candidates={candidates} requirementId={options.requirement_id} />
-      </div>
-      <KvBox title="보완 선택" note="사람의 결정 · 저장하면 새 판본">
+      </div>}
+      <KvBox title={context ? "대응 방안 기록" : "보완 선택"} note={context ? "검토한 방안을 기록합니다. 담당 배정·업무 승인을 대신하지 않습니다." : "사람의 결정 · 저장하면 새 판본"}>
         <form id="supplement-selection" onSubmit={event => {
           event.preventDefault();
           if (ready && option) save.mutate({ version: options.version, path: option.path, candidate_codes: [...codes].sort(), role_split: roleSplit.trim(), conditions: conditions.split('\n').map(c => c.trim()).filter(Boolean), note: note.trim() || null, rnd_check_waiver_reason: needsWaiver ? waiver.trim() : null });
         }}>
         <fieldset disabled={!canSelect || conflict || save.isPending}>
           <legend className="supplement-sr">보완 선택 작성</legend>
-          <KvField label="보완 경로 *"><select aria-label="보완 경로" required value={path} onChange={e => choosePath(e.target.value as SupplementOption['path'] | '')}><option value="">경로 선택</option>{[...options.options].sort((a, b) => a.rank - b.rank).map(o => <option key={o.path} value={o.path} disabled={!o.allowed}>{PATH[o.path]}</option>)}</select></KvField>
-          <KvField label="후보"><div className="supplement-checkboxes">{option?.candidate_codes.map(code => <label key={code}><input type="checkbox" aria-label={`후보 ${code}`} checked={codes.includes(code)} disabled={excluded(code) || (!codes.includes(code) && codes.length >= 10)} onChange={e => setCodes(e.target.checked ? [...codes, code] : codes.filter(c => c !== code))} />{code} {candidates.find(c => c.candidate_code === code)?.display_name} {excluded(code) && '(제외 후보)'}</label>)}{!option && <span>보완 경로를 먼저 선택하세요.</span>}{option && !option.candidate_codes.length && <span>이 경로에 등록된 후보가 없습니다.</span>}</div></KvField>
-          <KvField label="역할 분담 *"><textarea aria-label="역할 분담" required rows={3} value={roleSplit} maxLength={2000} onChange={e => setRoleSplit(e.target.value)} /></KvField>
-          <KvField label="남는 조건"><textarea aria-label="남는 조건" rows={2} placeholder="한 줄에 하나" value={conditions} onChange={e => setConditions(e.target.value)} /></KvField>
+          <KvField label={context ? "기록할 대응 방안 *" : "보완 경로 *"}><select aria-label={context ? "기록할 대응 방안" : "보완 경로"} required value={path} onChange={e => choosePath(e.target.value as SupplementOption['path'] | '')}><option value="">경로 선택</option>{[...options.options].sort((a, b) => a.rank - b.rank).map(o => <option key={o.path} value={o.path} disabled={!o.allowed}>{PATH[o.path]}</option>)}</select></KvField>
+          {(!context || partnerPath) && <KvField label="후보"><div className="supplement-checkboxes">{option?.candidate_codes.map(code => <label key={code}><input type="checkbox" aria-label={`후보 ${code}`} checked={codes.includes(code)} disabled={excluded(code) || (!codes.includes(code) && codes.length >= 10)} onChange={e => setCodes(e.target.checked ? [...codes, code] : codes.filter(c => c !== code))} />{code} {candidates.find(c => c.candidate_code === code)?.display_name} {excluded(code) && '(제외 후보)'}</label>)}{!option && <span>보완 경로를 먼저 선택하세요.</span>}{option && !option.candidate_codes.length && <span>이 경로에 등록된 후보가 없습니다.</span>}</div></KvField>}
+          <KvField label={`${roleLabel} *`}><textarea aria-label={roleLabel} placeholder={context ? roleExample : undefined} required rows={3} value={roleSplit} maxLength={2000} onChange={e => setRoleSplit(e.target.value)} /></KvField>
+          <KvField label={context ? "아직 확인되지 않은 조건" : "남는 조건"}><textarea aria-label={context ? "아직 확인되지 않은 조건" : "남는 조건"} rows={2} placeholder={context === 'commercial' ? '예: 추가 비용, 적용 범위, 승인 여부 (한 줄에 하나)' : '한 줄에 하나'} value={conditions} onChange={e => setConditions(e.target.value)} /></KvField>
           <KvField label="메모"><input aria-label="선택 메모" value={note} maxLength={1000} onChange={e => setNote(e.target.value)} /></KvField>
           {needsWaiver && <KvField label="R&D 확인 면제"><textarea aria-label="R&D 확인 면제 사유" required minLength={20} rows={2} placeholder="면제 사유 20자 이상" value={waiver} maxLength={1000} onChange={e => setWaiver(e.target.value)} /></KvField>}
         </fieldset>
@@ -193,7 +197,7 @@ function SelectionEditor({ options, candidates, canSelect, onSaveReady, onSaved,
         {conflict && <p role="alert">선택 내용을 다시 확인해야 합니다. 보완 최신 조회 후 다시 선택하세요.</p>}
         {save.isError && <ErrorState error={save.error} />}
         <p className="supplement-help">최신 조회 시 미저장 선택을 다시 입력합니다. 허용 안 된 경로와 제외 후보는 고를 수 없습니다.</p>
-        <div className="supplement-actions"><button className="kb primary" type="submit" disabled={!ready}>{save.isPending ? '저장 중' : '보완 선택 저장'}</button></div>
+        <div className="supplement-actions"><button className="kb primary" type="submit" disabled={!ready}>{save.isPending ? '저장 중' : context ? '대응 방안 저장' : '보완 선택 저장'}</button></div>
         </form>
       </KvBox>
     </KvSplit></div>
@@ -208,7 +212,7 @@ const checkLabel = (value: string) => {
   const responsibility: Record<string, string> = { assembly: '조립 책임', supply: '공급 책임', install: '설치 책임', test: '시험 책임', calc: '계산 책임', training: '교육 책임', integration: '통합 책임', warranty: '보증 책임' };
   return value.startsWith('integrator_capable.') ? responsibility[value.slice('integrator_capable.'.length)] ?? '통합 수행 항목(원문 상세)' : ATTRIBUTE_LABEL[value] ?? (/^[a-z][a-z0-9_.]*$/.test(value) ? '사양 항목(원문 상세)' : value);
 };
-const reasonLabel = (value: string) => value.replace(/\bintegrator_capable\.[a-z_]+|\b[a-z]+(?:_[a-z]+)+\b|\bbil\b/g, key => key.startsWith('integrator_capable.') || ATTRIBUTE_LABEL[key] ? checkLabel(key) : key);
+export const reasonLabel = (value: string) => value.replace(/\bintegrator_capable\.[a-z_]+|\b[a-z]+(?:_[a-z]+)+\b|\bbil\b/g, key => key.startsWith('integrator_capable.') || ATTRIBUTE_LABEL[key] ? checkLabel(key) : key);
 function CandidateEvidence({ candidates, requirementId }: { candidates: PartnerCandidate[]; requirementId: string }) {
   const [code, setCode] = useState('');
   const selected = candidates.find(c => c.candidate_code === code) ?? candidates[0];

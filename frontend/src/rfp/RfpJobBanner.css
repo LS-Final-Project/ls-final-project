@@ -1,0 +1,40 @@
+/* Keep component layout above the ERP shell reset regardless of import order. */
+.rfp-job-banner.rfp-job-banner { margin: 10px 14px 12px; padding: 18px 20px 12px; border: 1px solid #b9c9df; border-top: 3px solid #315b9c; border-radius: 6px; background: linear-gradient(115deg, #f0f5ff, #fafcff 65%); color: #243a55; font-size: 12px; line-height: 1.5; box-shadow: 0 3px 10px #193d6a08; }
+.rfp-job-banner.rfp-job-banner p { margin: 4px 0 0; }
+.rfp-job-banner.rfp-job-banner a { color: #24558c; }
+.rfp-job-banner .rfp-analysis-heading { display: flex; align-items: center; gap: 14px; }
+.rfp-job-banner .rfp-analysis-title { flex: 1; min-width: 0; }
+.rfp-job-banner .rfp-analysis-title > strong { display: block; margin-top: 3px; color: #1d3760; font-size: 18px; font-weight: 700; letter-spacing: -.35px; }
+.rfp-job-banner .rfp-analysis-title p { color: #5a6d87; }
+.rfp-job-banner .rfp-analysis-eyebrow { display: flex; align-items: center; gap: 9px; color: #587396; font-size: 10px; font-weight: 700; letter-spacing: 1.1px; }
+.rfp-job-banner .rfp-analysis-badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; background: #e6eefb; color: #355f9e; border-radius: 10px; font-size: 11px; letter-spacing: 0; }
+.rfp-job-banner.is-live .rfp-analysis-badge::before { content: ''; width: 6px; height: 6px; background: #547ed4; border-radius: 50%; animation: rfp-breathe 1.8s ease-in-out infinite; }
+.rfp-job-banner .rfp-analysis-elapsed { display: grid; text-align: right; color: #62758c; }
+.rfp-job-banner .rfp-analysis-elapsed b { color: #345782; font-size: 17px; font-variant-numeric: tabular-nums; }
+.rfp-job-banner .rfp-analysis-elapsed small { font-size: 10px; }
+.rfp-job-banner .rfp-analysis-document { color: #5d7290; overflow-wrap: anywhere; padding-top: 8px; }
+.ls-root .rfp-job-banner .rfp-analysis-elapsed b { font-size: 20px; font-weight: 600; }
+.rfp-job-banner .rfp-analysis-notice { color: #795a22; }
+.rfp-job-banner .rfp-analysis-footnote { color: #73849b; font-size: 11px; }
+.rfp-job-banner .rfp-analysis-result { font-weight: 600; white-space: nowrap; }
+.rfp-job-banner.rfp-job-banner.is-terminal { padding: 12px 16px; background: #f5f8fc; border-top-color: #65819f; }
+.rfp-job-banner.is-terminal .rfp-analysis-title > strong { font-size: 15px; }
+.rfp-job-banner.is-disconnected .rfp-analysis-badge { background: #f5eedf; color: #896531; border-color: #dccba9; }
+@keyframes rfp-breathe { 50% { opacity: .35; } }
+@media (max-width: 650px) { .rfp-job-banner.rfp-job-banner { margin: 8px; padding: 12px; } .rfp-job-banner .rfp-analysis-heading { flex-wrap: wrap; gap: 10px; } .rfp-job-banner .rfp-analysis-title > strong { font-size: 16px; } .rfp-job-banner .rfp-analysis-result { white-space: normal; } }
+@media (prefers-reduced-motion: reduce) { .rfp-job-banner.is-live .rfp-analysis-badge::before { animation: none; transition: none; } }
+
+/* Carbon productive motion: keep layout fixed while the stage emphasis changes. */
+.rfp-job-banner .rfp-analysis-title > strong { min-height: 1.5em; }
+
+.rfp-job-banner .rfp-stage-caption { animation: rfp-caption-enter 180ms cubic-bezier(0,0,.38,.9) both; }
+@keyframes rfp-caption-enter { from { opacity: .55; transform: translateY(2px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .rfp-job-banner .rfp-stage-caption { animation: none; } }
+
+/* Stable current-status area: only the latest observed text changes. */
+.rfp-job-banner .rfp-analysis-current { height: 148px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; gap: 12px; overflow: auto; margin-top: 14px; padding: 14px 16px; border: 1px solid #dce5f2; border-radius: 6px; background: #fff; }
+.rfp-job-banner .rfp-current-label { display: block; color: #74839a; font-size: 11px; margin-bottom: 5px; }
+.rfp-job-banner .rfp-current-copy > strong { display: block; color: #274a78; font-size: 17px; line-height: 1.5; font-weight: 650; }
+.rfp-job-banner .rfp-current-copy p { color: #64758c; font-size: 12px; }
+.rfp-job-banner .rfp-current-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; color: #7b8a9f; font-size: 11px; font-variant-numeric: tabular-nums; }
+@media (max-width: 650px) { .rfp-job-banner .rfp-analysis-current { height: 176px; padding: 12px; } }

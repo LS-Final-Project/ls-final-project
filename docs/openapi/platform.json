@@ -4315,7 +4315,9 @@
               "rfp.process",
               "rfp.export",
               "rfp.annotate",
-              "rfp.draft_rewrite"
+              "rfp.draft_rewrite",
+              "rfp.context",
+              "rfp.reply_read"
             ],
             "title": "Kind",
             "type": "string"

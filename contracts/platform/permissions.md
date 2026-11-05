@@ -220,7 +220,7 @@ C/S에는 **문의(ticket) 상태**와 **개선요청(improvement request) 상�
 - 재실행은 손대지 않은 요구만 `ai_draft` 새 판본으로 덮어쓰고, 손댄 요구(최신 판본 `human_input` 또는 승인된 제안 있음)는 차이를 제안(`origin=web`, 사유 "재실행")으로 남긴다.
 - 쓰기 요청은 읽을 때 받은 `version`을 본문에 보내고 최신과 다르면 409 `TFT_VERSION_CONFLICT`다(C/S 조건 비교와 같은 방식). 상태를 만드는 POST는 `Idempotency-Key` 8~128자 필수. 모든 판본은 추가만 한다.
 - 처리 작업은 플랫폼 `runtime.jobs`(`owner=tft`)를 재사용하고 상태·SSE는 플랫폼 작업 경로를 쓴다. worker 연결 전 접수는 503 `TFT_PROCESSOR_NOT_CONNECTED`, 진행 중 작업이 있으면 409 `TFT_JOB_IN_PROGRESS`.
-- 검토본 저장 조건(명세 §4.9): 필수 요구 전부가 상태·근거 또는 다음 행동(`unresolved`+`next_owner_field`)을 가지고, 초안 문장의 `evidence_missing=0`·`needs_rereview=0`. 어기면 422 `TFT_DRAFT_INCOMPLETE`(요구·문장 ID 목록). 통과하면 `review_version`을 기록하고 `output_status=REVIEW_DRAFT`가 되며, 판단 상태는 3.1대로 정한다. 미해결 필수 조건이 다음 행동과 함께 남아 있어도 저장은 성공한다. 금지된 보완 경로 선택은 409 `TFT_INVALID_TRANSITION`, 제외 후보 선택은 422 `TFT_CANDIDATE_EXCLUDED`.
+- 검토본 저장 조건(명세 §4.9): 필수 요구 전부가 상태·근거 또는 다음 행동(`unresolved`+`next_owner_field`)을 가지고, 초안 문장의 `evidence_missing=0`·`needs_rereview=0`. 어기면 422 `TFT_DRAFT_INCOMPLETE`(요구·문장 ID 목록). 통과하면 `review_version`을 기록하고 `output_status=REVIEW_DRAFT`가 되며, 판단 상태는 3.1대로 정한다. 미해결 필수 조건이 다음 행동과 함께 남아 있어도 저장은 성공한다. 다만 결정 저장 조건(KAN-220 `decision_gate`: 미결정·편차 미기재·회신 대기 질의·책임자 확인 대기)이 남으면 409 `TFT_DECISION_GATE_OPEN`이다. 금지된 보완 경로 선택은 409 `TFT_INVALID_TRANSITION`, 제외 후보 선택은 422 `TFT_CANDIDATE_EXCLUDED`.
 - 시연에서는 자기 제안을 자기가 승인할 수 있다. 감사 행에는 항상 `proposer`와 `approver`를 남긴다.
 
 ### 3.3 담당·책임자 지정 이력

@@ -163,18 +163,19 @@ T17은 기존 표에 `draft_sentences.needs_rereview`(생성 당시 검토 표�
 - **27 POST review-versions**: 담당 sales·책임자, Idempotency-Key 필수. 최신 초안 version 일치,
   근거 누락/문장 재검토 0, 필수 요구 해결 또는 다음 행동(`next_owner_field` 또는 저장한 보완 선택, `unresolved`는 비어도 된다), 통합 책임 필요 시 확보,
   빈 초안 아님을 확인한다. 실패는 422 `TFT_DRAFT_INCOMPLETE`(대상 ID를 details에 표시), stale은 409.
+  그 뒤 결정 저장 조건(KAN-220 `decision_gate`)이 남으면 409 `TFT_DECISION_GATE_OPEN`(남은 항목별 건수, [RFP 데이터 구조](rfp-data.md)).
   성공 시 `REVIEW_DRAFT`가 되고 미해결 필수가 있으면 `CONDITION_CHECK`, 없으면 `OWNER_CONFIRMED`다.
   이는 담당자의 저장 행위이며 공급·수주 승인이 아니다. 같은 키 재전송은 원래 검토본을 반환한다.
 - **28 POST exports**: 담당 sales·책임자, Idempotency-Key 필수. 지정된 불변 review_version 예약과 플랫폼
   `rfp.export` 접수. `ExportAccepted(JobAccepted)`에 `export_id`를 추가하여 파일 GET과 연결하며,
   같은 요청 재전송은 같은 export_id다. process/annotate는 기존 JobAccepted를 유지한다.
 - **29 GET exports/{export_id}/file**: 기존 프로젝트 조회 범위, 다른 프로젝트/없는 자원은 404,
-  미완료는 409 `TFT_EXPORT_NOT_READY`. 완료 파일은 sha256/size 확인 후 DOCX MIME·attachment·no-store·nosniff로 반환한다.
+  미완료는 409 `TFT_EXPORT_NOT_READY`. 완료 파일은 sha256/size 확인 후 형식의 MIME(DOCX·XLSX)·attachment·no-store·nosniff로 반환한다.
   파일 누락/손상은 안전한 503이며 내부 storage_key는 응답에 포함하지 않는다.
 
 ### 내보내기 포맷과 파일
 
-ExportFormat의 `DOCX`·`PDF` enum은 바꾸지 않는다. **내보내기는 Word(DOCX)만 지원**이며 PDF는 예약/DB 쓰기/
+ExportFormat은 `DOCX`·`PDF`·`XLSX`(KAN-221)다. **내보내기는 요약서 DOCX와 입찰 대응 XLSX만 지원**이며 PDF는 예약/DB 쓰기/
 플랫폼 접수 전에 422 `TFT_EXPORT_FORMAT_UNAVAILABLE`다. PDF 내보내기는 지원 범위 밖이며 화면에는 PDF 내보내기 동작을 제공하지 않는다.
 reportlab·글꼴·의존성·이미지를 추가하지 않는다.
 
@@ -184,11 +185,35 @@ XML escaping 및 `w:br`·`w:tab`으로 한글/특수문자/줄바꿈을 보존�
 본문·근거·조건·flags를 읽고, 머리는 접수 때 고정한 `title`, 근거 번호표는 불변인 요구·조항 번호를 읽는다. 이후 요구의 `needs_review`나 `rereview_marks`는 파일에 합산하지 않는다.
 일반 `load`를 쓰는 GET·PATCH 응답과 검토본 저장 검사는 현재 재검토 표시를 계속 합산한다.
 편집 저장 입력은 `load_snapshot`의 정적 flags를 보존하며, 일시적인 live 검토 표시를 새 판본에 저장하지 않는다. 기존 원문 DocumentStore(private GCS 또는 `TFT_DOCUMENT_ROOT`)에
-`rfp/{project}/exports/{export}.docx`로 저장하며 25 MiB 상한·해시·크기를 기록한다.
+`rfp/{project}/exports/{export}.docx`(XLSX는 `.xlsx`)로 저장하며 25 MiB 상한·해시·크기를 기록한다.
 객체 생성 후 DB commit 전에 실패하면 private 객체만 남을 수 있다(기존 업로드와 동일).
 재시도는 같은 바이트일 때만 기존 객체를 인정하며 다른 바이트를 덮어쓰지 않는다.
 
-서버/플랫폼 웹 중계는 이 다섯 경로와 정확한 export 파일 경로의 DOCX 응답을 허용한다.
+서버/플랫폼 웹 중계는 이 다섯 경로와 34~36과 정확한 export 파일 경로의 DOCX·XLSX 응답을 허용한다.
+
+### 입찰 대응 XLSX와 요약서 검토 요약 (KAN-221, 2026-11-04)
+
+같은 검토본에서 XLSX 한 파일(시트 넷)과 요약서 DOCX(기존 검토본 DOCX)를 따로 내보낸다(28에 `format` `XLSX`·`DOCX`). 생성은
+`backend/api/tft/rfp/bid_outputs.py` 한 곳이고 시트 칸은 작업 공간 출력 탭과 같다. 모든 시트의 1행은 머리 줄
+(접수 때 고정한 제목 | 검토본 n | 자료 구분 | 기준 시각 = 예약 시각 KST | 저장 조건), 2행은 칸 이름(고정·자동 필터), 3행부터 자료다.
+
+| 시트 | 행 | 칸 |
+|---|---|---|
+| 편차표 | 요구별 최신 편차 행이 `RECORDED`인 요구, 원문 조항 순서 | No, 조항, 설비, 항목, 요구, 자사 제안(비교 요약), 편차 내용, 확인(편차 판본이 최신 요구 판본보다 오래되면 "요구가 바뀜, 다시 확인") |
+| 질의서 | 고객 질의 중 `OPEN`·`REPLIED`, 철회 제외, 작성 순 | No(TQ-n, 후속 질의는 TQ-n-2), 조항, 설비, 질의, 상태(회신 대기·회신 받음), 회신, 회신 받은 날 |
+| 현황표 | 설비별 + 합계 | 설비, 충족(충족 확인 포함), 편차, 질의, 보완, 배정, 남은 결정, 남은 조건(회신 대기 질의 수) |
+| 요구별 | 모든 요구, 원문 조항 순서 | No, 요구 번호, 조항, 설비, 항목, 요구값, 필수, 원문, 판정, 결정, 책임자 확인, 판단 근거, 다음 담당, 직접 추가, 같은 요구 출처 |
+
+- 판정·결정은 KAN-220 `decisions.states`, 저장 조건은 `decisions.gate`다. 뺀 요구(KAN-225)와 그 질의는 넣지 않는다.
+- 중복(KAN-223)은 검토본에 고정한 맥락의 `duplicates`로 대표 한 행만 남기고 "같은 요구 출처"에 조항을 적는다. 설비는 같은
+  맥락의 EQUIPMENT 묶음(태그, 없으면 이름), 맥락이 없으면 요구의 설비 칸, 그것도 없으면 "공통"이다.
+- XLSX의 편차·질의·결정·판정은 **내보낼 때의 기록**이다(머리 줄 기준 시각). 요약서 DOCX는 위 불변 검토본 규칙 그대로
+  고정한 판본만 싣는다(내보낼 때의 판정 집계를 넣으면 같은 검토본의 파일이 달라져 넣지 않았다).
+- XLSX 재시도: 저장 직후 DB 기록 전에 멈췄으면 이 내보내기로 이미 만든 파일을 그대로 쓴다(다시 만들면 결정이 바뀌어 달라질 수 있다).
+- 저장 조건이 남아 있어도 내보내기는 막지 않는다. 머리 줄에 "저장 조건 미충족: …"으로 남은 항목을 적는다.
+  내보내는 파일은 언제나 검토본이며 확정·제출본이라는 표시는 없다(기존 고지 유지).
+- worker(tft_worker)는 `requirement_decisions`·`deviations`·`question_withdrawals`를 읽는다(마이그레이션 `20261123_KAN-221_xlsx_exports.sql`).
+- XLSX도 표준 라이브러리 ZIP/XML로 만든다. XML에 넣을 수 없는 글자는 지우지 않고 실패한다(`TFT_EXPORT_INVALID_CHARACTER`).
 본체 JSON 경로에 바이너리를 허용하지 않는다. 실제 모델·외부 발송·공식 추적률 평가 연결은 포함하지 않는다.
 로컬 일반 합성/파일/HTTP 검증과 전용 PostgreSQL CI 검증을 분리하며 DB 미실행을 통과로 보고하지 않는다.
 
@@ -210,9 +235,28 @@ ID·절·본문·근거·조건·정적 flags·마지막 편집 이유를 새 �
 **범위 한계:** 근거 링크에는 요구 판본 baseline이 없다. 이번은 기존 mark 기반 보존이며 요구의
 실제 판본/값/인용 변경만을 정확히 판별하는 기능은 구현하지 않는다. `needs_review`를 요구 변경의
 증거로 간주하지 않는다. 현재 요구의 검토 표시는 기존 live 조회 정책을 유지한다. 새 migration/DTO는 없다.
-초안 다시 만들기 버튼은 보류한다. 공개 API로 명시 문서 판본의 처리 완료를 보장할 수 없어 새 연결을
-추가하지 않으며 기존 접수 화면의 사유 입력 후 처리 재실행을 사용한다. 이미 처리된 문서만 재실행하면
-worker가 parse/extract를 건너뛰므로 모델 재호출 없이 승인·보완 선택으로 초안을 재생성한다.
+초안만 다시 만들 때는 아래 경로 34를 쓴다. 처리 재실행과 달리 요구 등급을 다시 계산하지 않는다.
+
+## 경로 34~36: 초안 다시 만들기와 이력
+
+- **34 POST draft/regenerate** `{version:N}`(초안이 없으면 0). 담당 sales·책임자, Idempotency-Key 필수,
+  응답은 201과 25번과 같은 `Draft`(`evidence_labels` 포함)다. 처리 worker와 같은 `drafts.build`로
+  저장된 요구·비교·보완 선택·협력사·질문·통합 책임을 읽어 head+1을 만들고 `preserve_human`으로 사람 문장을
+  그대로 옮긴다. 모델 호출, 원문 해석, `regrade_stored`(요구 등급 재계산)는 하지 않는다. 이전 판본은 남는다.
+  N이 head와 다르면 409 `TFT_VERSION_CONFLICT`, 처리 worker가 저장 단계(프로젝트 advisory lock 187)를
+  쥐고 있으면 409 `TFT_DRAFT_JOB_ACTIVE`다. 플랫폼 대기열의 QUEUED 작업은 tft가 볼 수 없어(tft_app에는
+  runtime 권한이 없다) 막지 않는다. 그 작업은 끝날 때 이 판본 위에 새 판본을 만든다.
+  멱등은 `rfp_commands` 대신 `draft_versions.source_job_id`에 `uuid5(project, "regenerate:{actor}:{key}")`를
+  저장해 처리한다(연산 CHECK를 바꾸는 migration이 없다). 같은 키 재전송은 처음 판본을 주고, 같은 키에 다른 N은
+  409 `IDEMPOTENCY_CONFLICT`다. 감사는 `draft.regenerate`(detail `previous_version`)다.
+- **35 GET draft/review-versions**: 25번과 같은 조회 범위. `items`는 최신 검토본부터
+  `review_version`·`draft_version`·`note`·`output_status`(저장이 언제나 `REVIEW_DRAFT`로 바꾼다)·
+  `judgement_status`·`saved_by`·`saved_by_name`·`saved_at`이다.
+- **36 GET draft/exports**: 25번과 같은 조회 범위. `items`는 최신 요청부터 `export_id`·`review_version`·
+  `format`·`status`·`requested_by`·`requested_by_name`·`requested_at`·`finished_at`·`file_name`이다.
+  tft는 완료만 기록하므로 `status`는 완료면 `SUCCEEDED`, 아니면 `QUEUED`다. 실패한 작업도 `QUEUED`로 남는다.
+  `file_name`은 내려받기 응답과 같은 `rfp-{export_id}.docx`이고 미완료면 null이다.
+- 이름 칸(`saved_by_name`·`requested_by_name`)은 tft에 사용자 이름이 없어 null이다.
 
 
 ## 모델 문장 작성의 양식 기원 (KAN-188)

@@ -27,6 +27,7 @@ from backend.shared.access import PRINCIPAL_HEADER, Principal, principal_header
 from backend.shared.models import CUSTOMER_ID, EVIDENCE_ID
 from backend.shared.service_auth import CALLER_HEADER
 from backend.shared.settings import Settings
+from tests.tft.test_rfp_schema_db import MIGRATIONS as SCHEMA_MIGRATIONS
 
 ORIGIN = "https://app.example.invalid"
 CS = "https://cs.example.invalid"
@@ -38,6 +39,14 @@ OPTIONS = {
     "business_tft_url": TFT,
     "business_platform_email": "platform-runtime@synthetic-project.iam.gserviceaccount.com",
 }
+
+
+# 추천 명령 표(KAN-123)는 스키마 시험이 다루지 않지만 업무 앱이 읽는다. 프로젝트 표 뒤에 둔다.
+TFT_MIGRATIONS = (
+    *SCHEMA_MIGRATIONS[:2],
+    "20261025_KAN-123_recommendation_commands.sql",
+    *SCHEMA_MIGRATIONS[2:],
+)
 
 
 @pytest.fixture
@@ -96,23 +105,9 @@ def business_database(auth_database):
             "cs/20261106_KAN-107_ticket_customer_tier.sql",
             # 개선요청 조회가 후보 칸을 읽는다(C26).
             "cs/20261108_KAN-202_improvement_candidates.sql",
-            "tft/20261023_KAN-119_projects.sql",
-            "tft/20261023_KAN-122_staffing_requests.sql",
-            "tft/20261025_KAN-123_recommendation_commands.sql",
-            # 경로 1·3의 RFP 칸(T7·T11).
-            "tft/20261029_KAN-182_rfp_response.sql",
-            "tft/20261030_KAN-182_rfp_keys.sql",
-            "tft/20261101_KAN-186_supplement_paths.sql",
-            "tft/20261102_KAN-186_rnd_check.sql",
-            "tft/20261103_KAN-186_project_columns.sql",
-            # 프로젝트 입력 T20과 선언된 선행(T12/T13/T14/T15/T17/T19). T21 요약 경로는 여기서 읽지 않는다.
-            "tft/20261105_KAN-199_requirement_assembly_clause.sql",
-            "tft/20261106_KAN-199_question_drafts.sql",
-            "tft/20261104_KAN-199_tft_worker.sql",
-            "tft/20261107_KAN-188_requirement_semantic_fields.sql",
-            "tft/20261109_KAN-188_draft_execution.sql",
-            "tft/20261111_KAN-188_draft_rewrite.sql",
-            "tft/20261112_KAN-187_project_constraints.sql",
+            # TFT는 스키마 시험의 적용 순서 목록 하나를 따른다. 손으로 고른 목록은 프로젝트 목록·상세가 새로 읽는 표
+            # (결정·발송 기록 등)가 빠져 단독 실행에서 503이 났고, 앞 시험이 같은 DB에 적용했을 때만 통과했다.
+            *(f"tft/{name}" for name in TFT_MIGRATIONS),
         ):
             migration = Path("infra/migrations", filename).read_text()
             conn.execute(
@@ -234,6 +229,11 @@ def system(settings, business_database, registered_user, google_tokens, monkeypa
             ]
             conn.execute("DELETE FROM cs.audit_events WHERE actor_user_id=%s", (user_id,))
             conn.execute("DELETE FROM cs.ticket_workflows WHERE ticket_id=ANY(%s)", (ticket_ids,))
+            # KAN-214 자동 배정은 표가 있을 때만 행을 남긴다(앞 시험이 같은 DB에 적용한 경우).
+            if conn.execute("SELECT to_regclass('cs.ticket_assignments')").fetchone()[0]:
+                conn.execute(
+                    "DELETE FROM cs.ticket_assignments WHERE ticket_id=ANY(%s)", (ticket_ids,)
+                )
             conn.execute("DELETE FROM cs.tickets WHERE id=ANY(%s)", (ticket_ids,))
             conn.execute("DELETE FROM tft.projects WHERE id=ANY(%s)", (list(projects),))
 
@@ -938,14 +938,20 @@ def test_upload_relay_passes_multipart_only_on_its_path(system, monkeypatch):
     assert not calls
 
 
-def test_export_file_relay_allows_docx_only_on_the_exact_file_path(monkeypatch):
-    """새 export 첨부 경로만 바이너리를 허용하고 일반 draft JSON 경로에는 허용하지 않는다."""
+@pytest.mark.parametrize(
+    "mime",
+    [
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ],
+)
+def test_export_file_relay_allows_docx_only_on_the_exact_file_path(monkeypatch, mime):
+    """새 export 첨부 경로만 바이너리(DOCX, KAN-221 XLSX)를 허용하고 일반 draft JSON 경로에는 허용하지 않는다."""
     from fastapi import HTTPException
 
     from backend.api.platform import relay
 
     path = "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/exports/22222222-2222-4222-8222-222222222222/file"
-    mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     fake_upstream(
         monkeypatch,
         kind=mime,
@@ -958,3 +964,20 @@ def test_export_file_relay_allows_docx_only_on_the_exact_file_path(monkeypatch):
     assert result.headers["cache-control"] == "no-store"
     with pytest.raises(HTTPException):
         relay.forward("GET", "https://tft.example.invalid" + path.split("/exports/")[0], {}, b"")
+
+
+@pytest.mark.parametrize("mime", ["image/png", "image/jpeg", "image/webp", "application/pdf"])
+def test_diagram_binary_is_limited_to_exact_diagram_route(monkeypatch, mime):
+    from fastapi import HTTPException
+
+    from backend.api.platform import relay
+
+    path = "/api/v1/tft/documents/11111111-1111-4111-8111-111111111111/diagrams/OCR-DOCX-0001/image"
+    fake_upstream(monkeypatch, kind=mime, body=b"original", headers={})
+    assert relay.forward("GET", "https://tft.example.invalid" + path, {}, b"").body == b"original"
+    for refused in [path.replace("OCR-DOCX-0001", "unknown"), path.rsplit("/", 1)[0]]:
+        with pytest.raises(HTTPException):
+            relay.forward("GET", "https://tft.example.invalid" + refused, {}, b"")
+    if mime.startswith("image/"):
+        with pytest.raises(HTTPException):
+            relay.forward("GET", "https://tft.example.invalid" + FILE_URL, {}, b"")

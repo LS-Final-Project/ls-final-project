@@ -163,6 +163,18 @@ def examples() -> list[dict]:
         },
         {
             "method": "GET",
+            "path": "/api/v1/tft/projects?page=1&limit=10",
+            "status": 200,
+            "body": {
+                **listing.model_dump(mode="json"),
+                "data": {
+                    **listing.data.model_dump(mode="json"),
+                    "total": len(listing.data.items),
+                },
+            },
+        },
+        {
+            "method": "GET",
             "path": f"/api/v1/tft/projects/{PROJECT_ID}",
             "status": 200,
             "body": project.model_dump(mode="json"),

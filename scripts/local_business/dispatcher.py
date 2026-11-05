@@ -18,11 +18,15 @@ from backend.api.platform.evaluations.access import EvaluationAccessSettings
 from backend.api.platform.jobs import dispatch
 from backend.shared.settings import Settings
 from scripts.local_business.config import policy_mapping, save
-from scripts.local_business.permit import Denied, Permit
+from scripts.local_business.permit import Busy, Denied, Permit
 from scripts.local_business.runtime import job_settings, local_only
 
-KINDS = {"cs": ["cs.analyze"], "tft": ["rfp.process", "rfp.draft_rewrite", "rfp.export"]}
+KINDS = {
+    "cs": ["cs.analyze"],
+    "tft": ["rfp.process", "rfp.draft_rewrite", "rfp.export", "rfp.context", "rfp.reply_read"],
+}
 UNLIMITED_PROTOCOL = 1
+CONCURRENCY_PROTOCOL = 1
 
 
 def candidate(settings, owner, after):
@@ -66,8 +70,48 @@ def corpus_check(dsn: str):
                 raise Denied("LOCAL_POLICY_CHUNKS_NOT_LOADED")
 
 
+def worker_environment(state, control, token, owner, job, credentials):
+    return {
+        "PATH": os.environ["PATH"],
+        "PYTHONPATH": "/workspace",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "HOME": "/tmp",
+        "ENVIRONMENT": "local",
+        "LOCAL_BUSINESS_MODE": "real",
+        "LOCAL_BUSINESS_STATE": str(state),
+        "LOCAL_BUSINESS_CONTROL": str(control),
+        "LOCAL_DRIVER_TOKEN": token,
+        "LOCAL_JOB_OWNER": owner,
+        "LOCAL_JOB_ID": job,
+        "LOCAL_MODEL_KEY_FILE": "/run/secrets/gemini-api-key",
+        "LOCAL_PRICES_FILE": "/local/prices.json",
+        "DATABASE_URL": credentials["local_cs_worker" if owner == "cs" else "local_tft_worker"],
+        "SERVICE_NAME": owner,
+        "CS_WORKER_ENABLED": "1",
+        "TFT_WORKER_ENABLED": "1",
+        "CS_JOB_ID": job,
+        "TFT_JOB_ID": job,
+        "CS_WORKER_LEASE_SECONDS": "900",
+        "TFT_WORKER_LEASE_SECONDS": "900",
+        "CS_VECTOR_SEARCH_ENABLED": "false",
+        "CS_POLICY_DOCUMENTS_FILE": "/local/corpus/cs-index-execute.json",
+        "TFT_DOCUMENT_ROOT": "/local/files",
+        "GEMINI_TRANSIENT_RETRIES": "0",
+        "GEMINI_MODEL": os.environ["LOCAL_MODEL"],
+        "TFT_EXTRACTION_MODEL": os.environ["LOCAL_MODEL"],
+        "TFT_DRAFT_REWRITE_MODEL": os.environ["LOCAL_MODEL"],
+        "TFT_REPLY_READ_MODEL": os.environ["LOCAL_MODEL"],
+        "TFT_EXTRACTION_PROVIDER": "gemini",
+        "TFT_DRAFT_REWRITE_PROVIDER": "gemini",
+    }
+
+
 def main():
     local_only()
+    raw_timeout = os.environ.get("LOCAL_WORKER_TIMEOUT_SECONDS", "1800")
+    if not raw_timeout.isascii() or not raw_timeout.isdecimal() or int(raw_timeout) <= 0:
+        raise ValueError("LOCAL_WORKER_TIMEOUT_INVALID")
+    worker_timeout = int(raw_timeout)
     state = Path(os.environ["LOCAL_BUSINESS_STATE"])
     control = Path(os.environ["LOCAL_BUSINESS_CONTROL"])
     owner = os.environ["LOCAL_JOB_OWNER"]
@@ -84,9 +128,13 @@ def main():
     permit = Permit(control / "permit.sqlite3")
     marker = control / "enabled.json"
     stopped = False
-    child = None
+    # Each started process remains owned here until wait() and log.close() finish.
+    children = {}
+    failure = None
+    # C/S only: the summary bridge and a C/S job never call the model at the same time.
     bridge = None
     execution_lock = threading.Lock()
+    locked_job = None
     summary_marker = {}
 
     def stop(_signal, _frame):
@@ -94,8 +142,46 @@ def main():
         stopped = True
         if bridge is not None:
             bridge.accepting = False
-        if child is not None:
-            child.terminate()
+
+    def halt(reason):
+        nonlocal failure
+        if failure is None:
+            failure = reason
+            marker.unlink(missing_ok=True)
+            permit.halt(token)
+
+    def release(job):
+        nonlocal locked_job
+        if locked_job == job:
+            locked_job = None
+            execution_lock.release()
+
+    def finish(job):
+        child, log, _started = children[job]
+        code = child.wait()
+        log.close()
+        del children[job]
+        permit.finish_job(token, job)
+        release(job)
+        return code
+
+    def terminate_job(job):
+        child, log, _started = children[job]
+        try:
+            try:
+                child.terminate()
+            except ProcessLookupError:
+                pass
+            try:
+                child.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.wait()
+        finally:
+            log.close()
+        del children[job]
+        permit.finish_job(token, job)
+        release(job)
 
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
@@ -103,7 +189,6 @@ def main():
     try:
         if owner == "cs":
             corpus_check(credentials["local_cs_worker"])
-        # Never resume anything queued/running before this explicit driver starts.
         stage = "LOCAL_DRIVER_DATABASE_INIT_FAILED"
         with psycopg.connect(credentials["platform_app"]) as conn:
             after = conn.execute("SELECT clock_timestamp()").fetchone()[0]
@@ -112,6 +197,7 @@ def main():
             permission = permit.driver(db, token)
             limit_mode = permission["limit_mode"]
             limit = None if limit_mode == "unlimited" else permission["job_limit"]
+            used = db.execute("SELECT count(*) FROM grants WHERE token=?", (token,)).fetchone()[0]
         if owner == "cs":
             from scripts.local_business.summary import SummaryBridge
 
@@ -125,18 +211,8 @@ def main():
                     "capability": bridge.capability,
                 }
             }
-        used = 0
-        stage = "LOCAL_DRIVER_FAILED"
-        while not stopped:
-            with permit.transaction() as db:
-                permit.driver(db, token)
-                used = db.execute("SELECT count(*) FROM grants WHERE token=?", (token,)).fetchone()[
-                    0
-                ]
-            if bridge is not None and bridge.failed:
-                raise Denied("LOCAL_SUMMARY_FAILED_REVIEW_REQUIRED")
-            if limit is not None and used >= limit:
-                break
+
+        def heartbeat(permission):
             save(
                 marker,
                 {
@@ -146,107 +222,157 @@ def main():
                     "started_after": after.isoformat(),
                     "limit_mode": limit_mode,
                     "remaining_jobs": None if limit is None else limit - used,
+                    "active_jobs": len(children),
+                    "concurrent_jobs": permission["concurrent_jobs"],
+                    "concurrent_calls": permission["concurrent_calls"],
                 },
             )
-            if not execution_lock.acquire(blocking=False):
+
+        stage = "LOCAL_DRIVER_FAILED"
+        while True:
+            if stopped:
+                if children:
+                    halt("LOCAL_WORKER_INTERRUPTED_REVIEW_REQUIRED")
+                break
+            for job, (child, _log, started) in list(children.items()):
+                code = child.poll()
+                if code is not None:
+                    if code:
+                        halt("LOCAL_WORKER_FAILED_REVIEW_REQUIRED")
+                    finish(job)
+                elif time.monotonic() - started > worker_timeout:
+                    halt("LOCAL_WORKER_INTERRUPTED_REVIEW_REQUIRED")
+                    terminate_job(job)
+            if stopped:
+                if children:
+                    halt("LOCAL_WORKER_INTERRUPTED_REVIEW_REQUIRED")
+                break
+            if failure is not None:
+                # halt() denies new SDK reservations, but existing calls can settle.
+                # Keep original per-worker deadlines while the other jobs drain.
+                if not children:
+                    break
                 time.sleep(0.5)
                 continue
-            row = candidate(settings, owner, after)
-            if row is None:
-                execution_lock.release()
+            try:
+                permit.check_ready(token)
+                with permit.transaction() as db:
+                    permission = permit.driver(db, token)
+                    concurrency = permission["concurrent_jobs"]
+                    # The summary bridge also takes grants under this token.
+                    used = db.execute(
+                        "SELECT count(*) FROM grants WHERE token=?", (token,)
+                    ).fetchone()[0]
+            except Denied as error:
+                halt(str(error))
+                continue
+            if bridge is not None and bridge.failed:
+                halt("LOCAL_SUMMARY_FAILED_REVIEW_REQUIRED")
+                continue
+            heartbeat(permission)
+            if limit is not None and used >= limit:
+                if not children:
+                    break
                 time.sleep(0.5)
+                continue
+            if len(children) >= concurrency:
+                time.sleep(0.5)
+                continue
+            if bridge is not None and not execution_lock.acquire(blocking=False):
+                time.sleep(0.5)  # A summary call is running; C/S jobs wait for it.
+                continue
+            claimed = bridge is not None
+            try:
+                row = candidate(settings, owner, after)
+            except Exception:
+                if claimed:
+                    execution_lock.release()
+                halt(stage)
+                continue
+            if row is None or stopped:
+                if claimed:
+                    execution_lock.release()
+                if row is None:
+                    time.sleep(0.5)
                 continue
             job = str(row["id"])
-            permit.grant(token, job)
-            used += 1
-            bundle = asyncio.run(claim_send(settings, job))
-            env = {
-                "PATH": os.environ["PATH"],
-                "PYTHONPATH": "/workspace",
-                "PYTHONDONTWRITEBYTECODE": "1",
-                "HOME": "/tmp",
-                "ENVIRONMENT": "local",
-                "LOCAL_BUSINESS_MODE": "real",
-                "LOCAL_BUSINESS_STATE": str(state),
-                "LOCAL_BUSINESS_CONTROL": str(control),
-                "LOCAL_DRIVER_TOKEN": token,
-                "LOCAL_JOB_OWNER": owner,
-                "LOCAL_JOB_ID": job,
-                "LOCAL_MODEL_KEY_FILE": "/run/secrets/gemini-api-key",
-                "LOCAL_PRICES_FILE": "/local/prices.json",
-                "DATABASE_URL": credentials[
-                    "local_cs_worker" if owner == "cs" else "local_tft_worker"
-                ],
-                "SERVICE_NAME": owner,
-                "CS_WORKER_ENABLED": "1",
-                "TFT_WORKER_ENABLED": "1",
-                "CS_JOB_ID": job,
-                "TFT_JOB_ID": job,
-                "CS_WORKER_LEASE_SECONDS": "900",
-                "TFT_WORKER_LEASE_SECONDS": "900",
-                "CS_VECTOR_SEARCH_ENABLED": "false",
-                "CS_POLICY_DOCUMENTS_FILE": "/local/corpus/cs-index-execute.json",
-                "TFT_DOCUMENT_ROOT": "/local/files",
-                "GEMINI_TRANSIENT_RETRIES": "0",
-                "GEMINI_MODEL": os.environ["LOCAL_MODEL"],
-                "TFT_EXTRACTION_MODEL": os.environ["LOCAL_MODEL"],
-                "TFT_DRAFT_REWRITE_MODEL": os.environ["LOCAL_MODEL"],
-                "TFT_EXTRACTION_PROVIDER": "gemini",
-                "TFT_DRAFT_REWRITE_PROVIDER": "gemini",
-            }
-            log = (control / ("worker-" + job + ".log")).open("ab")
-            child = subprocess.Popen(
-                [sys.executable, "-m", "scripts.local_business.worker"],
-                env=env,
-                cwd="/local/run",
-                stdout=log,
-                stderr=log,
-            )
-            asyncio.run(sent(settings, bundle, True))
-            started = time.monotonic()
-            while child.poll() is None and not stopped:
-                save(
-                    marker,
-                    {
-                        **summary_marker,
-                        "mode": "real",
-                        "owner": owner,
-                        "started_after": after.isoformat(),
-                        "limit_mode": limit_mode,
-                        "remaining_jobs": None if limit is None else limit - used,
-                    },
-                )
-                if time.monotonic() - started > 1800:
-                    child.terminate()
-                    stopped = True
+            try:
+                permit.register_job(token, job)
+            except Busy:
+                if claimed:
+                    execution_lock.release()
                 time.sleep(0.5)
-            if stopped:
-                child.terminate()
+                continue
+            except Denied as error:
+                if claimed:
+                    execution_lock.release()
+                halt(str(error))
+                continue
+            if claimed:
+                locked_job = job
+            bundle = None
+            try:
+                permit.grant(token, job)
+                used += 1
+                bundle = asyncio.run(claim_send(settings, job))
+                log = (control / ("worker-" + job + ".log")).open("ab")
                 try:
-                    child.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    child.kill()
-                    child.wait()
-                raise Denied("LOCAL_WORKER_INTERRUPTED_REVIEW_REQUIRED")
-            code = child.wait()
-            child = None
-            if code:
-                raise Denied("LOCAL_WORKER_FAILED_REVIEW_REQUIRED")
-            with permit.transaction() as db:
-                permit.outstanding(db)
-            execution_lock.release()
+                    child = subprocess.Popen(
+                        [sys.executable, "-m", "scripts.local_business.worker"],
+                        env=worker_environment(state, control, token, owner, job, credentials),
+                        cwd="/local/run",
+                        stdout=log,
+                        stderr=log,
+                    )
+                except BaseException:
+                    log.close()
+                    raise
+                children[job] = (child, log, time.monotonic())
+                permit.register_worker(token, job, child.pid)
+                heartbeat(permission)
+                asyncio.run(sent(settings, bundle, True))
+            except Exception as error:
+                # A failed/uncertain dispatch stops admissions, not the already
+                # running SDK calls in other jobs. Those retain their own deadlines.
+                halt(str(error) if isinstance(error, Denied) else stage)
+                if job not in children:
+                    permit.finish_job(token, job)
+                    release(job)
+                    if bundle is not None:
+                        try:
+                            asyncio.run(sent(settings, bundle, False))
+                        except Exception:
+                            pass  # Keep the runtime SENDING/uncertain result for review.
+        if failure is not None:
+            raise Denied(failure)
     except Exception as error:
-        # Never log a DSN/provider body. Safe reason is a fixed locally generated code only.
         reason = str(error) if isinstance(error, Denied) else stage
+        # All failures stop new calls before cleanup. No provider payload or DSN is logged.
+        try:
+            halt(reason)
+        except Exception:
+            marker.unlink(missing_ok=True)
         save(
             control / "driver-result.json",
-            {"reason": reason, "unfinished_jobs_require_review": True},
+            {
+                "reason": reason,
+                "unfinished_jobs_require_review": True,
+            },
         )
         raise SystemExit(reason) from None
     finally:
         if bridge is not None:
             bridge.close()
         marker.unlink(missing_ok=True)
+        # Explicit stop/timeout/exception: reap every child before closing permission.
+        # Reservations remain untouched when a process cannot finish its call.
+        for child, _log, _started in children.values():
+            try:
+                child.terminate()
+            except ProcessLookupError:
+                pass
+        for job in list(children):
+            terminate_job(job)
         permit.close_driver(token)
 
 

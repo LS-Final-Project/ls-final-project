@@ -97,7 +97,7 @@ def test_product_callback_binding_and_expiry_remain_required(identity):
     url, pending = login.begin(OAuthPurpose.LOGIN, browser_binding="browser", now=now)
     assert url.startswith("https://localhost:38443/local/authorize?state=")
     assert len(pending.state) == 43
-    for code in ("local-1", "local-2", "local-3", "local-4"):
+    for code in ("local-1", "local-2", "local-3", "local-4", "local-5"):
         params = [("state", pending.state), ("code", code)]
         validated = validate_callback(
             pending,

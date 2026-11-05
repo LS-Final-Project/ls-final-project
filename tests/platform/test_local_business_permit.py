@@ -197,3 +197,78 @@ def test_limited_token_is_not_upgraded_by_a_later_unlimited_request(tmp_path):
     with pytest.raises(Denied, match="LOCAL_COST_UNKNOWN_REVIEW_REQUIRED"):
         p.authorize(max_jobs=1, max_calls=1, reserve_usd="0.15", unlimited=True)
     assert p.settle(charge, actual_usd="0.60") == "LOCAL_RESERVATION_EXCEEDED"
+
+
+def test_only_this_process_known_inflight_charges_can_overlap(tmp_path):
+    p, token, job = permit(tmp_path, budget_usd="1.50")
+    first = p.reserve(token, job, "fake")
+    second = p.reserve(token, job, "fake", active_charges=(first,))
+    with pytest.raises(Denied, match="LOCAL_COST_UNKNOWN_REVIEW_REQUIRED"):
+        Permit(p.path).reserve(token, job, "fake")
+    with pytest.raises(Denied, match="LOCAL_COST_UNKNOWN_REVIEW_REQUIRED"):
+        p.reserve(token, job, "fake", active_charges=(str(uuid4()),))
+    p.settle(first, actual_usd=None)
+    with pytest.raises(Denied, match="LOCAL_COST_UNKNOWN_REVIEW_REQUIRED"):
+        p.reserve(token, job, "fake", active_charges=(second,))
+    # Already sent call can still settle after another call failed.
+    assert p.settle(second, actual_usd="0.01") is None
+
+
+def test_parallel_reservations_count_toward_limited_budget_and_calls(tmp_path):
+    p, token, job = permit(tmp_path, budget_usd="1.00")
+    first = p.reserve(token, job, "fake")
+    second = p.reserve(token, job, "fake", active_charges=(first,))
+    with pytest.raises(Denied, match="LOCAL_CALL_LIMIT"):
+        p.reserve(token, job, "fake", active_charges=(first, second))
+    p.settle(first, actual_usd="0.50")
+    p.settle(second, actual_usd="0.50")
+    with p.transaction() as db:
+        assert p.committed(db) == Decimal("1.00")
+
+
+def test_six_reservations_allowed_seventh_rejected_without_mutation(tmp_path):
+    p = Permit(tmp_path / "six.sqlite3")
+    token = p.authorize(max_jobs=1, max_calls=8, reserve_usd="0.15", unlimited=True)
+    job = str(uuid4())
+    p.grant(token, job)
+    charges = []
+    for _ in range(6):
+        charges.append(p.reserve(token, job, "fake", active_charges=tuple(charges)))
+    with pytest.raises(Denied, match="LOCAL_COST_UNKNOWN_REVIEW_REQUIRED"):
+        p.reserve(token, job, "fake", active_charges=tuple(charges))
+    with p.transaction() as db:
+        assert db.execute("SELECT count(*) FROM charges").fetchone()[0] == 6
+    for charge in charges:
+        assert p.settle(charge, actual_usd="0.01") is None
+
+
+def test_operator_settles_unknown_at_reservation_with_audit_and_unblocks(tmp_path):
+    p, token, job = permit(tmp_path)
+    charge = p.reserve(token, job, "configured-model")
+    p.settle(charge, actual_usd=None)
+    p.close_driver(token)
+    with pytest.raises(ValueError, match="INVALID_LOCAL_SETTLEMENT"):
+        p.settle_unknown(charge, reason=" ", operator="ops")
+    record = p.settle_unknown(charge, reason="thinking 토큰 누락", operator="ops")
+    assert record["settled_usd"] == "0.50" and record["previous_reason"] == "LOCAL_COST_UNKNOWN"
+    # 같은 값으로 다시 부르면 그대로, 다른 금액이면 거부한다.
+    assert p.settle_unknown(charge, reason="thinking 토큰 누락", operator="ops") == record
+    with pytest.raises(Denied, match="LOCAL_SETTLEMENT_CONFLICT"):
+        p.settle_unknown(charge, reason="thinking 토큰 누락", operator="ops", actual_usd="0.10")
+    with p.transaction() as db:
+        row = db.execute("SELECT actual,state,reason FROM charges WHERE id=?", (charge,)).fetchone()
+        assert tuple(row) == ("0.50", "SETTLED", "OPERATOR_SETTLED")
+        assert db.execute("SELECT count(*) FROM operator_settlements").fetchone()[0] == 1
+    p.authorize(max_jobs=1, max_calls=1, reserve_usd="0.10")  # UNKNOWN이 없으므로 다시 허가된다.
+
+
+def test_operator_settlement_refuses_reserved_or_settled_charges(tmp_path):
+    p, token, job = permit(tmp_path)
+    charge = p.reserve(token, job, "configured-model")
+    with pytest.raises(Denied, match="LOCAL_CHARGE_NOT_UNKNOWN"):
+        p.settle_unknown(charge, reason="r", operator="ops")
+    p.settle(charge, actual_usd="0.01")
+    with pytest.raises(Denied, match="LOCAL_CHARGE_NOT_UNKNOWN"):
+        p.settle_unknown(charge, reason="r", operator="ops")
+    with pytest.raises(Denied, match="LOCAL_CHARGE_NOT_FOUND"):
+        p.settle_unknown("missing", reason="r", operator="ops")

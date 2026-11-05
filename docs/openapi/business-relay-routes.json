@@ -487,7 +487,9 @@
         "judgement_status",
         "limit",
         "output_status",
-        "q"
+        "q",
+        "page",
+        "search_field"
       ]
     },
     {
@@ -528,6 +530,24 @@
       "query": []
     },
     {
+      "path": "/api/v1/tft/documents/{uuid}/diagrams",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "document_version_id"
+      ]
+    },
+    {
+      "path": "/api/v1/tft/documents/{uuid}/diagrams/{evidence}/image",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "document_version_id"
+      ]
+    },
+    {
       "path": "/api/v1/tft/projects/{uuid}/draft",
       "methods": [
         "GET",
@@ -552,8 +572,16 @@
       "query": []
     },
     {
+      "path": "/api/v1/tft/projects/{uuid}/draft/regenerate",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
       "path": "/api/v1/tft/projects/{uuid}/draft/review-versions",
       "methods": [
+        "GET",
         "POST"
       ],
       "query": []
@@ -561,6 +589,7 @@
     {
       "path": "/api/v1/tft/projects/{uuid}/draft/exports",
       "methods": [
+        "GET",
         "POST"
       ],
       "query": []
@@ -593,7 +622,8 @@
     {
       "path": "/api/v1/tft/projects/{uuid}/requirements",
       "methods": [
-        "GET"
+        "GET",
+        "POST"
       ],
       "query": [
         "limit",
@@ -607,7 +637,8 @@
         "needs_review",
         "has_open_question",
         "next_owner_field",
-        "unresolved_mandatory"
+        "unresolved_mandatory",
+        "excluded"
       ]
     },
     {
@@ -625,6 +656,72 @@
       "query": []
     },
     {
+      "path": "/api/v1/tft/requirements/{uuid}/recompare",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/requirements/{uuid}/decision",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/requirements/{uuid}/history",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "kind",
+        "actor",
+        "limit",
+        "cursor"
+      ]
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/history",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "kind",
+        "actor",
+        "limit",
+        "cursor"
+      ]
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/equipment",
+      "methods": [
+        "GET"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/analysis",
+      "methods": [
+        "GET"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/decisions/bulk",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/decisions/bulk/{uuid}/undo",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
       "path": "/api/v1/tft/requirements/{uuid}/supplement-options",
       "methods": [
         "GET"
@@ -633,6 +730,13 @@
     },
     {
       "path": "/api/v1/tft/requirements/{uuid}/supplement-selection",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/supplement-selections/batch",
       "methods": [
         "POST"
       ],
@@ -661,6 +765,20 @@
       ]
     },
     {
+      "path": "/api/v1/tft/projects/{uuid}/questions/batch",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/questions/sent",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
       "path": "/api/v1/tft/projects/{uuid}/questions/{uuid}/confirm",
       "methods": [
         "POST"
@@ -669,6 +787,13 @@
     },
     {
       "path": "/api/v1/tft/questions/{uuid}/reply",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/questions/{uuid}/reply/read",
       "methods": [
         "POST"
       ],
@@ -695,6 +820,23 @@
     },
     {
       "path": "/api/v1/tft/proposals/{uuid}/reject",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/context",
+      "methods": [
+        "GET",
+        "PATCH"
+      ],
+      "query": [
+        "version"
+      ]
+    },
+    {
+      "path": "/api/v1/tft/projects/{uuid}/context/process",
       "methods": [
         "POST"
       ],
@@ -1382,6 +1524,11 @@
       "forward": true
     },
     {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/supplement-selections/batch",
+      "forward": true
+    },
+    {
       "method": "GET",
       "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/partner-candidates?requirement_id=22222222-2222-4222-8222-222222222222",
       "forward": true
@@ -1393,12 +1540,22 @@
     },
     {
       "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/questions/batch",
+      "forward": true
+    },
+    {
+      "method": "POST",
       "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/questions/22222222-2222-4222-8222-222222222222/confirm",
       "forward": true
     },
     {
       "method": "POST",
       "path": "/api/v1/tft/questions/11111111-1111-4111-8111-111111111111/reply",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/questions/11111111-1111-4111-8111-111111111111/reply/read",
       "forward": true
     },
     {
@@ -1446,6 +1603,27 @@
     },
     {
       "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/regenerate",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/review-versions",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/exports",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/regenerate",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "POST",
       "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft/review-versions",
       "forward": true
     },
@@ -1470,6 +1648,82 @@
       "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/draft?secret=1",
       "forward": false,
       "status": 400
+    },
+    {
+      "path": "/api/v1/tft/projects?limit=10&page=3&search_field=external_id&q=P26-0023",
+      "method": "GET",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/requirements/11111111-1111-4111-8111-111111111111/recompare",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/requirements/11111111-1111-4111-8111-111111111111/recompare",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/history?kind=decision,recompared&limit=2&cursor=abc",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/requirements/11111111-1111-4111-8111-111111111111/history?kind=decision&kind=recompared",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/requirements/11111111-1111-4111-8111-111111111111/history",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/equipment",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/equipment",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/analysis",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/analysis",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/decisions/bulk",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/decisions/bulk/11111111-1111-4111-8111-111111111111/undo",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/decisions/bulk",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tft/projects/11111111-1111-4111-8111-111111111111/questions/sent",
+      "forward": true
     }
   ]
 }

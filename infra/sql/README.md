@@ -61,7 +61,7 @@ T13을 재적용해도 허용집합을 과거로 되돌리지 않는다. 정렬�
 
 ## 전체 적용 순서
 
-`infra/migrations/` 아래 서비스별 마이그레이션 91개의 적용 순서와 적용 전 확인 방법이다. cs·tft 마이그레이션은 platform의 표를 FK로 참조하지 않아 서비스 사이 순서 의존은 없다. 서비스 안에서는 파일명 정렬 순서가 아래 선행 조건을 모두 만족하며, 새 로컬 DB의 `infra/local/init.sh`도 001 다음 cs → tft → platform 순서로 각 폴더를 파일명 정렬로 적용한다. 표의 순서 번호는 추가된 차례라 파일명 정렬과 다를 수 있다(P20은 파일명상 P16 앞). 어느 쪽으로 적용해도 선행 조건을 만족한다.
+`infra/migrations/` 아래 서비스별 마이그레이션 105개의 적용 순서와 적용 전 확인 방법이다. cs·tft 마이그레이션은 platform의 표를 FK로 참조하지 않아 서비스 사이 순서 의존은 없다. 서비스 안에서는 파일명 정렬 순서가 아래 선행 조건을 모두 만족하며, 새 로컬 DB의 `infra/local/init.sh`도 001 다음 cs → tft → platform 순서로 각 폴더를 파일명 정렬로 적용한다. 표의 순서 번호는 추가된 차례라 파일명 정렬과 다를 수 있다(P20은 파일명상 P16 앞). 어느 쪽으로 적용해도 선행 조건을 만족한다.
 
 **공용 상태 열: 운영자가 공용 DB(team4)에 적용·확인한 날짜를 이 열에 직접 기록한다.** 현재 이 저장소에는 공용 DB 적용 기록이 없어 모두 `미확인`이다. 기록 없이 적용됐다고 가정하지 않는다.
 
@@ -127,6 +127,18 @@ T13을 재적용해도 허용집합을 과거로 되돌리지 않는다. 정렬�
 | T20 | `tft/20261112_KAN-187_project_constraints.sql` | T14·T19 | tft_migrator | 가능 | 사람 입력 공급지역·제조사목록·목록외허용 정책 및 추출 의미 보존 | 미적용 |
 | T21 | `tft/20261113_KAN-188_rewrite_summary.sql` | T19 | tft_migrator | 가능 | `has_table_privilege('tft_app','tft.draft_rewrite_calls','SELECT')` | 미적용 |
 | T22 | `tft/20261114_KAN-188_export_title.sql` | T1 | tft_migrator | 가능 | 열 `tft.exports.title` | 미적용 |
+| T23 | `tft/20261117_KAN-188_document_diagrams.sql` | T14(헤더)·T7 | tft_migrator | 가능 | to_regclass('tft.document_diagrams') | 미적용 |
+| T24 | `tft/20261118_KAN-188_context_analysis.sql` | T7·T14·T23 | tft_migrator | 가능 | to_regclass('tft.context_versions')·to_regclass('tft.review_context_snapshots') | 미적용 |
+| T25 | `tft/20261119_KAN-188_context_commands.sql` | T7·T19 | tft_migrator | 가능 | pg_get_constraintdef로 `rfp_commands_operation_check`에 'context.process' 포함(T13·T19가 같은 허용집합을 이미 두므로 적용 전에도 true, 적용은 변경 없음) | 미적용 |
+| T26 | `tft/20261120_KAN-188_workflow_snapshot.sql` | T7·T14·T25 | tft_migrator | 가능 | 열 `tft.draft_versions.input_snapshot`, to_regclass('tft.requirement_recomparisons') | 미적용 |
+| T27 | `tft/20261121_KAN-218_decisions.sql` | T7·T26 | tft_migrator | 가능 | to_regclass('tft.requirement_decisions') | 미적용 |
+| T28 | `tft/20261122_KAN-224_question_follow_up.sql` | T7·T27 | tft_migrator | 가능 | 열 `tft.customer_questions.follows_question_id`, 열 `tft.question_replies.value_candidate` | 미적용 |
+| T29 | `tft/20261122_KAN-225_manual_requirements.sql` | T27(헤더)·T14 | tft_migrator | 가능 | pg_get_constraintdef로 `requirement_decisions_action_check`에 'add_requirement' 포함 | 미적용 |
+| T30 | `tft/20261123_KAN-221_xlsx_exports.sql` | T7·T27·T29 | tft_migrator | 가능 | pg_get_constraintdef로 `exports_format_check`에 'XLSX' 포함 | 미적용 |
+| T31 | `tft/20261124_KAN-227_drawing_check.sql` | T29(헤더)·T30 | tft_migrator | 가능 | pg_get_constraintdef로 `requirement_decisions_action_check`에 'confirm_drawing' 포함(T29가 같은 허용집합을 이미 두므로 적용 전에도 true, 적용은 변경 없음) | 미적용 |
+| T32 | `tft/20261124_KAN-228_bulk_and_sends.sql` | T7·T30 | tft_migrator | 가능 | 열 `tft.projects.submission_due_at`, to_regclass('tft.question_sends') | 미적용 |
+| T33 | `tft/20261125_KAN-224_reply_value_reads.sql` | T14·T32 | tft_migrator | 가능 | to_regclass('tft.reply_value_reads') | 미적용 |
+| T34 | `tft/20261126_KAN-232_regrade.sql` | T14·T26·T33 | postgres(SET ROLE 없음) | 가능 | `has_column_privilege('tft_worker','tft.requirements','latest_version','UPDATE') AND has_table_privilege('tft_worker','tft.requirement_recomparisons','INSERT')` | 미적용 |
 | P1 | `platform/20261022_KAN-78_identity.sql` | 001 | platform_migrator | 가능 | to_regclass('identity.users') | 미확인 |
 | P2 | `platform/20261023_KAN-77_oauth_authorizations.sql` | P1 | platform_migrator | 가능 | to_regclass('identity.oauth_authorizations') | 미확인 |
 | P3 | `platform/20261023_KAN-77_sessions.sql` | P1 | platform_migrator | 가능 | to_regclass('identity.sessions') | 미확인 |
@@ -150,19 +162,21 @@ T13을 재적용해도 허용집합을 과거로 되돌리지 않는다. 정렬�
 | P21 | `platform/20261028_KAN-86_attempt_usage_raw.sql` | P5·P15(헤더) | platform_migrator | 가능 | 열 `evaluation.case_attempts.usage_raw` | 미확인 |
 | P22 | `platform/20261029_KAN-74_mail_send_column_grants.sql` | P18(헤더) | platform_migrator | 가능 | 권한 `platform_app` 표 단위 UPDATE `integration.mail_send_intents` 없음 | 미확인 |
 | P23 | `platform/20261029_KAN-75_mail_links.sql` | P16·P18(헤더)·P17 | platform_migrator | 불가 | to_regclass('integration.mail_links') | 미확인 |
-| P24 | `platform/20261029_KAN-182_tft_jobs.sql` | P7 | platform_migrator | 가능(다시 적용하면 P28도 이어서 다시 적용) | 열 `runtime.jobs.subject_id` | 미확인 |
+| P24 | `platform/20261029_KAN-182_tft_jobs.sql` | P7 | platform_migrator | 가능(다시 적용하면 P28, 마지막에 P38도 이어서 다시 적용) | 열 `runtime.jobs.subject_id` | 미확인 |
 | P25 | `platform/20261029_KAN-90_experiment_stage_knobs.sql` | P5 | platform_migrator | 가능 | 열 `evaluation.experiments.knobs` | 미확인 |
 | P26 | `platform/20261030_KAN-110_mail_link_notify.sql` | P23(헤더) | platform_migrator | 가능 | 열 `integration.mail_links.business_notified_at` | 미확인 |
 | P27 | `platform/20261030_KAN-90_receipt_origin.sql` | P8·P14(헤더) | platform_migrator | 가능 | 열 `evaluation.admission_receipts.origin` | 미확인 |
-| P28 | `platform/20261031_KAN-194_cs_jobs.sql` | P11·P24(헤더) | postgres(CREATE ROLE `cs_worker`) → platform_migrator | 가능(P24 뒤에만, `jobs_owner_kind_route`는 이 파일이 cs까지 정의) | to_regclass('runtime.job_control') | 미확인 |
+| P28 | `platform/20261031_KAN-194_cs_jobs.sql` | P11·P24(헤더) | postgres(CREATE ROLE `cs_worker`) → platform_migrator | 가능(P24 뒤에만, `jobs_owner_kind_route`는 이 파일이 cs까지 정의, 다시 적용하면 P38도 이어서 다시 적용) | to_regclass('runtime.job_control') | 미확인 |
 | P29 | `platform/20261031_KAN-199_tft_worker.sql` | P28(헤더) | postgres(CREATE ROLE `tft_worker`) → platform_migrator | 가능 | 역할 `tft_worker` | 미확인 |
 | P30 | `platform/20261101_KAN-201_notifications.sql` | P1·P4·P7·P28·P29(헤더) | 운영자(CREATE SCHEMA) → platform_migrator | 가능 | to_regclass('notify.notification_intents') | 미확인 |
 | P31 | `platform/20261102_KAN-201_web_push.sql` | P30 | platform_migrator | 가능 | notify.push_subscriptions / push_deliveries | 미확인 |
 | P32 | `platform/20261108_KAN-159_job_reap.sql` | P28(헤더) | platform_migrator | 가능 | has_column_privilege('platform_app','runtime.job_control','failure_code','UPDATE') | 미적용 |
-| P33 | `platform/20261109_KAN-188_draft_rewrite_jobs.sql` | P28 | platform_migrator | 가능 | rfp.draft_rewrite 접수 제약 | 미적용 |
+| P33 | `platform/20261109_KAN-188_draft_rewrite_jobs.sql` | P28 | platform_migrator | 가능(다시 적용하면 P38도 이어서 다시 적용) | rfp.draft_rewrite 접수 제약 | 미적용 |
 | P34 | `platform/20261110_KAN-201_notification_expansion.sql` | P30 | platform_migrator | 가능 | notify.notification_intents의 notification_expand_on_insert trigger | 미적용 |
 | P35 | `platform/20261111_KAN-214_assignment_notification.sql` | P30(헤더) | platform_migrator | 가능 | pg_get_constraintdef로 `notification_intents_kind_check`에 'cs.assigned' 포함 | 미적용 |
 | P36 | `platform/20261115_KAN-235_mail_link_basis.sql` | P23(헤더) | platform_migrator | 가능 | 열 `integration.mail_links.basis`, pg_get_constraintdef로 `mail_reply_reviews_reason_check`에 'ADDRESS_MATCH' 포함 | 미적용 |
+| P37 | `platform/20261118_KAN-188_context_jobs.sql` | P33 | platform_migrator | 가능(다시 적용하면 P38도 이어서 다시 적용) | pg_get_constraintdef로 `jobs_owner_kind_route`에 'rfp.context' 포함 | 미적용 |
+| P38 | `platform/20261125_KAN-224_reply_read_jobs.sql` | P37 | platform_migrator | 가능(`jobs_owner_kind_route`를 정의하는 P24·P28·P33·P37을 다시 적용하면 이 파일을 마지막에 다시 적용) | pg_get_constraintdef로 `jobs_owner_kind_route`에 'rfp.reply_read' 포함 | 미적용 |
 
 적용 전 확인 쿼리(운영자 연결, 읽기 전용):
 
@@ -446,6 +460,67 @@ GRANT CONNECT ON DATABASE team4 TO cs_worker_login, tft_worker_login;
 
 T20 적용 뒤 T14 또는 T17을 각각 재적용해도 새 프로젝트 입력3열의 worker SELECT를 조건부로 복원한다. T20 이전에는 열 존재 검사를 통과하지 않으므로 새 설치 순서를 막지 않는다. 프로젝트의 다른 열 권한이나 UPDATE 권한은 넓히지 않는다.
 
+## KAN-188 맥락 정리 확장
+
+기존 도면 저장과 초안/검토본 구조 뒤에 TFT `20261118_KAN-188_context_analysis.sql`,
+`20261119_KAN-188_context_commands.sql`을 적용한다. 플랫폼은
+`20261118_KAN-188_context_jobs.sql`로 `rfp.context` 종류/경로 조합을 확장한다.
+원 요구/기존 판정·검토본은 변경하지 않으며, 검토본 저장 이후의 맥락 결과를 과거 DOCX에 소급하지 않는다.
+TFT 20261106·20261111의 명령 CHECK 재적용도 context.process 행을 보존하도록 허용집합을 확장했다.
+구체 계약은 [맥락별 정리](../../contracts/tft/rfp-context.md)다. 운영 적용과 복원 검증은 별도다.
+
+## KAN-218 결정 패널 저장
+
+TFT `20261121_KAN-218_decisions.sql`은 `20261120_KAN-188_workflow_snapshot.sql` 뒤에 적용한다. 새 표 셋
+(`requirement_decisions` 결정 기록과 멱등 결과, `deviations` 편차표 행, `question_withdrawals` 보내지 않을 질문)만
+더하고 기존 표·CHECK는 바꾸지 않는다. 연산 이름이나 질문 상태 값을 기존 CHECK에 더하면, 그 CHECK를 다시 정의하는
+20261106·20261111·20261119·20261120 재적용이 새 값의 행 때문에 실패하므로 새 표로 둔다. 앱은 SELECT·INSERT만 한다.
+
+## KAN-224 회신 값 AI 읽기 작업
+
+TFT `20261125_KAN-224_reply_value_reads.sql`은 `20261124_KAN-228_bulk_and_sends.sql` 뒤, 플랫폼
+`20261125_KAN-224_reply_read_jobs.sql`은 `20261118_KAN-188_context_jobs.sql` 뒤에 적용한다. TFT는 추가 전용 표
+`reply_value_reads`(tft_app·tft_worker SELECT·INSERT) 하나를 더하고, 플랫폼은 작업 CHECK에 `rfp.reply_read` 조합을 더한다.
+둘 다 다시 적용해도 깨지지 않는다. `20261104_KAN-199_tft_worker.sql` 재적용도 표가 있으면 같은 worker 권한을 복구한다.
+플랫폼 CHECK를 다시 정의하는 이전 파일(20261109·20261118)을 나중에 다시 적용하면 이 조합이 빠지므로 이 파일을 그 뒤에 다시 적용한다.
+
+## KAN-232 다시 채점의 자사 비교
+
+TFT `20261126_KAN-232_regrade.sql`은 `20261125_KAN-224_reply_value_reads.sql` 뒤에 적용한다. 표·행은 바꾸지 않고
+tft_worker에 `tft.requirements(latest_version)` UPDATE와 `tft.requirement_recomparisons` INSERT만 준다(다시 채점이 AI 판단의
+새 판본과 비교 사본을 쓴다). 다시 적용해도 깨지지 않는다. `20261104_KAN-199_tft_worker.sql` 재적용도 같은 권한을 복구한다.
+
+## KAN-224 후속 질의 연결
+
+TFT `20261122_KAN-224_question_follow_up.sql`은 `20261121_KAN-218_decisions.sql` 뒤에 적용한다.
+`tft.customer_questions.follows_question_id`(원래 질의 참조, 비울 수 있음)와 `tft.question_replies.value_candidate`(회신에서 읽은 요구값 후보, 비울 수 있음) 열 둘만 더한다. 다시 적용해도 깨지지 않는다.
+
+## KAN-225 원문에서 요구 직접 추가와 요구에서 빼기
+
+TFT `20261122_KAN-225_manual_requirements.sql`은 `20261121_KAN-218_decisions.sql` 뒤에 적용한다.
+`requirement_decisions`의 연산 CHECK에 `add_requirement`·`exclude_requirement`·`restore_requirement`를 더한다. 이 CHECK는
+KAN-218만 정의하고(CREATE TABLE IF NOT EXISTS) 이전 마이그레이션 재적용이 다시 정의하지 않으므로 새 값의 행이 있어도 깨지지
+않는다. tft_worker에 빼기 표시 계산 열(id·requirement_id·detail·created_at) SELECT를 주고, `20261104_KAN-199_tft_worker.sql`
+재적용도 같은 권한을 복구한다. 표·행은 더하거나 지우지 않는다. 규칙은 [RFP 데이터 구조](../../contracts/tft/rfp-data.md)다.
+
+## KAN-221 입찰 대응 XLSX 내보내기
+
+TFT `20261123_KAN-221_xlsx_exports.sql`은 `20261122_KAN-225_manual_requirements.sql` 뒤에 적용한다.
+`exports.format` CHECK에 `XLSX`를 더하고(KAN-182만 정의하므로 이전 재적용이 다시 좁히지 않는다), 내보내기 worker
+(tft_worker)에 `requirement_decisions`·`deviations`·`question_withdrawals` SELECT를 준다. `20261104_KAN-199_tft_worker.sql`
+재적용도 같은 권한을 복구한다. 표·행은 더하거나 지우지 않는다.
+
+## KAN-227 도면 확인 결정
+
+TFT `20261124_KAN-227_drawing_check.sql`은 `20261123_KAN-221_xlsx_exports.sql` 뒤에 적용한다.
+`requirement_decisions`의 연산 CHECK에 `confirm_drawing`을 더한다(KAN-225와 같은 방식, KAN-218만 정의하므로 이전 재적용이
+다시 좁히지 않는다). 표·행·권한은 바꾸지 않는다.
+
+## KAN-228 질의서 발송 기록과 제출 마감
+
+TFT `20261124_KAN-228_bulk_and_sends.sql`은 `20261123_KAN-221_xlsx_exports.sql` 뒤에 적용한다.
+`tft.projects.submission_due_at`(nullable 날짜)과 `tft.question_sends`(질문마다 처음 보낸 기록, tft_app SELECT·INSERT)를 더한다.
+일괄 결정은 표를 더하지 않는다(결정 기록 detail.batch_id). 다시 적용해도 깨지지 않는다.
 
 ### KAN-235 회신 후보 찾기 확장 (C33·P36)
 

@@ -1,5 +1,6 @@
 """Exercise the real SDK request and response path without credentials or network calls."""
 
+import base64
 import json
 from datetime import UTC, date
 from decimal import Decimal
@@ -192,6 +193,33 @@ def test_default_provider_uses_gemini_key_without_adc(sdk_http):
     assert requests[0].url.host == "generativelanguage.googleapis.com"
     assert requests[0].headers["x-goog-api-key"] == "fixture-explicit-key"
     assert "authorization" not in requests[0].headers
+
+
+def test_inline_image_uses_the_same_sdk_and_preserves_accounting(sdk_http):
+    _, requests = sdk_http
+    settings = AISettings(gemini_api_key="fixture-explicit-key")
+    media = b"authored-image-fixture"
+    with create_client(settings) as client:
+        result = generate(client, settings, "read only labels", inline_media=("image/png", media))
+    parts = json.loads(requests[0].content)["contents"][0]["parts"]
+    assert parts[0]["inlineData"]["mime_type"] == "image/png"
+    assert base64.b64decode(parts[0]["inlineData"]["data"]) == media
+    assert parts[1]["text"] == "read only labels"
+    assert result.usage.total_tokens == 22
+    assert result.usage.thought_tokens == 11
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize(
+    "media",
+    [("text/html", b"x"), ("image/png", b""), ("application/pdf", b"x" * (8 * 1024 * 1024 + 1))],
+)
+def test_invalid_inline_media_fails_before_any_network(sdk_http, media):
+    _, requests = sdk_http
+    settings = AISettings(gemini_api_key="fixture-explicit-key")
+    with create_client(settings) as client, pytest.raises(ValueError, match="INVALID_INLINE_MEDIA"):
+        generate(client, settings, "synthetic", inline_media=media)
+    assert not requests
 
 
 @pytest.mark.parametrize(
