@@ -202,9 +202,14 @@ async def save_review(
             if current.version != payload.version:
                 raise repository.version_conflict()
             requirements = await drafts.requirements_of(conn, project_id)
+            # 담당이 결정하고 책임자가 확인한 요구는 그 결정이 다음 행동이다(KAN-219·220). 사양 차이(편차 기재 등)는
+            # 상태가 조건부로 남아도 미해결로 세지 않는다. 남은 결정은 아래 gate_closed가 따로 막는다.
+            settled = await drafts.settled_requirements(conn, project_id)
             missing = []
             for req in requirements:
                 if req.spec.necessity not in {"MANDATORY", "CONDITION_BOUND"}:
+                    continue
+                if req.requirement_id in settled:
                     continue
                 grounded = bool(req.origin.quote.strip() and req.judgement.reason.strip())
                 resolved = grounded and not is_unresolved_mandatory(req) and not req.needs_review

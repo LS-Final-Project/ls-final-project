@@ -328,6 +328,19 @@ def test_a_maximum_on_a_minimum_rating_is_read_as_at_least():
     assert to_comparison(impedance).operator == "LTE"
 
 
+def test_a_plain_value_on_a_minimum_rating_is_read_as_at_least():
+    """40444 P26-0003: "정격 전압 11 kV"(연산자 없음, EQ)에 12 kV 개폐반은 충족이다. 정격은 늘 하한이다."""
+    item = _mv("2.6.B.1", "metal-clad switchgear", "rated_max_voltage", "11", "kV", "EQ")
+    compared = to_comparison(item)
+    assert compared.operator == "GTE"
+    swgr = next(
+        c
+        for c in compare_in_family(compared, "MV_EQUIP", load_own_products()).candidates
+        if c.product_code == "SWGR-MV-12kV"
+    )
+    assert swgr.status == "EVIDENCE_FOUND"
+
+
 def test_a_breaker_is_not_evidence_for_a_switch_fuse_or_arrester():
     """KAN-208: 부하개폐기·퓨즈·피뢰기 요구에 차단기(VCB) 정격을 근거로 쓰지 않는다(형식이 다른 장비의 값)."""
     switch = _mv("2.6.C.1", "fused load interrupter switch", "rated_current", "600", "A")

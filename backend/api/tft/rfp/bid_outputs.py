@@ -82,7 +82,8 @@ def gate_text(found: s.DecisionGate) -> str:
 
 
 _OCR = re.compile(r"^OCR-(DOCX-|PDF-P)(\d+)(?:\.|$)")
-_CODE = re.compile(r"^[0-9a-f]{8}:(.+):(\d+)$")
+# 순번 앞 m은 사람이 원문에서 직접 추가한 요구(KAN-225, manual_requirements).
+_CODE = re.compile(r"^[0-9a-f]{8}:(.+):(m?)(\d+)$")
 _CONDITION = {
     "duration": "지속 시간",
     "ambient temperature": "주위온도",
@@ -136,7 +137,10 @@ def clause_label(clause_no: str | None) -> str:
 def requirement_label(code: str) -> str:
     """요구 번호 칸: 문서 판본 앞 8자를 빼고 조항 표시와 순번으로."""
     match = _CODE.match(code)
-    return f"{clause_label(match.group(1))}-{match.group(2)}" if match else code
+    if not match:
+        return code
+    clause, manual, n = match.groups()
+    return f"{clause_label(clause)} 직접 추가 {n}" if manual else f"{clause_label(clause)}-{n}"
 
 
 _OCR_ANY = re.compile(r"(?:[0-9a-f]{8}:)?OCR-(DOCX-|PDF-P)(\d+)(?:\.[\d.]+)?(?:-(\d+))?")

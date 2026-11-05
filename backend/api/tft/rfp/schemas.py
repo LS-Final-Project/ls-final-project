@@ -1242,6 +1242,8 @@ class DecisionState(Model):
     decision_id: UUID | None = None
     action: RecordedAction | None = None
     summary: str | None = None
+    # 사람이 적은 편차 내용(record_deviation). summary는 행동 이름("편차표에 기재")이라 편차표 칸에는 이것을 쓴다.
+    note: str | None = None
     decided_at: datetime | None = None
     # 책임자가 출력 전에 확인했는지.
     reviewed: bool = False

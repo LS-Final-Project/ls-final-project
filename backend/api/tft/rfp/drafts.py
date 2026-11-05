@@ -68,8 +68,14 @@ async def settled_requirements(conn: AsyncConnection[Row], project_id: UUID) -> 
         for key, (_, state) in found.items()
         if state.decided and state.reviewed and state.decision_id in current
     }
-    # 중복 구성원은 대표의 결정을 따른다(KAN-231).
-    return settled | {key for key, (_, state) in found.items() if state.follows in settled}
+    # 중복 구성원은 대표의 결정을 따른다(KAN-231). 대표가 결정이 필요 없는 충족이면 구성원(예: 같은 값의 도면 OCR
+    # 요구)도 풀린 것으로 본다. 그러지 않으면 결정할 수도 없는 구성원 때문에 저장이 막힌다(40444 P26-0003).
+    cleared = settled | {
+        key
+        for key, (_, state) in found.items()
+        if not state.needed and not state.excluded and state.follows is None
+    }
+    return settled | {key for key, (_, state) in found.items() if state.follows in cleared}
 
 
 async def requirements_of(

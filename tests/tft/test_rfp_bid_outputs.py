@@ -141,6 +141,8 @@ def test_customer_columns_hide_internal_codes():
     assert out.clause_label("제7조.2") == "제7조.2"
     assert out.requirement_label("ada13520:OCR-DOCX-0001.3:1") == "본문 이미지 1-1"
     assert out.requirement_label("ada13520:제7조.2:2") == "제7조.2-2"
+    # 원문에서 직접 추가한 요구(KAN-225)의 순번 m1도 내부 ID로 나가지 않는다(40444 P26-0003).
+    assert out.requirement_label("f4cc6a52:제3조.2:m1") == "제3조.2 직접 추가 1"
     assert (
         out.reason_text(
             "원문 제2조.1 임피던스 요구 6 %, 자사 6 %(근거 DS-TRF-DRY-630 2.2): 값은 충족하나 조건이 달라 "

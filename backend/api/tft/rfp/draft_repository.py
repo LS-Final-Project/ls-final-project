@@ -117,13 +117,19 @@ async def _load(
             r not in settled for r in row["flagged_requirements"]
         )
         evidence = proofs.get(row["id"], [])
+        conditions = sentence_conditions(row["conditions"])
+        if live_review:
+            # 화면에는 이미지 전사 코드·영문 조건 이름 대신 사람이 읽는 말(검토서 DOCX와 같은 변환). 저장값은 그대로.
+            from backend.api.tft.rfp.bid_outputs import readable_text
+
+            conditions = [readable_text(c) for c in conditions]
         sections[row["section"]].append(
             s.Sentence(
                 sentence_id=row["sentence_key"],
-                text=row["text"],
+                text=readable_text(row["text"]) if live_review else row["text"],
                 template_text=row["template_text"],
                 evidence=evidence,
-                conditions=sentence_conditions(row["conditions"]),
+                conditions=conditions,
                 unconfirmed=(row["unconfirmed"] or row["review_needed"])
                 if live_review
                 else row["unconfirmed"],
@@ -318,10 +324,15 @@ async def evidence_labels(conn: AsyncConnection[Row], project_id: UUID) -> dict[
         "FROM tft.customer_questions q WHERE q.project_id=%(p)s",
         {"p": project_id},
     )
+    # 이미지 전사 조항 코드·직접 추가 순번은 검토서와 같은 사람이 읽는 표시로(OCR-DOCX-0001.7 → 본문 이미지 1).
+    from backend.api.tft.rfp.bid_outputs import clause_label, requirement_label
+
     labels = {}
     for row in await cursor.fetchall():
-        parts = row["label"].split(":")
-        labels[row["id"]] = f"{parts[1]}-{parts[2]}" if len(parts) == 3 else row["label"]
+        label = row["label"]
+        labels[row["id"]] = (
+            requirement_label(label) if len(label.split(":")) == 3 else clause_label(label)
+        )
     return labels
 
 
