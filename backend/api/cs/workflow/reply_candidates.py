@@ -130,3 +130,31 @@ async def find_candidates(
     for item in head + rest:
         item.pop("_received_at")
     return head + rest
+
+
+async def sender_customers(conn: Any, addresses: list[str]) -> dict[str, list[str]]:
+    """보낸 주소마다 활성 고객 연락처로 찾은 고객 ID(KAN-237). 주소 일치 먼저, 그다음 도메인 일치.
+
+    Args:
+        conn: C/S DB 연결.
+        addresses: 보낸 주소들. 형식이 아니면 건너뛴다.
+
+    Returns:
+        dict[str, list[str]]: 소문자 주소 → 고객 ID 목록. 맞는 연락처가 없는 주소는 없다.
+    """
+    parts = {a: d for a, d in map(address_parts, addresses) if a is not None}
+    if not parts:
+        return {}
+    cursor = await conn.execute(
+        "SELECT customer_external_id, email, domain FROM cs.customer_contacts "
+        "WHERE active AND (email = ANY(%s) OR domain = ANY(%s)) ORDER BY customer_external_id",
+        (list(parts), list(set(parts.values()))),
+    )
+    rows = await cursor.fetchall()
+    found: dict[str, list[str]] = {}
+    for address, domain in parts.items():
+        ids = [r["customer_external_id"] for r in rows if r["email"] == address]
+        ids += [r["customer_external_id"] for r in rows if r["domain"] == domain]
+        if ids:
+            found[address] = list(dict.fromkeys(ids))
+    return found

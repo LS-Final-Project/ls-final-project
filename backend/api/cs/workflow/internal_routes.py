@@ -5,6 +5,7 @@
 | `POST tickets/from-mail` | platform, on behalf of a cs_agent | registers a received mail as a ticket |
 | `POST tickets/{ticket_id}/customer-reply` | platform (no user) | records a linked reply, reopens |
 | `POST tickets/reply-candidates` | platform (no user) | candidate tickets and evidence for a mail under review (KAN-235) |
+| `POST tickets/sender-customers` | platform (no user) | customers whose active contacts match sender addresses (KAN-237) |
 
 Not in OpenAPI and not reachable through the business relay. The platform caller token is
 verified the same way as for relayed requests; the reply route carries no user.
@@ -25,7 +26,7 @@ from backend.api.cs.tickets.routes import detail, not_found, respond
 from backend.api.cs.tickets.schemas import Code, CustomerId, Subject, TicketDetail
 from backend.api.cs.translation.routes import translate_on_intake
 from backend.api.cs.workflow import repository
-from backend.api.cs.workflow.reply_candidates import Evidence, find_candidates
+from backend.api.cs.workflow.reply_candidates import Evidence, find_candidates, sender_customers
 from backend.api.cs.workflow.schemas import CustomerReplyIn, CustomerReplyResult
 from backend.api.cs.workflow.service import record_customer_reply
 from backend.shared.access import Principal, current_principal, verify_platform_caller
@@ -235,3 +236,39 @@ async def reply_candidates(
             ticket_ids=payload.ticket_ids,
         )
     return respond(request, ReplyCandidates(items=[ReplyCandidate(**i) for i in items]))
+
+
+class SenderCustomersIn(BaseModel):
+    """Sender addresses of received mails not yet linked to any work (KAN-237)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    addresses: Annotated[list[Annotated[str, Field(max_length=320)]], Field(max_length=100)]
+
+
+class SenderCustomer(BaseModel):
+    address: str = Field(description="The sender address, lower case.")
+    customer_external_ids: list[str] = Field(
+        description="Exact address matches first, then domain."
+    )
+
+
+class SenderCustomers(BaseModel):
+    items: list[SenderCustomer]
+
+
+@router.post("/sender-customers", response_model=SuccessResponse[SenderCustomers])
+async def match_sender_customers(
+    payload: SenderCustomersIn, request: Request
+) -> SuccessResponse[SenderCustomers]:
+    """Which customers the senders belong to, by active customer contacts (C33). Reads only.
+    Addresses that match no contact are left out. A hint for the agent, never a registration."""
+    verify_platform_caller(request)
+    async with connection(request.app.state.settings) as conn:
+        found = await sender_customers(conn, payload.addresses)
+    return respond(
+        request,
+        SenderCustomers(
+            items=[SenderCustomer(address=a, customer_external_ids=ids) for a, ids in found.items()]
+        ),
+    )
