@@ -480,9 +480,17 @@ def main():
         "disable-real",
         "set-concurrency",
         "manage-project",
+        "settle-unknown",
     ):
         p = sub.add_parser(command)
         p.add_argument("--namespace", required=True)
+        if command == "settle-unknown":
+            p.add_argument(
+                "--charge", required=True, help="UNKNOWN charge id in control/permit.sqlite3"
+            )
+            p.add_argument("--reason", required=True, help="Why this amount is accepted")
+            p.add_argument("--operator", required=True, help="Who reviewed it")
+            p.add_argument("--actual", help="Confirmed USD; default is the reservation")
         if command == "setup":
             p.add_argument("--runtime-image", required=True)
             p.add_argument("--web-image", required=True)
@@ -572,6 +580,14 @@ def main():
         set_concurrency(state, args)
     elif args.command == "manage-project":
         manage_project(state, args.project)
+    elif args.command == "settle-unknown":
+        # 실행 중 driver가 있으면 같은 원장에 쓰는 중일 수 있으므로 먼저 disable-real을 요구한다.
+        if running_drivers(owned(state)):
+            raise ValueError("LOCAL_DRIVER_ACTIVE_DISABLE_FIRST")
+        record = Permit(state / "control/permit.sqlite3").settle_unknown(
+            args.charge, reason=args.reason, operator=args.operator, actual_usd=args.actual
+        )
+        print(json.dumps(record, ensure_ascii=False))
     elif args.command == "disable-real":
         config = owned(state)
         rows = running_drivers(config)
