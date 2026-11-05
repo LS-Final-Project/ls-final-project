@@ -68,7 +68,9 @@ class Reclassification(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    version: int = Field(ge=1, description="The triage version the user decided on.")
+    version: int = Field(
+        ge=0, description="The triage version the user decided on (0: the mail has no triage yet)."
+    )
     mail_type: MailType
     link_suggestion: LinkSuggestion | None = None
     needs_review: bool = False
@@ -296,14 +298,15 @@ async def reclassify(
     user = await operational_identity(request, response)
     async with connection(request.app.state.settings) as conn:
         await _owned(conn, message_id, user.id)
-        previous = await _read(conn, message_id, None)
+        # 판본 0: 분류가 없는 메일에 사람이 처음 정한다(KAN-237 [문의 아님]). 그사이 분류가 생기면 409.
+        previous = None if payload.version == 0 else await _read(conn, message_id, None)
         version = await _insert(
             conn,
             message_id,
             {
                 "mail_type": payload.mail_type,
                 "needs_review": payload.needs_review,
-                "attachments_pending": previous.attachments_pending,
+                "attachments_pending": previous.attachments_pending if previous else False,
                 "evidence": [],
                 "link_suggestion": payload.link_suggestion,
                 "provenance_kind": "human_input",

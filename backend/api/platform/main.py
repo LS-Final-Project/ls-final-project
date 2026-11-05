@@ -13,6 +13,7 @@ from backend.api.platform.jobs.sweep import JobsSweepSettings, configure_jobs_sw
 from backend.api.platform.jobs.sweep import router as jobs_sweep_router
 from backend.api.platform.jobs.tft import TftJobSettings, configure_tft_jobs
 from backend.api.platform.jobs.tft import router as tft_jobs_router
+from backend.api.platform.mail.cs_intake import router as mail_cs_intake_router
 from backend.api.platform.mail.intake import router as mail_intake_router
 from backend.api.platform.mail.rfp_intake import router as mail_rfp_intake_router
 from backend.api.platform.mail.send_http import router as mail_send_user_router
@@ -76,6 +77,7 @@ def create_app(
     app.include_router(mail_send_user_router)
     app.include_router(mail_intake_router)
     app.include_router(mail_rfp_intake_router)
+    app.include_router(mail_cs_intake_router)
     app.include_router(jobs_sweep_router)
     app.include_router(tft_jobs_router)
     app.include_router(cs_jobs_router)
