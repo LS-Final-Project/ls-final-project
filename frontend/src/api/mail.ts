@@ -180,3 +180,37 @@ export async function registerTicket(messageId: string, body: RegisterBody, sign
   if (!data || typeof data.ticket_id !== 'string' || typeof data.created !== 'boolean') throw new ApiError(502, '문의 접수 결과를 확인할 수 없습니다. 문의 조회에서 확인하세요.');
   return data as RegisteredTicket;
 }
+
+// KAN-73 RFP로 보이는 메일: 후보 목록, 첨부 받기, 확인 후 프로젝트 연결.
+export type RfpCandidate = paths['/api/v1/platform/mail/rfp-candidates']['get']['responses'][200]['content']['application/json']['data']['items'][number];
+export type LinkedRfpProject = paths['/api/v1/platform/mail/messages/{message_id}/rfp-project']['post']['responses'][201]['content']['application/json']['data'];
+const RFP_FILE_TYPES = new Set(['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']);
+
+/** 내 메일함에서 아직 프로젝트로 등록하지 않은 RFP 후보 메일. 모의 모드에서는 빈 목록이다. */
+export async function listRfpCandidates(signal?: AbortSignal): Promise<RfpCandidate[]> {
+  const body = await request<unknown>('/api/v1/platform/mail/rfp-candidates', { signal, mockFallback: () => ({ data: { items: [] } }) });
+  const items = (body as { data?: { items?: unknown } } | null)?.data?.items;
+  if (!Array.isArray(items)) throw new ApiError(502, 'RFP 후보 메일 목록을 확인할 수 없습니다.');
+  return items as RfpCandidate[];
+}
+
+/** 후보 메일의 DOCX·PDF 첨부를 File로 받는다(프로젝트 문서로 올릴 때 쓴다). */
+export async function downloadMailAttachment(messageId: string, attachment: RfpCandidate['attachments'][number]): Promise<File> {
+  const response = await fetch(`/api/v1/platform/mail/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachment.id)}`, { credentials: 'same-origin', cache: 'no-store' });
+  const type = response.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase() ?? '';
+  if (!response.ok || !RFP_FILE_TYPES.has(type)) { await response.body?.cancel(); throw new ApiError(response.ok ? 502 : response.status, '첨부를 받지 못했습니다. DOCX·PDF 첨부인지 확인하세요.'); }
+  const blob = await response.blob();
+  if (!blob.size || blob.size > 25 * 1024 * 1024) throw new ApiError(422, '첨부 크기를 확인할 수 없습니다(25MB 이하).');
+  return new File([blob], attachment.name || 'rfp', { type });
+}
+
+/** 방금 만든 RFP 프로젝트를 메일에 연결한다. 같은 프로젝트로 다시 불러도 한 번만 기록된다. */
+export async function linkMailRfpProject(messageId: string, projectId: string): Promise<LinkedRfpProject> {
+  if (getApiMode() !== 'live') throw new ApiError(403, '실제 API 모드에서만 실행할 수 있습니다. 모의 응답 모드에서는 실행하지 않습니다.');
+  const token = sessionCsrfToken();
+  if (!token) throw new ApiError(403, '세션 확인 정보가 없습니다. 세션을 다시 확인하세요.');
+  const reply = await request<unknown>(`/api/v1/platform/mail/messages/${encodeURIComponent(messageId)}/rfp-project`, { method: 'POST', headers: { 'X-CSRF-Token': token }, body: JSON.stringify({ project_id: projectId }) });
+  const data = (reply as { data?: LinkedRfpProject } | null)?.data;
+  if (!data?.project_id) throw new ApiError(502, '연결 결과를 확인할 수 없습니다.');
+  return data;
+}

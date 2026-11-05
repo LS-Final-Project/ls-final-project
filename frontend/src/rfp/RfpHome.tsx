@@ -7,6 +7,7 @@ import { ErrorState, Loading } from '../components/states';
 import { KvGrid, KvTitle, type KvColumn } from '../ls-shell/kv';
 import { dueText, progressOf } from './RfpList';
 import { useNames } from './names';
+import { RfpMailCandidates } from './RfpMailCandidates';
 import './RfpWorkspace.css';
 
 // 프로젝트별 오늘 할 일: 결정 남은 수와 마감, 회신 기다리는 질의, 승인 대기.
@@ -51,6 +52,7 @@ export default function RfpHome() {
   });
   return <main className="rfp-ui">
     <KvTitle path="제안 지원" title="업무 홈" code="TF0001"><Link className="kb primary" to="/tft/projects/new">새 RFP</Link></KvTitle>
+    <RfpMailCandidates enabled={access.user.data?.data.roles.includes('sales') === true || !access.operational} />
     {projects.isError ? <ErrorState error={projects.error} onRetry={() => projects.refetch()} /> : projects.isPending ? <Loading /> : <>
       <section className="kv-box"><h2>오늘 할 일<small>{tasks.length}건</small></h2>
         <div className="body" style={{ padding: 0 }}>

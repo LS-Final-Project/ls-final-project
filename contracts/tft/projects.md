@@ -15,6 +15,10 @@
 
 `ProjectSummary`에는 내부 UUID, `external_id`, 이름, `company_code`, 프로젝트 `status`, `data_origin`·`derivation_kind`, `responsible_user_id`(로그인 사용자 ID), `sales_user_id`(담당 sales의 로그인 사용자 ID, 미배정이면 null. KAN-122에서 추가), `created_at`이 있다. `ProjectDetail`은 여기에 `version`·`known_at`·`client_name`과 `rfp_requirements`(요구 코드, 분야 태그, 제목·설명, 문서명·`document_id`·`document_version_id`, 조항·페이지·발췌, 두 출처 축)를 더한다.
 
+## 메일에서 만든 프로젝트 (KAN-73)
+
+RFP로 보이는 메일의 [RFP로 등록]은 TFT 쪽에 새 경로를 더하지 않는다. 화면이 기존 `POST /api/v1/tft/projects`와 문서 올리기(`RFP_SPEC`)를 부른 뒤 플랫폼 `POST /api/v1/platform/mail/messages/{id}/rfp-project`로 메일을 연결한다(`mail_links` `business_ref=rfp_project:<프로젝트 ID>`, [메일 계약](../platform/mail.md#rfp로-보이는-메일과-확인-후-등록-kan-73-2026-11-05)). 분석 시작(`process`)은 프로젝트 화면에서 따로 한다.
+
 ## TFT 인력 구성 단계 제거 (KAN-181)
 
 2026-10-28 범위 변경(TFT 팀 구성 → RFP 자사 대응·협력사 보완)으로 부서 인력요청·후보 추천·경험/역량/가용성 확인·구성안·책임자 결정 API와 화면을 제거했다. 제거한 경로: `/api/v1/tft/projects/{project_id}/staffing-requests`, `/api/v1/tft/staffing-requests/...`, `/api/v1/tft/department-requests`, `/api/v1/tft/projects/{project_id}/{verification,compositions,confirm,reject,reopen,decisions}`. 상세 응답의 `required_roles`·`staffing_requests`·`recommendations`·`current_composition`·`responsible`·`final_confirmation`과 목록의 `current_composition_version`도 뺐다. 이전 판본은 [인수인계](../../handoff.md)의 'TFT 정리(KAN-181)' 절에서 찾는다.

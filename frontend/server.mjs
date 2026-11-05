@@ -149,6 +149,10 @@ const mailRoutes = [
   [/^\/api\/v1\/platform\/mail\/messages\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/triage$/, ['GET', 'POST'], []],
   [/^\/api\/v1\/platform\/mail\/reply-reviews\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/(?:link|dismiss)$/, ['POST'], []],
   [/^\/api\/v1\/platform\/mail\/messages\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/register-ticket$/, ['POST'], []],
+  // RFP로 보이는 메일(KAN-73): 후보 목록, DOCX·PDF 첨부 받기, 확인 후 프로젝트 연결. 영업 역할·소유자는 서버가 검사한다.
+  [/^\/api\/v1\/platform\/mail\/rfp-candidates$/, ['GET'], []],
+  [/^\/api\/v1\/platform\/mail\/messages\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/attachments\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/, ['GET'], []],
+  [/^\/api\/v1\/platform\/mail\/messages\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/rfp-project$/, ['POST'], []],
 ];
 // 디코드한 경로에서 검사한다. customer·evidence는 이 문자만, 첫 글자는 영숫자로 허용해 ?·#·/와 .·.. 세그먼트가 upstream URL을 바꾸지 못하게 한다.
 export const placeholders = { '{uuid}': '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '{customer}': '[A-Za-z0-9][A-Za-z0-9._-]{0,63}', '{evidence}': '[A-Za-z0-9][A-Za-z0-9._-]{0,63}', '{dept}': '[A-Z][A-Z0-9_]{0,63}' };
@@ -157,6 +161,7 @@ const fileLimit = 26 * 1024 * 1024;
 const fileTypes = new Set(['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);
 const uploadPath = new RegExp(`^/api/v1/tft/projects/${placeholders['{uuid}']}/documents$`);
 const downloadPath = new RegExp(`^(?:/api/v1/tft/documents/${placeholders['{uuid}']}/file|/api/v1/tft/projects/${placeholders['{uuid}']}/draft/exports/${placeholders['{uuid}']}/file)$`);
+const mailAttachmentPath = new RegExp(`^/api/v1/platform/mail/messages/${placeholders['{uuid}']}/attachments/${placeholders['{uuid}']}$`);
 const diagramTypes = new Set(['application/pdf', 'image/png', 'image/jpeg', 'image/webp']);
 const diagramPath = new RegExp(`^/api/v1/tft/documents/${placeholders['{uuid}']}/diagrams/OCR-(?:DOCX-\\d{4,}|PDF-P\\d{4,})/image$`);
 const compiledRoutes = businessRoutes.map(([template, methods, query]) => [new RegExp(`^${template.split(/(\{uuid\}|\{customer\}|\{evidence\}|\{dept\})/).map(part => placeholders[part] ?? part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('')}$`), methods, query]);
@@ -292,7 +297,7 @@ export function handler({ directory, upstream, tokenProvider, fetcher = fetch, b
         }
         const result = await fetcher(new URL(path + (business.length || assignees ? parsed.search : ''), target), { method: request.method, headers, body: form, signal: AbortSignal.timeout((authMethod || business.length) ? 45000 : 15000), redirect: authMethod ? 'manual' : 'error' });
         const resultType = (result.headers.get('content-type') || '').split(';', 1)[0].trim().toLowerCase();
-        const isFile = business.length > 0 && request.method === 'GET' && result.status === 200 && (downloadPath.test(path) && fileTypes.has(resultType) || diagramPath.test(path) && diagramTypes.has(resultType));
+        const isFile = business.length > 0 && request.method === 'GET' && result.status === 200 && ((downloadPath.test(path) || mailAttachmentPath.test(path) && resultType !== 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') && fileTypes.has(resultType) || diagramPath.test(path) && diagramTypes.has(resultType));
         if (business.length && (result.status >= 300 && result.status < 400 || (result.status !== 204 && resultType !== 'application/json' && !isFile))) {
           await result.body?.cancel();
           throw new Error('Invalid business response');

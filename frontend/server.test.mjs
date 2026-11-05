@@ -805,6 +805,7 @@ test('mail relay forwards only the reads and writes the mail screens use', async
       '/api/v1/platform/mail/send-intents?status=FAILED',
       '/api/v1/platform/mail/reply-reviews',
       `/api/v1/platform/mail/messages/${id}/triage`,
+      '/api/v1/platform/mail/rfp-candidates',
     ]) {
       const response = await fetch(origin + path, { headers: { ...cookie, 'X-User-ID': 'forged' } });
       assert.equal(response.status, 200, path);
@@ -839,6 +840,8 @@ test('mail relay forwards only the reads and writes the mail screens use', async
       `/api/v1/platform/mail/reply-reviews/${id}/link?force=1`,
       `/api/v1/platform/mail/messages/not-a-uuid/register-ticket`,
       `/api/v1/platform/mail/messages/${id}/register-ticket?created=1`,
+      `/api/v1/platform/mail/messages/${id}/rfp-project?force=1`,
+      `/api/v1/platform/mail/messages/${id}/attachments/${id}`,
     ]) {
       const response = await fetch(origin + path, { method: 'POST', headers: write, body: '{}' });
       assert.ok([400, 404, 405].includes(response.status), path);
@@ -852,6 +855,7 @@ test('mail relay forwards only the reads and writes the mail screens use', async
       [`/api/v1/platform/mail/reply-reviews/${id}/link`, '{"owner_service":"cs","business_ref":"synthetic"}'],
       [`/api/v1/platform/mail/reply-reviews/${id}/dismiss`, '{"note":"synthetic"}'],
       [`/api/v1/platform/mail/messages/${id}/register-ticket`, '{"customer_external_id":"SYNTHETIC"}'],
+      [`/api/v1/platform/mail/messages/${id}/rfp-project`, `{"project_id":"${id}"}`],
     ]) assert.equal((await fetch(origin + path, { method: 'POST', headers: { ...write, 'X-User-ID': 'forged' }, body })).status, 200, path);
     assert.equal((await fetch(origin + `/api/v1/platform/mail/messages/${id}/register-ticket`, { method: 'POST', headers: { ...write, 'Content-Type': 'text/plain' }, body: '{}' })).status, 415);
   }, async (url, options) => {
@@ -865,11 +869,12 @@ test('mail relay forwards only the reads and writes the mail screens use', async
     }
     return Response.json({ data: {} });
   });
-  assert.equal(calls.length, 10);
-  assert.deepEqual(calls.slice(7).map(url => new URL(url).pathname), [
+  assert.equal(calls.length, 12);
+  assert.deepEqual(calls.slice(8).map(url => new URL(url).pathname), [
     `/api/v1/platform/mail/reply-reviews/${id}/link`,
     `/api/v1/platform/mail/reply-reviews/${id}/dismiss`,
     `/api/v1/platform/mail/messages/${id}/register-ticket`,
+    `/api/v1/platform/mail/messages/${id}/rfp-project`,
   ]);
 });
 
@@ -942,6 +947,24 @@ test('diagram images retain exact version query and binary only on image path', 
     assert.equal((await fetch(origin + path.replace('OCR-DOCX-0001', 'unknown'))).status, 502);
   }, async url => { calls.push(String(url)); return new Response('original-image', { headers: { 'Content-Type': 'image/png' } }); }, true);
   assert.ok(calls[0].endsWith(path + `?document_version_id=${id}`));
+});
+
+test('mail RFP attachment relays only DOCX/PDF binaries as attachments (KAN-73)', async () => {
+  const id = '11111111-1111-4111-8111-111111111111';
+  const path = `/api/v1/platform/mail/messages/${id}/attachments/${id}`;
+  const docx = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  let type = docx;
+  await fixture(async origin => {
+    const response = await fetch(origin + path);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), docx);
+    assert.match(response.headers.get('content-disposition'), /^attachment/);
+    assert.equal(await response.text(), 'PK-docx');
+    type = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    assert.equal((await fetch(origin + path)).status, 502);
+    type = 'text/html';
+    assert.equal((await fetch(origin + path)).status, 502);
+  }, async () => new Response('PK-docx', { headers: { 'Content-Type': type, 'Content-Disposition': "attachment; filename*=UTF-8''spec.docx" } }), true);
 });
 
 test('RFP context relay preserves versioned reads, CSRF and idempotent writes within exact paths', async () => {
