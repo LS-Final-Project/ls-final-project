@@ -189,7 +189,7 @@ def test_repair_structure_reports_progress_around_each_call_and_marks_review():
         "PART 2 - PRODUCTS",
         "2.1 BUS",
         "A. Bus:",
-        "a. Copper rated 1200 A b. Silver.",
+        "a. Copper rated 1200 A b. silver.",
         "c. X.",
     ]
     blocks = [
@@ -199,7 +199,7 @@ def test_repair_structure_reports_progress_around_each_call_and_marks_review():
     tree = build_clause_tree(build_document("DOCX", b"x", blocks, [], tables=0))
     events = []
     assert worker_processor.repair_structure(tree, None, events.append, "v") == (tree, False)
-    answer = '{"items": [{"label": "b", "start_text": "b. Silver."}]}'
+    answer = '{"items": [{"label": "b", "start_text": "b. silver."}]}'
     repaired, review = worker_processor.repair_structure(
         tree, lambda _p: Generation(answer, Usage(), None, []), events.append, "v"
     )

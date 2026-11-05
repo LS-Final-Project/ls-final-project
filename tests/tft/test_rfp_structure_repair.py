@@ -48,11 +48,11 @@ def late_start():
 
 
 def skip():
-    # b.가 앞 항목에 문장 끝 없이 붙어 close()도 나누지 않는다.
+    # b.가 앞 항목에 붙었고 뒤가 소문자라 close()도 나누지 않는다(대문자면 결정 코드가 나눈다).
     return tree_of(
         *HEAD,
         p("B. Bus:"),
-        p("a. Copper bus rated 1200 A b. Silver plated joints."),
+        p("a. Copper bus rated 1200 A b. silver plated joints."),
         p("c. Bolted connections."),
     )
 
@@ -68,7 +68,7 @@ def inline():
 
 
 def twice():
-    return tree_of(*HEAD, p("B. Bus:"), p("a. Copper bus b. Tin plated b. Tin plated."), p("c. X."))
+    return tree_of(*HEAD, p("B. Bus:"), p("a. Copper bus b. tin plated b. tin plated."), p("c. X."))
 
 
 def test_late_start_skip_and_inline_lists_are_flagged_with_the_clause_holding_the_items():
@@ -132,11 +132,11 @@ def answer(*items, finish=()):
 
 def test_good_boundaries_split_the_clause_with_the_same_blocks():
     tree = skip()
-    provider, calls = answer(("b", "b. Silver plated"))
+    provider, calls = answer(("b", "b. silver plated"))
     result = repair_tree(tree, provider)
     clauses = by_no(result.tree)
     assert clauses["2.1.B.a"].text == "Copper bus rated 1200 A"
-    assert clauses["2.1.B.b"].text == "Silver plated joints."
+    assert clauses["2.1.B.b"].text == "silver plated joints."
     assert clauses["2.1.B.b"].label == "b." and clauses["2.1.B.b"].depth == 5
     assert clauses["2.1.B.b"].block_ids == clauses["2.1.B.a"].block_ids
     assert REPAIRED in clauses["2.1.B.b"].flags and REPAIRED in clauses["2.1.B.a"].flags
@@ -146,7 +146,7 @@ def test_good_boundaries_split_the_clause_with_the_same_blocks():
     assert ("2.1.B.a", REPAIRED) in [(i.clause_no, i.kind) for i in result.tree.numbering_issues]
     assert result.calls == len(calls) == 1 and result.rejected == []
     assert result.usage.input_tokens == 10 and result.model_versions == {"fake-1"}
-    assert "Copper bus rated 1200 A b. Silver plated joints." in calls[0]
+    assert "Copper bus rated 1200 A b. silver plated joints." in calls[0]
 
 
 def test_late_start_and_inline_repairs_add_children_under_the_parent():
@@ -163,16 +163,16 @@ def test_late_start_and_inline_repairs_add_children_under_the_parent():
 @pytest.mark.parametrize(
     ("fixture", "items", "reason"),
     [
-        (skip, [("x", "b. Silver plated")], "LABELS_MISMATCH"),
-        (skip, [("b", "b. Silver plated"), ("c", "Bolted")], "LABELS_MISMATCH"),
-        (skip, [("b", "b. Silver-plated joints")], "NOT_SUBSTRING"),
-        (skip, [("b", "Silver plated joints.")], "LABEL_NOT_AT_START"),
+        (skip, [("x", "b. silver plated")], "LABELS_MISMATCH"),
+        (skip, [("b", "b. silver plated"), ("c", "Bolted")], "LABELS_MISMATCH"),
+        (skip, [("b", "b. silver-plated joints")], "NOT_SUBSTRING"),
+        (skip, [("b", "silver plated joints.")], "LABEL_NOT_AT_START"),
         (skip, [], "NO_ITEMS"),
         (inline, [("2", "2. Current."), ("1", "1. Voltage.")], "LABELS_MISMATCH"),
         (inline, [("1", "2. Current."), ("2", "1. Voltage.")], "LABEL_NOT_AT_START"),
         (inline, [("1", "1. Voltage."), ("2", "rated as follows")], "OUT_OF_ORDER"),
         (inline, [("1", "1. Voltage. 2. Current"), ("2", "2. Current.")], "OVERLAP"),
-        (twice, [("b", "b. Tin")], "AMBIGUOUS_START"),
+        (twice, [("b", "b. tin")], "AMBIGUOUS_START"),
     ],
 )
 def test_bad_boundaries_keep_the_tree_unchanged(fixture, items, reason):
@@ -185,12 +185,12 @@ def test_bad_boundaries_keep_the_tree_unchanged(fixture, items, reason):
 
 def test_truncated_or_edited_targets_are_not_applied():
     tree = skip()
-    truncated = repair_tree(tree, answer(("b", "b. Silver plated"), finish=["MAX_TOKENS"])[0])
+    truncated = repair_tree(tree, answer(("b", "b. silver plated"), finish=["MAX_TOKENS"])[0])
     assert truncated.tree == tree and truncated.rejected[0].reason == "TRUNCATED"
     edited = tree_of(
-        *HEAD, p("B. Bus:"), p("a. Copper rated 1200 A b. Silver.", ("old", 3)), p("c. X.")
+        *HEAD, p("B. Bus:"), p("a. Copper rated 1200 A b. silver.", ("old", 3)), p("c. X.")
     )
-    provider, calls = answer(("b", "b. Silver."))
+    provider, calls = answer(("b", "b. silver."))
     result = repair_tree(edited, provider)
     assert result.tree == edited and calls == []
     assert result.rejected[0].reason == "TARGET_HAS_DELETED_VALUES"

@@ -11,8 +11,12 @@
 | 3 | `C. …` | `2.5.C` |
 | 4 | `1. …` | `2.5.C.1` |
 | 5 | `a. …` | `2.5.C.1.a` |
-| 6 | `1)`·`(1)` | `2.5.C.1.a.1` |
+| 6 | `1)`·`(1)`·`ii.` | `2.5.C.1.a.1` |
 | 7 | `a)`·`(a)` | `2.5.C.1.a.1.a` |
+
+- 소문자 로마 숫자(`ii.`·`iv.`)는 깊이 6이다. 한 글자 `i.`는 같은 목록 앞 형제가 h(빠진 번호 3개까지 f·g 포함)면 영문자,
+  아니면 로마 숫자다. `v.`·`x.`는 앞 로마 숫자가 iv·ix일 때만 로마 숫자다.
+- 영문 문맥에서 번호와 대문자 본문 사이 공백이 빠진 `b.Prevent`도 번호로 읽는다(소문자·숫자 번호만).
 
 - 한글은 장(깊이 1)·조(2)·숫자 항목(3)·가/나 항목(4) 순서다. 장/조/PART가 없는 문서의
   `1. 일반` 같은 한글 숫자 제목은 깊이 2 절로 시작한다. 조의 괄호 제목·본문은 text에 보존한다.
@@ -36,6 +40,10 @@
   `1`·`a`로 다시 시작하는 곳에서 연다(`DEFERRED_ARTICLE`).
 - 한 문단에 항목 두 개가 붙어 있으면(PDF 변환, 14번 2.4 C.3 "… open. b. Expulsion …") 문장 끝 바로 뒤에
   **같은 깊이의 다음 번호**가 대문자 글 앞에 올 때만 나눈다(`INLINE_SPLIT`). 그 밖의 "No. 2." 같은 글은 두지 않는다.
+  소문자 글자 항목은 값 목록처럼 마침표 없이 붙은 다음 번호(`… 4000 A c. Rated …`)도 나눈다(참조 단어 뒤는 제외).
+- 하위 항목 문단 안에 열린 상위 항목의 다음 번호가 붙어 있으면(`… MIN) 5. AUTOMATIC MODE: a. …`) 그 자리에서 문단을
+  나눈다. 앞이 문장 끝·닫는 괄호이거나, 뒤가 대문자 단어로 된 짧은 제목과 쌍점일 때만이다.
+- 표에 뜬 미룬 절은 제목만 있는 대문자 행(`STATION POWER`)이 오면 그 자리에서 연다.
 - PDF 글자층은 빈 줄 없는 줄들을 한 문단으로 준다(`SECTION …\n2.1 …`, `A. …\nB. …`). 문단 안의 줄이 번호로
   시작하고 앞 줄이 문장 끝이거나 제목 줄(SECTION·PART·대문자 절)이면 그 줄에서 나눈다. 나눈 조각은 원래 block_id를
   그대로 쓴다(원문 강조 위치는 같은 블록이다). 앞 줄이 문장 끝이 아닌 `13.8 kV class` 같은 끊긴 줄은 나누지 않는다(KAN-229).
@@ -61,7 +69,8 @@ from backend.engine.documents.model import Block, CrossReference, DeletedValue, 
 
 # v5: 공백 없는 번호 제목의 잡음 오인·장 항목 부모, 점선 목차 제외(KAN-215)
 # v6: PDF 문단 안 번호 줄 나누기, PART 없는 SECTION 문서의 대문자 절 제목(KAN-229)
-CLAUSE_TREE_VERSION = "clause-tree-v6"
+# v7: 소문자 로마 숫자 단계, 붙은 목록 항목(공백 없음·마침표 없음·상위 다음 번호), 미룬 절의 제목 행(KAN-188)
+CLAUSE_TREE_VERSION = "clause-tree-v7"
 # "PART 2 - PRODUCTS"(14번) 또는 대시 없는 "PART 1 GENERAL"(평가 11번 유형, KAN-207). 대시가 없으면 제목이 대문자일
 # 때만 PART다(본문의 "PART 2 of …"를 PART로 읽지 않는다).
 PART = re.compile(r"^PART\s+(\d+)(?:\s*[-–—]\s*|\s+(?=[A-Z][A-Z0-9 ,/&()'\-]*$))(.+)$")
@@ -98,6 +107,12 @@ LABELS: tuple[tuple[int, re.Pattern[str]], ...] = (
     (7, re.compile(r"^\(?([가나다라마바사아자차카타파하])\)(?:\s+|$)")),
     (7, re.compile(r"^\(?([a-z])\)(?:\s+|$)")),
 )
+# 소문자 로마 숫자 항목(ii.·iv.)은 a. 아래 단계다. 한 글자 i.·v.·x.는 영문자 항목과 모양이 같아 문맥으로 가른다
+# (build_clause_tree의 contextual_label). 검색 청킹과 공유하는 LABELS에는 넣지 않는다.
+ROMAN = re.compile(r"^(?=[ivx]{2,}\.)(x{0,2}(?:ix|iv|v?i{0,3}))\.(?:\s+|$)")
+ROMAN_DEPTH = 6
+# 번호와 대문자 본문 사이 공백이 빠진 항목("b.Prevent …"). 소문자·숫자 번호만 본다("U.S."는 번호가 아니다).
+TIGHT = re.compile(r"^([a-z]|\d{1,2})\.(?=[A-Z])")
 END_OF_SECTION = re.compile(r"^END OF SECTION\b", re.I)
 # 목차 줄: 점선 리더(.....·…)로 끝나거나 그 뒤에 쪽 번호만 온다. 본문 조항이 아니다(KAN-215).
 TABLE_OF_CONTENTS = re.compile(r"(?:\.{5,}|…{2,}|·{5,})\s*(?:\d+(?:\s*[-–]\s*\d+)?)?\s*$")
@@ -304,6 +319,8 @@ def _label(text: str) -> tuple[int, str, str, str | None] | None:
     for depth, pattern in LABELS:
         if m := pattern.match(text):
             return depth, m.group(1), m.group(0).strip(), None
+    if m := ROMAN.match(text):
+        return ROMAN_DEPTH, m.group(1), m.group(0).strip(), None
     return None
 
 
@@ -547,6 +564,43 @@ def _inline_items(block: Block) -> list[Block]:
     ]
 
 
+def _sibling_mark(text: str, nxt: str, *, loose: bool) -> re.Match[str] | None:
+    """본문에 붙은 다음 형제 번호(`… open. b. Expulsion`). 대문자 글 앞이어야 한다.
+
+    보통은 문장 끝 바로 뒤만 본다. loose(소문자 글자 항목)면 값 목록처럼 마침표 없이 이어진 자리
+    (`… 4000 A c. Rated …`)도 본다. 숫자는 문장 속 수량(`… shall be 3. Each …`)과 구별되지 않아 넣지 않는다.
+    참조 단어 뒤(`Type c.`)는 번호가 아니다.
+    """
+    lead = r"(?<=\S)" if loose else r"(?<=[.;:])"
+    for m in re.finditer(lead + r"\s+(" + re.escape(nxt) + r")\.\s+(?=[A-Z(<\"])", text):
+        words = text[: m.start()].split()
+        if (
+            text[m.start() - 1] not in SENTENCE_END
+            and words
+            and words[-1].lower().rstrip(",") in INLINE_REFERENCE_WORDS
+        ):
+            continue
+        return m
+    return None
+
+
+def _inline_all(block: Block) -> list[Block]:
+    """_inline_items를 나눈 하위 조각에도 다시 적용한다("M. 제목 1. 첫 항목: a. 첫 하위 …")."""
+    pieces = _inline_items(block)
+    if len(pieces) == 1:
+        return pieces
+    return [pieces[0], *(part for piece in pieces[1:] for part in _inline_all(piece))]
+
+
+# 상위 항목의 다음 번호가 하위 항목 문단 안에 붙은 자리(`… 4) TDEN-B = 5 MINUTES 5. AUTOMATIC MODE …`).
+# 앞이 문장 끝·닫는 괄호가 아니면 뒤가 대문자 단어로만 된 짧은 제목과 쌍점일 때만 본다
+# (`… Cold load pickup 2. Field-Selectable Relay Settings: …`). 문장 속 수량(`… be 3. Each …`)은 두지 않는다.
+ANCESTOR_MARK = (
+    r"(?:(?<=[.;:)])\s+({0})\.\s+(?=[A-Z(\"'“])"
+    r"|(?<=\S)\s+({0})\.\s+(?=[A-Z][\w/-]*(?:\s+[A-Z][\w/-]*){{0,7}}:))"
+)
+
+
 def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
     """문서 순서대로 번호 패턴을 읽어 조항 트리를 만든다.
 
@@ -585,7 +639,7 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
     if compact_korean:
         blocks = [part for block in blocks for part in _compact_sections(block)]
     else:
-        blocks = [part for block in blocks for part in _inline_items(block)]
+        blocks = [part for block in blocks for part in _inline_all(block)]
     # PART·장·조가 있는 문서는 그 앞 표지를 숫자 절로 승격하지 않는다.
     simple_korean = not any(
         PART.match(b.text.strip())
@@ -667,9 +721,13 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
                 return depth, token, token, title
             return None
         found = _label(text)
+        if found is None and not korean and (tight := TIGHT.match(text)):
+            found = _label(f"{tight.group(0)} {text[tight.end() :]}")
         if found is None:
             return None
         depth, token, label, title = found
+        if depth == 5 and token in ("i", "v", "x") and not korean and roman_item(token):
+            return ROMAN_DEPTH, token, label, title
         if simple_korean and KOREAN_NUMBER.match(text):
             return 2, token, label, title
         if korean:
@@ -685,6 +743,63 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
                 depth -= 1
         return depth, token, label, title
 
+    def roman_item(token: str) -> bool:
+        """한 글자 i·v·x가 a. 아래 로마 숫자인지. i는 앞 형제가 h(본문에 붙은 h 포함)가 아닐 때, v·x는 앞 로마 숫자가 iv·ix일 때다."""
+        if token == "i":
+            parent = next((o for o in reversed(stack) if o.depth < 5), None)
+            previous = last_token.get((parent.clause_no if parent else None, 5))
+            inline_h = (
+                current is not None
+                and current.depth == 5
+                and _sibling_mark(" " + current.text, "h", loose=True)
+            )
+            # 앞 형제가 f·g·h면 h가 빠졌어도 영문자 목록의 이어짐이다(빠진 번호는 MAX_MISSING까지 본다).
+            near = previous is not None and _between(_next(previous) or "", "i") is not None
+            return previous != "h" and not near and not inline_h
+        parent = next((o for o in reversed(stack) if o.depth < ROMAN_DEPTH), None)
+        previous = last_token.get((parent.clause_no if parent else None, ROMAN_DEPTH))
+        return previous == {"v": "iv", "x": "ix"}[token]
+
+    def ancestor_split(block: Block, text: str) -> list[Block] | None:
+        """하위 항목 문단 안에 상위 항목의 다음 번호가 붙어 있으면 그 자리에서 나눈다(ANCESTOR_MARK 조건).
+
+        목록 끝 항목 뒤에 다음 상위 항목이 줄바꿈 없이 이어진 변환 문서 배치다. 지금 열린 상위 항목(A.·1.·a.)의
+        바로 다음 번호만 본다. 같은 깊이 형제는 close()가 나눈다. 뒤 조각은 _inline_all을 다시 거친다.
+        """
+        if korean or not started or block.deleted_values or current is None:
+            return None
+        own = contextual_label(text)
+        limit = own[0] if own is not None else current.depth
+        start = len(block.text) - len(block.text.lstrip()) + (len(own[2]) if own else 0)
+        cuts: list[int] = []
+        for open_ in stack:
+            nxt = _next(open_.token)
+            if not (3 <= open_.depth < min(limit, 6)) or nxt is None or nxt in KOREAN_LETTERS:
+                continue
+            for m in re.finditer(ANCESTOR_MARK.format(re.escape(nxt)), block.text):
+                words = block.text[: m.start()].split()
+                if m.start() < start or (
+                    words and words[-1].lower().rstrip(",") in INLINE_REFERENCE_WORDS
+                ):
+                    continue
+                cuts.append(m.start())
+                break
+        if not cuts:
+            return None
+        cut = min(cuts)
+        head = block.text[:cut].strip()
+        tail = block.text[cut:].strip()
+        pieces = [
+            block.model_copy(
+                update={
+                    "text": piece,
+                    "cross_references": [r for r in block.cross_references if r.text in piece],
+                }
+            )
+            for piece in (head, tail)
+        ]
+        return [pieces[0], *_inline_all(pieces[1])]
+
     last_article: dict[str | None, int] = {}
 
     def article_ok(major: str, minor: str) -> bool:
@@ -699,9 +814,7 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
             nxt = _next(current.token)
             if nxt is None:
                 break
-            found = re.search(
-                r"(?<=[.;:])\s+(" + re.escape(nxt) + r")\.\s+(?=[A-Z(<\"])", current.text
-            )
+            found = _sibling_mark(current.text, nxt, loose=current.depth == 5 and nxt.islower())
             if found is None:
                 break
             head_text, tail = current.text[: found.start()], current.text[found.end() :]
@@ -1032,6 +1145,12 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
                     current.flags.add("FROM_TABLE_ROW")
             elif started and current is not None:
                 kept = [c for c in cells if c.text.strip()]
+                if pending is not None and len(kept) == 1 and _upper_title(kept[0].text.strip()):
+                    # 미뤄 둔 절의 제목 행(`STATION POWER`)이 오면 앞 목록이 끝난 것이다. 그 자리에서 절을 연다.
+                    article, letter, head = pending
+                    pending = None
+                    open_compound(article, letter, head, "", [], [], "DEFERRED_ARTICLE")
+                    assert current is not None
                 if kept:
                     row_no = len(current.rows)
                     current.rows.append([c.text.strip() for c in kept])
@@ -1083,6 +1202,9 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
             or (simple_korean and KOREAN_NUMBER.match(text))
         ):
             korean = True
+        if split := ancestor_split(block, text):
+            blocks[i : i + 1] = split
+            continue
         found = contextual_label(text)
         if (
             found is not None
