@@ -348,3 +348,5 @@ button.ws-gateitem{color:#24518a;cursor:pointer}
 .ws-tools .ws-link,.ws-tools .ws-histlink{font-size:12px;margin:0;white-space:nowrap;display:inline}
 .ws-tools>.ws-form,.ws-tools>section{flex-basis:100%}
 .ws-decided{flex-wrap:wrap}
+.ls-root .ws .ws-panel span.ws-tools{display:flex}
+.ls-root .ws .ws-panel .ws-tools>*+*{margin-left:0}
