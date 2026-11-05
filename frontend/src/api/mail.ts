@@ -235,3 +235,15 @@ export async function getMailContent(messageId: string, signal?: AbortSignal): P
   if (typeof data?.body !== 'string') throw new ApiError(502, '메일 본문을 확인할 수 없습니다.');
   return data;
 }
+
+// KAN-238 메일함의 받은 메일 전체 목록과 연결 상태(본문 없음). 본문은 getMailContent로 연다.
+export type InboxMessage = paths['/api/v1/platform/mail/messages']['get']['responses'][200]['content']['application/json']['data']['items'][number];
+
+/** 내 메일함의 받은 메일(최근 순 최대 100통). 모의 모드에서는 빈 목록이다. */
+export async function listMailMessages(signal?: AbortSignal): Promise<InboxMessage[]> {
+  const body = await request<unknown>('/api/v1/platform/mail/messages', { signal, mockFallback: () => ({ data: { items: [] } }) });
+  const items = (body as { data?: { items?: unknown } } | null)?.data?.items;
+  const valid = (m: unknown) => typeof (m as InboxMessage | null)?.message_id === 'string' && typeof (m as InboxMessage).received_at === 'string';
+  if (!Array.isArray(items) || !items.every(valid)) throw new ApiError(502, '받은 메일 목록을 확인할 수 없습니다.');
+  return items as InboxMessage[];
+}
