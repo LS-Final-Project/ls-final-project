@@ -244,7 +244,7 @@ class Permit:
             and process_identity(execution["pid"]) == execution["identity"]
         )
 
-    def _healthy(self, db, token):
+    def _healthy(self, db, token, *, inline_in_flight=False):
         self._not_halted(db, token)
         # A worker may finish normally just before the dispatcher's reap loop.
         # Dead identities only make paid work unresolved when a reservation remains;
@@ -253,6 +253,12 @@ class Permit:
             execution = db.execute(
                 "SELECT * FROM executions WHERE job_id=? AND token=?", (charge["job_id"], token)
             ).fetchone()
+            if inline_in_flight and charge["token"] == token and execution is None:
+                # The dispatcher's poll while a C/S inline bridge call (summary, translation,
+                # improvement draft, reply analysis) runs: a granted job with no worker execution,
+                # inside this driver under its lock. New grants and reservations still refuse it,
+                # and if the driver dies the reservation stays RESERVED for review.
+                continue
             if (
                 charge["token"] != token
                 or not self._live(execution)
@@ -263,7 +269,7 @@ class Permit:
     def check_ready(self, token: str):
         with self.transaction() as db:
             self.driver(db, token)
-            self._healthy(db, token)
+            self._healthy(db, token, inline_in_flight=True)
 
     def update_concurrency(self, token: str, *, concurrent_jobs: int, concurrent_calls: int):
         validate_concurrency(concurrent_jobs, concurrent_calls)
