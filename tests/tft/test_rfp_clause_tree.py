@@ -754,3 +754,49 @@ def test_pdf_wrapped_decimal_line_is_not_split():
     pdf = build_clause_tree(doc(blocks, kind="PDF"))
     assert [c.clause_no for c in pdf.clauses] == ["PART 2", "2.1", "2.1.A", "2.1.B"]
     assert pdf.clauses[2].text == "Switchgear shall be rated\n13.8 kV class and 1200 A."
+
+
+def test_parent_title_and_first_child_in_one_paragraph_split_into_children():
+    """변환 문서는 '2. 제목 a. 첫 항목 b. 다음'이 한 문단이다. 첫 하위 항목(.a·.1)을 상위에 묻지 않는다."""
+    tree = tree_of(
+        p("PART 3 - EXECUTION"),
+        p("3.4 SNUBBERS"),
+        p("L. Snubber Lighting Arresters 1. Located in the air terminal chamber."),
+        p(
+            "2. Enclosure a. The snubber shall be enclosed. b. The enclosure shall have a hinged door."
+        ),
+        p("3. Connections a. The snubber shall come fully assembled."),
+        p("4. Main Fuses a. Fuses shall be current limiting."),
+        p("b. Fuses shall have blown fuse indicators."),
+    )
+    clauses = by_no(tree)
+    assert clauses["3.4.L"].text.startswith("Snubber Lighting Arresters")
+    assert clauses["3.4.L.1"].text == "Located in the air terminal chamber."
+    assert clauses["3.4.L.2"].text == "Enclosure"
+    assert clauses["3.4.L.2.a"].text == "The snubber shall be enclosed."
+    assert clauses["3.4.L.2.b"].text == "The enclosure shall have a hinged door."
+    assert clauses["3.4.L.3.a"].text == "The snubber shall come fully assembled."
+    assert clauses["3.4.L.4.a"].text == "Fuses shall be current limiting."
+    assert clauses["3.4.L.4.b"].text == "Fuses shall have blown fuse indicators."
+    assert not tree.numbering_issues
+
+
+def test_inline_numbers_that_are_references_or_out_of_sequence_stay_in_the_text():
+    tree = tree_of(
+        p("PART 2 - PRODUCTS"),
+        p("2.1 SWITCHGEAR"),
+        # 참조 단어 뒤 번호, 1·a로 시작하지 않는 번호, 긴 문장 뒤 번호는 나누지 않는다.
+        p("A. Refer to Section 1. General for submittals."),
+        p("B. The breaker shall interrupt 25 kA. 2. Second is not a child list."),
+        p(
+            "C. The switchgear shall be designed and manufactured in accordance with all of the "
+            "applicable standards listed here 1. IEEE C37.20.2"
+        ),
+        p("D. Ratings 1. Voltage 2. Current", ("old", 3)),
+    )
+    clauses = by_no(tree)
+    assert "2.1.A.1" not in clauses and clauses["2.1.A"].text.endswith("for submittals.")
+    assert "2.1.B.2" not in clauses
+    assert "2.1.C.1" not in clauses
+    # 삭제값이 있는 문단은 위치를 지키려고 나누지 않는다.
+    assert "2.1.D.1" not in clauses

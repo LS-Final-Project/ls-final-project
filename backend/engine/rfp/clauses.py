@@ -451,6 +451,96 @@ def _compact_sections(block: Block) -> list[Block]:
     ]
 
 
+# 문단 앞 번호 종류 → 바로 아래 단계 번호 종류(A. → 1. → a.). 영문 번호 체계만 다룬다.
+INLINE_CHILD = {"upper": "digit", "digit": "lower"}
+INLINE_MARK = {
+    "digit": re.compile(r"(?<=\s)(\d{1,2})\.\s+(?=[A-Z(\"'“])"),
+    "lower": re.compile(r"(?<=\s)([a-z])\.\s+(?=[A-Z(\"'“])"),
+}
+# 번호 앞 단어가 이것이면 본문 속 참조다(예: "Section 2. ", "Table 1. ").
+INLINE_REFERENCE_WORDS = {
+    "section",
+    "article",
+    "paragraph",
+    "item",
+    "items",
+    "table",
+    "figure",
+    "fig",
+    "no",
+    "part",
+    "clause",
+    "page",
+    "note",
+    "step",
+    "type",
+    "class",
+    "zone",
+    "phase",
+    "level",
+}
+INLINE_TITLE_WORDS = 12
+
+
+def _inline_items(block: Block) -> list[Block]:
+    """'번호. 제목 a. 첫 항목 b. 다음 항목'처럼 한 문단에 붙은 하위 항목을 나눈다.
+
+    변환된 규격서는 상위 항목 제목과 첫 하위 항목이 한 문단에 붙어 있어, 문단 앞 번호만 읽으면
+    첫 하위 항목(.1·.a)이 상위 조항에 묻힌다. 하위 번호가 1·a부터 차례로 이어질 때만 나눈다.
+    첫 하위 번호 앞은 짧은 제목(문장 끝 없음)이거나 문장 끝이어야 하고, 둘째부터는 문장 끝 뒤에 와야 한다.
+    삭제값이 있는 문단은 나누지 않는다. 조각은 원래 block_id를 쓴다(_compact_sections와 같은 방식).
+    """
+    text = block.text
+    if block.kind != "PARAGRAPH" or block.deleted_values:
+        return [block]
+    head = _label(text.strip())
+    if head is None or head[0] not in (3, 4):
+        return [block]
+    token = head[1]
+    kind = "upper" if token.isalpha() and token.isupper() else "digit" if token.isdigit() else ""
+    child = INLINE_CHILD.get(kind)
+    if child is None:
+        return [block]
+    body_start = len(text) - len(text.lstrip()) + len(head[2])
+    expected = "1" if child == "digit" else "a"
+    cuts: list[int] = []
+    previous_end = body_start
+    for m in INLINE_MARK[child].finditer(text, body_start):
+        if m.group(1) != expected:
+            continue
+        before = text[previous_end : m.start()].strip()
+        words = before.split()
+        if words and words[-1].lower().rstrip(",") in INLINE_REFERENCE_WORDS:
+            continue
+        if not cuts:
+            # 첫 하위 번호: 앞이 짧은 제목(안에 문장 끝 없음)이거나 문장 끝이어야 한다.
+            title = (
+                not any(w.endswith(SENTENCE_END) for w in words)
+                and len(words) <= INLINE_TITLE_WORDS
+            )
+            if not before or not (before.endswith(SENTENCE_END) or title):
+                continue
+        elif not before.endswith(SENTENCE_END):
+            continue
+        cuts.append(m.start())
+        previous_end = m.end()
+        expected = _next(expected) or ""
+    if not cuts:
+        return [block]
+    positions = [0, *cuts, len(text)]
+    return [
+        block.model_copy(
+            update={
+                "text": text[start:end].strip(),
+                "cross_references": [
+                    r for r in block.cross_references if r.text in text[start:end]
+                ],
+            }
+        )
+        for start, end in zip(positions, positions[1:], strict=False)
+    ]
+
+
 def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
     """문서 순서대로 번호 패턴을 읽어 조항 트리를 만든다.
 
@@ -488,6 +578,8 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
     )
     if compact_korean:
         blocks = [part for block in blocks for part in _compact_sections(block)]
+    else:
+        blocks = [part for block in blocks for part in _inline_items(block)]
     # PART·장·조가 있는 문서는 그 앞 표지를 숫자 절로 승격하지 않는다.
     simple_korean = not any(
         PART.match(b.text.strip())
