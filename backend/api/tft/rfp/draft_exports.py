@@ -159,6 +159,34 @@ def sentence_flags(row: s.Sentence) -> str:
     )
 
 
+# 요약서에서 요구를 하나씩 나열하는 절. 검토자가 읽을 분량만 싣고 나머지는 XLSX 요구별 시트로 넘긴다(2026-11-05).
+# 편차·협력사 보완·질의는 결정할 항목이라 모두 싣는다.
+# ponytail: 절마다 고정 상한, 문서가 아주 크면 절별 상한을 설정으로 뺀다.
+LISTING_SECTIONS = {"CUSTOMER_GOAL_SCOPE", "OUR_RESPONSE", "ASSUMPTIONS_EXCLUSIONS"}
+LISTING_LIMIT = 6
+
+
+def shown(section: s.Section) -> list[s.Sentence]:
+    """요약서에 실을 문장. 담당자 입력과 검토 표시가 있는 문장은 늘 싣고, 나머지는 상한까지 원래 순서로."""
+    rows = section.sentences
+    if section.section not in LISTING_SECTIONS or len(rows) <= LISTING_LIMIT:
+        return rows
+    must = {
+        id(r)
+        for r in rows
+        if r.provenance_kind == "human_input" or r.needs_rereview or r.evidence_missing
+    }
+    room = max(LISTING_LIMIT - len(must), 0)
+    keep = set(must)
+    for r in rows:
+        if room == 0:
+            break
+        if id(r) not in keep:
+            keep.add(id(r))
+            room -= 1
+    return [r for r in rows if id(r) in keep]
+
+
 def render_docx(
     draft: s.Draft,
     review_version: int,
@@ -197,7 +225,8 @@ def render_docx(
             if section.section in table_sections
             else None
         )
-        for row in section.sentences:
+        rows = shown(section)
+        for row in rows:
             number = len(numbered) + 1
             numbered.append((number, row, table is not None))
             flag_text = sentence_flags(row)
@@ -216,6 +245,12 @@ def render_docx(
                 layout.sentence_link(body, number)
                 for condition in row.conditions:
                     paragraph(f"조건·미확인: {condition}", "Meta")
+        if len(rows) < len(section.sentences):
+            paragraph(
+                f"이 절의 나머지 {len(section.sentences) - len(rows)}건은 "
+                "대응 현황표(XLSX)의 요구별 시트에서 확인합니다.",
+                "Meta",
+            )
         if table is not None:
             paragraph("", "Meta")
     paragraph("부록 · 문장별 근거와 검토 기록", "Heading1")
