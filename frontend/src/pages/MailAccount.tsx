@@ -73,7 +73,7 @@ function AccountView({ navigate }: { navigate: (url: string) => void }) {
           <KvBox title="가져오기와 분류" note="시스템 기록">
             <KvField label="받은 메일 가져오기"><span className="unc">마지막 가져온 기록을 주는 API가 아직 없음</span></KvField>
             <KvField label="보낸 편지함 확인"><span className="unc">기록을 주는 API가 아직 없음</span></KvField>
-            <div className="kv-sub" style={{ margin: '8px 0 0' }}>가져온 메일은 받은 메일 검토에, 보낸 메일은 발송 상태에 나타납니다</div>
+            <div className="kv-sub" style={{ margin: '8px 0 0' }}>연결이 필요한 고객 답장은 메일함에, 보낸 메일은 발송 상태에 나타납니다</div>
           </KvBox>
           <KvBox title="다시 연결">
             {broken.length === 0 ? <div className="kv-sub" style={{ margin: 0 }}>다시 연결이 필요한 계정이 없습니다</div> : <>
