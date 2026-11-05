@@ -20,8 +20,8 @@ test('연결 상태와 다시 연결 필요 계정을 사유와 함께 보인다
     connection({}), connection({ mailbox_id: '88888888-8888-4888-8888-888888888888', reconnect_required: true, reconnect_reason: 'invalid_grant', updated_at: '2026-10-28T08:40:00Z' }),
   ] } })));
   show();
-  const table = await screen.findByRole('table', { name: '메일 계정' });
-  const rows = within(table).getAllByRole('row').slice(1);
+  const list = await screen.findByRole('list', { name: '메일 계정' });
+  const rows = within(list).getAllByRole('listitem');
   expect(rows[0].textContent).toContain('연결됨');
   expect(rows[1].textContent).toContain('끊김');
   expect(rows[1].textContent).toContain('필요');
@@ -32,7 +32,7 @@ test('연결 상태와 다시 연결 필요 계정을 사유와 함께 보인다
 test('세션 확인 정보가 없으면 다시 연결을 누를 수 없다', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { data: { items: [connection({ reconnect_required: true, reconnect_reason: 'login_required' })] } })));
   show();
-  await screen.findByRole('table', { name: '메일 계정' });
+  await screen.findByRole('list', { name: '메일 계정' });
   expect(screen.getByText(/세션 확인 정보가 없어/)).toBeTruthy();
   for (const button of screen.getAllByRole('button', { name: '다시 연결' })) expect((button as HTMLButtonElement).disabled).toBe(true);
 });
@@ -40,7 +40,7 @@ test('세션 확인 정보가 없으면 다시 연결을 누를 수 없다', asy
 test('다시 연결이 필요한 계정이 없으면 단추가 잠기고 안내한다', async () => {
   vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL) => String(url).endsWith('/platform/me') ? csAgent() : jsonResponse(200, { data: { items: [connection({})] } })));
   show();
-  await screen.findByRole('table', { name: '메일 계정' });
+  await screen.findByRole('list', { name: '메일 계정' });
   expect(screen.getByText('다시 연결이 필요한 계정이 없습니다')).toBeTruthy();
   expect((screen.getByRole('button', { name: '다시 연결' }) as HTMLButtonElement).disabled).toBe(true);
 });
@@ -49,7 +49,7 @@ test('사서함 연결이 꺼진 배포(404)는 안내만 보이고 오류 화�
   vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(404, errorBody('NOT_FOUND', '없음'))));
   show();
   expect(await screen.findByText('사서함 연결이 이 배포에서 활성화되지 않았습니다.')).toBeTruthy();
-  expect(screen.queryByRole('table', { name: '메일 계정' })).toBeNull();
+  expect(screen.queryByRole('list', { name: '메일 계정' })).toBeNull();
 });
 
 test('목록 오류는 오류 화면으로, 가져오기 기록은 없다고 밝힌다', async () => {
@@ -76,7 +76,7 @@ test('다시 연결을 누르면 고정 authority의 동의 주소로 이동하�
   const { request } = await import('../api/client');
   await request('/api/v1/platform/me');
   const navigate = show();
-  await screen.findByRole('table', { name: '메일 계정' });
+  await screen.findByRole('list', { name: '메일 계정' });
   fireEvent.click(screen.getAllByRole('button', { name: '다시 연결' })[1]);
   await waitFor(() => expect(navigate).toHaveBeenCalledWith(consent));
   reply = 'https://evil.example/authorize';
@@ -89,6 +89,6 @@ test('운영 빌드(개발 모드 아님)에서도 연결 상태를 읽어 보�
   vi.stubEnv('DEV', false);
   vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL) => String(url).endsWith('/platform/me') ? csAgent() : jsonResponse(200, { data: { items: [connection({})] } })));
   show();
-  expect(await screen.findByRole('table', { name: '메일 계정' })).toBeTruthy();
+  expect(await screen.findByRole('list', { name: '메일 계정' })).toBeTruthy();
   expect(screen.queryByText(/운영 인증 중계와 권한 검증 후 제공됩니다/)).toBeNull();
 });

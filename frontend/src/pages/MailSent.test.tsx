@@ -31,7 +31,11 @@ test('발송 기록을 상태 이름과 함께 최신순으로 보이고 건수�
   expect(rows[1].textContent).toContain('실패');
   expect(rows[1].textContent).toContain('RECIPIENT_REJECTED');
   expect(screen.getAllByText('확인 전').length).toBe(2);
-  expect(screen.getByText(/내 발송/).textContent).toMatch(/2건, 결과 모름 1, 실패 1, 대기 0/);
+  const summary = screen.getByRole('region', { name: '발송 요약' }).textContent;
+  expect(summary).toMatch(/내 발송2건/);
+  expect(summary).toMatch(/결과 모름1/);
+  expect(summary).toMatch(/실패1/);
+  expect(summary).toMatch(/대기0/);
 });
 
 test('상태를 고르면 서버에 그 상태만 요청한다', async () => {
