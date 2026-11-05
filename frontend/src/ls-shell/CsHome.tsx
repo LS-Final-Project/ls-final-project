@@ -9,6 +9,7 @@ import { getTicketAnalysis, listTicketsBy, type TicketAnalysisResponse, type Tic
 import { me } from '../api/platform';
 import { listMyImprovements } from '../api/cs-improvements';
 import { CsMailCandidates } from './CsMailCandidates';
+import RoleProfile, { roleArt } from '../components/RoleProfile';
 import '../pages/ticket-detail-v3.css';
 import './cs-home.css';
 
@@ -88,6 +89,8 @@ function HomeView({ mail }: { mail: boolean }) {
   // 초안(DRAFT)도 내가 검토 완료를 기록할 일이라 오늘 할 일에 센다.
   const reqDraft = reqTodo.filter(item => item.status === 'DRAFT').length;
   const name = identity.data?.data?.display_name;
+  const roles = identity.data?.data?.roles;
+  const roleLabel = roleArt(roles).label;
   const today = new Date().toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' });
   const total = todo.length + reqTodo.length;
   // 개선요청을 못 읽었으면 합계에서 그만큼 빠졌다는 것을 숨기지 않는다.
@@ -120,7 +123,7 @@ function HomeView({ mail }: { mail: boolean }) {
 
     <div className="body">
       <div className="hello">
-        <div><small>{today}</small><h2>{name ? `${name}님, ` : ''}오늘 할 일 <b>{fresh.isPending || (myId && mine.isPending) ? '…' : `${total}${totalMore ? '+' : ''}건`}</b></h2>{requests.isError && <small className="req-miss" role="status">개선요청을 불러오지 못해 합계에서 빠졌습니다</small>}</div>
+        <div className="me"><RoleProfile roles={roles} /><div className="who">{roleLabel && <span className="role">{roleLabel}</span>}<small>{today}</small><h2>{name ? `${name}님, ` : ''}오늘 할 일 <b>{fresh.isPending || (myId && mine.isPending) ? '…' : `${total}${totalMore ? '+' : ''}건`}</b></h2>{requests.isError && <small className="req-miss" role="status">개선요청을 불러오지 못해 합계에서 빠졌습니다</small>}</div></div>
         {(overdue + dueToday + p1) > 0 && <div className="alerts" role="status">
           {overdue > 0 && <span className="al red"><i aria-hidden="true" />기한 넘긴 {overdue}건</span>}
           {dueToday > 0 && <span className="al amber"><i aria-hidden="true" />오늘 기한 {dueToday}건</span>}
