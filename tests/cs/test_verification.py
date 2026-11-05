@@ -40,7 +40,8 @@ def payload():
             chunk_id="c1", snippet="Synthetic answer.", section_path=[], document_sha256="a" * 64
         )
     ]
-    return build_verification_input(draft, evidence)
+    # 이 파일의 형식 검사는 저장 모양(v1)이다. v2 확정 약속 표시는 test_forbidden_commitment_coverage.py가 본다.
+    return build_verification_input(draft, evidence, prompt_version="v1")
 
 
 def valid_raw():
@@ -126,14 +127,15 @@ def test_attempt_preserves_usage_and_fingerprints_and_calls_once():
         )
 
     attempt = run_verification_attempt(
-        payload(), provider=provider, attempt_number=1, draft_id="draft-1"
+        payload(), provider=provider, attempt_number=1, draft_id="draft-1", prompt_version="v1"
     )
     assert attempt.outcome == "VALID" and len(calls) == 1
     assert attempt.draft_id == "draft-1" and attempt.call_attempts == 1
     assert attempt.usage.total_tokens == 17
     assert attempt.input_sha256 == hashlib.sha256(payload().model_dump_json().encode()).hexdigest()
     assert (
-        attempt.instruction_fingerprint == hashlib.sha256(instruction().encode()).hexdigest()[:16]
+        attempt.instruction_fingerprint
+        == hashlib.sha256(instruction("v1").encode()).hexdigest()[:16]
     )
 
 
@@ -259,10 +261,13 @@ def mixed_draft(*kinds):
 
 def test_only_evidence_sentences_are_sent_and_keep_their_index():
     draft = mixed_draft("CONDITION", "UNCONFIRMED")
-    item = build_verification_input(draft, EVIDENCE)
+    item = build_verification_input(draft, EVIDENCE, prompt_version="v1")
     assert {s.kind for s in item.sentences} == {"EVIDENCE"}
     first = draft.options[0].label
     assert [s.sentence_index for s in item.sentences if s.label == first] == [2]
+    every = build_verification_input(draft, EVIDENCE, prompt_version="v2")
+    assert [s.sentence_index for s in every.sentences if s.label == first] == [0, 1, 2]
+    assert every.evidence == item.evidence
 
 
 def test_a_draft_without_evidence_sentences_has_nothing_to_verify():
@@ -300,7 +305,7 @@ def test_stored_path_payload_of_every_sentence_expects_only_evidence_verdicts():
         ],
         evidence=[],
     )
-    narrow = build_verification_input(draft, EVIDENCE)
+    narrow = build_verification_input(draft, EVIDENCE, prompt_version="v1")
     raw = verification_provider("\n\n입력:\n" + narrow.model_dump_json()).text
     assert validate_output(raw, payload=every).sentences
     data = json.loads(raw)

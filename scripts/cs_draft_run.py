@@ -36,8 +36,8 @@ from backend.engine.cs.drafting_call import DraftAttempt
 from backend.engine.cs.prompt_registry import prompt_fingerprint
 from backend.engine.cs.providers import gemini_text_provider
 from backend.engine.cs.rules import RuleInputError, product_family
-from backend.engine.cs.verification import VerificationOutput
 from backend.engine.cs.verification import instruction as verification_instruction
+from backend.engine.cs.verification import output_model
 from backend.shared.ai import AISettings, Generation, create_client, load_price_table
 from eval.cs_draft_candidates import DraftCandidate, DraftCase, run_draft_candidates
 from eval.cs_draft_metrics import DraftGold
@@ -235,7 +235,7 @@ def verification_factory(settings: AISettings) -> TextFactory:
         settings: 환경변수에서 읽은 AI 설정.
 
     Returns:
-        TextFactory: (명세, 설정) → VerificationOutput 스키마로 부르는 공급자.
+        TextFactory: (명세, 설정) → 기본 검증 판본의 원답 스키마(output_model)로 부르는 공급자.
     """
     client = create_client(draft_ai_settings(settings))
 
@@ -245,7 +245,7 @@ def verification_factory(settings: AISettings) -> TextFactory:
             client,
             config,
             model=spec["model"],
-            response_schema=VerificationOutput,
+            response_schema=output_model(),
             generation=knobs_of(
                 {**spec, "max_output_tokens": limit} if limit is not None else spec
             ),

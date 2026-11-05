@@ -15,11 +15,12 @@ Stage = Literal[
     "classification", "draft", "reply", "improvement_reply", "improvement_draft", "verification"
 ]
 # 제품 경로 기본 판본. 분류는 v4 채택(2026-11-05, KAN-161 제공 정보 코드 칸 이름. 이전 v3는 2026-10-29 채택). 초안·회신·개선요청 네 단계는 v2(KAN-193
-# 확정 금지 지시 추가), 검증은 v1이다. 초안은 v4(KAN-200, 문서 사실만 EVIDENCE·미확인 구분 유지)다. 분류와 초안만 채택됐다.
+# 확정 금지 지시 추가)다. 초안은 v4(KAN-200, 문서 사실만 EVIDENCE·미확인 구분 유지)다. 검증은 v2(KAN-161, 확정 약속 표시)다.
+# 분류·초안·검증만 채택됐다(검증 v2는 2026-11-05, eval/policy/adoptions/draft-20261105-flash36-v4-verify-v2).
 DEFAULT_VERSIONS: dict[Stage, str] = {
     "classification": "v4",
     "draft": "v4",
-    "verification": "v1",
+    "verification": "v2",
     "reply": "v2",
     "improvement_reply": "v2",
     "improvement_draft": "v2",
@@ -246,6 +247,27 @@ PROMPTS["classification"]["v4"] = (
     PROMPTS["classification"]["v3"][:_end]
     + PROVIDED_INFO_CODES_RULE
     + PROMPTS["classification"]["v3"][_end:]
+)
+
+
+# KAN-161 v2: 금지 약속 정규식은 영어·한국어만 잡는다(16개 언어 187문장 점검에서 금지 19/119). 검증 입력에
+# EVIDENCE가 아닌 문장도 넣고, 문장마다 확정 약속을 언어와 관계없이 표시하게 한다. 범주는 정규식
+# (drafting.PROMISE_COMMITMENTS·CONFIRMATION_COMMITMENTS)과 초안의 CONFIRMATION_RULE을 옮겼다. v1의
+# 이유 줄 바로 앞에 두 줄만 더한다.
+COMMITMENT_RULE = (
+    "- 입력에는 EVIDENCE가 아닌 문장(CONDITION·UNCONFIRMED)도 있다. 그 문장은 verdict를 UNVERIFIABLE, "
+    "evidence_chunk_ids를 []로 쓴다.\n"
+    "- 모든 문장에 firm_commitment를 쓴다. 문장의 언어와 관계없이, 회사가 아직 검토·검사 전인 승인이나 확정을 "
+    "이 고객 건에 이미 내린 것처럼 단정하면 true다. RMA·반품 승인이나 RMA 번호 발급, 보증 승인·보증 적용·무상 "
+    "수리 확정, 교체·환불 확정, 현장 방문·기술자 파견이나 그 일정 확정, 제조 불량·결함·당사 책임·고객 과실 등 "
+    "원인·책임 확정이 여기에 든다. 조건(~라면, 여부), 검토·검사 뒤 안내, 가능성, 일반 절차·규정 설명, 고객에게 "
+    "정보를 청하는 문장은 false다. 근거가 같은 내용을 담아도 이 고객 건의 확정이면 true다.\n"
+)
+_reason = PROMPTS["verification"]["v1"].index("- 모든 판정에 이유를 쓴다")
+PROMPTS["verification"]["v2"] = (
+    PROMPTS["verification"]["v1"][:_reason]
+    + COMMITMENT_RULE
+    + PROMPTS["verification"]["v1"][_reason:]
 )
 
 

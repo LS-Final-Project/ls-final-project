@@ -28,7 +28,7 @@ from backend.engine.cs.providers import (
     gemini_classification_provider,
     gemini_text_provider,
 )
-from backend.engine.cs.verification import VerificationOutput
+from backend.engine.cs.verification import output_model
 from backend.engine.cs.verification_call import VerificationAttempt
 from backend.engine.search.hybrid import Searcher
 from backend.engine.search.model import SearchFilters
@@ -232,7 +232,7 @@ def build_cs_runner(
             draft_client or client,
             ai_settings,
             model=model,
-            response_schema=VerificationOutput,
+            response_schema=output_model(),
             generation=draft_knobs
             or GenerationKnobs(max_output_tokens=VERIFICATION_DEFAULTS["max_output_tokens"]),
         )
