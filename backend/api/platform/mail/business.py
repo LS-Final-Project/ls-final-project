@@ -18,6 +18,7 @@ from backend.shared.service_auth import CALLER_HEADER
 
 REPLY_PATH = "/internal/v1/cs/tickets/{ticket_id}/customer-reply"
 FROM_MAIL_PATH = "/internal/v1/cs/tickets/from-mail"
+CANDIDATES_PATH = "/internal/v1/cs/tickets/reply-candidates"
 
 
 class CsCaller:

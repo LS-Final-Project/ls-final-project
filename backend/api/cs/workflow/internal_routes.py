@@ -4,6 +4,7 @@
 | --- | --- | --- |
 | `POST tickets/from-mail` | platform, on behalf of a cs_agent | registers a received mail as a ticket |
 | `POST tickets/{ticket_id}/customer-reply` | platform (no user) | records a linked reply, reopens |
+| `POST tickets/reply-candidates` | platform (no user) | candidate tickets and evidence for a mail under review (KAN-235) |
 
 Not in OpenAPI and not reachable through the business relay. The platform caller token is
 verified the same way as for relayed requests; the reply route carries no user.
@@ -24,6 +25,7 @@ from backend.api.cs.tickets.routes import detail, not_found, respond
 from backend.api.cs.tickets.schemas import Code, CustomerId, Subject, TicketDetail
 from backend.api.cs.translation.routes import translate_on_intake
 from backend.api.cs.workflow import repository
+from backend.api.cs.workflow.reply_candidates import Evidence, find_candidates
 from backend.api.cs.workflow.schemas import CustomerReplyIn, CustomerReplyResult
 from backend.api.cs.workflow.service import record_customer_reply
 from backend.shared.access import Principal, current_principal, verify_platform_caller
@@ -190,3 +192,46 @@ async def customer_reply(
             recorded=recorded,
         ),
     )
+
+
+class ReplyCandidatesIn(BaseModel):
+    """A received mail under human review: who sent it, its reply text and the platform's own
+    candidates (header or thread). The text is only matched, never stored."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    from_address: Annotated[str, Field(max_length=320)] | None = None
+    text: Annotated[str, Field(max_length=50_000)] | None = None
+    ticket_ids: Annotated[list[UUID], Field(max_length=20)] = Field(default_factory=list)
+
+
+class ReplyCandidate(BaseModel):
+    ticket_id: UUID
+    external_id: str | None
+    subject: str | None
+    state: str
+    customer_external_id: str
+    product_code: str
+    given: bool = Field(description="One of the platform's candidates (header or thread).")
+    evidence: list[Evidence]
+
+
+class ReplyCandidates(BaseModel):
+    items: list[ReplyCandidate]
+
+
+@router.post("/reply-candidates", response_model=SuccessResponse[ReplyCandidates])
+async def reply_candidates(
+    payload: ReplyCandidatesIn, request: Request
+) -> SuccessResponse[ReplyCandidates]:
+    """Tickets a mail under review could belong to, with evidence (KAN-235). Reads only.
+    Never a reason to link automatically: the platform links on its own header or thread."""
+    verify_platform_caller(request)
+    async with connection(request.app.state.settings) as conn:
+        items = await find_candidates(
+            conn,
+            from_address=payload.from_address,
+            text=payload.text,
+            ticket_ids=payload.ticket_ids,
+        )
+    return respond(request, ReplyCandidates(items=[ReplyCandidate(**i) for i in items]))

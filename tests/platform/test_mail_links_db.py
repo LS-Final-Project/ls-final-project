@@ -37,6 +37,11 @@ MIGRATIONS = (
     Path("infra/migrations/platform/20261028_KAN-73_mail_triage.sql"),
     Path("infra/migrations/platform/20261029_KAN-75_mail_links.sql"),
 )
+# 다시 적용해도 같은 것. 회신 통지 칸(KAN-110)은 C/S 호출이 있는 검사에서 쓰인다. P36(KAN-235).
+AGAIN = (
+    Path("infra/migrations/platform/20261030_KAN-110_mail_link_notify.sql"),
+    Path("infra/migrations/platform/20261115_KAN-235_mail_link_basis.sql"),
+)
 
 
 @pytest.fixture
@@ -49,6 +54,9 @@ def links(send_database, sender):
             ):
                 sql = migration.read_text()
                 conn.execute("\n".join(x for x in sql.splitlines() if not x.startswith("\\")))
+        for migration in AGAIN:
+            sql = migration.read_text()
+            conn.execute("\n".join(x for x in sql.splitlines() if not x.startswith("\\")))
         run = uuid4()
         conn.execute(
             "INSERT INTO integration.mail_sync_runs (id, mailbox_id, status, lease_expires_at, "
@@ -159,6 +167,11 @@ def test_decision_rules():
     assert decide([], [], True, None)[1] == "UNMATCHED_REPLY"
     assert decide([], [], False, None) == (None, None, [])
     assert decide([a], [], True, "NEW_CS_TICKET")[1] == "TRIAGE_DISAGREES"
+    # KAN-235: 주소 후보는 헤더·스레드 후보가 없을 때만 검토 후보가 되고 자동 연결되지 않는다.
+    ad = Candidate(owner_service="cs", business_ref="cs_ticket:A", method="ADDRESS")
+    assert decide([], [], False, None, [ad]) == (None, "ADDRESS_MATCH", [ad])
+    assert decide([], [], True, None, [ad]) == (None, "UNMATCHED_REPLY", [ad])
+    assert decide([], [ta], False, None, [ad])[0] == ta
 
 
 def test_reply_to_our_sent_answer_links_by_header(settings, links):
@@ -553,3 +566,204 @@ def test_removed_mail_is_not_judged(settings, links):
     assert rows(
         links["dsn"], "SELECT count(*) FROM integration.mail_links WHERE message_id=%s", reply
     ) == [(0,)]
+
+
+# --- KAN-235 주소 후보·후보 근거·번호로 찾아 연결 -------------------------------------------------
+
+T1 = "11111111-2222-4333-8444-555555555555"
+T2 = "66666666-7777-4888-8999-aaaaaaaaaaaa"
+
+
+def from_address(links, message, address):
+    with psycopg.connect(links["dsn"]) as conn:
+        conn.execute(
+            "UPDATE integration.mail_messages SET from_address=%s WHERE id=%s", (address, message)
+        )
+
+
+def test_new_mail_from_an_address_we_wrote_to_goes_to_review_never_links(settings, links):
+    sent_intent(
+        settings,
+        links,
+        f"cs_ticket:{T1}",
+        internet_id=f"<{uuid4()}@team4>",
+        graph_id=f"AAMk-{uuid4()}",
+    )
+    raw = mime(subject="차단기 사진 보냅니다")
+    message = add_message(links, raw)
+    from_address(links, message, "C@Example.Invalid")
+    result = resolve(settings, message, raw)
+    assert (result.outcome, result.reason) == ("REVIEW", "ADDRESS_MATCH")
+    assert [(c.business_ref, c.method) for c in result.candidates] == [
+        (f"cs_ticket:{T1}", "ADDRESS")
+    ]
+    # 처음 보는 주소의 새 메일은 지금처럼 회신이 아니다.
+    other = mime(subject="새 문의")
+    unknown = add_message(links, other)
+    from_address(links, unknown, "stranger@example.invalid")
+    assert resolve(settings, unknown, other).outcome == "NONE"
+
+
+def test_reply_to_unknown_headers_shows_address_candidates(settings, links):
+    sent_intent(
+        settings,
+        links,
+        f"cs_ticket:{T1}",
+        internet_id=f"<{uuid4()}@team4>",
+        graph_id=f"AAMk-{uuid4()}",
+    )
+    raw = mime(in_reply_to="<forwarded-elsewhere@x>")
+    message = add_message(links, raw)
+    from_address(links, message, "c@example.invalid")
+    result = resolve(settings, message, raw)
+    assert (result.outcome, result.reason) == ("REVIEW", "UNMATCHED_REPLY")
+    assert [c.method for c in result.candidates] == ["ADDRESS"]
+
+
+class FakeCs:
+    """C/S 내부 경로 가짜. 후보 질의는 정해 둔 항목을, 회신 통지는 200을 돌려준다."""
+
+    def __init__(self, items=None, status=200):
+        self.items = items if items is not None else []
+        self.status = status
+        self.calls = []
+
+    async def post(self, path, body, *, principal=None, request_id=None):
+        import httpx
+
+        self.calls.append((path, body))
+        if path.endswith("/reply-candidates"):
+            wanted = set(body["ticket_ids"])
+            items = [i for i in self.items if i["given"] is False or i["ticket_id"] in wanted]
+            items = [{**i, "given": i["ticket_id"] in wanted} for i in items]
+            return httpx.Response(self.status, json={"data": {"items": items}})
+        return httpx.Response(200, json={"data": {}})
+
+
+def ticket(ticket_id, evidence, given=False):
+    return {
+        "ticket_id": ticket_id,
+        "external_id": f"CS-{ticket_id[:4]}",
+        "subject": "합성 문의",
+        "state": "WAITING_CUSTOMER",
+        "customer_external_id": "CUST-0021",
+        "product_code": "UPS-LSU-10K",
+        "given": given,
+        "evidence": evidence,
+    }
+
+
+def address_review(settings, links):
+    sent_intent(
+        settings,
+        links,
+        f"cs_ticket:{T1}",
+        internet_id=f"<{uuid4()}@team4>",
+        graph_id=f"AAMk-{uuid4()}",
+    )
+    raw = mime(subject="사진")
+    message = add_message(links, raw)
+    from_address(links, message, "c@example.invalid")
+    assert resolve(settings, message, raw).reason == "ADDRESS_MATCH"
+    return message
+
+
+def test_candidates_add_contact_tickets_and_evidence_from_cs(settings, links, web):
+    message = address_review(settings, links)
+    client = web["client"]
+    # 업무 중계가 없으면 플랫폼 후보만 근거 없이 보인다.
+    plain = client.get(f"{PREFIX}/{message}/candidates").json()["data"]
+    assert plain["enriched"] is False
+    assert [(i["business_ref"], i["method"], i["ticket"]) for i in plain["items"]] == [
+        (f"cs_ticket:{T1}", "ADDRESS", None)
+    ]
+    cs = FakeCs(
+        [ticket(T1, ["SENT_TO_ADDRESS", "WAITING_CUSTOMER"]), ticket(T2, ["CUSTOMER_CONTACT"])]
+    )
+    client.app.state.cs_caller = cs
+    data = client.get(f"{PREFIX}/{message}/candidates").json()["data"]
+    assert data["enriched"] is True
+    assert [(i["business_ref"], i["method"], i["evidence"]) for i in data["items"]] == [
+        (f"cs_ticket:{T1}", "ADDRESS", ["SENT_TO_ADDRESS", "WAITING_CUSTOMER"]),
+        (f"cs_ticket:{T2}", "CONTACT", ["CUSTOMER_CONTACT"]),
+    ]
+    assert data["items"][0]["ticket"]["external_id"] == f"CS-{T1[:4]}"
+    path, body = cs.calls[-1]
+    assert path.endswith("/reply-candidates")
+    assert (body["from_address"], body["ticket_ids"]) == ("c@example.invalid", [T1])
+    # 읽기만 한다.
+    assert rows(
+        links["dsn"],
+        "SELECT status FROM integration.mail_reply_reviews WHERE message_id=%s",
+        message,
+    ) == [("OPEN",)]
+    cs.status = 500
+    failed = client.get(f"{PREFIX}/{message}/candidates")
+    assert (failed.status_code, failed.json()["error"]["code"]) == (
+        503,
+        "MAIL_REPLY_CANDIDATES_UNAVAILABLE",
+    )
+
+
+def test_owner_links_a_ticket_found_by_number_and_the_basis_is_kept(settings, links, web):
+    message = address_review(settings, links)
+    client, headers = web["client"], web["headers"]
+    body = {"owner_service": "cs", "business_ref": f"cs_ticket:{T2}", "note": "번호로 찾음"}
+    # C/S를 부를 수 없으면 후보 밖 문의는 확인할 수 없어 연결하지 않는다.
+    unverified = client.post(f"{PREFIX}/{message}/link", json=body, headers=headers)
+    assert (unverified.status_code, unverified.json()["error"]["code"]) == (
+        422,
+        "MAIL_REPLY_TICKET_UNVERIFIED",
+    )
+    client.app.state.cs_caller = FakeCs([])
+    missing = client.post(f"{PREFIX}/{message}/link", json=body, headers=headers)
+    assert (missing.status_code, missing.json()["error"]["code"]) == (
+        422,
+        "MAIL_REPLY_TICKET_NOT_FOUND",
+    )
+    client.app.state.cs_caller = FakeCs([ticket(T2, ["PRODUCT_MATCH"])])
+    linked = client.post(f"{PREFIX}/{message}/link", json=body, headers=headers)
+    assert (linked.status_code, linked.json()["data"]["outcome"]) == (200, "LINKED")
+    assert rows(
+        links["dsn"],
+        "SELECT business_ref, method, decided_by, note, basis, evidence FROM integration.mail_links "
+        "WHERE message_id=%s AND kind='REPLY'",
+        message,
+    ) == [(f"cs_ticket:{T2}", "HUMAN", links["owner"], "번호로 찾음", "SEARCH", ["PRODUCT_MATCH"])]
+
+
+def test_contact_and_stored_candidates_keep_their_basis(settings, links, web):
+    client, headers = web["client"], web["headers"]
+    first = address_review(settings, links)
+    client.app.state.cs_caller = FakeCs([ticket(T2, ["CUSTOMER_CONTACT", "WAITING_CUSTOMER"])])
+    assert (
+        client.post(
+            f"{PREFIX}/{first}/link",
+            json={"owner_service": "cs", "business_ref": f"cs_ticket:{T2}", "note": "같은 고객"},
+            headers=headers,
+        ).status_code
+        == 200
+    )
+    second = address_review(settings, links)
+    # 저장된 후보는 C/S가 잠시 실패해도 플랫폼 근거로 연결한다.
+    client.app.state.cs_caller = FakeCs([], status=500)
+    assert (
+        client.post(
+            f"{PREFIX}/{second}/link",
+            json={"owner_service": "cs", "business_ref": f"cs_ticket:{T1}", "note": "보낸 주소"},
+            headers=headers,
+        ).status_code
+        == 200
+    )
+    got = rows(
+        links["dsn"],
+        "SELECT message_id, basis, evidence FROM integration.mail_links WHERE message_id = ANY(%s) "
+        "AND kind='REPLY'",
+        [first, second],
+    )
+    assert sorted((str(m), b, e) for m, b, e in got) == sorted(
+        [
+            (str(first), "CONTACT", ["CUSTOMER_CONTACT", "WAITING_CUSTOMER"]),
+            (str(second), "ADDRESS", None),
+        ]
+    )

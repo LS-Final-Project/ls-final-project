@@ -230,7 +230,7 @@ Cloud Scheduler(5분)          ──POST──▶ /send-sweep  → 멈춘 전�
 | `POST /{id}/check-sent-copy` | 보낸편지함 사본 대조(`confirm_sent_copy`). 결과 불명 판단 근거를 이력에 남긴다 |
 | `POST /{id}/resend` (`reason` 1~500자) | `authorize_resend` 뒤 전송 작업(`mailsend-<id>-a<시도 수>`) 등록. 등록이 실패해도 `QUEUED`라 정리 작업이 다시 등록 |
 
-- 웹 중계(`frontend/server.mjs` `mailRoutes`, KAN-178·KAN-132)는 GET `send-intents`(`status`), `reply-reviews`, `messages/{id}/triage`와 POST `messages/{id}/triage`, `send-intents/{id}/check-sent-copy`, `send-intents/{id}/resend`, 받은 메일 화면의 `reply-reviews/{id}/link`, `reply-reviews/{id}/dismiss`, `messages/{id}/register-ticket`만 연다. 세션 쿠키·동일 출처·CSRF 헤더를 그대로 전달하고, 다른 query는 400, 쓰기는 `application/json`이 아니면 415다. `check-sent-copy`는 본문이 없어도 이 형식으로 보낸다.
+- 웹 중계(`frontend/server.mjs` `mailRoutes`, KAN-178·KAN-132)는 GET `send-intents`(`status`), `reply-reviews`, `messages/{id}/triage`와 POST `messages/{id}/triage`, `send-intents/{id}/check-sent-copy`, `send-intents/{id}/resend`, 받은 메일 화면의 GET `reply-reviews/{id}/candidates`(KAN-235), `reply-reviews/{id}/link`, `reply-reviews/{id}/dismiss`, `messages/{id}/register-ticket`만 연다. 세션 쿠키·동일 출처·CSRF 헤더를 그대로 전달하고, 다른 query는 400, 쓰기는 `application/json`이 아니면 415다. `check-sent-copy`는 본문이 없어도 이 형식으로 보낸다.
 - 재전송 통제는 서버가 맡는다: 상태 `UNKNOWN`이고 시도 상한 미만, 마지막 전송 시작 뒤 10분이 지난 "사본 없음" 확인, 사유 1~500자, 승인자 본인. 어기면 403·409·422다. 수신자 제한은 없다.
 - 분류 변경은 메일함 소유자만, 읽은 판본과 사유가 있어야 한다. 사람 판본으로 저장되고 메일이 나가지 않는다.
 - 회신 연결·무시와 문의 접수는 KAN-132에서 웹 중계에 넣었다. 연결 후보·접수 조건은 서버가 검사하고 중계는 경로·메서드·query·본문 형식만 거른다. 메일 계정 화면의 사서함 경로(목록·연결 시작·콜백·완료·해제)는 `mailRoutes`가 아니라 `MAILBOX_AUTH_ENABLED`의 사서함 인증 중계가 맡는다.
@@ -259,8 +259,10 @@ Cloud Scheduler(5분)          ──POST──▶ /send-sweep  → 멈춘 전�
 | `CONFLICT` | 헤더와 스레드가 다른 업무를 가리킴 |
 | `UNMATCHED_REPLY` | 회신 헤더가 있는데 맞는 업무가 없음(추측해서 붙이지 않음) |
 | `TRIAGE_DISAGREES` | 근거로는 한 업무지만 KAN-73 최신 분류가 기존 스레드가 아니라고 봄(`NEW_CS_TICKET` 등) — 다른 업무에 대한 회신일 수 있음 |
+| `ADDRESS_MATCH` | 회신 헤더가 없는 새 메일이지만 우리가 메일을 주고받은 주소에서 옴(KAN-235, 아래) |
 
-- 회신 헤더도 스레드 후보도 없으면 `NONE`(새 메일). 새 문의 접수는 KAN-110이다. 사서함에서 지워진 메일(`removed_at`)은 판정하지 않고 `NONE`으로 표시한다.
+- **주소 후보(KAN-235, P36)**: 헤더·스레드 후보가 없으면 보낸 주소(대소문자 무시)로 같은 메일함의 발송 의도 받는 사람(to·cc)과 업무를 만든 원 메일(`ORIGIN`)의 보낸 사람을 찾아 근거 `ADDRESS` 후보로 둔다. 회신 헤더가 있으면 `UNMATCHED_REPLY`의 후보로, 없으면 `ADDRESS_MATCH`로 검토에 보낸다. **주소는 자동 연결 근거가 아니다**(주소가 한 업무만 가리켜도 사람이 고른다). 제목·AI 분류만으로도 연결하지 않는다.
+- 회신 헤더도 스레드·주소 후보도 없으면 `NONE`(새 메일). 새 문의 접수는 KAN-110이다. 사서함에서 지워진 메일(`removed_at`)은 판정하지 않고 `NONE`으로 표시한다.
 - **한계**: 판정은 메일당 한 번이다. `UNMATCHED_REPLY`로 검토에 간 메일은 나중에 그 원 메일이 `link_origin`으로 기록돼도 자동으로 다시 판정되지 않고, 후보가 없어 닫기만 할 수 있다. 메일로 접수한 문의는 접수 때 바로 `link_origin`을 남겨(KAN-110) 회신보다 먼저 근거가 있게 한다.
 - **읽음 ≠ 완료**: Graph의 읽음(`isRead`)은 읽지도 저장하지도 않는다. 연결은 "회신이 왔다"는 기록일 뿐 업무 상태를 바꾸지 않는다. 검토 목록을 열어 봐도 상태는 그대로이고, 결정 API로만 닫힌다. 문의 재개(`reopen_for_customer_reply`)는 플랫폼이 연결을 C/S에 알리면(아래 KAN-110 절) C/S가 한다. `replies_for(owner_service, business_ref)`는 연결을 읽는 보조 함수로 남는다.
 - **자동 판정**: 수집 워커(`/internal/v1/platform/mail/sync`)가 수집 뒤 `judge_new_replies`로 판정 표시가 없는 받은 메일을 최대 50통 판정한다. 원문 읽기 실패 등은 표시를 남기지 않아 다음 실행에서 다시 하며, 수집 결과·응답 코드는 바꾸지 않는다(`replies_linked`·`replies_review`·`replies_failed`만 알린다).
@@ -270,7 +272,8 @@ Cloud Scheduler(5분)          ──POST──▶ /send-sweep  → 멈춘 전�
 | 경로 (`/api/v1/platform/mail/reply-reviews`) | 동작 |
 | --- | --- |
 | `GET` | 내 메일함의 열린 검토(수신 시각·보낸 사람·제목·첨부 유무·이유·후보). 본문과 첨부 이름은 없다. 메일함 소유자 본인의 메일이다 |
-| `POST /{message_id}/link` (`owner_service`, `business_ref`, `note`) | **후보 중 하나에만** 연결(근거 `HUMAN`). 후보 밖은 422 `MAIL_REPLY_NOT_A_CANDIDATE` |
+| `GET /{message_id}/candidates` | 후보와 근거(KAN-235, 읽기만). 저장된 후보(`HEADER`·`THREAD`·`ADDRESS`)에 C/S가 찾은 고객 연락처 후보(`CONTACT`)를 더하고, 후보마다 C/S가 확인한 문의 정보(`ticket`: 번호·제목·상태·고객·제품)와 근거(`evidence`)를 붙인다. 플랫폼은 보낸 주소와 회신 본문(인용 제외, 원문 저장소가 있을 때)을 C/S 내부 경로 `POST /internal/v1/cs/tickets/reply-candidates`로 보낸다([C/S 회신 후보 계약](../cs/reply-candidates.md)). 업무 중계가 꺼져 있으면 저장된 후보만 `ticket=null`·근거 없이(`enriched=false`), C/S가 실패하면 503 `MAIL_REPLY_CANDIDATES_UNAVAILABLE` |
+| `POST /{message_id}/link` (`owner_service`, `business_ref`, `note`) | 연결(근거 `HUMAN`). 후보이거나, **후보가 아니어도 C/S 문의(`cs_ticket:<UUID>`)면** 담당자가 번호로 찾아 연결할 수 있다(KAN-235). 연결할 때 C/S에 그 문의의 근거를 다시 물어 `mail_links.basis`(후보의 근거 `HEADER`·`THREAD`·`ADDRESS`, 고객 연락처 `CONTACT`, 그 밖 `SEARCH`)와 `evidence`(C/S 근거 코드)로 남긴다. 누가 골랐는지는 `decided_by`·`note`다. 후보 밖 문의를 C/S가 모르면 422 `MAIL_REPLY_TICKET_NOT_FOUND`, C/S를 부를 수 없으면 422 `MAIL_REPLY_TICKET_UNVERIFIED`. C/S 문의가 아닌 업무는 여전히 후보만(422 `MAIL_REPLY_NOT_A_CANDIDATE`) |
 | `POST /{message_id}/dismiss` (`note`) | 업무 회신이 아니라고 닫음 |
 
 다른 사람 메일함의 검토는 404 `MAIL_REPLY_REVIEW_NOT_FOUND`, 이미 결정한 검토는 409 `MAIL_REPLY_REVIEW_DECIDED`다.
