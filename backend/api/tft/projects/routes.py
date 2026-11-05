@@ -109,7 +109,7 @@ async def list_projects(
             conn,
             limit,
             after,
-            sorted(principal.managed_projects),
+            principal.has("manager"),
             principal.user_id,
             principal.dept if "dept_staff" in principal.roles else None,
             output_status=output_status,
@@ -121,7 +121,7 @@ async def list_projects(
         if page is not None:
             total = await repository.count_projects(
                 conn,
-                sorted(principal.managed_projects),
+                principal.has("manager"),
                 principal.user_id,
                 principal.dept if "dept_staff" in principal.roles else None,
                 output_status=output_status,

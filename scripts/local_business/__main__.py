@@ -432,8 +432,8 @@ def set_concurrency(state, args):
 def manage_project(state, number):
     """Grant the demo manager (local-4) one RFP project, like the server-external registration script.
 
-    A manager only sees projects listed in identity.manager_projects (contracts/platform/permissions.md 1.2);
-    no API grants it, so a project created in the local demo needs this before 책임자 지정.
+    Since KAN-236 a manager sees every RFP project without this row (contracts/platform/permissions.md
+    1.2), so this is no longer needed; kept for older namespaces.
     """
     if not re.fullmatch(r"P\d{2}-\d{4}", number):
         raise ValueError("LOCAL_PROJECT_NUMBER_INVALID")
