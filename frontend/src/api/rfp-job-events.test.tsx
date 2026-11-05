@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { addActivity, parseRfpEvent, readRfpJob, watchRfpJob, type RfpWatch } from './rfp-job-events';
+import { RECONNECT_NOTICE_MS, addActivity, parseRfpEvent, readRfpJob, watchRfpJob, type RfpWatch } from './rfp-job-events';
 import { focusText } from '../rfp/RfpReasoning';
 const target = { jobId: '11111111-1111-4111-8111-111111111111', projectId: '22222222-2222-4222-8222-222222222222', actorId: '33333333-3333-4333-8333-333333333333' };
 const doc = '44444444-4444-4444-8444-444444444444';
@@ -66,11 +66,11 @@ it.each([401, 403, 404])('stops %s without reconnecting', async status => {
   const views: RfpWatch[] = []; await watchRfpJob(target, new AbortController().signal, v => views.push(v));
   expect(views.at(-1)?.connection).toBe('stopped'); expect(f).toHaveBeenCalledTimes(3);
 });
-it.each(['gap', 'expired'])('recovers %s through snapshot and cursor; terminal still needs GET', async issue => {
+it.each(['gap', 'expired'])('recovers %s through snapshot and cursor without a disconnect notice for a quick reconnect; terminal still needs GET', async issue => {
   vi.useFakeTimers(); let streams = 0, reads = 0; const urls: string[] = [], views: RfpWatch[] = [];
   vi.stubGlobal('fetch', vi.fn(async (u: string) => { urls.push(u); if (u.endsWith('/me')) return json({ id: target.actorId }); if (u.includes('/events')) return ++streams === 1 ? issue === 'gap' ? stream([event(3)]) : new Response('{}', { status: 410 }) : new Response(null, { status: 204 }); return json(snap(++reads === 3 ? 'SUCCEEDED' : 'RUNNING', 3)); }));
   const run = watchRfpJob(target, new AbortController().signal, v => views.push(v));await vi.runAllTimersAsync(); await run;
-  expect(urls.some(u => u.endsWith('/events?after=3'))).toBe(true);expect(views.at(-1)?.connection).toBe('ended');expect(views.some(v => v.connection === 'reconnecting')).toBe(true);
+  expect(urls.some(u => u.endsWith('/events?after=3'))).toBe(true);expect(views.at(-1)?.connection).toBe('ended');expect(views.some(v => v.connection === 'reconnecting')).toBe(false);
 });
 it('bounded reconnect failures hand off to polling rather than declare job failure', async () => {
   vi.useFakeTimers();const views: RfpWatch[] = [];
@@ -78,11 +78,12 @@ it('bounded reconnect failures hand off to polling rather than declare job failu
   const run = watchRfpJob(target, new AbortController().signal, v => views.push(v));await vi.runAllTimersAsync();await run;
   expect(views.at(-1)).toMatchObject({ connection: 'fallback', job: { status: 'RUNNING' } });
 });
-it('reconnects from the last received cursor and retains the prior observation while disconnected', async () => {
+it('reconnects from the last received cursor and, once the reconnect outlasts the grace, shows the notice with the prior observation', async () => {
   vi.useFakeTimers();let streams=0, reads=0;const urls:string[]=[], views:RfpWatch[]=[];
-  vi.stubGlobal('fetch',vi.fn(async(u:string)=>{urls.push(u);if(u.endsWith('/me'))return json({id:target.actorId});if(u.includes('/events'))return ++streams===1?stream([event()]):stream([event(2),event(3,'job.completed',{state:'SUCCEEDED'})]);return json(snap(++reads===3?'SUCCEEDED':'RUNNING',reads===1?1:3));}));
+  vi.stubGlobal('fetch',vi.fn(async(u:string)=>{urls.push(u);if(u.endsWith('/me'))return json({id:target.actorId});if(u.includes('/events')){if(++streams===1)return stream([event()]);await new Promise(r=>setTimeout(r,RECONNECT_NOTICE_MS+1000));return stream([event(2),event(3,'job.completed',{state:'SUCCEEDED'})]);}return json(snap(++reads===3?'SUCCEEDED':'RUNNING',reads===1?1:3));}));
   const run=watchRfpJob(target,new AbortController().signal,v=>views.push(v));await vi.runAllTimersAsync();await run;
   expect(urls.some(u=>u.endsWith('/events?after=1'))).toBe(true);
+  expect(views.filter(v=>v.connection==='reconnecting')).toHaveLength(1);
   expect(views.find(v=>v.connection==='reconnecting')?.progress?.sequence).toBe(1);
   expect(views.at(-1)?.job?.status).toBe('SUCCEEDED');
 });
