@@ -92,9 +92,10 @@ class ProcessorSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="TFT_", env_file=".env", extra="ignore")
     extraction_concurrency: int = Field(default=6, ge=1, le=6)
-    # 요구 추출 호출의 thinking 수준. None이면 모델 기본(설정을 보내지 않음). 측정: 2026-11-06 rfp-timing 보고서.
-    extraction_thinking_level: Literal["LOW", "MEDIUM", "HIGH"] | None = None
-    # 맥락 정리(설비 묶기·연결) 호출의 thinking 수준. None이면 모델 기본.
+    # 요구 추출(구조 보정 포함) 호출의 thinking 수준. None이면 모델 기본(설정을 보내지 않음).
+    # 기본 LOW: 공식 정답셋 재측정(참고값)에서 시간·비용이 절반이고 필수 제약 위반 0이었다(2026-11-06 rfp-timing 보고서).
+    extraction_thinking_level: Literal["LOW", "MEDIUM", "HIGH"] | None = "LOW"
+    # 맥락 정리(설비 묶기·연결) 호출의 thinking 수준. None이면 모델 기본. LOW는 묶음이 거의 안 돼(D22 묶음 183→904) 쓰지 않는다.
     context_thinking_level: Literal["LOW", "MEDIUM", "HIGH"] | None = None
     extraction_provider: Literal["gemini", "fake"] = "gemini"
     extraction_model: str = Field(default="gemini-3.6-flash", pattern=r"^[a-zA-Z0-9._-]+$")
@@ -107,9 +108,9 @@ class ProcessorSettings(BaseSettings):
     # KAN-224 회신 값 AI 읽기(rfp.reply_read). 공급자는 추출 공급자(fake·gemini)를 따른다.
     reply_read_model: str = Field(default="gemini-3.6-flash", pattern=r"^[a-zA-Z0-9._-]+$")
     reply_read_max_output_tokens: int = Field(default=2048, ge=256, le=65536)
-    # KAN-188 번호 빈자리만 모델 경계로 나누기(structure_repair). 기본은 끔이라 켜지 않으면 처리 결과가 같다.
-    # 켜면 추출과 같은 공급자·모델·출력 상한·시간 제한을 쓴다.
-    structure_repair_enabled: bool = False
+    # KAN-188 번호 빈자리만 모델 경계로 나누기(structure_repair). 기본 켬(2026-11-06 측정: 재현율 +약 10건).
+    # 추출과 같은 공급자·모델·출력 상한·시간 제한·thinking 수준을 쓴다. 끄면 이전 처리 결과와 같다.
+    structure_repair_enabled: bool = True
 
 
 def fake_provider(_prompt: str) -> Generation:
@@ -232,7 +233,13 @@ def structure_provider(config: ProcessorSettings) -> Provider | None:
 
         if client is None:
             client = create_client(ai)
-        return generate(client, ai, text, response_schema=structure_repair.RepairOutput)
+        return generate(
+            client,
+            ai,
+            text,
+            response_schema=structure_repair.RepairOutput,
+            thinking_level=config.extraction_thinking_level,
+        )
 
     return provide
 

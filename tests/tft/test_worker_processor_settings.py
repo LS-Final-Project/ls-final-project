@@ -149,7 +149,15 @@ def test_structure_repair_is_off_by_default_and_uses_the_extraction_settings_whe
     """KAN-188 구조 보정은 기본 끔(None)이다. 켜면 추출과 같은 모델 설정·RepairOutput 스키마로 부르고 지연 생성한다."""
     from backend.engine.rfp import structure_repair
 
-    assert worker_processor.structure_provider(ProcessorSettings(_env_file=None)) is None
+    # 기본은 켬이다. 끄면 공급자가 없어 처리 결과가 이전과 같다.
+    assert ProcessorSettings(_env_file=None).structure_repair_enabled is True
+    assert ProcessorSettings(_env_file=None).extraction_thinking_level == "LOW"
+    assert (
+        worker_processor.structure_provider(
+            ProcessorSettings(_env_file=None, structure_repair_enabled=False)
+        )
+        is None
+    )
     fake = ProcessorSettings(
         _env_file=None, structure_repair_enabled=True, extraction_provider="fake"
     )
@@ -157,7 +165,7 @@ def test_structure_repair_is_off_by_default_and_uses_the_extraction_settings_whe
     created, seen = [], {}
     monkeypatch.setattr(ai, "create_client", lambda settings: created.append(settings) or "c")
 
-    def generate(client, settings, text, *, response_schema):
+    def generate(client, settings, text, *, response_schema, thinking_level=None):
         seen.update(settings=settings, schema=response_schema)
         return "generation"
 
