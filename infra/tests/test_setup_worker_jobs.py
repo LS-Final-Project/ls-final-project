@@ -31,11 +31,13 @@ class WorkerSetupTests(unittest.TestCase):
         again = setup.prepare(existing, {setup.SCHEDULER}, URL)
         self.assertFalse([c for c in again if c[0] == "scheduler" or c[1] == "service-accounts"])
 
-    def test_only_the_tft_worker_reads_the_document_bucket_and_cannot_write(self):
+    def test_only_the_tft_worker_reads_and_creates_in_the_document_bucket_but_cannot_delete(self):
+        # 도면 이미지·내보내기 파일을 저장한다(2026-11-05 운영 실패). 생성만 주고 삭제·덮어쓰기 역할은 주지 않는다.
         commands = [c for c in setup.prepare(set(), set(), URL) if c[0] == "storage"]
-        self.assertEqual(len(commands), 1)
-        self.assertIn(setup.member("tft-worker-runtime"), commands[0])
-        self.assertIn("--role=roles/storage.objectViewer", commands[0])
+        roles = sorted(next(a for a in c if a.startswith("--role=")) for c in commands)
+        self.assertEqual(roles, ["--role=roles/storage.objectCreator", "--role=roles/storage.objectViewer"])
+        for command in commands:
+            self.assertIn(setup.member("tft-worker-runtime"), command)
 
     def test_platform_may_run_only_the_two_jobs(self):
         jobs = [c for c in setup.grant() if c[:2] == ["run", "jobs"]]
