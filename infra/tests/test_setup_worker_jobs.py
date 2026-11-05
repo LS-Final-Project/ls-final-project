@@ -35,7 +35,9 @@ class WorkerSetupTests(unittest.TestCase):
         # 도면 이미지·내보내기 파일을 저장한다(2026-11-05 운영 실패). 생성만 주고 삭제·덮어쓰기 역할은 주지 않는다.
         commands = [c for c in setup.prepare(set(), set(), URL) if c[0] == "storage"]
         roles = sorted(next(a for a in c if a.startswith("--role=")) for c in commands)
-        self.assertEqual(roles, ["--role=roles/storage.objectCreator", "--role=roles/storage.objectViewer"])
+        self.assertEqual(
+            roles, ["--role=roles/storage.objectCreator", "--role=roles/storage.objectViewer"]
+        )
         for command in commands:
             self.assertIn(setup.member("tft-worker-runtime"), command)
 
