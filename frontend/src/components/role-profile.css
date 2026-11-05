@@ -1,0 +1,7 @@
+/* 역할별 엘로 원형 프로필(KAN-240). 캐릭터는 원 정중앙에 둔다. */
+.role-pf{position:relative;width:112px;height:112px;flex:none}
+.role-pf .ring{width:112px;height:112px;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(circle at 50% 40%,#fff 0,#eef3ff 70%);box-shadow:0 0 0 3px #fff,0 0 0 5px #c9d6f5,0 6px 18px rgba(30,60,140,.12)}
+.role-pf img{width:96px;height:96px;display:block}
+.role-pf .on{position:absolute;right:6px;bottom:8px;width:16px;height:16px;border-radius:50%;background:#22a06b;border:3px solid #fff}
+@media (max-width:640px){.role-pf,.role-pf .ring{width:72px;height:72px}.role-pf img{width:62px;height:62px}.role-pf .on{width:12px;height:12px;right:3px;bottom:4px}}

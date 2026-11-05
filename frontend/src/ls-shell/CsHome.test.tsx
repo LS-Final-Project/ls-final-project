@@ -77,3 +77,12 @@ test('개발 환경 화면이 남긴 문의 목록 캐시와 충돌하지 않는
   render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/cs']}><Routes><Route path="/cs" element={<CsHome />} /></Routes></MemoryRouter></QueryClientProvider>);
   expect((await screen.findByRole('link', { name: /문의 처리/ })).getAttribute('href')).toBe('/cs/tickets/a');
 });
+
+test('인사말 왼쪽에 역할별 엘로 프로필과 역할 배지를 보인다', async () => {
+  vi.stubGlobal('fetch', serve({}));
+  const { container } = view();
+  expect(await screen.findByText('C/S 담당자')).toBeTruthy();
+  const profile = container.querySelector('.hello .role-pf');
+  expect(profile?.getAttribute('data-role')).toBe('C/S 담당자');
+  expect(profile?.querySelector('img')?.getAttribute('src')).toContain('ello-cs-headset');
+});
