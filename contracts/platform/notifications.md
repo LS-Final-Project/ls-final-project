@@ -18,7 +18,7 @@ P34의 생성 trigger가 같은 트랜잭션에서 플랫폼 소유 함수로 �
   같은 항목은 합친다. actor_id가 있으면 펼침에서 그 사용자를 제외한다. 시스템 RFP 완료/실패는 actor_id=null이고
   접수자는 audience.user로 포함한다. 알림의 actor와 작업의 접수자를 같은 개념으로 사용하지 않는다.
 - `notify.notification_intents` payload는 append-only다. 플랫폼만 처리 메타데이터 expanded_at을 갱신한다.
-  `notify.user_notifications`는 `(intent_id,user_id)` PK이며 플랫폼만 read_at을 갱신한다. push 필드는 없다.
+  `notify.user_notifications`는 `(intent_id,user_id)` PK이며 플랫폼만 read_at·dismissed_at을 갱신한다. push 필드는 없다.
 - writer cs_app/tft_app/cs_worker/tft_worker는 intent 지정 열 INSERT만 가진다. 신규 intent 조회·수정·삭제, 수신 표 접근,
   identity 읽기 권한을 주지 않는다. 업무 앱(cs_app/tft_app)에는 runtime USAGE를 주지 않는다. 기존 역할의 다른 업무 표 권한을 변경하는 정책은 아니다.
 
@@ -41,6 +41,8 @@ P34의 함수는 `search_path=pg_catalog`, 스키마 한정 SQL, 소유자 실�
 | GET `/api/v1/platform/notifications` | 내 목록, limit 기본50/최대100, offset 기본0/최대100000, created_at/id 내림차순, next_offset |
 | GET `/api/v1/platform/notifications/unread-count` | 내 read_at=null 수 |
 | POST `/api/v1/platform/notifications/{intent_id}/read` | 본인 수신 행만 읽음, 성공204; 이미 읽었으면 시각 유지; 남의 것과 없는 것 모두404 |
+| POST `/api/v1/platform/notifications/read-all` | 본인의 안 읽은 알림 전부 읽음, 성공204, 멱등(이미 읽은 행 시각 유지) |
+| POST `/api/v1/platform/notifications/{intent_id}/dismiss` | 본인 수신 행을 목록에서 숨김(행은 지우지 않고 dismissed_at, read_at도 함께 채움), 성공204, 멱등; 남의 것과 없는 것 모두404. 숨긴 행은 목록·unread-count에서 빠진다(P39) |
 
 두 GET은 수신함 SELECT만 실행하며 펼침이나 expanded_at 갱신을 하지 않는다. 생성 시 trigger와 기존 pending 이관으로 앱 알림을 준비한다.
 반환 필드는 id·kind·고정 title·link_path·created_at·read_at뿐이다. audience·actor·dedupe·수신자 목록을 공개하지 않는다.

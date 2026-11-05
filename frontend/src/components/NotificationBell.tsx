@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ApiError } from '../api/client';
-import { listNotifications, markNotificationRead, notificationTarget, NotificationSessionChanged, unreadCount, type NotificationItem } from '../api/notifications';
+import { dismissNotification, listNotifications, markAllNotificationsRead, markNotificationRead, notificationTarget, NotificationSessionChanged, unreadCount, type NotificationItem } from '../api/notifications';
 import { me } from '../api/platform';
 import { reconcilePush } from '../notifications/push';
 import { ErrorState, Loading } from './states';
@@ -53,6 +53,19 @@ function Inbox({ actorId }: { actorId: string }) {
       else if (!(error instanceof ApiError && [401, 403].includes(error.status))) setFailedItem(item);
     } finally { if (alive.current) setBusy(false); }
   }
+  // 모두 읽음·지우기: 성공하면 목록·숫자를 다시 읽고, 실패는 읽음 처리와 같은 방식으로 보인다.
+  async function act(run: (signal: AbortSignal) => Promise<void>) {
+    if (busy) return;
+    setBusy(true); setFailure(undefined); setFailedItem(undefined);
+    try {
+      await run(controller.current!.signal);
+      if (alive.current) void cache.invalidateQueries({ queryKey: ['notifications', actorId] });
+    } catch (error) {
+      if (!alive.current) return;
+      setFailure(error);
+      if (error instanceof NotificationSessionChanged) { cache.setQueryData(['me'], null); void cache.invalidateQueries({ queryKey: ['me'] }); }
+    } finally { if (alive.current) setBusy(false); }
+  }
   return <div className="nb-wrap">
     <button type="button" className="kb nb-bell" aria-label={`알림${count.data && !count.isError ? `, 안 읽음 ${count.data.count}건` : ''}`} aria-expanded={open} onClick={() => setOpen(!open)}>
       <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9a6 6 0 0 1 12 0v6l2 3H4l2-3V9m4 12h4" fill="none" stroke="currentColor" strokeWidth="2" /></svg>
@@ -60,7 +73,10 @@ function Inbox({ actorId }: { actorId: string }) {
     </button>
     {open && <div className="nb-pop" role="dialog" aria-label="내 알림">
       <div className="nb-head"><b>내 알림</b>
-        <button type="button" className="nb-link" disabled={list.isFetching || count.isFetching} onClick={() => { void count.refetch(); void list.refetch(); }}>알림 새로고침</button></div>
+        <span className="nb-actions">
+          <button type="button" className="nb-link" disabled={busy || !count.data?.count} onClick={() => act(signal => markAllNotificationsRead(actorId, signal))}>모두 읽음</button>
+          <button type="button" className="nb-link" disabled={list.isFetching || count.isFetching} onClick={() => { void count.refetch(); void list.refetch(); }}>알림 새로고침</button>
+        </span></div>
       <div className="nb-body">
         {count.isError && <ErrorState error={count.error} />}
         {list.isPending && <Loading label="알림 조회 중" />}
@@ -75,6 +91,7 @@ function Inbox({ actorId }: { actorId: string }) {
               <small>{item.read_at ? '읽음' : '안 읽음'} · {formatDateTime(item.created_at)}</small>
               {!notificationTarget(item) && <small className="nb-warn">이 알림의 이동 경로를 확인할 수 없습니다.</small>}
             </button>
+            <button type="button" className="nb-link nb-dismiss" aria-label={`${item.title} 알림 지우기`} disabled={busy} onClick={() => act(signal => dismissNotification(actorId, item.id, signal))}>지우기</button>
           </li>)}</ul>
           {(offsets.length > 1 || list.data.next_offset !== null) && <div className="nb-foot">
             <button className="nb-link" disabled={list.isFetching || offsets.length === 1} onClick={() => setOffsets(offsets.slice(0, -1))}>알림 이전</button>

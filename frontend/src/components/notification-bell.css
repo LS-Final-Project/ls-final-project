@@ -42,3 +42,10 @@
 .ls-root .kt-right .nb-wrap .nb-pop .nb-link{color:#1f4fbf}
 .ls-root .kt-right .nb-wrap .nb-pop .nb-link:disabled{color:#a3aab6}
 .ls-root .kt-right .nb-wrap .nb-bell{color:inherit}
+/* 모두 읽음·지우기(KAN-201). 항목 단추 옆에 작은 지우기 글자 단추를 둔다. */
+.nb-wrap .nb-head .nb-actions{margin-left:auto;display:flex;gap:12px}
+.nb-wrap .nb-head .nb-actions .nb-link{margin-left:0}
+.nb-wrap .nb-pop li{display:flex;align-items:flex-start}
+.nb-wrap .nb-pop li>button:first-child{flex:1;min-width:0}
+.nb-wrap .nb-pop li button.nb-dismiss{width:auto;flex:none;margin:10px 14px 0 0;padding:0;background:none;color:#6b7684;font-size:12px}
+.nb-wrap .nb-pop li button.nb-dismiss:hover{background:none;color:#b42318}

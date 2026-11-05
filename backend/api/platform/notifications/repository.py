@@ -50,7 +50,8 @@ async def list_mine(
     cursor = await conn.execute(
         "SELECT i.id,i.kind,i.title,i.link_path,i.created_at,n.read_at "
         "FROM notify.user_notifications n JOIN notify.notification_intents i ON i.id=n.intent_id "
-        "WHERE n.user_id=%s ORDER BY i.created_at DESC,i.id DESC LIMIT %s OFFSET %s",
+        "WHERE n.user_id=%s AND n.dismissed_at IS NULL "
+        "ORDER BY i.created_at DESC,i.id DESC LIMIT %s OFFSET %s",
         (user_id, limit, offset),
     )
     return await cursor.fetchall()
@@ -58,7 +59,8 @@ async def list_mine(
 
 async def unread_count(conn: AsyncConnection[Row], user_id: UUID) -> int:
     cursor = await conn.execute(
-        "SELECT count(*) AS count FROM notify.user_notifications WHERE user_id=%s AND read_at IS NULL",
+        "SELECT count(*) AS count FROM notify.user_notifications "
+        "WHERE user_id=%s AND read_at IS NULL AND dismissed_at IS NULL",
         (user_id,),
     )
     row = await cursor.fetchone()
@@ -70,6 +72,26 @@ async def mark_read(conn: AsyncConnection[Row], user_id: UUID, intent_id: UUID) 
     cursor = await conn.execute(
         "UPDATE notify.user_notifications SET read_at=coalesce(read_at,clock_timestamp()) "
         "WHERE user_id=%s AND intent_id=%s",
+        (user_id, intent_id),
+    )
+    return cursor.rowcount == 1
+
+
+async def mark_all_read(conn: AsyncConnection[Row], user_id: UUID) -> int:
+    """본인의 안 읽은 알림을 모두 읽음으로. 이미 읽은 행의 시각은 유지한다(멱등)."""
+    cursor = await conn.execute(
+        "UPDATE notify.user_notifications SET read_at=clock_timestamp() "
+        "WHERE user_id=%s AND read_at IS NULL",
+        (user_id,),
+    )
+    return cursor.rowcount
+
+
+async def dismiss(conn: AsyncConnection[Row], user_id: UUID, intent_id: UUID) -> bool:
+    """본인 알림을 목록에서 숨긴다. 지우지 않고 읽음도 함께 남긴다(멱등, 처음 시각 유지)."""
+    cursor = await conn.execute(
+        "UPDATE notify.user_notifications SET read_at=coalesce(read_at,clock_timestamp()), "
+        "dismissed_at=coalesce(dismissed_at,clock_timestamp()) WHERE user_id=%s AND intent_id=%s",
         (user_id, intent_id),
     )
     return cursor.rowcount == 1

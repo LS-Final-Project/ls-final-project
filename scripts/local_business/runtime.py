@@ -1,5 +1,6 @@
 """Standard application factories with only local provider/key and fixed HTTP routing injection."""
 
+import contextlib
 import json
 import os
 import time
@@ -10,6 +11,7 @@ import uvicorn
 from fastapi import HTTPException, Request
 from starlette.responses import JSONResponse
 
+from scripts.local_business import push as local_push
 from scripts.local_business.auth import (
     CS_ORIGIN,
     CS_SA,
@@ -117,6 +119,7 @@ def app_for(service: str, state: Path):
         from backend.api.platform.relay import forward
 
         cs, tft = job_settings()
+        push_keys = local_push.load(state, config)
 
         def off(cls):
             return cls(_env_file=None, enabled=False)
@@ -133,10 +136,21 @@ def app_for(service: str, state: Path):
             tft_job_settings=tft,
             cs_job_settings=cs,
             jobs_sweep_settings=off(JobsSweepSettings),
-            push_settings=off(PushSettings),
+            push_settings=local_push.api_settings(push_keys) if push_keys else off(PushSettings),
         )
         configure_cs_jobs(app, cs, caller=identity.caller(PLATFORM_ORIGIN, CS_SA))
         configure_tft_jobs(app, tft, caller=identity.caller(PLATFORM_ORIGIN, TFT_SA))
+        if push_keys:
+            # KAN-201 로컬 OS 알림: 운영 Scheduler·Job 대신 같은 push_worker를 짧은 주기로 돈다.
+            inner_lifespan = app.router.lifespan_context
+
+            @contextlib.asynccontextmanager
+            async def push_lifespan(application):
+                local_push.start_worker(common, push_keys)
+                async with inner_lifespan(application) as value:
+                    yield value
+
+            app.router.lifespan_context = push_lifespan
         app.state.microsoft_oauth = identity.oauth()
         app.state.business_token_provider = lambda audience: identity.token(audience, PLATFORM_SA)
 

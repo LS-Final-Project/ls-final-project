@@ -17,6 +17,7 @@ from backend.shared.notifications import enqueue_notification, enqueue_notificat
 
 MIGRATION = Path("infra/migrations/platform/20261101_KAN-201_notifications.sql")
 EXPANSION = Path("infra/migrations/platform/20261110_KAN-201_notification_expansion.sql")
+DISMISS = Path("infra/migrations/platform/20261127_KAN-201_notification_dismiss.sql")
 
 
 @pytest.fixture
@@ -589,3 +590,72 @@ def test_recipient_history_blocks_hard_delete_but_deactivation_preserves_it(jobs
             "SELECT count(*) FROM notify.user_notifications n JOIN notify.notification_intents i ON i.id=n.intent_id WHERE i.dedupe_key=%s",
             (f"rfp.done:{later}",),
         ).fetchone() == (0,)
+
+
+def test_read_all_and_dismiss_are_own_scope_idempotent_and_hidden(settings, jobs_database, users):
+    """KAN-201 모두 읽음·숨기기: 본인 행만, 다시 해도 처음 시각 유지, 숨긴 알림은 목록·안 읽음 수에서 빠진다."""
+    # P30을 다시 돌리면 표 단위 REVOKE가 P39의 dismissed_at 열 권한까지 회수한다(앞 시험이 P30을 재실행).
+    # 운영도 같다: P30 재실행 뒤에는 P39를 다시 적용한다. 여기서 두 번 적용해 재실행 가능도 확인한다.
+    sql = "\n".join(x for x in DISMISS.read_text().splitlines() if not x.startswith("\\"))
+    with psycopg.connect(jobs_database, autocommit=True) as conn:
+        conn.execute(sql)
+        conn.execute(sql)
+
+    async def run():
+        async with await psycopg.AsyncConnection.connect(
+            settings.database_url.get_secret_value(), row_factory=dict_row
+        ) as conn:
+            intents = []
+            for _ in range(2):
+                subject = uuid4()
+                await enqueue_notification(
+                    conn,
+                    kind="cs.safety",
+                    subject_id=subject,
+                    audience=[{"user": users[1]}, {"user": users[2]}],
+                    actor_id=None,
+                    dedupe_key=f"cs.safety:{subject}",
+                )
+                row = await (
+                    await conn.execute(
+                        "SELECT id FROM notify.notification_intents WHERE dedupe_key=%s",
+                        (f"cs.safety:{subject}",),
+                    )
+                ).fetchone()
+                intents.append(row["id"])
+            assert await repository.unread_count(conn, users[1]) == 2
+            assert await repository.dismiss(conn, users[1], intents[0])
+            first = await (
+                await conn.execute(
+                    "SELECT read_at,dismissed_at FROM notify.user_notifications "
+                    "WHERE intent_id=%s AND user_id=%s",
+                    (intents[0], users[1]),
+                )
+            ).fetchone()
+            assert first["read_at"] and first["dismissed_at"]
+            assert await repository.dismiss(conn, users[1], intents[0])
+            again = await (
+                await conn.execute(
+                    "SELECT read_at,dismissed_at FROM notify.user_notifications "
+                    "WHERE intent_id=%s AND user_id=%s",
+                    (intents[0], users[1]),
+                )
+            ).fetchone()
+            assert again == first
+            mine = {r["id"] for r in await repository.list_mine(conn, users[1], 100, 0)}
+            assert intents[0] not in mine and intents[1] in mine
+            assert await repository.unread_count(conn, users[1]) == 1
+            # 남의 알림·없는 알림은 숨길 수 없다(404 경로).
+            assert not await repository.dismiss(conn, users[0], intents[1])
+            assert not await repository.dismiss(conn, users[1], uuid4())
+            assert await repository.mark_all_read(conn, users[1]) == 1
+            assert await repository.mark_all_read(conn, users[1]) == 0
+            assert await repository.unread_count(conn, users[1]) == 0
+            # 다른 사람(users[2])의 안 읽음은 그대로다.
+            assert await repository.unread_count(conn, users[2]) == 2
+
+    asyncio.run(run())
+    for role in ("cs_app", "tft_app", "cs_worker", "tft_worker"):
+        with role_connection(jobs_database, role) as conn:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute("UPDATE notify.user_notifications SET dismissed_at=now()")
