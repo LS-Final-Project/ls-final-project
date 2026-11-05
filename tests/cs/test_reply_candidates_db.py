@@ -108,3 +108,34 @@ def test_given_candidates_come_first_and_unknown_tickets_drop(client, admin):
     )
     assert candidates(client, from_address=f"nobody-{tag}@nowhere.invalid") == {}
     assert client.post(PATH, json={"from_address": "a@b.c", "unknown": 1}).status_code == 422
+
+
+def test_sender_customers_match_active_contacts_address_first(client, admin):
+    """KAN-237: 보낸 주소의 고객은 활성 연락처로 찾는다. 주소 일치 먼저, 도메인 다음, 없으면 빠진다."""
+    tag = uuid4().hex[:8]
+    domain = f"plant-{tag}.invalid"
+    exact, by_domain, off = f"CUST-E{tag}", f"CUST-D{tag}", f"CUST-O{tag}"
+    admin.execute(
+        "INSERT INTO cs.customer_contacts (id, customer_external_id, email, domain, active, "
+        "data_origin) VALUES (%s,%s,%s,NULL,true,'demo'), (%s,%s,NULL,%s,true,'demo'), "
+        "(%s,%s,%s,NULL,false,'demo')",
+        (
+            uuid4(),
+            exact,
+            f"buyer@{domain}",
+            uuid4(),
+            by_domain,
+            domain,
+            uuid4(),
+            off,
+            f"x@{domain}",
+        ),
+    )
+    path = "/internal/v1/cs/tickets/sender-customers"
+    response = client.post(
+        path, json={"addresses": [f"Buyer@{domain.upper()}", f"x@{domain}", "nobody@none.invalid"]}
+    )
+    assert response.status_code == 200, response.text
+    found = {i["address"]: i["customer_external_ids"] for i in response.json()["data"]["items"]}
+    assert found == {f"buyer@{domain}": [exact, by_domain], f"x@{domain}": [by_domain]}
+    assert client.post(path, json={"addresses": ["a@b.c"] * 101}).status_code == 422
