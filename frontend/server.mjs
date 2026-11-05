@@ -153,6 +153,11 @@ const mailRoutes = [
   [/^\/api\/v1\/platform\/mail\/rfp-candidates$/, ['GET'], []],
   [/^\/api\/v1\/platform\/mail\/messages\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/attachments\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/, ['GET'], []],
   [/^\/api\/v1\/platform\/mail\/messages\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/rfp-project$/, ['POST'], []],
+  // 문의로 보이는 메일(KAN-237): 후보 목록과 등록 전 본문 확인(JSON). 등록은 위 register-ticket. cs_agent·소유자는 서버가 검사한다.
+  [/^\/api\/v1\/platform\/mail\/cs-candidates$/, ['GET'], []],
+  // 메일함 받은 메일 전체 목록(KAN-238). 본문은 위 content. 메일함 주인은 서버가 검사한다.
+  [/^\/api\/v1\/platform\/mail\/messages$/, ['GET'], []],
+  [/^\/api\/v1\/platform\/mail\/messages\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/content$/, ['GET'], []],
 ];
 // 디코드한 경로에서 검사한다. customer·evidence는 이 문자만, 첫 글자는 영숫자로 허용해 ?·#·/와 .·.. 세그먼트가 upstream URL을 바꾸지 못하게 한다.
 export const placeholders = { '{uuid}': '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '{customer}': '[A-Za-z0-9][A-Za-z0-9._-]{0,63}', '{evidence}': '[A-Za-z0-9][A-Za-z0-9._-]{0,63}', '{dept}': '[A-Z][A-Z0-9_]{0,63}' };

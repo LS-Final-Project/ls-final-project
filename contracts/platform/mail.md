@@ -209,6 +209,33 @@ Cloud Tasks(mail-sync 큐, OIDC) ──POST {"mailbox_id"}──▶ /internal/v1
 - **확인 범위**: 합성 메일·합성 저장소(`tests/platform/test_mail_rfp_intake_db.py`), 화면 시험(`frontend/src/rfp/rfp-mail-candidates.test.tsx`), 웹 중계(`frontend/server.test.mjs`). 실제 사서함·운영 세션 왕복은 하지 않았다.
 - ponytail: 규칙은 제목·첨부 이름의 표현만 본다. 표현 없이 온 RFP는 놓친다. 놓치는 메일이 보이면 모델 분류(플랫폼 작업 종류 + 비용 원장)를 붙인다.
 
+### 문의로 보이는 새 메일과 확인 후 등록 (KAN-237, 2026-11-05)
+
+KAN-73 RFP 후보와 같은 틀이다. 후보는 추천이다. C/S 담당자가 본문을 확인하고 [문의로 등록]을 눌러야 문의가 생긴다. 모델을 부르지 않고 마이그레이션·새 표가 없다.
+
+- **후보**(`backend/api/platform/mail/cs_intake.py`): 내 받은편지함 메일 중 (1) `mail_links`가 하나도 없고, (2) 회신 판정이 `NONE`이거나(회신 아님·사람이 [무시]) 회신 표시 없이 주고받은 주소라 열린 `ADDRESS_MATCH` 검토이고, (3) 최신 분류가 `NEW_RFP`·`OTHER`가 아니고, (4) 보낸 주소가 C/S 활성 고객 연락처(C33, 주소 또는 도메인)에 있는 메일. 최근 100통을 보고 맞는 것만 최대 50통. 회신 판정 전 메일은 다음 수집 뒤에 보인다. 플랫폼은 cs 스키마를 읽지 않으므로 (4)는 C/S 내부 경로 `POST /internal/v1/cs/tickets/sender-customers`로 묻는다([회신 후보 계약](../cs/reply-candidates.md)).
+- **등록**은 기존 `register-ticket`(아래 KAN-110)이다. 메일이 이미 회신(`REPLY`)이나 RFP 프로젝트 등 다른 업무에 연결돼 있으면 409 `MAIL_ALREADY_LINKED`(details에 그 `business_ref`). 같은 메일을 다시 등록하면 같은 문의로 200 `created=false`. 등록하면 열린 회신 검토는 `DISMISSED`(사유 "새 문의로 등록")로 닫고 회신 판정을 `NONE`으로 둔다. 원 메일이 `ORIGIN`으로 연결되므로 문의 답변은 원 메일의 보낸 사람에게 가고(C/S `ticket_mail_origins`), 고객 회신은 헤더·대화 묶음으로 그 문의에 붙는다(KAN-75).
+- **[문의 아님]**: 기존 재분류(`POST messages/{id}/triage`)로 `OTHER`를 남긴다. 분류가 없던 메일은 `version: 0`으로 첫 판본을 사람 판본으로 쓴다(그사이 분류가 생기면 409).
+
+| 경로 | 동작 |
+| --- | --- |
+| `GET /api/v1/platform/mail/cs-candidates` | 운영 세션 `cs_agent`, 메일함 소유자. 위 후보. 수신 시각·보낸 사람·제목·첨부 있음 여부·`customer_external_ids`(주소 일치 먼저, 그다음 도메인)·`triage_version`(없으면 0), 본문 없음. 업무 중계가 꺼져 있으면 404, C/S가 답하지 않으면 503 `CS_UNAVAILABLE`, `cs_agent`가 아니면 403 |
+| `GET /api/v1/platform/mail/messages/{message_id}/content` | 운영 세션, 역할 무관(KAN-238부터, 영업이 RFP 메일을 읽는다), 자기 받은편지함 메일. 원문에서 꺼낸 제목·보낸 사람·본문 텍스트(`register-ticket`과 같은 추출, 저장하지 않음). 50,000자를 넘으면 잘라 보이고 `truncated=true`(등록은 422). 다른 사람·보낸편지함·지운 메일·원문 저장소 없음은 404 |
+
+- **화면**(C/S 관리 › 업무 홈 CS0001, `cs_agent`만 보임, 후보가 없으면 숨김): "문의로 보이는 메일 n건" 표(받은 시각·보낸 사람·고객 ID·제목) → [확인] 창에서 본문을 읽고 고객 ID(연락처 첫 값)·제품 코드(필수)·본문 언어(기본 `ko`)를 정해 [문의로 등록] → 문의 처리 화면으로 간다. [문의 아님]은 읽은 판본으로 `OTHER`(사유 "C/S 담당자 확인: 문의 아님").
+- **확인 범위**: 합성 메일·가짜 C/S(`tests/platform/test_mail_cs_intake_db.py`), C/S 내부 경로(`tests/cs/test_reply_candidates_db.py`), 화면 시험(`frontend/src/ls-shell/cs-mail-candidates.test.tsx`), 웹 중계(`frontend/server.test.mjs`). 실제 사서함·운영 세션 왕복은 하지 않았다.
+
+### 메일함 받은 메일 목록 (KAN-238, 2026-11-05)
+
+메일함 화면(MB0100) 위쪽 표. 모델을 부르지 않고 마이그레이션·새 표가 없다. 메타데이터만 DB에서 읽고 본문은 위 `content`로 연다.
+
+| 경로 | 동작 |
+| --- | --- |
+| `GET /api/v1/platform/mail/messages` | 운영 세션, 역할 무관, 자기 메일함(연결 소유자) 받은편지함의 지우지 않은 메일 최근 순 100통(커서 없음). 항목: `message_id`·`received_at`·`from_address`·`subject`·`has_attachments`·`link`(가장 먼저 만든 `mail_links`의 `owner_service`·`business_ref`, 없으면 null)·`reply_review_open`(열린 회신 검토)·`mail_type`(최신 분류, 없으면 null). 본문 없음 |
+
+- **화면 연결 상태**(하나만, 이 순서): `cs_ticket:<id>` → "문의 <ID 앞 8자>"(문의 처리 링크, 플랫폼은 cs 스키마를 읽지 않아 CS 번호는 없음), `rfp_project:<id>` → "RFP 프로젝트"(작업 공간 링크, 프로젝트 코드 없음), 그 밖의 연결 → "업무 연결됨", 열린 회신 검토 → "회신 검토 중", 분류 `NEW_RFP`·`CS`·`CANDIDATE_REPLY`·`EXISTING_CHANGE`·`OTHER` → "RFP로 보임"·"문의로 보임"·"회신으로 보임"·"변경 요청으로 보임"·"업무 아님", 아니면 "미연결". 고객 연락처로 고르는 KAN-237 "문의로 보이는 메일" 판정은 C/S 호출이 필요해 이 표에 쓰지 않는다. 행이나 [본문]을 누르면 본문 창이 열린다.
+- **확인 범위**: `tests/platform/test_mail_cs_intake_db.py`(연결 상태·최근 순·보낸편지함 제외·다른 사람 메일함 제외·영업 본문 보기), `frontend/src/pages/MailBox.test.tsx`, `frontend/server.test.mjs`. 실제 사서함 왕복은 하지 않았다.
+
 ### 발송 입구와 실행
 
 `backend/api/platform/mail/send_worker.py`. 모든 경로는 기본 비활성(404)이고 OpenAPI·웹 중계에 넣지 않는다.
@@ -247,7 +274,7 @@ Cloud Scheduler(5분)          ──POST──▶ /send-sweep  → 멈춘 전�
 | `POST /{id}/check-sent-copy` | 보낸편지함 사본 대조(`confirm_sent_copy`). 결과 불명 판단 근거를 이력에 남긴다 |
 | `POST /{id}/resend` (`reason` 1~500자) | `authorize_resend` 뒤 전송 작업(`mailsend-<id>-a<시도 수>`) 등록. 등록이 실패해도 `QUEUED`라 정리 작업이 다시 등록 |
 
-- 웹 중계(`frontend/server.mjs` `mailRoutes`, KAN-178·KAN-132)는 GET `send-intents`(`status`), `reply-reviews`, `messages/{id}/triage`와 POST `messages/{id}/triage`, `send-intents/{id}/check-sent-copy`, `send-intents/{id}/resend`, 받은 메일 화면의 GET `reply-reviews/{id}/candidates`(KAN-235), `reply-reviews/{id}/link`, `reply-reviews/{id}/dismiss`, `messages/{id}/register-ticket`, RFP 메일(KAN-73)의 GET `rfp-candidates`·`messages/{id}/attachments/{id}`(DOCX·PDF 바이트만 통과)와 POST `messages/{id}/rfp-project`만 연다. 세션 쿠키·동일 출처·CSRF 헤더를 그대로 전달하고, 다른 query는 400, 쓰기는 `application/json`이 아니면 415다. `check-sent-copy`는 본문이 없어도 이 형식으로 보낸다.
+- 웹 중계(`frontend/server.mjs` `mailRoutes`, KAN-178·KAN-132)는 GET `send-intents`(`status`), `reply-reviews`, `messages/{id}/triage`와 POST `messages/{id}/triage`, `send-intents/{id}/check-sent-copy`, `send-intents/{id}/resend`, 받은 메일 화면의 GET `reply-reviews/{id}/candidates`(KAN-235), `reply-reviews/{id}/link`, `reply-reviews/{id}/dismiss`, `messages/{id}/register-ticket`, RFP 메일(KAN-73)의 GET `rfp-candidates`·`messages/{id}/attachments/{id}`(DOCX·PDF 바이트만 통과)와 POST `messages/{id}/rfp-project`, 문의로 보이는 메일(KAN-237)의 GET `cs-candidates`·`messages/{id}/content`, 메일함 받은 메일 목록(KAN-238)의 GET `messages`만 연다. 세션 쿠키·동일 출처·CSRF 헤더를 그대로 전달하고, 다른 query는 400, 쓰기는 `application/json`이 아니면 415다. `check-sent-copy`는 본문이 없어도 이 형식으로 보낸다.
 - 재전송 통제는 서버가 맡는다: 상태 `UNKNOWN`이고 시도 상한 미만, 마지막 전송 시작 뒤 10분이 지난 "사본 없음" 확인, 사유 1~500자, 승인자 본인. 어기면 403·409·422다. 수신자 제한은 없다.
 - 분류 변경은 메일함 소유자만, 읽은 판본과 사유가 있어야 한다. 사람 판본으로 저장되고 메일이 나가지 않는다.
 - 회신 연결·무시와 문의 접수는 KAN-132에서 웹 중계에 넣었다. 연결 후보·접수 조건은 서버가 검사하고 중계는 경로·메서드·query·본문 형식만 거른다. 메일 계정 화면의 사서함 경로(목록·연결 시작·콜백·완료·해제)는 `mailRoutes`가 아니라 `MAILBOX_AUTH_ENABLED`의 사서함 인증 중계가 맡는다.
@@ -314,6 +341,7 @@ Cloud Scheduler(5분)          ──POST──▶ /send-sweep  → 멈춘 전�
 | C/S → 플랫폼 | `POST/GET /internal/v1/platform/mail/send-intents[/{id}]` | C/S 실행 계정 ID 토큰(위 KAN-74) | 승인 발송 넘기기·상태 읽기. C/S는 `business_ref=cs_ticket:<문의 ID>`, `business_version`=승인한 업무 판본 |
 | 플랫폼 → C/S | `POST /internal/v1/cs/tickets/{id}/customer-reply` | 플랫폼 실행 계정 ID 토큰(중계와 같은 호출자 헤더), 사용자 없음 | 연결된 회신 알림 → C/S가 기록·재개 |
 | 플랫폼 → C/S | `POST /internal/v1/cs/tickets/from-mail` | 같은 토큰 + 세션 사용자의 Principal | 메일 접수 |
+| 플랫폼 → C/S | `POST /internal/v1/cs/tickets/sender-customers` | 같은 토큰, 사용자 없음 | 보낸 주소의 고객(고객 연락처, KAN-237) |
 | 웹 → 플랫폼 | `POST /api/v1/platform/mail/messages/{message_id}/register-ticket` | 운영 세션(cs_agent)·동일 출처·세션 CSRF, `MAILBOX_AUTH_ENABLED` | 메일함 주인이 받은 메일을 문의로 접수 |
 
 - **회신 통지**: `mail_links`에 `business_notified_at`을 더했다(연결 행은 그대로, 통지 시각만). 수집 워커(`/sync`)가 판정 뒤 `owner_service='cs'`이고 `business_ref`가 문의 UUID인 미통지 `REPLY` 연결을 오래된 순으로 최대 50건 C/S에 알리고, 사람 연결(`reply-reviews/{id}/link`)도 바로 알린다. C/S가 200이면 통지 시각을 쓰고, 404 중 오류 코드가 `CS_TICKET_NOT_FOUND`인 경우만 다시 알리지 않는다. 경로 미배포·비활성 등 다른 404는 통지 시각을 쓰지 않고 다음 실행에서 재시도한다. 연결 실패·5xx는 표시가 없어 다음 실행에서 다시 한다(`replies_notified`·`replies_notify_failed`). 업무 중계가 꺼져 있으면(C/S 주소·토큰 없음) 알리지 않고 둔다. 원문 저장소가 있으면(수집 워커, 사람 연결) 회신 제목과 본문(`extract.reply_text`: text/plain 우선, 우리 이전 메일 인용·`>` 줄 제거, 20,000자 상한)을 같이 보낸다(KAN-230). 원문을 읽거나 파싱하지 못하면 본문 없이 알린다(`without_text`). 저장소가 일시·영구 실패를 구분하지 않아, 재시도하면 지워진 원문이 뒤 회신의 통지를 막을 수 있기 때문이다. 인용은 `On … wrote:`·`-- Original Message --` 줄과, 바로 아래에 메일 머리글(Sent·Date·To·보낸 날짜·받는 사람 등)이 이어지는 `From:`·`보낸 사람:` 줄부터 자른다(본문의 'From: PLC log' 같은 줄은 남긴다). 인용만 있는 답장은 본문 없이 알린다. 본문 없이 알린 수는 수집 결과 `replies_notified_without_text`로 보인다.

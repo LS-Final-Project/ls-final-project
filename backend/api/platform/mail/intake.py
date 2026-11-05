@@ -112,7 +112,8 @@ async def register_ticket(
     """메일함 주인인 cs_agent가 받은 메일 한 통을 C/S 문의로 접수한다.
 
     다른 사람 메일함·보낸편지함·지워진 메일은 404, 이미 이 메일로 접수한 문의가 있으면 그 문의에
-    다시 연결하고 200을 돌려준다(두 번 접수하지 않음). 업무 중계가 꺼져 있으면 404다.
+    다시 연결하고 200을 돌려준다(두 번 접수하지 않음). 회신·RFP 등 다른 업무에 이미 연결된 메일은
+    409 `MAIL_ALREADY_LINKED`(KAN-237). 업무 중계가 꺼져 있으면 404다.
     """
     mutation_token(request)
     user = await operational_identity(request, response)
@@ -134,8 +135,22 @@ async def register_ticket(
             (message_id, user.id),
         )
         row = await cursor.fetchone()
+        # KAN-237: 회신이나 RFP로 이미 다른 업무에 붙은 메일은 새 문의로 만들지 않는다(같은 메일의 문의는 아래 200).
+        cursor = await conn.execute(
+            "SELECT owner_service, business_ref FROM integration.mail_links WHERE message_id=%s "
+            "AND NOT (owner_service='cs' AND kind='ORIGIN') ORDER BY created_at LIMIT 1",
+            (message_id,),
+        )
+        other = await cursor.fetchone()
     if row is None:
         raise not_found()
+    if other is not None:
+        raise ApplicationError(
+            409,
+            "MAIL_ALREADY_LINKED",
+            "The mail is already linked to other work.",
+            details=[{"field": "business_ref", "reason": other["business_ref"]}],
+        )
     raw = await read_raw(request, row)
     try:
         subject, body, parsed_sender = mail_text(raw)
@@ -186,6 +201,20 @@ async def register_ticket(
     await link_origin(
         settings, message_id=message_id, owner_service="cs", business_ref=f"cs_ticket:{ticket_id}"
     )
+    # KAN-237: 새 문의로 정했으니 열린 회신 검토(주고받은 주소 등)는 닫는다. [무시]와 같은 기록이다.
+    async with connection(settings) as conn, conn.transaction():
+        cursor = await conn.execute(
+            "UPDATE integration.mail_reply_reviews SET status='DISMISSED', decided_by=%s, "
+            "decided_at=now(), note='새 문의로 등록' WHERE message_id=%s AND status='OPEN' "
+            "RETURNING 1",
+            (user.id, message_id),
+        )
+        if await cursor.fetchone() is not None:
+            await conn.execute(
+                "UPDATE integration.mail_reply_checks SET outcome='NONE', checked_at=now() "
+                "WHERE message_id=%s",
+                (message_id,),
+            )
     response.status_code = 201 if created else 200
     return SuccessResponse(
         data=RegisteredTicket(message_id=message_id, ticket_id=ticket_id, created=created),

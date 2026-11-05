@@ -186,3 +186,32 @@ test('모의 응답 모드는 합성 예시임을 알리고 처리 호출을 보
   expect(await screen.findByText(/실제 API 모드에서만 실행할 수 있습니다/)).toBeTruthy();
   expect(fetch).not.toHaveBeenCalled();
 });
+
+test('받은 메일 전체 표에 연결 상태를 보이고 행을 누르면 본문을 연다 (KAN-238)', async () => {
+  const P = '99999999-9999-4999-8999-999999999999';
+  const mail = (id: string, subject: string, over: object) => ({ message_id: id, received_at: '2026-11-05T09:00:00Z', from_address: 'buyer@example.com', subject, has_attachments: false, link: null, reply_review_open: false, mail_type: null, ...over });
+  const items = [
+    mail(MESSAGE, '문의 메일', { link: { owner_service: 'cs', business_ref: `cs_ticket:${T1}` } }),
+    mail(T2, 'RFP 메일', { link: { owner_service: 'platform', business_ref: `rfp_project:${P}` } }),
+    mail(T3, '검토 메일', { reply_review_open: true }),
+    mail('55555555-5555-4555-8555-555555555555', '분류 메일', { mail_type: 'NEW_RFP' }),
+    mail('66666666-6666-4666-8666-666666666667', '그냥 메일', {}),
+  ];
+  vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL) => {
+    const path = String(url);
+    if (path.endsWith('/platform/me')) return new Response(JSON.stringify({ data: {} }), { status: 200, headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'tok' } });
+    if (path.endsWith('/mail/messages')) return jsonResponse(200, { data: { items } });
+    if (path.endsWith(`/messages/${T3}/content`)) return jsonResponse(200, { data: { message_id: T3, subject: '검토 메일', from_address: 'buyer@example.com', received_at: '2026-11-05T09:00:00Z', body: '사진을 보냅니다.', truncated: false } });
+    if (path.endsWith('/mail/reply-reviews')) return jsonResponse(200, { data: { items: [] } });
+    return jsonResponse(404, errorBody('NOT_FOUND', '없음'));
+  }));
+  await show();
+  const table = await screen.findByRole('table', { name: '받은 메일 전체' });
+  const rows = within(table).getAllByRole('row').slice(1) as HTMLTableRowElement[];
+  expect(rows.map(r => r.cells[3].textContent)).toEqual([`문의 ${T1.slice(0, 8)}`, 'RFP 프로젝트', '회신 검토 중', 'RFP로 보임', '미연결']);
+  expect(within(rows[0]).getByRole('link').getAttribute('href')).toBe(`/cs/tickets/${T1}`);
+  expect(within(rows[1]).getByRole('link').getAttribute('href')).toBe(`/tft/projects/${P}`);
+  fireEvent.click(rows[2]);
+  expect(await screen.findByText('사진을 보냅니다.')).toBeTruthy();
+  expect(screen.getByRole('dialog').textContent).toContain('회신 검토 중');
+});

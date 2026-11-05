@@ -214,3 +214,36 @@ export async function linkMailRfpProject(messageId: string, projectId: string): 
   if (!data?.project_id) throw new ApiError(502, '연결 결과를 확인할 수 없습니다.');
   return data;
 }
+
+// KAN-237 문의로 보이는 새 메일: 고객 연락처 주소로 온, 아직 업무에 연결하지 않은 받은 메일과 본문 확인.
+export type CsCandidate = paths['/api/v1/platform/mail/cs-candidates']['get']['responses'][200]['content']['application/json']['data']['items'][number];
+export type MailContent = paths['/api/v1/platform/mail/messages/{message_id}/content']['get']['responses'][200]['content']['application/json']['data'];
+
+/** 내 메일함에서 문의로 보이는 새 메일(cs_agent). 모의 모드에서는 빈 목록이다. */
+export async function listCsCandidates(signal?: AbortSignal): Promise<CsCandidate[]> {
+  const body = await request<unknown>('/api/v1/platform/mail/cs-candidates', { signal, mockFallback: () => ({ data: { items: [] } }) });
+  const items = (body as { data?: { items?: unknown } } | null)?.data?.items;
+  const valid = (c: unknown) => typeof (c as CsCandidate | null)?.message_id === 'string' && Array.isArray((c as CsCandidate).customer_external_ids);
+  if (!Array.isArray(items) || !items.every(valid)) throw new ApiError(502, '문의로 보이는 메일 목록을 확인할 수 없습니다.');
+  return items as CsCandidate[];
+}
+
+/** 받은 메일 한 통의 제목·본문(등록 전 확인용, 서버가 원문에서 꺼낸다). */
+export async function getMailContent(messageId: string, signal?: AbortSignal): Promise<MailContent> {
+  const body = await request<unknown>(`/api/v1/platform/mail/messages/${encodeURIComponent(messageId)}/content`, { signal });
+  const data = (body as { data?: MailContent } | null)?.data;
+  if (typeof data?.body !== 'string') throw new ApiError(502, '메일 본문을 확인할 수 없습니다.');
+  return data;
+}
+
+// KAN-238 메일함의 받은 메일 전체 목록과 연결 상태(본문 없음). 본문은 getMailContent로 연다.
+export type InboxMessage = paths['/api/v1/platform/mail/messages']['get']['responses'][200]['content']['application/json']['data']['items'][number];
+
+/** 내 메일함의 받은 메일(최근 순 최대 100통). 모의 모드에서는 빈 목록이다. */
+export async function listMailMessages(signal?: AbortSignal): Promise<InboxMessage[]> {
+  const body = await request<unknown>('/api/v1/platform/mail/messages', { signal, mockFallback: () => ({ data: { items: [] } }) });
+  const items = (body as { data?: { items?: unknown } } | null)?.data?.items;
+  const valid = (m: unknown) => typeof (m as InboxMessage | null)?.message_id === 'string' && typeof (m as InboxMessage).received_at === 'string';
+  if (!Array.isArray(items) || !items.every(valid)) throw new ApiError(502, '받은 메일 목록을 확인할 수 없습니다.');
+  return items as InboxMessage[];
+}

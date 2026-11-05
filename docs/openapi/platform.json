@@ -401,6 +401,78 @@
         "title": "CaseView",
         "type": "object"
       },
+      "CsCandidate": {
+        "description": "\ubb38\uc758\ub85c \ubcf4\uc774\ub294 \uba54\uc77c \ud55c \ud1b5. \ubcf8\ubb38\uc740 \ub2f4\uc9c0 \uc54a\ub294\ub2e4.",
+        "properties": {
+          "customer_external_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Customer External Ids",
+            "type": "array"
+          },
+          "from_address": {
+            "title": "From Address",
+            "type": "string"
+          },
+          "has_attachments": {
+            "title": "Has Attachments",
+            "type": "boolean"
+          },
+          "message_id": {
+            "format": "uuid",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          },
+          "triage_version": {
+            "title": "Triage Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "message_id",
+          "triage_version",
+          "subject",
+          "from_address",
+          "received_at",
+          "has_attachments",
+          "customer_external_ids"
+        ],
+        "title": "CsCandidate",
+        "type": "object"
+      },
+      "CsCandidateList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CsCandidate"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "CsCandidateList",
+        "type": "object"
+      },
       "CsJobStatus": {
         "additionalProperties": false,
         "description": "C/S \ucc98\ub9ac \uc791\uc5c5 \uc0c1\ud0dc\uc640 \uac19\uc740 \uc2a4\ub0c5\uc0f7\uc758 \uc774\ubca4\ud2b8 \uc704\uce58\ub9cc \uacf5\uac1c\ud55c\ub2e4(KAN-194). \uc6d0\ubb38\u00b7\uc624\ub958 \ucf54\ub4dc\ub294 \uc5c6\ub2e4.",
@@ -1698,6 +1770,107 @@
         "title": "Identity",
         "type": "object"
       },
+      "InboxMessage": {
+        "description": "\ubc1b\uc740 \uba54\uc77c \ud55c \ud1b5\uacfc \uc5f0\uacb0 \uc0c1\ud0dc(KAN-238). \ubcf8\ubb38\uc740 \ub2f4\uc9c0 \uc54a\ub294\ub2e4.",
+        "properties": {
+          "from_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Address"
+          },
+          "has_attachments": {
+            "title": "Has Attachments",
+            "type": "boolean"
+          },
+          "link": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MailLink"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mail_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "NEW_RFP",
+                  "EXISTING_CHANGE",
+                  "CANDIDATE_REPLY",
+                  "CS",
+                  "OTHER"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mail Type"
+          },
+          "message_id": {
+            "format": "uuid",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "reply_review_open": {
+            "title": "Reply Review Open",
+            "type": "boolean"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          }
+        },
+        "required": [
+          "message_id",
+          "received_at",
+          "from_address",
+          "subject",
+          "has_attachments",
+          "link",
+          "reply_review_open",
+          "mail_type"
+        ],
+        "title": "InboxMessage",
+        "type": "object"
+      },
+      "InboxMessageList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/InboxMessage"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "InboxMessageList",
+        "type": "object"
+      },
       "JobStatusResponse": {
         "description": "\uc0c1\ud0dc \uc870\ud68c \uc751\ub2f5. data\ub294 owner(platform\u00b7cs\u00b7tft)\ub85c \uad6c\ubd84\ud55c\ub2e4.",
         "properties": {
@@ -2151,6 +2324,82 @@
           "support"
         ],
         "title": "LockedValue",
+        "type": "object"
+      },
+      "MailContent": {
+        "properties": {
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "from_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Address"
+          },
+          "message_id": {
+            "format": "uuid",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "message_id",
+          "subject",
+          "from_address",
+          "received_at",
+          "body",
+          "truncated"
+        ],
+        "title": "MailContent",
+        "type": "object"
+      },
+      "MailLink": {
+        "properties": {
+          "business_ref": {
+            "title": "Business Ref",
+            "type": "string"
+          },
+          "owner_service": {
+            "enum": [
+              "cs",
+              "platform"
+            ],
+            "title": "Owner Service",
+            "type": "string"
+          }
+        },
+        "required": [
+          "owner_service",
+          "business_ref"
+        ],
+        "title": "MailLink",
         "type": "object"
       },
       "MailTriage": {
@@ -2705,8 +2954,8 @@
             "type": "string"
           },
           "version": {
-            "description": "The triage version the user decided on.",
-            "minimum": 1.0,
+            "description": "The triage version the user decided on (0: the mail has no triage yet).",
+            "minimum": 0.0,
             "title": "Version",
             "type": "integer"
           }
@@ -3559,6 +3808,22 @@
         "title": "SuccessResponse[AuthorizationStart]",
         "type": "object"
       },
+      "SuccessResponse_CsCandidateList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CsCandidateList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[CsCandidateList]",
+        "type": "object"
+      },
       "SuccessResponse_EvaluationAdmission_": {
         "properties": {
           "data": {
@@ -3719,6 +3984,22 @@
         "title": "SuccessResponse[Identity]",
         "type": "object"
       },
+      "SuccessResponse_InboxMessageList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/InboxMessageList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[InboxMessageList]",
+        "type": "object"
+      },
       "SuccessResponse_LinkedProject_": {
         "properties": {
           "data": {
@@ -3733,6 +4014,22 @@
           "meta"
         ],
         "title": "SuccessResponse[LinkedProject]",
+        "type": "object"
+      },
+      "SuccessResponse_MailContent_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/MailContent"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[MailContent]",
         "type": "object"
       },
       "SuccessResponse_MailTriage_": {
@@ -6545,6 +6842,154 @@
         ]
       }
     },
+    "/api/v1/platform/mail/cs-candidates": {
+      "get": {
+        "description": "\ub0b4 \uba54\uc77c\ud568\uc5d0\uc11c \uace0\uac1d \uc5f0\ub77d\ucc98\uc758 \uc8fc\uc18c\ub85c \uc628, \uc544\uc9c1 \uc5c5\ubb34\uc5d0 \uc5f0\uacb0\ud558\uc9c0 \uc54a\uc740 \uc0c8 \uba54\uc77c(\ucd5c\uadfc \uc21c, \ucd5c\ub300 50\ud1b5).\n\nArgs:\n    request: \uc6b4\uc601 \uc138\uc158 \uc694\uccad.\n    response: CSRF \ud5e4\ub354\ub97c \ubc1b\uc744 \uc751\ub2f5.\n    provider: \uc0ac\uc11c\ud568 \uae30\ub2a5 \ube44\ud65c\uc131\uc774\uba74 404\ub85c \ub2eb\ub294 \uc758\uc874\uc131.\n\nReturns:\n    SuccessResponse[CsCandidateList]: \ucd5c\uadfc \ubc1b\uc740 \uc21c. cs_agent\uac00 \uc544\ub2c8\uba74 403.",
+        "operationId": "platform_list_mail_cs_candidates",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_CsCandidateList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "List Candidates",
+        "tags": [
+          "mail-cs-intake"
+        ],
+        "x-activation": "MAILBOX_AUTH_ENABLED",
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/platform/mail/messages": {
+      "get": {
+        "description": "\ub0b4 \uba54\uc77c\ud568\uc758 \ubc1b\uc740 \uba54\uc77c(\ucd5c\uadfc \uc21c \ucd5c\ub300 100\ud1b5)\uacfc \uc5f0\uacb0 \uc0c1\ud0dc. \uc5ed\ud560\uacfc \ubb34\uad00\ud558\uac8c \uc790\uae30 \uba54\uc77c\ud568\ub9cc \ubcf4\uc778\ub2e4.\n\nArgs:\n    request: \uc6b4\uc601 \uc138\uc158 \uc694\uccad.\n    response: CSRF \ud5e4\ub354\ub97c \ubc1b\uc744 \uc751\ub2f5.\n    provider: \uc0ac\uc11c\ud568 \uae30\ub2a5 \ube44\ud65c\uc131\uc774\uba74 404\ub85c \ub2eb\ub294 \uc758\uc874\uc131.\n\nReturns:\n    SuccessResponse[InboxMessageList]: \ubc1b\uc740 \uc2dc\uac01 \ub0b4\ub9bc\ucc28\uc21c. \ubcf8\ubb38 \uc5c6\uc74c.",
+        "operationId": "platform_list_mail_messages",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_InboxMessageList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "List Messages",
+        "tags": [
+          "mail-cs-intake"
+        ],
+        "x-activation": "MAILBOX_AUTH_ENABLED",
+        "x-implementation-status": "partial"
+      }
+    },
     "/api/v1/platform/mail/messages/{message_id}/attachments/{attachment_id}": {
       "get": {
         "description": "\ub0b4 \ubc1b\uc740 \uba54\uc77c\uc758 DOCX\u00b7PDF \ucca8\ubd80\ub97c \ub0b4\ub824\uc900\ub2e4(RFP \ub4f1\ub85d \ud654\uba74\uc774 \ud504\ub85c\uc81d\ud2b8 \ubb38\uc11c\ub85c \uc62c\ub9b4 \ub54c \uc4f4\ub2e4).\n\n\ub2e4\ub978 \uc0ac\ub78c \uba54\uc77c\ud568\u00b7\uc5c6\ub294 \ucca8\ubd80\u00b7DOCX\u00b7PDF\uac00 \uc544\ub2cc \ucca8\ubd80\ub294 404\ub2e4.\n\nArgs:\n    message_id: \uba54\uc77c ID.\n    attachment_id: \ucca8\ubd80 ID.\n    request: \uc6b4\uc601 \uc138\uc158 \uc694\uccad.\n    response: CSRF \ud5e4\ub354\ub97c \ubc1b\uc744 \uc751\ub2f5.\n    provider: \uc0ac\uc11c\ud568 \uae30\ub2a5 \ube44\ud65c\uc131\uc774\uba74 404\ub85c \ub2eb\ub294 \uc758\uc874\uc131.\n\nReturns:\n    RawResponse: \ucca8\ubd80 \ubc14\uc774\ud2b8(Content-Disposition attachment).",
@@ -6648,9 +7093,95 @@
         "x-implementation-status": "partial"
       }
     },
+    "/api/v1/platform/mail/messages/{message_id}/content": {
+      "get": {
+        "description": "\ub0b4 \ubc1b\uc740 \uba54\uc77c \ud55c \ud1b5\uc758 \uc81c\ubaa9\u00b7\ubcf8\ubb38 \ud14d\uc2a4\ud2b8(\ubb38\uc758 \ub4f1\ub85d \uc804 \ud655\uc778\u00b7\uba54\uc77c\ud568 \ubcf4\uae30). \uc6d0\ubb38\uc5d0\uc11c \uaebc\ub0b4\uace0 \uc800\uc7a5\ud558\uc9c0 \uc54a\ub294\ub2e4.\n\n\uc5ed\ud560\uacfc \ubb34\uad00\ud558\uac8c \uba54\uc77c\ud568 \uc8fc\uc778\ub9cc \uc77d\ub294\ub2e4(KAN-238). \ub2e4\ub978 \uc0ac\ub78c \uba54\uc77c\ud568\u00b7\ubcf4\ub0b8\ud3b8\uc9c0\ud568\u00b7\uc9c0\uc6b4 \uba54\uc77c\uc740 404,\n\uc6d0\ubb38 \uc800\uc7a5\uc18c\uac00 \uc5c6\uc73c\uba74 404.\n\nArgs:\n    message_id: \ubc1b\uc740 \uba54\uc77c ID.\n    request: \uc6b4\uc601 \uc138\uc158 \uc694\uccad.\n    response: CSRF \ud5e4\ub354\ub97c \ubc1b\uc744 \uc751\ub2f5.\n    provider: \uc0ac\uc11c\ud568 \uae30\ub2a5 \ube44\ud65c\uc131\uc774\uba74 404\ub85c \ub2eb\ub294 \uc758\uc874\uc131.\n\nReturns:\n    SuccessResponse[MailContent]: \uc81c\ubaa9\u00b7\ubcf4\ub0b8 \uc0ac\ub78c\u00b7\ubcf8\ubb38.",
+        "operationId": "platform_get_mail_content",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Message Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_MailContent_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Content",
+        "tags": [
+          "mail-cs-intake"
+        ],
+        "x-activation": "MAILBOX_AUTH_ENABLED",
+        "x-implementation-status": "partial"
+      }
+    },
     "/api/v1/platform/mail/messages/{message_id}/register-ticket": {
       "post": {
-        "description": "\uba54\uc77c\ud568 \uc8fc\uc778\uc778 cs_agent\uac00 \ubc1b\uc740 \uba54\uc77c \ud55c \ud1b5\uc744 C/S \ubb38\uc758\ub85c \uc811\uc218\ud55c\ub2e4.\n\n\ub2e4\ub978 \uc0ac\ub78c \uba54\uc77c\ud568\u00b7\ubcf4\ub0b8\ud3b8\uc9c0\ud568\u00b7\uc9c0\uc6cc\uc9c4 \uba54\uc77c\uc740 404, \uc774\ubbf8 \uc774 \uba54\uc77c\ub85c \uc811\uc218\ud55c \ubb38\uc758\uac00 \uc788\uc73c\uba74 \uadf8 \ubb38\uc758\uc5d0\n\ub2e4\uc2dc \uc5f0\uacb0\ud558\uace0 200\uc744 \ub3cc\ub824\uc900\ub2e4(\ub450 \ubc88 \uc811\uc218\ud558\uc9c0 \uc54a\uc74c). \uc5c5\ubb34 \uc911\uacc4\uac00 \uaebc\uc838 \uc788\uc73c\uba74 404\ub2e4.",
+        "description": "\uba54\uc77c\ud568 \uc8fc\uc778\uc778 cs_agent\uac00 \ubc1b\uc740 \uba54\uc77c \ud55c \ud1b5\uc744 C/S \ubb38\uc758\ub85c \uc811\uc218\ud55c\ub2e4.\n\n\ub2e4\ub978 \uc0ac\ub78c \uba54\uc77c\ud568\u00b7\ubcf4\ub0b8\ud3b8\uc9c0\ud568\u00b7\uc9c0\uc6cc\uc9c4 \uba54\uc77c\uc740 404, \uc774\ubbf8 \uc774 \uba54\uc77c\ub85c \uc811\uc218\ud55c \ubb38\uc758\uac00 \uc788\uc73c\uba74 \uadf8 \ubb38\uc758\uc5d0\n\ub2e4\uc2dc \uc5f0\uacb0\ud558\uace0 200\uc744 \ub3cc\ub824\uc900\ub2e4(\ub450 \ubc88 \uc811\uc218\ud558\uc9c0 \uc54a\uc74c). \ud68c\uc2e0\u00b7RFP \ub4f1 \ub2e4\ub978 \uc5c5\ubb34\uc5d0 \uc774\ubbf8 \uc5f0\uacb0\ub41c \uba54\uc77c\uc740\n409 `MAIL_ALREADY_LINKED`(KAN-237). \uc5c5\ubb34 \uc911\uacc4\uac00 \uaebc\uc838 \uc788\uc73c\uba74 404\ub2e4.",
         "operationId": "platform_register_mail_ticket",
         "parameters": [
           {
