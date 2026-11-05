@@ -15,7 +15,8 @@ Stage = Literal[
     "classification", "draft", "reply", "improvement_reply", "improvement_draft", "verification"
 ]
 # 제품 경로 기본 판본. 분류는 v4 채택(2026-11-05, KAN-161 제공 정보 코드 칸 이름. 이전 v3는 2026-10-29 채택). 초안·회신·개선요청 네 단계는 v2(KAN-193
-# 확정 금지 지시 추가), 검증은 v1이다. 초안은 v4(KAN-200, 문서 사실만 EVIDENCE·미확인 구분 유지)다. 분류와 초안만 채택됐다.
+# 확정 금지 지시 추가)다. 초안은 v4(KAN-200, 문서 사실만 EVIDENCE·미확인 구분 유지)다. 검증은 v2(KAN-161, 확정 약속 표시)다.
+# 분류·초안·검증만 채택됐다(검증 v2는 2026-11-05, eval/policy/adoptions/draft-20261105-flash36-v4-verify-v2).
 DEFAULT_VERSIONS: dict[Stage, str] = {
     "classification": "v4",
     "draft": "v4",
