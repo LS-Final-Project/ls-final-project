@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type UIEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ApiError, getApiMode } from '../api/client';
 import {
@@ -25,7 +25,6 @@ import { useRfpJobEvents } from './useRfpJobEvents';
 import { DEPARTMENT_LABEL } from './labels';
 import { constraintsBody, emptyConstraints } from './ProjectConstraintsForm';
 import './RfpWorkspace.css';
-import { useFitToViewport } from './useFitToViewport';
 
 // 통합 작업 공간(KAN-222, 사본 캔버스 "RFP 검토 화면 개편안" 1번 보드): 올리기 → 분석 시작 → 분석 중 → 결정 + 출력.
 // 묶음 종류: 입찰 판정 + 도면 확인. 도면 OCR 조항 요구는 판정과 관계없이 decision.drawing_check로 "도면 확인" 묶음에 모은다(KAN-227).
@@ -314,7 +313,6 @@ const BULK_ACTION: Partial<Record<Kind, { label: string; body: Omit<DecisionRequ
 export function Decide({ project, documents, rows, role, actorId, log }: { project: ProjectDetail; documents: DocumentVersion[]; rows: RequirementSummary[]; role: string; actorId?: string; log?: RfpWatch }) {
   const [byEq, setByEq] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
-  const fitGrid = useFitToViewport();
   const client = useQueryClient();
   const responsible = role === 'responsible';
   const [tab, setTab] = useState<'review' | 'output'>(responsible ? 'output' : 'review');
@@ -418,7 +416,7 @@ export function Decide({ project, documents, rows, role, actorId, log }: { proje
         {lastBulk && <p className="ws-bulkline">{lastBulk.n}건을 한 번에 결정했습니다. <button className="ws-link" disabled={undoBulkMutation.isPending} onClick={() => undoBulkMutation.mutate(lastBulk.batchId)}>일괄 되돌리기</button></p>}
         {bulk.isError && <p role="alert" className="ws-alert">{bulkFailure(bulk.error, verdictRows)} 아무것도 저장하지 않았습니다.</p>}
         {undoBulkMutation.isError && <p role="alert" className="ws-alert">{failureText(undoBulkMutation.error)} 되돌리지 않았습니다.</p>}
-        <div className="ws-grid ws-fit" ref={fitGrid}>
+        <div className="ws-grid">
           <section className="ws-sec ws-left">
             {!responsible && assignChecked.length > 0 && <div className="ws-bulkbar">
               <span>선택 {assignChecked.length}건</span>
@@ -566,9 +564,7 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
   const [picked, setPicked] = useState('');
   const [adding, setAdding] = useState<{ quote: string; clause: Pick<Clause, 'clause_id' | 'clause_no'> }>();
   const pickedClause = responsible ? undefined : clauseOf(clauses.data ?? [], picked);
-  const [whyOpen, setWhyOpen] = useState(false);
   const [showOff, setShowOff] = useState(false);
-  const split = useSplit();
   // 판정 변경·제외·변경 이력은 주 단추와 같은 줄의 작은 링크(펼치면 그 줄 아래로 넓게, CSS .ws-tools).
   const tools = <span className="ws-tools">
     {!responsible && !decided && (changing
@@ -577,7 +573,7 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
     {!responsible && <ExcludeLine row={row} version={d?.version ?? row.version} />}
     <RequirementHistory id={row.requirement_id} />
   </span>;
-  return <div className="ws-panel" ref={split.box}>
+  return <div className="ws-panel">
     <div className="ws-bottom">
     <div className="ws-srcbar">
       <span className="ws-seg2" role="group" aria-label="원문 보기 방식">
@@ -586,7 +582,6 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
       </span>
       <span className="sp" />
       {pickedClause && !adding && <button className="kb primary" onClick={() => setAdding({ quote: picked, clause: pickedClause })}>요구 추가</button>}
-      {split.pct != null && <button className="ws-link muted" onClick={split.auto}>자동 맞춤</button>}
       <button className="kb" disabled={idx <= 0} onClick={() => onMove(order[idx - 1].requirement_id)}>이전</button>
       <button className="kb" disabled={idx < 0 || idx >= order.length - 1} onClick={() => onMove(order[idx + 1].requirement_id)}>다음</button>
     </div>
@@ -595,13 +590,11 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
         : <OriginalDocument document={doc} origin={d?.origin} selectionRevision={d ? 1 : 0} onQuoteClick={() => undefined} onSelectText={setPicked} />}
     </div>
     </div>
-    <div className="ws-split" role="separator" aria-orientation="horizontal" aria-label="원문과 결정 높이 조절" tabIndex={0} aria-valuenow={split.pct == null ? undefined : Math.round(split.pct)} onPointerDown={split.drag} onKeyDown={split.key} />
-    <div className="ws-top" style={split.pct == null ? { flex: '0 0 auto', maxHeight: '60%' } : { flex: `0 0 ${split.pct}%` }}>
+    <div className="ws-top">
     {adding ? <AddRequirement projectId={projectId} quote={adding.quote} clause={adding.clause} equipment={row.equipment} onCancel={() => setAdding(undefined)} onDone={id => { setAdding(undefined); setPicked(''); onMove(id); }} />
     : <div className="ws-pick">
       <div className="hd"><span className="name">{row.attribute ?? codeLabel(row.code)}</span><span className="muted">{codeLabel(row.code)} {row.equipment}</span><span className="sp" /><span>{decided ? '결정 완료' : VERDICT[kindOf(row)]}</span>{!decided && <span className="dot" title="AI가 정한 판정입니다" aria-label="AI 판정" />}</div>
-      <div className="ws-cmp"><span className="k">요구</span><span className={row.value_text ? 'v' : 'v empty'}>{row.value_text ?? '빈 칸'}</span><span className="k">자사</span><span className="v">{ownText}{(row.own_value ?? own) && <small className="muted"> {row.own_value?.product_code ?? own?.product_code}{row.own_value?.note ? ` ${row.own_value.note}` : ''}</small>}</span></div>
-      {reason && <div className="ws-whyrow"><p className={`ws-why${whyOpen ? ' open' : ''}`} title={reason}>{reasonText(reason)}</p>{reasonText(reason).length > 90 && <button className="ws-link muted ws-whymore" onClick={() => setWhyOpen(!whyOpen)}>{whyOpen ? '접기' : '펼치기'}</button>}</div>}
+      <div className="ws-cmp"><span className="k">요구</span><span className={row.value_text ? 'v' : 'v empty'}>{row.value_text ?? '빈 칸'}</span><span className="k">자사</span><span className="v">{ownText}{(row.own_value ?? own) && <small className="muted"> {row.own_value?.product_code ?? own?.product_code}{row.own_value?.note ? ` ${row.own_value.note}` : ''}</small>}</span>{reason && <><span className="k">판정 이유</span><span className="v why" title={reason}>{reasonText(reason)}</span></>}</div>
       {followsOf(row) ? <div className="ws-decided"><span>원문 {row.duplicate?.member_count ?? 2}곳에 같은 요구가 있어 대표 요구에서 결정합니다.</span><span className="sp" /><button className="ws-link" onClick={() => onMove(followsOf(row) as string)}>대표로 이동</button>{tools}</div>
       : replied && d && !responsible ? <>
         <div className="ws-decided"><span>회신 도착</span><span className="sp" />{row.decision?.decision_id && <button className="ws-link" disabled={decide.isPending} onClick={() => decide.mutate({ action: 'undo', decision_id: row.decision?.decision_id })}>되돌리기</button>}{tools}</div>
@@ -614,6 +607,7 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
         : responsible ? <div className="ws-go"><span className="muted ws-note">결정은 담당자가 합니다.</span>{tools}</div>
           : <div className="ws-form">
             {kindOf(row) === 'DEVIATION' && <>
+              <span className="ws-label">처리</span>
               <div className="ws-opts" role="radiogroup" aria-label="편차 처리">
                 <label><input type="radio" checked={choice === 'deviate'} onChange={() => setChoice('deviate')} /> 편차로 기재</label>
                 <label><input type="radio" checked={choice === 'check'} onChange={() => setChoice('check')} /> 충족 근거 확인</label>
@@ -673,32 +667,6 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
   </div>;
 }
 
-// 오른쪽 칸 위(원문)·아래(결정 카드). 기본은 자동: 결정 카드는 내용 높이(최대 60%), 원문이 나머지.
-// 경계선을 끌면 그 비율(pct = 결정 카드 몫)로 고정해 이 브라우저에 기억하고, [자동 맞춤]으로 되돌린다(저장 실패는 무시).
-const SPLIT_KEY = 'rfp-ws-split-v3';
-const readSplit = () => { try { const v = Number(localStorage.getItem(SPLIT_KEY)); return v >= 10 && v <= 90 ? v : null; } catch { return null; } };
-const saveSplit = (v: number | null) => { try { if (v == null) localStorage.removeItem(SPLIT_KEY); else localStorage.setItem(SPLIT_KEY, String(Math.round(v))); } catch { /* 저장 못 해도 화면은 그대로 */ } };
-function useSplit() {
-  const box = useRef<HTMLDivElement>(null);
-  const [pct, setPct] = useState<number | null>(readSplit);
-  const clamp = (v: number) => { const h = box.current?.getBoundingClientRect().height ?? 0; const card = h ? 160 / h * 100 : 10; const source = h ? 200 / h * 100 : 10; return Math.min(100 - source, Math.max(card, v)); };
-  // 자동 상태에서 처음 끌거나 누르면 지금 카드 높이에서 시작한다.
-  const current = () => { if (pct != null) return pct; const rect = box.current?.getBoundingClientRect(); const top = box.current?.querySelector('.ws-top')?.getBoundingClientRect(); return rect && top && rect.height ? top.height / rect.height * 100 : 40; };
-  const drag = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const handle = event.currentTarget; const rect = box.current?.getBoundingClientRect(); if (!rect) return;
-    handle.setPointerCapture(event.pointerId);
-    let last = current();
-    const move = (e: PointerEvent) => { last = clamp(100 - (e.clientY - rect.top) / rect.height * 100); setPct(last); };
-    const up = () => { handle.removeEventListener('pointermove', move); handle.removeEventListener('pointerup', up); saveSplit(last); };
-    handle.addEventListener('pointermove', move); handle.addEventListener('pointerup', up);
-  };
-  const key = (event: { key: string; preventDefault: () => void }) => {
-    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
-    event.preventDefault(); const next = clamp(current() + (event.key === 'ArrowDown' ? -5 : 5)); setPct(next); saveSplit(next);
-  };
-  const auto = () => { setPct(null); saveSplit(null); };
-  return { box, pct, drag, key, auto };
-}
 
 function Output({ project, rows, excluded = [], responsible, actorId, onJump, onPick }: { project: ProjectDetail; rows: Row[]; excluded?: Row[]; responsible: boolean; actorId?: string; onJump: (filter: 'todo' | Kind) => void; onPick: (id: string) => void }) {
   const client = useQueryClient();
