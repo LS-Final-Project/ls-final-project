@@ -95,7 +95,19 @@ function runningPageText(root: HTMLElement): Set<Element> {
 /** Reveal an explicitly selected quote inside its viewer, never scroll outer ancestors. */
 export function revealQuote(root: HTMLElement, scroller: HTMLElement) {
   const mark = root.querySelector('mark[data-rfp-quote]');
-  if (!mark) return;
+  if (mark) revealElement(mark, scroller);
+}
+
+// 도면처럼 인용문 대신 본문 이미지 n번째를 보여 줄 때(OCR 요구).
+export function revealImage(root: HTMLElement, scroller: HTMLElement, n: number) {
+  const image = root.querySelectorAll('img')[n - 1] as HTMLElement | undefined;
+  if (!image) return false;
+  image.style.outline = '3px solid #f2c94c'; image.style.outlineOffset = '2px';
+  revealElement(image, scroller);
+  return true;
+}
+
+function revealElement(mark: Element, scroller: HTMLElement) {
   // A document's scrolling element moves with its content (rect.top = -scrollTop); its viewport starts at 0.
   const viewTop = scroller === scroller.ownerDocument.scrollingElement ? 0 : scroller.getBoundingClientRect().top;
   const top = scroller.scrollTop + mark.getBoundingClientRect().top - viewTop - scroller.clientHeight / 3;

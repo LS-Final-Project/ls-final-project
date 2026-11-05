@@ -145,9 +145,9 @@ it('an explicit quote selection moves only the viewer scroll offset', () => {
 
 it('이미지 전사는 native 텍스트 강조 대신 정확한 이미지/페이지 위치 안내를 준다', () => {
   const origin = { quote: '170 kV', clause_no: 'OCR-DOCX-0002.1', page: null } as Parameters<typeof originalQuote>[0];
-  expect(originalQuote(origin)).toEqual({ quote: '', notice: expect.stringContaining('본문 이미지 순번 2') });
-  expect(originalQuote({ ...origin!, clause_no: 'OCR-PDF-P0003.1', page: 3 })).toEqual({ quote: '', notice: expect.stringContaining('PDF 원문 3쪽') });
-  expect(originalQuote({ ...origin!, clause_no: '1.3.1' })).toEqual({ quote: '170 kV', notice: undefined });
+  expect(originalQuote(origin)).toEqual({ quote: '', notice: expect.stringContaining('본문 이미지 순번 2'), image: 2 });
+  expect(originalQuote({ ...origin!, clause_no: 'OCR-PDF-P0003.1', page: 3 })).toEqual({ quote: '', notice: expect.stringContaining('PDF 원문 3쪽'), image: undefined });
+  expect(originalQuote({ ...origin!, clause_no: '1.3.1' })).toEqual({ quote: '170 kV', notice: undefined, image: undefined });
 });
 
 describe('선택한 인용으로 원문 스크롤', () => {

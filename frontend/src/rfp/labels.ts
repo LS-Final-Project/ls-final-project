@@ -39,7 +39,7 @@ export const ISSUE_LABEL: Record<string, string> = {
   EMPTY_VALUE: '값 없음', CONFLICT: '상충', SCOPE_UNCLEAR: '범위 불명확', CONDITION_MISSING: '조건 없음',
   RND_FEASIBILITY: 'R&D 개발 가능성', TECH_ADVICE: '기술 자문', PURCHASE_TERMS: '구매 조건',
 };
-export const QUESTION_STATUS_LABEL: Record<string, string> = { DRAFT: '초안', OPEN: '회신 대기', REPLIED: '회신 기록됨' };
+export const QUESTION_STATUS_LABEL: Record<string, string> = { DRAFT: '초안', OPEN: '회신 대기', REPLIED: '회신 도착' };
 export const BLOCKED_LABEL: Record<string, string> = { OWN_DEVELOPMENT_FEASIBLE: '자사 개발 가능', OWN_DEVELOPMENT_NOT_FEASIBLE: 'R&D 개발 불가 회신', DESIGNATED_ITEM: '지정품 요구' };
 export const RND_CHECK_LABEL: Record<string, string> = { NOT_REQUIRED: '확인 불필요', PENDING: 'R&D 확인 대기', CONFIRMED_FEASIBLE: '자사 개발 가능', CONFIRMED_NOT_FEASIBLE: '자사 개발 불가', CONFIRMED_SCHEDULE_MISMATCH: '일정 불일치', WAIVED: '확인 면제' };
 export const FEASIBILITY_LABEL: Record<string, string> = {
