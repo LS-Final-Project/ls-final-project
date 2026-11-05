@@ -205,5 +205,42 @@ class DemoMailTests(unittest.TestCase):
         self.assertEqual(value["encryption_key"], mail.load(state)["encryption_key"])
 
 
+class DemoStorePathTests(unittest.TestCase):
+    def test_platform_and_cli_share_the_document_root_file(self):
+        # The stack binds state/files at TFT_DOCUMENT_ROOT; runtime puts mail objects under it.
+        from pathlib import Path as P
+
+        stack = P("scripts/local_business/stack.py").read_text(encoding="utf-8")
+        self.assertIn("type=bind,src={state}/files,dst=/local/files", stack)
+        self.assertIn('"TFT_DOCUMENT_ROOT=/local/files"', stack)
+        objects = P("/local/files") / ".mail-objects"
+        self.assertEqual(demo_mail.store_path(objects.parent), P("/local/files") / demo_mail.STORE)
+
+    def test_cli_refuses_when_the_platform_store_is_missing(self):
+        import argparse
+
+        from scripts.local_business import __main__ as cli
+
+        with tempfile.TemporaryDirectory() as root:
+            state = Path(root)
+            (state / "auth").mkdir()
+            mail.write(
+                state, app=mail.DEMO_APP, sync=True, send=False, allow=[], interval=60, demo=True
+            )
+            args = argparse.Namespace(
+                sender="a@customer.example.invalid", subject="s", body="b", reply=False
+            )
+            original = cli.owned
+            cli.owned = lambda _state: {}
+            try:
+                with self.assertRaises(ValueError) as refused:
+                    cli.mail_demo_receive(state, args)
+                self.assertIn("STORE_MISSING", str(refused.exception))
+                demo_mail.DemoStore(demo_mail.store_path(state / "files")).ensure()
+                cli.mail_demo_receive(state, args)
+            finally:
+                cli.owned = original
+
+
 if __name__ == "__main__":
     unittest.main()

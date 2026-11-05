@@ -57,8 +57,14 @@ MESSAGE = re.compile(r"/v1\.0/me/messages/([A-Za-z0-9_-]{1,128})(/\$value|/attac
 INTENT = re.compile(r"ep/value eq '([0-9a-fA-F-]{36})'")
 
 
-def store_path(state: Path) -> Path:
-    return state / "files" / STORE
+def store_path(documents: Path) -> Path:
+    """The demo mailbox file in the namespace's document root.
+
+    The platform passes its document root (TFT_DOCUMENT_ROOT, the bind of state/files); the CLI
+    passes state/files. The platform creates the file at start-up, and the CLI refuses to write
+    when it is missing, so a mount that does not match never drops mail silently.
+    """
+    return documents / STORE
 
 
 class DemoStore:
@@ -81,6 +87,11 @@ class DemoStore:
             temporary = self.path.with_name(self.path.name + ".tmp")
             temporary.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
             os.replace(temporary, self.path)
+
+    def ensure(self) -> None:
+        """Create an empty store if none exists (platform start-up)."""
+        with self.open():
+            pass
 
     def read(self) -> dict[str, Any]:
         """A consistent snapshot under a shared lock. Never rewrites the file."""

@@ -502,8 +502,12 @@ def mail_demo_receive(state, args):
             "Warning: replies to this address are blocked by the send allow list:",
             ", ".join(current["allow"]),
         )
+    path = demo_mail.store_path(state / "files")
+    if not path.exists():
+        # The platform creates it at start-up in its document root (the bind of state/files).
+        raise ValueError("LOCAL_MAIL_DEMO_STORE_MISSING_RESTART_FIRST")
     stored = demo_mail.receive(
-        demo_mail.DemoStore(demo_mail.store_path(state)),
+        demo_mail.DemoStore(path),
         sender=args.sender,
         subject=args.subject,
         body=args.body,

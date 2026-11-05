@@ -289,9 +289,16 @@ def configure_platform(
     demo = bool(mail.get("demo"))
     if demo:
         # Local demo: synthetic consent and a JSON Graph; nothing leaves the machine.
-        from scripts.local_business.demo_mail import STORE, DemoGraph, DemoStore, LocalDemoMailbox
+        from scripts.local_business.demo_mail import (
+            DemoGraph,
+            DemoStore,
+            LocalDemoMailbox,
+            store_path,
+        )
 
         app.state.mailbox_oauth = LocalDemoMailbox(web_origin)
+        demo_store = DemoStore(store_path(objects.parent))
+        demo_store.ensure()  # the CLI checks this file exists in state/files before writing
     else:
         app.state.mailbox_oauth = PersonalMicrosoftOAuth(
             UUID(mail["client_id"]), SecretStr(mail["client_secret"]), redirect
@@ -306,7 +313,7 @@ def configure_platform(
         token=identity.token,
         objects=objects,
         allow=mail.get("allow", []),
-        real=DemoGraph(DemoStore(objects.parent / STORE)) if demo else None,
+        real=DemoGraph(demo_store) if demo else None,
     )
 
     async def no_google_token() -> str:
