@@ -19,6 +19,8 @@ CHUNKS = {"c1": "Breaker trip curve settings.", "c2": "변압기 탭 조정 방�
 QUERIES = {"q1": "trip curve", "q2": "탭 조정"}
 GOLD = {"q1": ["c1"], "q2": ["c2"]}
 WORDS = ("trip", "탭", "fan")
+# 벡터가 결과에 쓰이면 드러나는 표지값. 시간·지표 숫자에 우연히 나올 수 없는 자릿수다.
+VECTOR_SENTINEL = 0.0123456789
 
 
 def fake_vector(text: str) -> list[float]:
@@ -30,7 +32,7 @@ def fake_vector(text: str) -> list[float]:
     Returns:
         list[float]: 단어별 1/0과 0이 되지 않게 하는 작은 값.
     """
-    return [1.0 if word in text.lower() else 0.0 for word in WORDS] + [0.01]
+    return [1.0 if word in text.lower() else 0.0 for word in WORDS] + [VECTOR_SENTINEL]
 
 
 class EmbeddingRunTests(unittest.TestCase):
@@ -173,7 +175,7 @@ class EmbeddingRunTests(unittest.TestCase):
         self.assertEqual((meta["chunks"], meta["queries"], meta["k_values"]), (3, 2, [1, 3, 5, 10]))
         self.assertEqual([c["name"] for c in meta["candidates"]], ["e1", "e2"])
         self.assertEqual(len(seen), 6)
-        for secret in (KEY, "Breaker trip", "탭 조정", "0.01"):
+        for secret in (KEY, "Breaker trip", "탭 조정", str(VECTOR_SENTINEL)):
             self.assertNotIn(secret, text)
 
     def test_invalid_inputs_exit_with_code_1_before_any_call(self):
