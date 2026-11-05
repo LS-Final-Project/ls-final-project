@@ -126,7 +126,8 @@
               "HEADER",
               "THREAD",
               "HUMAN",
-              "BUSINESS"
+              "BUSINESS",
+              "ADDRESS"
             ],
             "title": "Method",
             "type": "string"
@@ -146,6 +147,53 @@
           "method"
         ],
         "title": "Candidate",
+        "type": "object"
+      },
+      "CandidateTicket": {
+        "properties": {
+          "customer_external_id": {
+            "title": "Customer External Id",
+            "type": "string"
+          },
+          "external_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Id"
+          },
+          "product_code": {
+            "title": "Product Code",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          }
+        },
+        "required": [
+          "external_id",
+          "subject",
+          "state",
+          "customer_external_id",
+          "product_code"
+        ],
+        "title": "CandidateTicket",
         "type": "object"
       },
       "CaseAttemptView": {
@@ -2703,7 +2751,8 @@
                   "AMBIGUOUS",
                   "UNMATCHED_REPLY",
                   "CONFLICT",
-                  "TRIAGE_DISAGREES"
+                  "TRIAGE_DISAGREES",
+                  "ADDRESS_MATCH"
                 ],
                 "type": "string"
               },
@@ -2767,7 +2816,8 @@
               "AMBIGUOUS",
               "UNMATCHED_REPLY",
               "CONFLICT",
-              "TRIAGE_DISAGREES"
+              "TRIAGE_DISAGREES",
+              "ADDRESS_MATCH"
             ],
             "title": "Reason",
             "type": "string"
@@ -2873,6 +2923,92 @@
           "request_id"
         ],
         "title": "ResponseMeta",
+        "type": "object"
+      },
+      "ReviewCandidate": {
+        "description": "\uac80\ud1a0 \ud654\uba74\uc758 \ud6c4\ubcf4 \ud55c \uac74(KAN-235). method: \ud50c\ub7ab\ud3fc \uadfc\uac70(HEADER\u00b7THREAD\u00b7ADDRESS), \uace0\uac1d \uc5f0\ub77d\ucc98\ub85c \ucc3e\uc740 \ubb38\uc758\ub294\nCONTACT. ticket\u00b7evidence\ub294 C/S\uac00 \ud655\uc778\ud55c \uac12\uc774\uba70 C/S\ub97c \ubd80\ub974\uc9c0 \ubabb\ud558\uba74 null\u00b7\ube48 \ubaa9\ub85d\uc774\ub2e4.",
+        "properties": {
+          "business_ref": {
+            "title": "Business Ref",
+            "type": "string"
+          },
+          "evidence": {
+            "items": {
+              "enum": [
+                "ORIGIN_ADDRESS",
+                "SENT_TO_ADDRESS",
+                "CUSTOMER_CONTACT",
+                "WAITING_CUSTOMER",
+                "PRODUCT_MATCH",
+                "ERROR_CODE_MATCH"
+              ],
+              "type": "string"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "method": {
+            "enum": [
+              "HEADER",
+              "THREAD",
+              "ADDRESS",
+              "CONTACT"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "owner_service": {
+            "enum": [
+              "cs",
+              "platform"
+            ],
+            "title": "Owner Service",
+            "type": "string"
+          },
+          "ticket": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CandidateTicket"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "owner_service",
+          "business_ref",
+          "method"
+        ],
+        "title": "ReviewCandidate",
+        "type": "object"
+      },
+      "ReviewCandidates": {
+        "properties": {
+          "enriched": {
+            "title": "Enriched",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewCandidate"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "message_id": {
+            "format": "uuid",
+            "title": "Message Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message_id",
+          "items",
+          "enriched"
+        ],
+        "title": "ReviewCandidates",
         "type": "object"
       },
       "SendIntentList": {
@@ -3551,6 +3687,22 @@
           "meta"
         ],
         "title": "SuccessResponse[ResendResult]",
+        "type": "object"
+      },
+      "SuccessResponse_ReviewCandidates_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ReviewCandidates"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[ReviewCandidates]",
         "type": "object"
       },
       "SuccessResponse_SendIntentList_": {
@@ -6582,6 +6734,92 @@
         "x-implementation-status": "partial"
       }
     },
+    "/api/v1/platform/mail/reply-reviews/{message_id}/candidates": {
+      "get": {
+        "description": "\uac80\ud1a0 \uba54\uc77c\uc758 \ud6c4\ubcf4\uc640 \uadfc\uac70(KAN-235). \ud50c\ub7ab\ud3fc \ud6c4\ubcf4(\ud5e4\ub354\u00b7\ub300\ud654 \ubb36\uc74c\u00b7\uc8fc\uace0\ubc1b\uc740 \uc8fc\uc18c)\uc5d0 C/S\uac00 \ucc3e\uc740 \uace0\uac1d \uc5f0\ub77d\ucc98\n\ud6c4\ubcf4\ub97c \ub354\ud558\uace0, \ud6c4\ubcf4\ub9c8\ub2e4 \ubb38\uc758 \uc815\ubcf4\uc640 \uadfc\uac70(\uace0\uac1d \ud68c\uc2e0 \ub300\uae30, \ubcf8\ubb38\uc758 \uc81c\ud488\u00b7\uc624\ub958 \ucf54\ub4dc \uc77c\uce58 \ub4f1)\ub97c \ubd99\uc778\ub2e4.\n\uc77d\uae30\ub9cc \ud55c\ub2e4. \ud6c4\ubcf4\ub294 \uace0\ub974\ub294 \ub370 \uc4f0\uace0 \uc790\ub3d9 \uc5f0\uacb0\ud558\uc9c0 \uc54a\ub294\ub2e4.",
+        "operationId": "platform_mail_reply_candidates",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Message Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ReviewCandidates_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Review Candidates",
+        "tags": [
+          "mail-links"
+        ],
+        "x-activation": "MAILBOX_AUTH_ENABLED",
+        "x-implementation-status": "partial"
+      }
+    },
     "/api/v1/platform/mail/reply-reviews/{message_id}/dismiss": {
       "post": {
         "description": "\uba54\uc77c\ud568 \uc8fc\uc778\uc774 \uc774 \uba54\uc77c\uc740 \uc5c5\ubb34 \ud68c\uc2e0\uc774 \uc544\ub2c8\ub77c\uace0 \ub2eb\ub294\ub2e4. \uc0ac\uc720\ub97c \ub0a8\uae34\ub2e4.",
@@ -6680,7 +6918,7 @@
     },
     "/api/v1/platform/mail/reply-reviews/{message_id}/link": {
       "post": {
-        "description": "\uba54\uc77c\ud568 \uc8fc\uc778\uc774 \uac80\ud1a0 \uc911\uc778 \ud68c\uc2e0\uc744 \ud6c4\ubcf4 \uc5c5\ubb34 \uc911 \ud558\ub098\uc5d0 \uc5f0\uacb0\ud55c\ub2e4. \ud6c4\ubcf4 \ubc16 \uc5c5\ubb34\ub294 422\ub2e4.",
+        "description": "\uba54\uc77c\ud568 \uc8fc\uc778\uc774 \uac80\ud1a0 \uc911\uc778 \ud68c\uc2e0\uc744 \uc5c5\ubb34\uc5d0 \uc5f0\uacb0\ud55c\ub2e4. \ud6c4\ubcf4\uac00 \uc544\ub2c8\uc5b4\ub3c4 C/S \ubb38\uc758\uba74 \ub2f4\ub2f9\uc790\uac00 \ubc88\ud638\ub85c \ucc3e\uc544\n\uc5f0\uacb0\ud560 \uc218 \uc788\ub2e4(KAN-235). \ub204\uac00(decided_by)\u00b7\ubb34\uc5c7\uc744 \uadfc\uac70\ub85c(basis\u00b7evidence) \uace8\ub790\ub294\uc9c0 \ub0a8\uae34\ub2e4.\n\ud6c4\ubcf4 \ubc16 \ubb38\uc758\ub294 C/S\uac00 \uc788\ub294\uc9c0 \ud655\uc778\ud55c \ub4a4\uc5d0\ub9cc \uc5f0\uacb0\ud558\uba70, C/S\ub97c \ubd80\ub97c \uc218 \uc5c6\uc73c\uba74 422\ub2e4.",
         "operationId": "platform_link_mail_reply",
         "parameters": [
           {

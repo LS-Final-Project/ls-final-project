@@ -121,11 +121,12 @@ const notificationRoutes = [
   [/^\/api\/v1\/platform\/push\/subscription$/, ['PUT', 'DELETE'], []],
 ];
 // 메일 화면이 실제로 쓰는 경로만 플랫폼으로 보낸다: 읽기, 분류 변경, 결과 불명 발송의 쓰기 2개(KAN-178)와
-// 받은 메일 화면의 회신 연결·무시, 문의 접수(KAN-132). 재전송·연결·접수 조건은 서버가 검사한다(contracts/platform/mail.md).
+// 받은 메일 화면의 회신 연결·무시·후보 근거(KAN-235), 문의 접수(KAN-132). 재전송·연결·접수 조건은 서버가 검사한다(contracts/platform/mail.md).
 const mailRoutes = [
   [/^\/api\/v1\/platform\/mail\/send-intents$/, ['GET'], ['status']],
   [/^\/api\/v1\/platform\/mail\/send-intents\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/(?:check-sent-copy|resend)$/, ['POST'], []],
   [/^\/api\/v1\/platform\/mail\/reply-reviews$/, ['GET'], []],
+  [/^\/api\/v1\/platform\/mail\/reply-reviews\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/candidates$/, ['GET'], []],
   [/^\/api\/v1\/platform\/mail\/messages\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/triage$/, ['GET', 'POST'], []],
   [/^\/api\/v1\/platform\/mail\/reply-reviews\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/(?:link|dismiss)$/, ['POST'], []],
   [/^\/api\/v1\/platform\/mail\/messages\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/register-ticket$/, ['POST'], []],

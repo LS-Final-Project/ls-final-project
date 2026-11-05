@@ -61,7 +61,7 @@ T13을 재적용해도 허용집합을 과거로 되돌리지 않는다. 정렬�
 
 ## 전체 적용 순서
 
-`infra/migrations/` 아래 서비스별 마이그레이션 87개의 적용 순서와 적용 전 확인 방법이다. cs·tft 마이그레이션은 platform의 표를 FK로 참조하지 않아 서비스 사이 순서 의존은 없다. 서비스 안에서는 파일명 정렬 순서가 아래 선행 조건을 모두 만족하며, 새 로컬 DB의 `infra/local/init.sh`도 001 다음 cs → tft → platform 순서로 각 폴더를 파일명 정렬로 적용한다. 표의 순서 번호는 추가된 차례라 파일명 정렬과 다를 수 있다(P20은 파일명상 P16 앞). 어느 쪽으로 적용해도 선행 조건을 만족한다.
+`infra/migrations/` 아래 서비스별 마이그레이션 91개의 적용 순서와 적용 전 확인 방법이다. cs·tft 마이그레이션은 platform의 표를 FK로 참조하지 않아 서비스 사이 순서 의존은 없다. 서비스 안에서는 파일명 정렬 순서가 아래 선행 조건을 모두 만족하며, 새 로컬 DB의 `infra/local/init.sh`도 001 다음 cs → tft → platform 순서로 각 폴더를 파일명 정렬로 적용한다. 표의 순서 번호는 추가된 차례라 파일명 정렬과 다를 수 있다(P20은 파일명상 P16 앞). 어느 쪽으로 적용해도 선행 조건을 만족한다.
 
 **공용 상태 열: 운영자가 공용 DB(team4)에 적용·확인한 날짜를 이 열에 직접 기록한다.** 현재 이 저장소에는 공용 DB 적용 기록이 없어 모두 `미확인`이다. 기록 없이 적용됐다고 가정하지 않는다.
 
@@ -104,6 +104,7 @@ T13을 재적용해도 허용집합을 과거로 되돌리지 않는다. 정렬�
 | C30 | `cs/20261112_KAN-230_customer_reply_body.sql` | C13(헤더) | cs_migrator | 가능 | 열 `cs.ticket_customer_replies.body` | 미확인 |
 | C31 | `cs/20261113_KAN-230_reply_analyses.sql` | C1·C30(헤더) | cs_migrator | 가능 | to_regclass('cs.ticket_reply_analyses') | 미확인 |
 | C32 | `cs/20261114_KAN-234_ticket_no_match.sql` | C29(헤더) | cs_migrator | 가능 | pg_get_constraintdef로 `ticket_assignments_reason_code_check`에 'NO_MATCH' 포함 | 미적용 |
+| C33 | `cs/20261115_KAN-235_customer_contacts.sql` | C1(헤더) | cs_migrator | 가능 | to_regclass('cs.customer_contacts') | 미적용 |
 | T1 | `tft/20261023_KAN-119_projects.sql` | 001 | tft_migrator | 가능 | to_regclass('tft.organizations') | 미확인 |
 | T2 | `tft/20261023_KAN-122_staffing_requests.sql` | T1(헤더) | tft_migrator | 가능 | to_regclass('tft.staffing_request_revisions') | 미확인 |
 | T3 | `tft/20261025_KAN-123_competency_rechecks.sql` | T1 | postgres(SET ROLE 없음) | 가능 | to_regclass('tft.competency_checks_recommendation_competency_time') | 미확인 |
@@ -161,6 +162,7 @@ T13을 재적용해도 허용집합을 과거로 되돌리지 않는다. 정렬�
 | P33 | `platform/20261109_KAN-188_draft_rewrite_jobs.sql` | P28 | platform_migrator | 가능 | rfp.draft_rewrite 접수 제약 | 미적용 |
 | P34 | `platform/20261110_KAN-201_notification_expansion.sql` | P30 | platform_migrator | 가능 | notify.notification_intents의 notification_expand_on_insert trigger | 미적용 |
 | P35 | `platform/20261111_KAN-214_assignment_notification.sql` | P30(헤더) | platform_migrator | 가능 | pg_get_constraintdef로 `notification_intents_kind_check`에 'cs.assigned' 포함 | 미적용 |
+| P36 | `platform/20261115_KAN-235_mail_link_basis.sql` | P23(헤더) | platform_migrator | 가능 | 열 `integration.mail_links.basis`, pg_get_constraintdef로 `mail_reply_reviews_reason_check`에 'ADDRESS_MATCH' 포함 | 미적용 |
 
 적용 전 확인 쿼리(운영자 연결, 읽기 전용):
 
@@ -443,3 +445,9 @@ GRANT CONNECT ON DATABASE team4 TO cs_worker_login, tft_worker_login;
 같은 비밀번호를 `CS_WORKER_DB_PASSWORD`·`TFT_WORKER_DB_PASSWORD`로 내보내 `infra/register_db_secrets.py`로 등록한다. 이 역할의 권한 마이그레이션(P29, T14 등)이 먼저 적용돼 있어야 한다.
 
 T20 적용 뒤 T14 또는 T17을 각각 재적용해도 새 프로젝트 입력3열의 worker SELECT를 조건부로 복원한다. T20 이전에는 열 존재 검사를 통과하지 않으므로 새 설치 순서를 막지 않는다. 프로젝트의 다른 열 권한이나 UPDATE 권한은 넓히지 않는다.
+
+
+### KAN-235 회신 후보 찾기 확장 (C33·P36)
+
+- C33 `cs.customer_contacts`: 고객 연락처(주소 또는 회사 도메인, 가정 자료). `cs_app`은 SELECT만. 행은 `register_customer_contact.sql`(postgres)로만 넣는다([C/S 회신 후보 계약](../../contracts/cs/reply-candidates.md)).
+- P36: `integration.mail_links`에 `basis`·`evidence`(사람 연결의 근거), `mail_reply_reviews.reason`에 `ADDRESS_MATCH`. 권한 변경 없음. **C/S 코드(C33 포함)를 먼저 배포**한다. 플랫폼만 먼저 나가면 후보 조회가 C/S 내부 경로 404로 503이 되고, 후보 밖 연결은 확인할 수 없어 422가 된다(저장된 후보 연결은 된다).

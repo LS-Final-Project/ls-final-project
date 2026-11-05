@@ -6,8 +6,6 @@ import { getApiMode } from '../api/client';
 import { listTicketsBy, type TicketListResponse } from '../api/cs';
 import { ErrorState, Loading } from '../components/states';
 import TicketCreateDialog from '../components/TicketCreateDialog';
-import AutoAssignDialog from '../components/AutoAssignDialog';
-import { me } from '../api/platform';
 import { useTicketPages } from '../ls-shell/use-tickets';
 import { useHotkey } from '../ls-shell/kv';
 import LogTable, { type LogColumn, type LogSort } from './LogTable';
@@ -42,12 +40,6 @@ export default function Tickets() {
   const [sort, setSort] = useState<LogSort>({ key: 'age', dir: 'desc' });
   const [page, setPage] = useState(0);
   const [creating, setCreating] = useState(false);
-  const [autoAssign, setAutoAssign] = useState(false);
-  // 담당 변경·자동 배정은 C/S 관리자만 한다(서버도 확인). 업무 접근 확인(['me'])과 캐시를 섞지 않으려고 키를 따로 둔다.
-  const identity = useQuery({ queryKey: ['tickets-identity', mode], queryFn: me, retry: false, enabled: access.ready && mode === 'live' });
-  // 서버는 manager 역할과 C/S 부서(GCS_L1) 관리를 함께 본다. 다른 부서 관리자에게는 열지 않는다.
-  const isManager = identity.data?.data?.roles?.includes('manager') === true && (identity.data?.data?.managed_departments ?? []).includes('GCS_L1');
-  const managerReason = (denied: string) => isManager ? undefined : mode !== 'live' ? '실제 API 모드에서만 할 수 있습니다' : identity.isPending ? '세션을 확인하는 중입니다' : identity.isError ? '세션을 확인하지 못했습니다. 새로고침하세요' : denied;
 
   const tickets = useTicketPages(access.ready);
   // 조회 중에는 다시 부르지 않는다. 단추만 잠그면 다시 그려지기 전에 들어온 연타나 F8 키 반복이 요청을 겹친다.
@@ -122,7 +114,6 @@ export default function Tickets() {
       <div className="btns">
         <button className="kb3" disabled={mode !== 'live'} title={mode !== 'live' ? '실제 API 모드에서만 등록할 수 있습니다' : undefined} onClick={() => setCreating(true)}>신규 등록</button>
         {/* KAN-214: 담당 없는 접수 문의를 규칙으로 배정한다. 미리보기 뒤 적용. */}
-        <button className="kb3" disabled={!isManager} title={managerReason('C/S 부서 관리자만 자동 배정할 수 있습니다') ?? '담당 없는 접수 문의를 언어·제품군 규칙으로 배정합니다(미리보기 뒤 적용)'} onClick={() => setAutoAssign(true)}>자동 배정</button>
         <button className="kb3" onClick={() => window.print()}>인쇄</button>
         <span className="vsep" />
         <button className="kb3 pri" disabled={tickets.isFetching} onClick={refresh}>조회<kbd aria-hidden="true">F8</kbd></button>
@@ -167,7 +158,6 @@ export default function Tickets() {
       </div>}
     </div>
 
-    {autoAssign && <AutoAssignDialog onClose={() => setAutoAssign(false)} onDone={() => { void tickets.refetch(); }} />}
     {creating && <TicketCreateDialog products={products} onClose={() => setCreating(false)} onCreated={() => { void tickets.refetch(); }} />}
   </main>;
 }

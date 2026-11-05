@@ -34,7 +34,7 @@ export async function listSendIntents(status: SendStatus | '', signal?: AbortSig
 export type ReplyReview = paths['/api/v1/platform/mail/reply-reviews']['get']['responses'][200]['content']['application/json']['data']['items'][number];
 export type MailTriage = paths['/api/v1/platform/mail/messages/{message_id}/triage']['get']['responses'][200]['content']['application/json']['data'];
 
-const REASONS: ReplyReview['reason'][] = ['AMBIGUOUS', 'UNMATCHED_REPLY', 'CONFLICT', 'TRIAGE_DISAGREES'];
+const REASONS: ReplyReview['reason'][] = ['AMBIGUOUS', 'UNMATCHED_REPLY', 'CONFLICT', 'TRIAGE_DISAGREES', 'ADDRESS_MATCH'];
 const isReview = (value: unknown): value is ReplyReview => {
   const item = value as Record<string, unknown> | null;
   return typeof item === 'object' && item !== null && typeof item.message_id === 'string' && typeof item.received_at === 'string'
@@ -51,7 +51,7 @@ const isTriage = (value: unknown): value is MailTriage => {
 
 const reviewSample = (): { data: { items: ReplyReview[] } } => ({ data: { items: [
   { message_id: '44444444-4444-4444-8444-444444444444', received_at: '2026-10-29T08:41:00Z', created_at: '2026-10-29T08:42:00Z', reason: 'AMBIGUOUS', from_address: 'buyer@synthetic.example', subject: 'Re: 합성 정보 요청 예시', has_attachments: true,
-    candidates: [{ owner_service: 'cs', business_ref: 'SYNTHETIC-CS-0001', method: 'HEADER' }, { owner_service: 'cs', business_ref: 'SYNTHETIC-CS-0002', method: 'THREAD' }] },
+    candidates: [{ owner_service: 'cs', business_ref: 'cs_ticket:11111111-1111-4111-8111-111111111101', method: 'HEADER' }, { owner_service: 'cs', business_ref: 'cs_ticket:11111111-1111-4111-8111-111111111102', method: 'THREAD' }] },
   { message_id: '55555555-5555-4555-8555-555555555555', received_at: '2026-10-28T08:50:00Z', created_at: '2026-10-28T08:51:00Z', reason: 'UNMATCHED_REPLY', from_address: null, subject: null, has_attachments: false, candidates: [] },
 ] } });
 const triageSample = (messageId: string): { data: MailTriage } => ({ data: {
@@ -59,6 +59,32 @@ const triageSample = (messageId: string): { data: MailTriage } => ({ data: {
   evidence: [{ source: 'subject', start: 0, end: 3 }, { source: 'reply_header', start: null, end: null }], link_suggestion: 'EXISTING_THREAD',
   provenance_kind: 'ai_draft', reason: null, created_at: '2026-10-29T08:42:00Z',
 } });
+
+export type ReviewCandidates = paths['/api/v1/platform/mail/reply-reviews/{message_id}/candidates']['get']['responses'][200]['content']['application/json']['data'];
+export type ReviewCandidate = ReviewCandidates['items'][number];
+const candidateSample = (messageId: string): { data: ReviewCandidates } => ({ data: { message_id: messageId, enriched: true, items: messageId.startsWith('4444') ? [
+  { owner_service: 'cs', business_ref: 'cs_ticket:11111111-1111-4111-8111-111111111101', method: 'HEADER', evidence: ['WAITING_CUSTOMER', 'PRODUCT_MATCH'],
+    ticket: { external_id: 'CS-합성-0001', subject: '합성 차단기 트립 문의', state: 'WAITING_CUSTOMER', customer_external_id: 'CUST-0021', product_code: 'UPS-LSU-10K' } },
+  { owner_service: 'cs', business_ref: 'cs_ticket:11111111-1111-4111-8111-111111111102', method: 'THREAD', evidence: [],
+    ticket: { external_id: 'CS-합성-0002', subject: '합성 설치 문의', state: 'IN_REVIEW', customer_external_id: 'CUST-0021', product_code: 'ELCB-EBN-203c' } },
+  { owner_service: 'cs', business_ref: 'cs_ticket:11111111-1111-4111-8111-111111111103', method: 'CONTACT', evidence: ['CUSTOMER_CONTACT'],
+    ticket: { external_id: 'CS-합성-0003', subject: '합성 같은 고객의 다른 문의', state: 'IN_REVIEW', customer_external_id: 'CUST-0021', product_code: 'UPS-LSU-10K' } },
+] : [] } });
+const isCandidates = (value: unknown): value is ReviewCandidates => {
+  const data = value as Record<string, unknown> | null;
+  return typeof data === 'object' && data !== null && typeof data.enriched === 'boolean' && Array.isArray(data.items)
+    && data.items.every(c => typeof c === 'object' && c !== null && typeof (c as Record<string, unknown>).business_ref === 'string' && Array.isArray((c as Record<string, unknown>).evidence));
+};
+/**
+ * 검토 메일의 후보와 근거를 읽는다(KAN-235, 읽기 전용). 플랫폼 후보(헤더·대화 묶음·주고받은 주소)에 고객 연락처로 찾은
+ * 같은 고객의 진행 중 문의가 더해지고, 후보마다 문의 정보와 근거가 붙는다. 업무 서버를 부르지 못하면 enriched=false다.
+ */
+export async function getReplyCandidates(messageId: string, signal?: AbortSignal): Promise<ReviewCandidates> {
+  const body = await request<unknown>(`/api/v1/platform/mail/reply-reviews/${encodeURIComponent(messageId)}/candidates`, { signal, mockFallback: () => candidateSample(messageId) });
+  const data = (body as { data?: unknown } | null)?.data;
+  if (!isCandidates(data)) throw new ApiError(502, '연결 후보를 확인할 수 없습니다.');
+  return data;
+}
 
 /**
  * 사람이 연결 대상을 정해야 하는 고객 답장 목록을 읽는다(읽기 전용).
@@ -141,7 +167,7 @@ async function decide(messageId: string, action: 'link' | 'dismiss', body: objec
   if (!data || typeof data.message_id !== 'string' || !OUTCOMES.includes(data.outcome as string)) throw new ApiError(502, '처리 결과를 확인할 수 없습니다. 검토 목록을 다시 조회해 확인하세요.');
   return data as ReplyResult;
 }
-/** 고객 답장을 후보 중 하나에 연결한다(사람이 정함, 근거 HUMAN). 후보 밖은 서버가 422로 거부한다. */
+/** 고객 답장을 업무에 연결한다(사람이 정함, 근거 HUMAN). 후보 밖 C/S 문의도 번호로 찾아 연결할 수 있고, 서버가 문의가 있는지와 근거를 확인해 남긴다(KAN-235). */
 export const linkReply = (messageId: string, body: LinkBody, signal?: AbortSignal) => decide(messageId, 'link', body, signal);
 /** 업무 회신이 아니라고 닫는다. 사유(note)가 기록에 남는다. */
 export const dismissReply = (messageId: string, note: string, signal?: AbortSignal) => decide(messageId, 'dismiss', { note }, signal);

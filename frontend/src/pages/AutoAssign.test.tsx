@@ -9,7 +9,7 @@ import { jsonResponse, renderAt } from '../test/render';
 import examples from '../mocks/generated/cs.json';
 import { assignmentText } from '../ls-shell/cs-labels';
 
-// KAN-214 담당자 자동 배정 화면: 문의 조회의 관리자 단추·미리보기→적용, 문의 처리의 배정 근거, 업무 배정의 기준표.
+// KAN-214 담당자 자동 배정 화면: 문의 처리의 배정 근거, 업무 배정의 기준표. 문의 조회의 자동 배정 단추는 KAN-235에서 뺐다.
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); setApiMode('mock'); });
 
 const CS_MANAGER = { id: 'm', display_name: '관리자', roles: ['manager'], managed_departments: ['GCS_L1'] };
@@ -42,40 +42,12 @@ const UNMATCHED_TICKETS = [unmatchedTicket('u1', {}), unmatchedTicket('u2', { su
 const UNMATCHED_REQUESTS = [{ request_id: 'r9', request_type: 'FAULT', product_code: 'PLC-XGI-CPUU', fault_id: 'FLT-031', status: 'DRAFT', created_at: '2026-11-05T00:00:00Z', reason_code: 'NO_MATCH', family: 'PLC', trigger: 'CANDIDATE', decided_at: '2026-11-05T00:00:00Z' }];
 const list = () => { setApiMode('live'); renderAt('/cs/tickets', '/cs/tickets', <Tickets />); };
 
-for (const [who, me] of [['C/S 담당자', { id: 'c', roles: ['cs_agent'], managed_departments: [] }], ['다른 부서 관리자', { id: 'm', roles: ['manager'], managed_departments: ['TS_TRF'] }]] as const) {
-  test(`자동 배정 단추: ${who}에게는 잠기고 이유를 보인다`, async () => {
-    serve(me); list();
-    await screen.findByRole('link', { name: 'Breaker trips' });
-    const button = screen.getByRole('button', { name: '자동 배정' }) as HTMLButtonElement;
-    await waitFor(() => expect(button.getAttribute('title')).toBe('C/S 부서 관리자만 자동 배정할 수 있습니다'));
-    expect(button.disabled).toBe(true);
-  });
-}
-
-test('C/S 관리자는 미리보기를 보고 배정 적용하면 결과 건수를 보고 목록을 다시 읽는다', async () => {
+// KAN-235: 배정은 접수 때 시스템이 하고, 관리자는 업무 배정 화면에서 맞는 담당자 없는 건만 지정한다. 문의 조회에는 자동 배정 단추가 없다.
+test('문의 조회에는 C/S 관리자에게도 자동 배정 단추가 없고 배정 API를 부르지 않는다', async () => {
   const calls = serve(CS_MANAGER); list();
   await screen.findByRole('link', { name: 'Breaker trips' });
-  const button = screen.getByRole('button', { name: '자동 배정' }) as HTMLButtonElement;
-  await waitFor(() => expect(button.disabled).toBe(false));
-  fireEvent.click(button);
-  const table = within(await screen.findByRole('table', { name: '자동 배정 미리보기' }));
-  expect(await table.findByText('가정 상담원 3')).toBeTruthy();
-  expect(table.getByText('태국어')).toBeTruthy(); expect(table.getByText('저압 차단기')).toBeTruthy();
-  expect(table.getByText(/언어·제품군 담당 · 2명 중 진행 0건/)).toBeTruthy();
-  expect(table.getByText('폴란드어')).toBeTruthy(); expect(table.getByText('맞는 담당자 없음')).toBeTruthy();
-  expect(screen.getByText(/배정 대상 1건, 맞는 담당자 없음 1건/)).toBeTruthy();
-  // 미리보기는 쓰지 않는다. 적용 전까지 apply 호출이 없다.
-  expect(calls.some(c => c.url.endsWith('/assignments/apply'))).toBe(false);
-  const listCalls = calls.filter(c => c.url.includes('/api/v1/cs/tickets')).length;
-  fireEvent.click(screen.getByRole('button', { name: '배정 적용' }));
-  expect(await screen.findByText(/끝남: 배정 1건, 미배정 1건 \(맞는 담당자 없음 1\)/)).toBeTruthy();
-  const apply = calls.find(c => c.url.endsWith('/assignments/apply'))!;
-  expect(apply.init?.headers).toMatchObject({ 'X-CSRF-Token': 'synthetic-csrf' });
-  expect(JSON.parse(String(apply.init?.body))).toEqual({ rule_version: 'cs-assign-v1', items: [{ ticket_id: '1', user_id: 'u-th' }, { ticket_id: '2', user_id: null }] });
-  await waitFor(() => expect(calls.filter(c => c.url.includes('/api/v1/cs/tickets')).length).toBeGreaterThan(listCalls));
-  expect(screen.queryByRole('button', { name: '배정 적용' })).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: '닫기' }));
-  expect(screen.queryByRole('table', { name: '자동 배정 미리보기' })).toBeNull();
+  expect(screen.queryByRole('button', { name: '자동 배정' })).toBeNull();
+  expect(calls.some(c => c.url.includes('/assignments/'))).toBe(false);
 });
 
 test('배정 근거 문구는 사유·후보 수·진행 건수를 그대로 옮긴다', () => {
