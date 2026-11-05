@@ -80,6 +80,7 @@ async function prepare({ github, context, core }) {
   core.setOutput('schema', JSON.stringify(reviewSchema).replaceAll("'", '\\u0027'));
   core.setOutput('diff_file', diffFile);
   core.setOutput('diff_lines', String(diffLines.length - Number(diff.endsWith('\n'))));
+  return {files: files.map(file => file.filename), diff, schema: reviewSchema};
 }
 
 /** 모델 결과를 검사한다. Args: 원시 JSON, 예상 SHA·파일 목록. Returns: 검증한 결과. */
