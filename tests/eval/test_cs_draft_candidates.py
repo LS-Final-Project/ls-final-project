@@ -20,7 +20,6 @@ from eval.cs_draft_candidates import (
     run_draft_candidates,
 )
 from eval.cs_draft_metrics import DraftGold
-from scripts import cs_draft_run
 
 CLASSIFICATION = ClassificationOutput(
     category_code="WARRANTY",
@@ -29,6 +28,9 @@ CLASSIFICATION = ClassificationOutput(
     provided_info=["TEST_SERIAL"],
     return_subtype=None,
 )
+
+# 백엔드 검사 이미지에는 scripts 실행기가 없으니 거기서는 건너뛰고, 전체 checkout인 CI에서 실행한다.
+cs_draft_run = pytest.importorskip("scripts.cs_draft_run")
 
 
 def snippet(chunk_id):
