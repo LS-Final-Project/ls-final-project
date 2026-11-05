@@ -22,6 +22,7 @@ from backend.engine.rfp.vocabulary import (
     is_canonical,
     is_placeholder,
     read_canonical,
+    standard_term,
 )
 
 Grade = Literal["MANDATORY_CONFIRMED", "REVIEW", "REFERENCE_ONLY", "EXCLUDED"]
@@ -462,6 +463,9 @@ def _plain_value(attribute: str, value: str) -> str:
     Returns:
         str: 정규화한 값.
     """
+    term = standard_term(attribute, value)
+    if term is not None:
+        return term.casefold()
     text = _norm(value)
     return text.removeprefix("class ").strip() if attribute.endswith("_class") else text
 
@@ -506,6 +510,10 @@ def _value_verdict(requirement: Requirement, fact: SpecFact) -> tuple[Verdict, s
             met = {"EQ": got == want, "GTE": got >= want, "LTE": got <= want}[requirement.operator]
             return ("passed", "충족") if met else ("failed", shortfall_word(requirement))
         if requirement.operator != "EQ":
+            term = standard_term(requirement.attribute, requirement.value)
+            if term is not None and term == standard_term(requirement.attribute, fact.value):
+                # 같은 등급('F종 이상'과 Class F)은 이상·이하 요구를 채운다. 다른 등급의 높낮이는 읽지 않는다.
+                return "passed", "충족"
             return "unknown", "값을 숫자로 읽을 수 없어 확인 필요"
     attribute = requirement.attribute
     if _plain_value(attribute, requirement.value) == _plain_value(attribute, fact.value):
@@ -593,6 +601,11 @@ def _duration_converted(requirement: Requirement, fact: SpecFact) -> Converted |
     return Converted(converted, note, given < wanted)
 
 
+def _condition_value(name: str, value: str) -> str:
+    """조건 비교용 값. 냉각·탭 방식은 같은 뜻 표기를 맞춘다("자냉(AN)" = AN, "무부하 탭" = off-circuit)."""
+    return (standard_term(name, value) or "").casefold() or _norm(value)
+
+
 def _condition_gaps(requirement: Requirement, fact: SpecFact, verdict: Verdict) -> list[str]:
     """요구 조건과 후보 근거 조건의 차이를 찾는다.
 
@@ -616,8 +629,8 @@ def _condition_gaps(requirement: Requirement, fact: SpecFact, verdict: Verdict) 
         if got is None:
             name = want.name.replace("_", " ")
             gaps.append(f"{name} 요구 {_with_unit(want.value, want.unit)}, 후보 근거에 없음")
-        elif (_norm(got.value), _norm(_unit_key(got.unit))) != (
-            _norm(want.value),
+        elif (_condition_value(want.name, got.value), _norm(_unit_key(got.unit))) != (
+            _condition_value(want.name, want.value),
             _norm(_unit_key(want.unit)),
         ):
             gaps.append(

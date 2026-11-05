@@ -21,7 +21,7 @@ from backend.api.tft.partners.grading import (
 from backend.api.tft.partners.loader import load_profiles
 from backend.api.tft.partners.schemas import Condition, PartnerProfile, SpecFact
 from backend.api.tft.rfp.comparison import load_own_products
-from backend.engine.rfp.vocabulary import form_axes, is_placeholder
+from backend.engine.rfp.vocabulary import form_axes, is_placeholder, standard_term
 
 DAY = date(2026, 11, 20)
 CONTEXT = RfpContext(
@@ -873,3 +873,46 @@ def test_a_requirement_without_a_unit_is_unknown_and_says_so():
     assert graded.grade != "EXCLUDED"
     text = " ".join(graded.reasons)
     assert "요구 값에 숫자·단위 없음" in text and "단위가 달라" not in text and "None" not in text
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "term"),
+    [
+        ("cooling", "자냉(AN)", "AN"),
+        ("cooling", "AN(자냉)", "AN"),
+        ("cooling", "onaf", "ONAF"),
+        ("cooling", "유입자냉", "ONAN"),
+        # 한글만 있으면 건식(AN)·유입(ONAN)을 가를 수 없다. 둘 이상 적힌 값도 맞추지 않는다.
+        ("cooling", "자냉", None),
+        ("cooling", "AN/AF", None),
+        ("tap_type", "무부하 탭", "off-circuit"),
+        ("tap_type", "de-energized tap changer (DETC)", "off-circuit"),
+        ("tap_type", "no-load tap changer", "off-circuit"),
+        ("tap_type", "부하시 탭 절환기", "on-load"),
+        ("tap_type", "OLTC", "on-load"),
+        ("tap_type", "off-circuit or on-load", None),
+        ("insulation_class", "F종", "F"),
+        ("insulation_class", "Class H", "H"),
+        ("insulation_class", "b class", "B"),
+        ("insulation_class", "Class F / 100 K", None),
+        ("vector_group", "Dyn11", None),
+    ],
+)
+def test_same_meaning_values_get_one_standard_term(name, value, term):
+    """KAN-217: 냉각·탭·절연 등급의 같은 뜻 표기는 같은 표준 표기다. 읽지 못하면 None이라 원래 비교를 쓴다."""
+    assert standard_term(name, value) == term
+
+
+@pytest.mark.parametrize(
+    ("operator", "wanted", "held", "verdict"),
+    [
+        ("GTE", "F종", "F", "passed"),
+        ("EQ", "F종", "Class F", "passed"),
+        ("GTE", "H종", "F", "unknown"),
+    ],
+)
+def test_class_letter_meets_an_at_least_requirement_only_when_same(operator, wanted, held, verdict):
+    """KAN-217: 'F종 이상'은 Class F로 채운다. 등급 높낮이는 읽지 않아 다른 등급은 확인 필요 그대로다."""
+    row = req(10, "insulation_class", wanted, operator=operator)
+    got, _ = _value_verdict(row, SpecFact.model_validate(fact("insulation_class", held)))
+    assert got == verdict
