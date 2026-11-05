@@ -17,6 +17,7 @@ from backend.shared.notifications import enqueue_notification, enqueue_notificat
 
 MIGRATION = Path("infra/migrations/platform/20261101_KAN-201_notifications.sql")
 EXPANSION = Path("infra/migrations/platform/20261110_KAN-201_notification_expansion.sql")
+DISMISS = Path("infra/migrations/platform/20261127_KAN-201_notification_dismiss.sql")
 
 
 @pytest.fixture
@@ -593,6 +594,12 @@ def test_recipient_history_blocks_hard_delete_but_deactivation_preserves_it(jobs
 
 def test_read_all_and_dismiss_are_own_scope_idempotent_and_hidden(settings, jobs_database, users):
     """KAN-201 모두 읽음·숨기기: 본인 행만, 다시 해도 처음 시각 유지, 숨긴 알림은 목록·안 읽음 수에서 빠진다."""
+    # P30을 다시 돌리면 표 단위 REVOKE가 P39의 dismissed_at 열 권한까지 회수한다(앞 시험이 P30을 재실행).
+    # 운영도 같다: P30 재실행 뒤에는 P39를 다시 적용한다. 여기서 두 번 적용해 재실행 가능도 확인한다.
+    sql = "\n".join(x for x in DISMISS.read_text().splitlines() if not x.startswith("\\"))
+    with psycopg.connect(jobs_database, autocommit=True) as conn:
+        conn.execute(sql)
+        conn.execute(sql)
 
     async def run():
         async with await psycopg.AsyncConnection.connect(

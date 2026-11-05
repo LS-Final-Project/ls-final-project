@@ -177,7 +177,7 @@ T13을 재적용해도 허용집합을 과거로 되돌리지 않는다. 정렬�
 | P36 | `platform/20261115_KAN-235_mail_link_basis.sql` | P23(헤더) | platform_migrator | 가능 | 열 `integration.mail_links.basis`, pg_get_constraintdef로 `mail_reply_reviews_reason_check`에 'ADDRESS_MATCH' 포함 | 미적용 |
 | P37 | `platform/20261118_KAN-188_context_jobs.sql` | P33 | platform_migrator | 가능(다시 적용하면 P38도 이어서 다시 적용) | pg_get_constraintdef로 `jobs_owner_kind_route`에 'rfp.context' 포함 | 미적용 |
 | P38 | `platform/20261125_KAN-224_reply_read_jobs.sql` | P37 | platform_migrator | 가능(`jobs_owner_kind_route`를 정의하는 P24·P28·P33·P37을 다시 적용하면 이 파일을 마지막에 다시 적용) | pg_get_constraintdef로 `jobs_owner_kind_route`에 'rfp.reply_read' 포함 | 미적용 |
-| P39 | `platform/20261127_KAN-201_notification_dismiss.sql` | P30(헤더) | platform_migrator | 가능 | 열 `notify.user_notifications.dismissed_at`, has_column_privilege('platform_app','notify.user_notifications','dismissed_at','UPDATE') | 미적용 |
+| P39 | `platform/20261127_KAN-201_notification_dismiss.sql` | P30(헤더) | platform_migrator | 가능 | 열 `notify.user_notifications.dismissed_at`, has_column_privilege('platform_app','notify.user_notifications','dismissed_at','UPDATE'). P30을 다시 돌리면 이 열 권한이 회수되므로 P39도 다시 적용 | 미적용 |
 
 적용 전 확인 쿼리(운영자 연결, 읽기 전용):
 
