@@ -19,11 +19,13 @@ export const getTicketWorkflow = (ticketId: string, signal?: AbortSignal) => req
 
 // 업무 상태를 바꾸는 호출은 개발 모드의 실제 API에서만 연다(개선요청 쓰기와 같은 기준). 운영 중계가 생기기 전까지 모의 응답으로 성공한 척하지 않는다.
 // 모든 요청은 읽은 업무 판본(version)을 보낸다. 판본이 다르면 서버가 409 CS_WORKFLOW_VERSION_CONFLICT를 돌려준다.
-async function postTo(url: string, body: object, signal: AbortSignal, method: 'POST' | 'PUT' = 'POST', role: 'cs_agent' | 'dept_staff' | 'manager' = 'cs_agent') {
+type Role = 'cs_agent' | 'dept_staff' | 'manager';
+async function postTo(url: string, body: object, signal: AbortSignal, method: 'POST' | 'PUT' = 'POST', role: Role | Role[] = 'cs_agent') {
   if (getApiMode() !== 'live') throw new ApiError(403, '모의 응답 모드에서는 실행할 수 없습니다. 실제 API에서 실행하세요.');
   const identity = await me();
   if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-  if (!identity?.data.roles.includes(role)) throw new ApiError(403, role === 'dept_staff' ? '부서 담당자 세션이 필요합니다.' : role === 'manager' ? 'C/S 관리자 세션이 필요합니다.' : 'C/S 담당자 세션이 필요합니다.');
+  const roles = Array.isArray(role) ? role : [role];
+  if (!roles.some(item => identity?.data.roles.includes(item))) throw new ApiError(403, roles.length > 1 ? 'C/S 담당자 또는 부서 담당자 세션이 필요합니다.' : role === 'dept_staff' ? '부서 담당자 세션이 필요합니다.' : role === 'manager' ? 'C/S 관리자 세션이 필요합니다.' : 'C/S 담당자 세션이 필요합니다.');
   const token = sessionCsrfToken();
   if (!token) throw new ApiError(403, '세션 보호 정보를 확인할 수 없습니다. 다시 로그인해 주세요.');
   return request<WorkflowResponse>(url, { method, signal, headers: { 'X-CSRF-Token': token }, body: JSON.stringify(body) });
@@ -62,10 +64,18 @@ export const refreshCustomerSend = (ticketId: string, sendId: string, signal: Ab
 // 플랫폼이 답하지 않은 발송을 같은 판본·내용으로 다시 요청한다(플랫폼이 같은 의도로 알아봐 두 번 보내지 않는다).
 export const retryCustomerSend = (ticketId: string, sendId: string, version: number, signal: AbortSignal) => post(ticketId, `/sends/${encodeURIComponent(sendId)}/retry`, { version }, signal);
 export const isSendPending = (error: unknown) => error instanceof ApiError && error.status === 409 && error.code === 'CS_CUSTOMER_SEND_PENDING';
-export const closeTicket = (ticketId: string, version: number, signal: AbortSignal) => post(ticketId, '/close', { version }, signal);
+// 메일 외 채널 문의는 응대 내용(response_note)으로 종결할 수 있다(KAN-211).
+export const closeTicket = (ticketId: string, version: number, signal: AbortSignal, responseNote?: string) => post(ticketId, '/close', responseNote ? { version, response_note: responseNote } : { version }, signal);
 
 // 한국어 요약을 만든다. 같은 원문·프롬프트 판본의 성공한 요약이 있으면 모델을 부르지 않고 그것을 돌려주고(200), 없으면 모델을 한 번 불러 저장한다(201).
-export const createTicketSummary = (ticketId: string, signal: AbortSignal) => postTo(`${ticketBase(ticketId)}/summary`, {}, signal);
+// 요약·번역은 이관받은 부서 담당자도 만든다(검토 답변 화면, 2026-11-04). 서버가 범위를 다시 확인한다.
+export const createTicketSummary = (ticketId: string, signal: AbortSignal) => postTo(`${ticketBase(ticketId)}/summary`, {}, signal, 'POST', ['cs_agent', 'dept_staff']);
+// 한국어 번역(제목·본문 전체)을 만든다. 요약과 같이 같은 원문·판본이면 저장본을 돌려주고(200), 없으면 모델을 한 번 불러 저장한다(201).
+// 원문이 한국어면 서버가 모델을 부르지 않고 422(CS_TRANSLATION_NOT_NEEDED)를 돌려준다.
+export const createTicketTranslation = (ticketId: string, signal: AbortSignal) => postTo(`${ticketBase(ticketId)}/translation`, {}, signal, 'POST', ['cs_agent', 'dept_staff']);
+// 고객 회신 하나를 AI로 해석한다(요청한 정보에 답했는지, 남은 질문). 같은 회신·입력이면 저장본(200), 없으면 모델 한 번(201). C/S 담당자만.
+// 판정이 아니고 아무것도 바꾸지 않는다. 답한 정보 반영은 사람이 분류 정정(provided_info)으로 한다.
+export const createReplyAnalysis = (ticketId: string, messageId: string | null, signal: AbortSignal) => postTo(`${ticketBase(ticketId)}/reply-analysis`, messageId ? { message_id: messageId } : {}, signal);
 
 // 담당자가 AI 분류를 정정한다. 바꾼 칸만 보내고 사유가 필수다. 읽은 분석 판본(version)과 기준 분석 실행(analysis_id)을 함께 보낸다. 업무 상태 판본은 바뀌지 않는다.
 export type CorrectionBody = paths['/api/v1/cs/tickets/{ticket_id}/analysis/corrections']['post']['requestBody']['content']['application/json'];

@@ -241,7 +241,7 @@ def test_department_scope_and_writers(client, admin):
     )
     sent = ok(client.get(path, headers=as_(QA_STAFF)))
     assert [(n["actor"], n["dept_code"], n["task"]) for n in sent["next_owners"]] == [
-        ("DEPARTMENT", "QA_CLAIM", "ACKNOWLEDGE")
+        ("DEPARTMENT", "QA_CLAIM", "REPLY")
     ]
     assert (
         client.patch(
@@ -290,9 +290,11 @@ def test_case_comparison_shows_active_evidence_within_the_viewers_scope(client, 
         "Replace gasket",
     )
     assert row["customer_external_id"].startswith("CUST-") and row["known_at"]
+    # 규칙 비교(화면의 근거 비교)에 쓰는 칸. 고정값은 위 add_ticket의 INSERT와 같다.
+    assert (row["fw_version_at_issue"], row["onsite_visit"]) == (None, True)
     assert client.get(url, headers=as_(CS_MANAGER)).status_code == 200
 
-    # 요청을 받은 부서도 이관받지 않은 문의의 해결 기록은 볼 수 없다.
+    # 요청을 받은 부서는 이관받지 않은 문의도 해결 기록은 본다(근거 검토). 고객·제목은 빼고 limited로 둔다.
     admin.execute(
         "INSERT INTO cs.request_departments (request_id, round, dept_code, status) "
         "VALUES (%s, 1, 'QA_CLAIM', 'SENT')",
@@ -305,9 +307,30 @@ def test_case_comparison_shows_active_evidence_within_the_viewers_scope(client, 
     )
     for user in (QA_STAFF, QA_MANAGER):
         scoped = ok(client.get(url, headers=as_(user)))
-        assert [r["ticket_id"] for r in scoped["items"]] == [str(shared)]
-        assert scoped["hidden_case_count"] == 1
-        assert str(private) not in str(scoped) and str(private_case) not in str(scoped)
+        by_ticket = {r["ticket_id"]: r for r in scoped["items"]}
+        assert set(by_ticket) == {str(shared), str(private)} and scoped["hidden_case_count"] == 0
+        assert by_ticket[str(shared)]["limited"] is False
+        assert by_ticket[str(shared)]["customer_external_id"].startswith("CUST-")
+        kept = by_ticket[str(private)]
+        assert (kept["limited"], kept["customer_external_id"], kept["ticket_subject"]) == (
+            True,
+            None,
+            None,
+        )
+        assert (kept["case_id"], kept["symptom"], kept["action_taken"]) == (
+            str(private_case),
+            "Oil leak",
+            "Replace gasket",
+        )
+    # 제안만 되고 받지 않은 부서의 관리자는 limited 행을 받지 않는다.
+    admin.execute(
+        "DELETE FROM cs.request_departments WHERE request_id = %s AND dept_code = 'QA_CLAIM'",
+        (request_id,),
+    )
+    for user in (QA_MANAGER,):
+        response = client.get(url, headers=as_(user))
+        if response.status_code == 200:
+            assert all(not r["limited"] for r in response.json()["data"]["items"])
     assert code(client.get(url, headers=as_(LV_STAFF))) == (404, "CS_REQUEST_NOT_FOUND")
     assert code(client.get(f"{PATH}/{uuid4()}/case-comparison")) == (404, "CS_REQUEST_NOT_FOUND")
 
@@ -402,6 +425,7 @@ def test_case_comparison_keeps_a_ticket_without_a_resolution_record(client, admi
     [row] = ok(client.get(f"{PATH}/{created['id']}/case-comparison"))["items"]
     assert row["ticket_id"] == str(ticket)
     assert (row["case_id"], row["symptom"], row["known_at"]) == (None, None, None)
+    assert (row["fw_version_at_issue"], row["onsite_visit"]) == (None, None)
 
 
 def test_the_list_filters_by_origin(client, admin):

@@ -5,8 +5,9 @@ from datetime import UTC, datetime
 from typing import Any, Literal, get_args
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
 
+from backend.api.cs.assignments.service import assign_on_intake
 from backend.api.cs.tickets import repository
 from backend.api.cs.tickets.access import (
     require_ticket_list,
@@ -27,6 +28,7 @@ from backend.api.cs.tickets.schemas import (
     TransferStatus,
     WorkflowState,
 )
+from backend.api.cs.translation import repository as translations
 from backend.api.cs.units import repository as units
 from backend.shared.access import Principal, current_principal
 from backend.shared.database import connection
@@ -204,8 +206,11 @@ async def list_tickets(
             if dept
             else {}
         )
+        korean = await translations.korean_subjects(conn, [r["id"] for r in rows[:limit]])
     items = [
-        TicketSummary.model_validate({**row, "transfer": transfers.get(row["id"])})
+        TicketSummary.model_validate(
+            {**row, "transfer": transfers.get(row["id"]), "subject_ko": korean.get(row["id"])}
+        )
         for row in rows[:limit]
     ]
     next_cursor = None
@@ -277,7 +282,10 @@ def respond(request: Request, data: Any) -> SuccessResponse[Any]:
     openapi_extra=PARTIAL,
 )
 async def create_ticket(
-    payload: TicketCreate, request: Request, principal: Principal = Depends(current_principal)
+    payload: TicketCreate,
+    request: Request,
+    background: BackgroundTasks,
+    principal: Principal = Depends(current_principal),
 ) -> SuccessResponse[TicketDetail]:
     """접수 권한을 확인하고 서버가 명시한 출처로 문의와 감사 기록을 함께 저장한다.
 
@@ -313,6 +321,13 @@ async def create_ticket(
         await repository.insert_audit(
             conn, uuid4(), values["id"], "create", 1, principal.user_id, created
         )
+    # KAN-214: after the ticket is committed. Never fails the intake.
+    await assign_on_intake(settings, values["id"])
+    # KAN-213: Korean subject for the lists, after the response. Imported here: the translation
+    # routes import this module.
+    from backend.api.cs.translation.routes import translate_on_intake
+
+    background.add_task(translate_on_intake, request.app.state, values["id"])
     return respond(request, detail({**values, "version": 1, "workflow_state": "RECEIVED"}, None))
 
 

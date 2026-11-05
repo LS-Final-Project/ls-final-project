@@ -6,6 +6,8 @@
 ([데이터 계약](../../../../docs/data-contract.md#메일과-파일-연결)).
 
 - 한 업무로만 맞으면 자동 연결(`REPLY`, 근거 `HEADER`/`THREAD`).
+- 헤더·스레드 후보가 없으면 보낸 주소로 우리가 메일을 주고받은 업무(보낸 메일의 받는 사람, 업무를 만든 원 메일의
+  보낸 사람)를 찾는다(KAN-235, 근거 `ADDRESS`). 주소는 사람 검토의 후보일 뿐 자동 연결 근거가 아니다.
 - 후보가 여러 업무이거나, 헤더와 스레드가 다른 업무를 가리키거나, 회신 표시가 있는데 맞는 업무가
   없거나, 분류(KAN-73)가 기존 스레드가 아니라고 보면 연결하지 않고 사람 검토로 보낸다.
 - 메일을 읽었는지(isRead)는 보지 않는다. 연결은 "회신이 왔다"는 기록일 뿐 업무 상태를 바꾸지
@@ -35,8 +37,13 @@ from backend.shared.models import ErrorResponse, ResponseMeta, SuccessResponse
 from backend.shared.settings import Settings
 
 OwnerService = Literal["cs", "platform"]
-Method = Literal["HEADER", "THREAD", "HUMAN", "BUSINESS"]
-Reason = Literal["AMBIGUOUS", "UNMATCHED_REPLY", "CONFLICT", "TRIAGE_DISAGREES"]
+Method = Literal["HEADER", "THREAD", "HUMAN", "BUSINESS", "ADDRESS"]
+Reason = Literal["AMBIGUOUS", "UNMATCHED_REPLY", "CONFLICT", "TRIAGE_DISAGREES", "ADDRESS_MATCH"]
+# 사람 연결의 근거(KAN-235). CONTACT: 고객 연락처, SEARCH: 담당자가 번호로 찾음.
+Basis = Literal["HEADER", "THREAD", "ADDRESS", "CONTACT", "SEARCH"]
+CS_TICKET = re.compile(
+    r"^cs_ticket:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$"
+)
 # Message-ID 하나(꺾쇠 포함). 헤더 값에서 이것만 뽑고 나머지 글자는 버린다.
 MESSAGE_ID = re.compile(r"<[^<>\s]{1,512}>")
 MAX_REFERENCES = 50
@@ -132,8 +139,33 @@ async def thread_candidates(
     return keys(await cursor.fetchall(), "THREAD")
 
 
+async def address_candidates(
+    conn: Any, mailbox_id: UUID, from_address: str | None
+) -> list[Candidate]:
+    """보낸 주소와 메일을 주고받은 업무를 찾는다(KAN-235). 같은 메일함의 보낸 메일 받는 사람(to·cc)과
+    업무를 만든 원 메일(ORIGIN)의 보낸 사람. 대소문자는 무시한다."""
+    address = (from_address or "").strip().lower()
+    if "@" not in address:
+        return []
+    cursor = await conn.execute(
+        "SELECT i.owner_service, i.business_ref FROM integration.mail_send_intents i "
+        "WHERE i.mailbox_id=%s AND EXISTS (SELECT 1 FROM jsonb_array_elements_text("
+        "coalesce(i.recipients->'to', '[]'::jsonb) || coalesce(i.recipients->'cc', '[]'::jsonb)) a "
+        "WHERE lower(a)=%s) "
+        "UNION SELECT l.owner_service, l.business_ref FROM integration.mail_links l "
+        "JOIN integration.mail_messages m ON m.id=l.message_id "
+        "WHERE l.kind='ORIGIN' AND m.mailbox_id=%s AND lower(m.from_address)=%s",
+        (mailbox_id, address, mailbox_id, address),
+    )
+    return keys(await cursor.fetchall(), "ADDRESS")
+
+
 def decide(
-    header: list[Candidate], thread: list[Candidate], is_reply: bool, triage_link: str | None
+    header: list[Candidate],
+    thread: list[Candidate],
+    is_reply: bool,
+    triage_link: str | None,
+    address: list[Candidate] | None = None,
 ) -> tuple[Candidate | None, Reason | None, list[Candidate]]:
     """후보로 자동 연결할지, 검토로 보낼지, 회신이 아닌지 정한다(순수 함수).
 
@@ -142,6 +174,7 @@ def decide(
         thread: 스레드 근거 후보.
         is_reply: 회신 헤더가 있었는지.
         triage_link: KAN-73 최신 분류의 연결 추천(없으면 None).
+        address: 보낸 주소 근거 후보(KAN-235). 헤더·스레드 후보가 없을 때만 보고, 자동 연결하지 않는다.
 
     Returns:
         tuple: (연결할 후보, 검토 이유, 검토에 보일 후보). 둘 다 None이면 회신이 아니다.
@@ -163,7 +196,11 @@ def decide(
             return None, "AMBIGUOUS", thread
         chosen = thread[0]
     else:
-        return (None, "UNMATCHED_REPLY", []) if is_reply else (None, None, [])
+        found = address or []
+        if is_reply:
+            return None, "UNMATCHED_REPLY", found
+        # 회신 표시가 없어도 주고받은 주소에서 온 메일은 이어지는 답장일 수 있어 사람이 본다.
+        return (None, "ADDRESS_MATCH", found) if found else (None, None, [])
     # 분류가 "새 문의·새 프로젝트"로 본 메일은 다른 업무에 대한 회신일 수 있어 사람이 본다.
     if triage_link is not None and triage_link != "EXISTING_THREAD":
         return None, "TRIAGE_DISAGREES", [chosen]
@@ -185,7 +222,7 @@ async def resolve_reply(settings: Settings, message_id: UUID, raw: bytes) -> Rep
     """
     async with connection(settings) as conn, conn.transaction():
         cursor = await conn.execute(
-            "SELECT mailbox_id, folder, raw_sha256, conversation_id, removed_at "
+            "SELECT mailbox_id, folder, raw_sha256, conversation_id, removed_at, from_address "
             "FROM integration.mail_messages WHERE id=%s FOR UPDATE",
             (message_id,),
         )
@@ -216,8 +253,13 @@ async def resolve_reply(settings: Settings, message_id: UUID, raw: bytes) -> Rep
             (message_id,),
         )
         triage = await cursor.fetchone()
+        address = (
+            []
+            if header or thread
+            else await address_candidates(conn, message["mailbox_id"], message["from_address"])
+        )
         chosen, reason, shown = decide(
-            header, thread, bool(ids), triage["link_suggestion"] if triage else None
+            header, thread, bool(ids), triage["link_suggestion"] if triage else None, address
         )
         if chosen is not None:
             await conn.execute(
@@ -366,7 +408,9 @@ async def replies_for(
         return [dict(r) for r in await cursor.fetchall()]
 
 
-async def notify_cs_replies(settings: Settings, caller: Any, limit: int = 50) -> dict[str, int]:
+async def notify_cs_replies(
+    settings: Settings, caller: Any, limit: int = 50, store: Any | None = None
+) -> dict[str, int]:
     """C/S 문의에 연결된 회신 중 아직 알리지 않은 것을 C/S에 알린다(KAN-110). 업무 참조가
     문의 UUID인 연결만 대상이다. 실패한 연결은 표시가 없어 다음 실행에서 다시 알린다.
 
@@ -374,6 +418,8 @@ async def notify_cs_replies(settings: Settings, caller: Any, limit: int = 50) ->
         settings: 플랫폼 DB 설정.
         caller: C/S 내부 경로 클라이언트(`business.CsCaller`).
         limit: 한 번에 알릴 최대 수.
+        store: 원문 저장소(`ObjectReader`). 주면 회신 제목·본문(인용 제외)을 같이 보낸다(KAN-230).
+            원문을 읽거나 파싱하지 못하면 본문 없이 알리고 `without_text`로 센다. 없으면 본문 없이 알린다.
 
     Returns:
         dict[str, int]: `notified`(C/S가 받음), `missing`(C/S에 없는 문의, 다시 알리지 않음),
@@ -383,7 +429,8 @@ async def notify_cs_replies(settings: Settings, caller: Any, limit: int = 50) ->
 
     async with connection(settings) as conn:
         cursor = await conn.execute(
-            "SELECT l.id, l.message_id, l.business_ref, l.method, m.received_at "
+            "SELECT l.id, l.message_id, l.business_ref, l.method, m.received_at, "
+            "m.raw_storage_key, m.raw_sha256, m.raw_size "
             "FROM integration.mail_links l JOIN integration.mail_messages m ON m.id=l.message_id "
             "WHERE l.kind='REPLY' AND l.owner_service='cs' AND l.business_notified_at IS NULL "
             "AND l.business_ref ~ '^cs_ticket:[0-9a-f-]{36}$' ORDER BY l.created_at, l.id LIMIT %s",
@@ -391,13 +438,34 @@ async def notify_cs_replies(settings: Settings, caller: Any, limit: int = 50) ->
         )
         pending = await cursor.fetchall()
     counts = {"notified": 0, "missing": 0, "failed": 0}
+    if store is not None:
+        counts["without_text"] = 0
     for link in pending:
         ticket_id = link["business_ref"].removeprefix("cs_ticket:")
-        body = {
+        body: dict[str, Any] = {
             "message_id": str(link["message_id"]),
             "method": link["method"],
             "received_at": link["received_at"].isoformat(),
         }
+        if store is not None:
+            from backend.api.platform.mail.storage import StoredObject
+            from backend.engine.mail_triage.extract import reply_text
+
+            # 원문을 읽지 못하거나 파싱할 수 없으면 본문 없이 알린다. 저장소는 일시·영구 실패를
+            # 구분하지 않아(모두 MAIL_STORAGE_UNAVAILABLE), 재시도하면 지워진 원문이 뒤 회신의
+            # 통지를 막을 수 있다. 회신 기록과 재개가 본문보다 먼저다(화면은 메일 계정을 안내한다).
+            try:
+                raw = await store.get(
+                    StoredObject(link["raw_storage_key"], link["raw_sha256"], link["raw_size"])
+                )
+                subject, text = reply_text(raw)
+            except (ApplicationError, HTTPException, httpx.HTTPError, ValueError):
+                subject, text = None, None
+                counts["without_text"] += 1
+            if subject is not None:
+                body["subject"] = subject
+            if text is not None:
+                body["body"] = text
         try:
             response = await caller.post(REPLY_PATH.format(ticket_id=ticket_id), body)
         except (httpx.HTTPError, HTTPException, ApplicationError):
@@ -465,6 +533,42 @@ class LinkDecision(BaseModel):
     note: str = Field(min_length=1, max_length=500)
 
 
+CandidateEvidence = Literal[
+    "ORIGIN_ADDRESS",
+    "SENT_TO_ADDRESS",
+    "CUSTOMER_CONTACT",
+    "WAITING_CUSTOMER",
+    "PRODUCT_MATCH",
+    "ERROR_CODE_MATCH",
+]
+
+
+class CandidateTicket(BaseModel):
+    external_id: str | None
+    subject: str | None
+    state: str
+    customer_external_id: str
+    product_code: str
+
+
+class ReviewCandidate(BaseModel):
+    """검토 화면의 후보 한 건(KAN-235). method: 플랫폼 근거(HEADER·THREAD·ADDRESS), 고객 연락처로 찾은 문의는
+    CONTACT. ticket·evidence는 C/S가 확인한 값이며 C/S를 부르지 못하면 null·빈 목록이다."""
+
+    owner_service: OwnerService
+    business_ref: str
+    method: Literal["HEADER", "THREAD", "ADDRESS", "CONTACT"]
+    ticket: CandidateTicket | None = None
+    evidence: list[CandidateEvidence] = Field(default_factory=list)
+
+
+class ReviewCandidates(BaseModel):
+    message_id: UUID
+    items: list[ReviewCandidate]
+    # C/S에서 문의 정보·근거를 받았는지. false면 플랫폼 후보만 근거 없이 보인다.
+    enriched: bool
+
+
 class DismissDecision(BaseModel):
     note: str = Field(min_length=1, max_length=500)
 
@@ -516,6 +620,121 @@ async def list_reviews(
     )
 
 
+async def review_message(conn: Any, message_id: UUID, owner: UUID) -> dict[str, Any]:
+    """현재 사용자 메일함의 검토 메일(상태 무관)과 원문 위치. 다른 사람 것은 404."""
+    cursor = await conn.execute(
+        "SELECT r.candidates, r.status, m.from_address, m.raw_storage_key, m.raw_sha256, m.raw_size "
+        "FROM integration.mail_reply_reviews r "
+        "JOIN integration.mail_messages m ON m.id=r.message_id "
+        "JOIN mailbox_auth.connections c ON c.id=m.mailbox_id "
+        "WHERE r.message_id=%s AND c.owner_user_id=%s",
+        (message_id, owner),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        raise not_found("MAIL_REPLY_REVIEW_NOT_FOUND")
+    return dict(row)
+
+
+async def ask_cs(
+    request: Request, row: dict[str, Any], ticket_ids: list[str]
+) -> list[dict[str, Any]] | None:
+    """C/S에 후보 문의와 근거를 묻는다(KAN-235). 본문(인용 제외)은 원문 저장소가 있을 때만 같이 보낸다.
+    업무 중계가 꺼져 있으면 None, C/S가 실패하면 503이다."""
+    from backend.api.platform.mail.business import CANDIDATES_PATH, cs_caller
+
+    caller = cs_caller(request)
+    if caller is None:
+        return None
+    text: str | None = None
+    from backend.api.platform.mail.intake import raw_store
+    from backend.api.platform.mail.storage import StoredObject
+    from backend.engine.mail_triage.extract import reply_text
+
+    async with raw_store(request) as store:
+        if store is not None:
+            try:
+                raw = await store.get(
+                    StoredObject(row["raw_storage_key"], row["raw_sha256"], row["raw_size"])
+                )
+                _, text = reply_text(raw)
+            except (ApplicationError, HTTPException, httpx.HTTPError, ValueError):
+                text = None
+    body: dict[str, Any] = {"from_address": row["from_address"], "ticket_ids": ticket_ids}
+    if text:
+        body["text"] = text[:50_000]
+    try:
+        response = await caller.post(CANDIDATES_PATH, body, request_id=request.state.request_id)
+    except (httpx.HTTPError, HTTPException, ApplicationError):
+        response = None
+    if response is None or response.status_code != 200:
+        raise ApplicationError(
+            503, "MAIL_REPLY_CANDIDATES_UNAVAILABLE", "Candidate tickets are unavailable."
+        )
+    return list(response.json()["data"]["items"])
+
+
+def cs_ticket_ids(candidates: list[dict[str, Any]]) -> list[str]:
+    ids = []
+    for c in candidates:
+        found = CS_TICKET.match(c["business_ref"]) if c["owner_service"] == "cs" else None
+        if found:
+            ids.append(found.group(1))
+    return ids
+
+
+@router.get(
+    "/{message_id}/candidates",
+    response_model=SuccessResponse[ReviewCandidates],
+    operation_id="platform_mail_reply_candidates",
+    openapi_extra=ACTIVATION,
+)
+async def review_candidates(
+    message_id: UUID,
+    request: Request,
+    response: Response,
+    provider: PersonalMicrosoftOAuth = Depends(mailbox_provider),
+) -> SuccessResponse[ReviewCandidates]:
+    """검토 메일의 후보와 근거(KAN-235). 플랫폼 후보(헤더·대화 묶음·주고받은 주소)에 C/S가 찾은 고객 연락처
+    후보를 더하고, 후보마다 문의 정보와 근거(고객 회신 대기, 본문의 제품·오류 코드 일치 등)를 붙인다.
+    읽기만 한다. 후보는 고르는 데 쓰고 자동 연결하지 않는다."""
+    user = await operational_identity(request, response)
+    async with connection(request.app.state.settings) as conn:
+        row = await review_message(conn, message_id, user.id)
+    stored = list(row["candidates"])
+    found = await ask_cs(request, row, cs_ticket_ids(stored))
+    by_ref = {f"cs_ticket:{i['ticket_id']}": i for i in found or []}
+    items: list[ReviewCandidate] = []
+    for c in stored:
+        info = by_ref.pop(c["business_ref"], None) if c["owner_service"] == "cs" else None
+        items.append(
+            ReviewCandidate(
+                owner_service=c["owner_service"],
+                business_ref=c["business_ref"],
+                method=c["method"],
+                ticket=CandidateTicket(**info) if info else None,
+                evidence=info["evidence"] if info else [],
+            )
+        )
+    for ref, info in by_ref.items():
+        # C/S가 더 찾은 후보. 주소 근거가 있으면 ADDRESS, 연락처만이면 CONTACT.
+        evidence = info["evidence"]
+        method = "ADDRESS" if {"ORIGIN_ADDRESS", "SENT_TO_ADDRESS"} & set(evidence) else "CONTACT"
+        items.append(
+            ReviewCandidate(
+                owner_service="cs",
+                business_ref=ref,
+                method=method,
+                ticket=CandidateTicket(**info),
+                evidence=evidence,
+            )
+        )
+    return SuccessResponse(
+        data=ReviewCandidates(message_id=message_id, items=items, enriched=found is not None),
+        meta=ResponseMeta(request_id=request.state.request_id),
+    )
+
+
 @router.post(
     "/{message_id}/link",
     response_model=SuccessResponse[ReplyResult],
@@ -529,20 +748,53 @@ async def link_reply(
     response: Response,
     provider: PersonalMicrosoftOAuth = Depends(mailbox_provider),
 ) -> SuccessResponse[ReplyResult]:
-    """메일함 주인이 검토 중인 회신을 후보 업무 중 하나에 연결한다. 후보 밖 업무는 422다."""
+    """메일함 주인이 검토 중인 회신을 업무에 연결한다. 후보가 아니어도 C/S 문의면 담당자가 번호로 찾아
+    연결할 수 있다(KAN-235). 누가(decided_by)·무엇을 근거로(basis·evidence) 골랐는지 남긴다.
+    후보 밖 문의는 C/S가 있는지 확인한 뒤에만 연결하며, C/S를 부를 수 없으면 422다."""
     mutation_token(request)
     user = await operational_identity(request, response)
-    async with connection(request.app.state.settings) as conn, conn.transaction():
-        review = await open_review(conn, message_id, user.id)
-        allowed = {(c["owner_service"], c["business_ref"]) for c in review["candidates"]}
-        if (payload.owner_service, payload.business_ref) not in allowed:
-            # 근거 없이 아무 업무에나 붙이지 않는다. 근거가 있는 후보만 고를 수 있다.
+    async with connection(request.app.state.settings) as conn:
+        row = await review_message(conn, message_id, user.id)
+    if row["status"] != "OPEN":
+        raise ApplicationError(409, "MAIL_REPLY_REVIEW_DECIDED", "The review was already decided.")
+    stored = {(c["owner_service"], c["business_ref"]): c["method"] for c in row["candidates"]}
+    target = (payload.owner_service, payload.business_ref)
+    ticket = CS_TICKET.match(payload.business_ref) if payload.owner_service == "cs" else None
+    basis: Basis
+    evidence: list[str] | None = None
+    if ticket is not None:
+        # 연결할 때의 근거를 C/S에서 다시 확인해 남긴다. 후보 밖 문의는 있는지도 이것으로 본다.
+        try:
+            found = await ask_cs(request, row, [ticket.group(1)])
+        except ApplicationError:
+            if target not in stored:
+                raise
+            found = None
+        if found is None and target not in stored:
             raise ApplicationError(
-                422, "MAIL_REPLY_NOT_A_CANDIDATE", "Choose one of the candidates."
+                422, "MAIL_REPLY_TICKET_UNVERIFIED", "The ticket cannot be checked now."
             )
+        info = next((i for i in found or [] if str(i["ticket_id"]) == ticket.group(1)), None)
+        if found is not None and info is None:
+            raise ApplicationError(422, "MAIL_REPLY_TICKET_NOT_FOUND", "The ticket was not found.")
+        evidence = list(info["evidence"]) if info else None
+    elif target not in stored:
+        # C/S 문의가 아닌 업무는 근거가 있는 후보만 고를 수 있다.
+        raise ApplicationError(422, "MAIL_REPLY_NOT_A_CANDIDATE", "Choose one of the candidates.")
+    if target in stored:
+        basis = stored[target]
+    elif evidence and {"ORIGIN_ADDRESS", "SENT_TO_ADDRESS"} & set(evidence):
+        basis = "ADDRESS"
+    elif evidence and "CUSTOMER_CONTACT" in evidence:
+        basis = "CONTACT"
+    else:
+        basis = "SEARCH"
+    async with connection(request.app.state.settings) as conn, conn.transaction():
+        await open_review(conn, message_id, user.id)
         await conn.execute(
             "INSERT INTO integration.mail_links (id, message_id, owner_service, business_ref, kind, "
-            "method, decided_by, note) VALUES (%s, %s, %s, %s, 'REPLY', 'HUMAN', %s, %s)",
+            "method, decided_by, note, basis, evidence) "
+            "VALUES (%s, %s, %s, %s, 'REPLY', 'HUMAN', %s, %s, %s, %s)",
             (
                 uuid4(),
                 message_id,
@@ -550,6 +802,8 @@ async def link_reply(
                 payload.business_ref,
                 user.id,
                 payload.note,
+                basis,
+                Jsonb(evidence) if evidence is not None else None,
             ),
         )
         await conn.execute(
@@ -570,7 +824,11 @@ async def link_reply(
 
     caller = cs_caller(request)
     if caller is not None:
-        await notify_cs_replies(request.app.state.settings, caller)
+        # 원문 저장소가 있으면 회신 본문도 같이 알린다(KAN-230). intake가 이 모듈을 가져와 여기서 가져온다.
+        from backend.api.platform.mail.intake import raw_store
+
+        async with raw_store(request) as store:
+            await notify_cs_replies(request.app.state.settings, caller, store=store)
     return SuccessResponse(
         data=ReplyResult(message_id=message_id, outcome="LINKED", link=chosen),
         meta=ResponseMeta(request_id=request.state.request_id),

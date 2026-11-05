@@ -68,7 +68,7 @@ def test_follow_up_opens_only_when_every_department_settled():
 def test_waiting_departments_are_department_tasks():
     rows = [dept("QA_CLAIM", "SENT"), dept("SCM", "ACKNOWLEDGED")]
     assert tasks(next_owners(request("SENT"), rows)) == [
-        ("DEPARTMENT", "QA_CLAIM", "ACKNOWLEDGE"),
+        ("DEPARTMENT", "QA_CLAIM", "REPLY"),
         ("DEPARTMENT", "SCM", "REPLY"),
     ]
 

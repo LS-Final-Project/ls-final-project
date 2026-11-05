@@ -202,6 +202,11 @@ def jobs_database(auth_database, request):
             "infra/migrations/platform/20261110_KAN-201_notification_expansion.sql"
         ).read_text()
         conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
+        # KAN-214 cs.assigned 알림 종류. 재실행해도 같은 상태가 된다.
+        migration = Path(
+            "infra/migrations/platform/20261111_KAN-214_assignment_notification.sql"
+        ).read_text()
+        conn.execute("\n".join(x for x in migration.splitlines() if not x.startswith("\\")))
     return auth_database
 
 

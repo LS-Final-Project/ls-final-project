@@ -1,0 +1,36 @@
+/* 문의 조회(CS0101): 고객 이력(customers-v3.css)과 같은 제목 줄·조건 줄·상자·처리 기록 표(.log). */
+.ls-root .kv .td3.tk3 .ph .meta{font-size:11.5px;font-weight:400}
+.ls-root .kv .td3.tk3 .ph .picked{display:inline-flex;align-items:center;gap:6px;font-weight:400;font-size:12.5px}
+.ls-root .kv .td3.tk3 .log td.t .link{color:#1d2433;font-weight:600}
+.ls-root .kv .td3.tk3 .log td.t .link:hover{text-decoration:underline}
+.ls-root .kv .td3.tk3 .chip.st-open{background:#fdf3dc;color:#8a5a00}
+.ls-root .kv .td3.tk3 .chip.st-closed{background:#eaf5ee;color:#2f7d4f}
+.ls-root .kv .td3.tk3 .chip,.ls-root .kv .td3.tk3 .log th{white-space:nowrap}
+.ls-root .kv .td3.tk3 .foot{display:flex;align-items:center;justify-content:center;gap:8px;padding:8px 12px;border-top:1px solid #e6e9ee}
+.ls-root .kv .td3.tk3 .pager{display:flex;align-items:center;gap:4px}
+.ls-root .kv .td3.tk3 .pager .pg{display:inline-flex;align-items:center;gap:4px}
+.ls-root .kv .td3.tk3 .pager .kb3.sm{min-width:30px;justify-content:center}
+.ls-root .kv .td3.tk3 .pager .gap{color:#9aa2b1;padding:0 2px}
+/* 접수 경로 칩: 경로마다 다른 색 */
+.ls-root .kv .td3.tk3 .chip.ch-email{background:#eef3fb;color:#1f3d73}
+.ls-root .kv .td3.tk3 .chip.ch-phone{background:#f4f2fd;color:#5b3fd0}
+.ls-root .kv .td3.tk3 .chip.ch-portal,.ls-root .kv .td3.tk3 .chip.ch-partner_portal{background:#e6f4f5;color:#1b6b73}
+.ls-root .kv .td3.tk3 .chip.ch-webform,.ls-root .kv .td3.tk3 .chip.ch-web_form{background:#fdf1f0;color:#a3221a}
+.ls-root .kv .td3.tk3 .chip.ch-chat{background:#eaf5ee;color:#2f7d4f}
+
+@media print{.ls-root .kv .td3.tk3 .btns,.ls-root .kv .td3.tk3 .pager{display:none}}
+
+/* 문의 검토(CS0202, 부서 창): 문의 조회와 같은 제목 줄·조건 줄·목록 상자. */
+.ls-root .kv .td3.di3 .di-sum{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.ls-root .kv .td3.di3 .di-sum .al{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:999px;background:#fdf3dc;color:#8a5a00;font-size:12.5px;font-weight:600}
+.ls-root .kv .td3.di3 .di-sum .al i{width:7px;height:7px;border-radius:50%;background:currentColor}
+.ls-root .kv .td3.di3 .di-sum .al b{font-weight:800}
+.ls-root .kv .td3.di3 .di-sum small{font-size:12px;color:#6b7385}
+.ls-root .kv .td3.di3 .chip.st-muted{background:#f1f2f5;color:#6b7385}
+.ls-root .kv .td3.di3 .log td.r{max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#4a5263}
+.ls-root .kv .td3.di3 .log .late{color:#a3221a;font-weight:700}
+
+/* 쪽 번호는 모두 보인다(…로 줄이지 않음). 둥근 버튼. */
+.ls-root .kv .td3.tk3 .pager{flex-wrap:wrap;justify-content:center;row-gap:6px}
+.ls-root .kv .td3.tk3 .pager .kb3.sm{min-width:32px;height:30px;border-radius:8px;padding:0 10px}
+.ls-root .kv .td3.tk3 .pager .kb3.sm.pri{box-shadow:0 2px 6px rgba(26,58,122,.25)}

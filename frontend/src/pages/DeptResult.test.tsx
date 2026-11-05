@@ -137,3 +137,29 @@ test('반송도 판본 충돌(409)이면 안내하고 최신 상태를 다시 �
   await screen.findByText('CS26-1039');
   expect((screen.getByLabelText('반송 사유') as HTMLTextAreaElement).disabled).toBe(true);
 });
+
+test('고객 원문은 문의 처리처럼 AI 요약·원문 항상 표시·한국어 번역 덧붙이기를 두고, 부서 담당자도 요약을 만든다. 지금 할 일 줄은 없다', async () => {
+  const summaryNone = { data: { ticket_id: TICKET, summary: null, latest_attempt: null }, meta: {} };
+  const summaryMade = { data: { ticket_id: TICKET, summary: { id: 's1', summary_ko: '알람이 2~3시간마다 반복된다.\n재시작해도 계속된다.', created_at: '2026-11-04T05:00:00Z', requested_model: 'm', model_version: 'm', prompt_version: 'p', input_version: 'i', stale: false }, latest_attempt: null }, meta: {} };
+  const translationMade = { data: { ticket_id: TICKET, translation: { id: 't1', subject_ko: '같은 알람이 반복됩니다', body_ko: '2~3시간마다 OHT 알람이 뜹니다.', created_at: '2026-11-04T05:00:00Z', requested_model: 'm', model_version: 'm', prompt_version: 'p', input_version: 'i', stale: false }, latest_attempt: null }, meta: {} };
+  let made = false;
+  const base = serve();
+  const fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(url);
+    if (path.endsWith('/summary')) { if (init?.method === 'POST') { made = true; return jsonResponse(201, summaryMade); } return jsonResponse(200, made ? summaryMade : summaryNone); }
+    if (path.endsWith('/translation')) return jsonResponse(200, translationMade);
+    return base(url, init);
+  });
+  vi.stubGlobal('fetch', fetch);
+  show();
+  expect(await screen.findByText('CS26-1039')).toBeTruthy();
+  expect(screen.queryByText('지금 할 일')).toBeNull();
+  fireEvent.click(await screen.findByRole('button', { name: 'AI 요약' }));
+  expect(await screen.findByText(/알람이 2~3시간마다 반복된다/)).toBeTruthy();
+  expect(fetch.mock.calls.some(([u, i]) => String(u).endsWith('/summary') && (i as RequestInit | undefined)?.method === 'POST')).toBe(true);
+  // 원문은 처음부터 보이고, 한국어 번역은 원문 위에 덧붙는다(원문이 사라지지 않는다).
+  expect(screen.getByText('Alarm OHT every 2-3 hours.')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '한국어 번역 보기' }));
+  expect(await screen.findByText('2~3시간마다 OHT 알람이 뜹니다.')).toBeTruthy();
+  expect(screen.getByText('Alarm OHT every 2-3 hours.')).toBeTruthy();
+});

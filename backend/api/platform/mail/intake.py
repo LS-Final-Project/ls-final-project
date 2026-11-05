@@ -9,6 +9,8 @@ AI 분류(KAN-73)는 추천일 뿐이고, 접수는 메일함 주인인 cs_agent
 (플랫폼 자체 경로에 JSON 본문을 넘기는 유형이 없음, KAN-132에서 승인자 API와 함께).
 """
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -65,22 +67,32 @@ class RegisteredTicket(BaseModel):
     created: bool
 
 
-async def read_raw(request: Request, row: dict[str, Any]) -> bytes:
-    """원문을 객체 저장소에서 읽는다. 검사 주입(`mail_intake_store`)이 없으면 수집 버킷을 쓴다."""
+@asynccontextmanager
+async def raw_store(request: Request) -> AsyncIterator[Any | None]:
+    """원문 저장소. 검사 주입(`mail_intake_store`)이 없으면 수집 버킷, 수집이 꺼져 있으면 None."""
     store = getattr(request.app.state, "mail_intake_store", None)
-    stored = StoredObject(row["raw_storage_key"], row["raw_sha256"], row["raw_size"])
     if store is not None:
-        return await store.get(stored)
+        yield store
+        return
     sync = request.app.state.mail_sync
     if not sync.enabled:
-        raise HTTPException(404)
+        yield None
+        return
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(60, connect=10),
         follow_redirects=False,
         transport=request.app.state.mail_sync_transport,
     ) as http:
-        gcs = GcsObjectStore(http, sync.object_bucket, request.app.state.mail_sync_storage_token)
-        return await gcs.get(stored)
+        yield GcsObjectStore(http, sync.object_bucket, request.app.state.mail_sync_storage_token)
+
+
+async def read_raw(request: Request, row: dict[str, Any]) -> bytes:
+    """원문을 객체 저장소에서 읽는다. 검사 주입(`mail_intake_store`)이 없으면 수집 버킷을 쓴다."""
+    stored = StoredObject(row["raw_storage_key"], row["raw_sha256"], row["raw_size"])
+    async with raw_store(request) as store:
+        if store is None:
+            raise HTTPException(404)
+        return await store.get(stored)
 
 
 @router.post(

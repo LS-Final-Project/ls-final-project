@@ -108,3 +108,19 @@ it('오류 뒤 focus만으로 자동 재시도하지 않고 수동 회복하면 
   await act(async () => { await vi.advanceTimersByTimeAsync(30001); });
   expect(reads).toBe(3);
 });
+it('부서 이관 알림은 부서 담당자의 검토 답변 화면으로 연다(KAN-211)', async () => {
+  const transfer = { ...item, title: '이관 문의 수신', kind: 'cs.transfer', link_path: `/cs/tickets/${ID}` };
+  const f = vi.fn(async (url: string) => url.endsWith('/me') ? new Response(JSON.stringify({ data: { id: A } }), { headers: { 'X-CSRF-Token': 'csrf' } }) : url.endsWith('/unread-count') ? data({ count: 1 }) : url.endsWith('/read') ? new Response(null, { status: 204 }) : data({ items: [transfer], next_offset: null }));
+  vi.stubGlobal('fetch', f); view();
+  fireEvent.click(await screen.findByRole('button', { name: /알림, 안 읽음 1건/ }));
+  fireEvent.click(await screen.findByRole('button', { name: transfer.title }));
+  await waitFor(() => expect(screen.getByLabelText('현재 경로').textContent).toBe(`/dept/result/${ID}`));
+});
+it('담당 배정 알림(cs.assigned)은 고정 제목으로 보이고 C/S 문의 처리 화면으로 연다(KAN-214)', async () => {
+  const assigned = { ...item, title: '새 문의 배정', kind: 'cs.assigned', link_path: `/cs/tickets/${ID}` };
+  const f = vi.fn(async (url: string) => url.endsWith('/me') ? new Response(JSON.stringify({ data: { id: A } }), { headers: { 'X-CSRF-Token': 'csrf' } }) : url.endsWith('/unread-count') ? data({ count: 1 }) : url.endsWith('/read') ? new Response(null, { status: 204 }) : data({ items: [assigned], next_offset: null }));
+  vi.stubGlobal('fetch', f); view();
+  fireEvent.click(await screen.findByRole('button', { name: /알림, 안 읽음 1건/ }));
+  fireEvent.click(await screen.findByRole('button', { name: '새 문의 배정' }));
+  await waitFor(() => expect(screen.getByLabelText('현재 경로').textContent).toBe(`/cs/tickets/${ID}`));
+});

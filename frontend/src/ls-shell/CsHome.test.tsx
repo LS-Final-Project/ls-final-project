@@ -11,34 +11,61 @@ const day = (daysAgo: number) => new Date(Date.now() - daysAgo * 86_400_000).toI
 const item = (id: string, state: string, daysAgo: number) => ({ id, subject: id, external_id: `ID-${id}`, channel: 'EMAIL', product_code: 'P1', received_at: day(daysAgo), data_origin: 'synthetic', workflow_state: state });
 const view = () => { setApiMode('live'); return renderAt('/cs', '/cs', <CsHome />); };
 
-test('업무 개요는 받아 온 목록을 상태별로 세고 종결 시각이 없는 칸은 비워 둔다', async () => {
-  const items = [item('a', 'RECEIVED', 10), item('b', 'IN_REVIEW', 2), item('c', 'TRANSFERRED', 3), item('d', 'WAITING_CUSTOMER', 4), item('e', 'CLOSED', 1), item('f', 'ANSWERED', 5)];
-  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { data: { items, next_cursor: null } })));
-  const { container } = view();
-  await screen.findByRole('link', { name: 'ID-a' });
-  expect([...container.querySelectorAll('.kv-steps span')].map(x => x.textContent?.replace(/\s+/g, ' ').trim()))
-    .toEqual(['접수 1', '검토중 1', '부서 검토 1', '고객 회신 대기 1', '오늘 종결 -']);
-  expect(screen.getByText(/받아 온 6건 기준/)).toBeTruthy();
-  expect(container.querySelector('.kv-next')?.textContent).toMatch(/접수 1건 검토 시작, 7일 이상 미처리 1/);
+// 업무 홈은 상태·담당자 서버 필터로 오늘 할 일을 센다. URL의 state·owner로 응답을 나눈다.
+function serve(byState: Record<string, unknown[]>, requests: unknown[] | 'error' = []) {
+  return vi.fn(async (url: RequestInfo | URL) => {
+    const u = new URL(String(url), 'http://x');
+    if (u.pathname.endsWith('/platform/me')) return jsonResponse(200, { data: { id: 'u1', display_name: '김상담', roles: ['cs_agent'] } });
+    if (u.pathname.endsWith('/improvement-requests')) return requests === 'error' ? jsonResponse(503, errorBody('UNAVAILABLE', '잠시 후')) : jsonResponse(200, { data: { items: requests } });
+    const key = `${u.searchParams.get('state')}|${u.searchParams.get('owner') ?? ''}`;
+    return jsonResponse(200, { data: { items: byState[key] ?? [], next_cursor: null } });
+  });
+}
+const req = (id: string, status: string, owner: string | null = 'u1') => ({ id, status, request_type: 'FAULT', product_code: 'P1', fault_id: 'FLT-001', created_at: day(2), origin: 'SYSTEM_CANDIDATE', problem_statement: 'p', version: 1, evidence_count: 3, cs_owner: owner });
+
+test('오늘 할 일은 새 문의와 내 담당 진행 문의를 세고, 1순위를 크게 보이고 다음 순서를 이어 보인다', async () => {
+  const fetch = serve({
+    'RECEIVED|': [item('a', 'RECEIVED', 10)],
+    'IN_REVIEW,ANSWERED|u1': [item('b', 'IN_REVIEW', 2), item('f', 'ANSWERED', 5)],
+    'TRANSFERRED,WAITING_CUSTOMER|u1': [item('c', 'TRANSFERRED', 3)],
+  }, [req('r1', 'DRAFT'), req('r2', 'REVIEWED'), req('r3', 'COMPLETED'), req('r4', 'REVIEWED', 'someone-else')]);
+  vi.stubGlobal('fetch', fetch);
+  view();
+  // 분석(우선순위·기한)이 없으면 오래된 순: a(10일) → f(5일) → b(2일). 기다리는 c는 빠진다.
+  const go = await screen.findByRole('link', { name: /문의 처리/ });
+  expect(go.getAttribute('href')).toBe('/cs/tickets/a');
+  expect(screen.getByRole('heading', { name: /번역 전/ }).textContent).toContain('a');
+  const queue = [...document.querySelectorAll('.hm-queue a.hm-q')].map(a => a.getAttribute('href'));
+  expect(queue).toEqual(['/cs/tickets/f', '/cs/tickets/b']);
+  expect(screen.queryByText('ID-c')).toBeNull();
+  // 오늘 할 일 = 새 1 + 내 담당 2 + 내 개선요청 2(초안 검토 포함, 다른 사람 담당·완료는 빠짐)
+  expect(await screen.findByText('5건')).toBeTruthy();
+  expect(screen.getByText('내 담당만 · 초안 검토 1건 포함')).toBeTruthy();
+  expect(screen.getByText('검토 완료 기록')).toBeTruthy();
+  expect(screen.getByText(/김상담님/)).toBeTruthy();
+  // 분석이 없으면 기한·긴급 값을 만들어 보이지 않는다.
+  expect(screen.queryByText(/기한 넘긴|오늘 기한|긴급 P1/)).toBeNull();
+  expect(screen.queryByText('용어 풀이')).toBeNull();expect(screen.queryByText('다음 할 일')).toBeNull();
+  const urls = fetch.mock.calls.map(([url]) => String(url));
+  expect(urls.some(url => url.includes('state=IN_REVIEW%2CANSWERED') && url.includes('owner=u1'))).toBe(true);
+  // 개선요청은 서버의 담당 필터로 내 것만 읽는다(팀 전체 목록을 받지 않는다).
+  expect(urls.filter(url => url.includes('/improvement-requests'))).toEqual(['/api/v1/cs/improvement-requests?owner=u1']);
 });
 
-test('처리할 문의는 부서·고객 답을 기다리는 건과 종결을 빼고 경과일 내림차순으로 보인다', async () => {
-  const items = [item('b', 'IN_REVIEW', 2), item('a', 'RECEIVED', 10), item('c', 'TRANSFERRED', 3), item('e', 'CLOSED', 1), item('f', 'ANSWERED', 5)];
-  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { data: { items, next_cursor: null } })));
+test('개선요청을 못 읽으면 오류를 보이고 합계에 +와 빠진 이유를 붙인다', async () => {
+  vi.stubGlobal('fetch', serve({ 'RECEIVED|': [item('a', 'RECEIVED', 1)] }, 'error'));
   view();
-  const table = within(await screen.findByRole('table', { name: '처리할 문의' }));
-  await table.findByRole('link', { name: 'ID-a' });
-  expect(table.getAllByRole('link').map(x => x.textContent)).toEqual(['ID-a', 'ID-f', 'ID-b']);
-  expect(table.getByText('검토 시작')).toBeTruthy();
-  expect(table.getByText('종결 여부 확인')).toBeTruthy();
-  expect(screen.getByText(/담당 구분 API가 없어 팀 전체/)).toBeTruthy();
+  expect(await screen.findByText('1+건')).toBeTruthy();
+  expect(screen.getByText('개선요청을 불러오지 못해 합계에서 빠졌습니다')).toBeTruthy();
+  expect(screen.getByText('불러오지 못함 · 합계에서 빠짐')).toBeTruthy();
+  expect(screen.getByText('!')).toBeTruthy();
 });
 
 test('목록 조회가 거부되면 이전 값을 보이지 않고 오류를 안내한다', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(403, errorBody('FORBIDDEN', '권한 없음'))));
   view();
   await screen.findByText('권한이 없습니다');
-  expect(screen.queryByRole('table', { name: '처리할 문의' })).toBeNull();
+  expect(screen.queryByText('지금 할 일')).toBeNull();
 });
 
 // 개발 환경 화면(DevCheck)은 ['tickets', mode]에 쪽수 없는 목록을 저장한다. 그 캐시가 있어도 업무 홈이 깨지면 안 된다.
@@ -48,5 +75,5 @@ test('개발 환경 화면이 남긴 문의 목록 캐시와 충돌하지 않는
   client.setQueryData(['tickets', 'live'], { data: { items: [item('x', 'RECEIVED', 1)], next_cursor: null } });
   vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { data: { items: [item('a', 'RECEIVED', 10)], next_cursor: null } })));
   render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/cs']}><Routes><Route path="/cs" element={<CsHome />} /></Routes></MemoryRouter></QueryClientProvider>);
-  await screen.findByRole('link', { name: 'ID-a' });
+  expect((await screen.findByRole('link', { name: /문의 처리/ })).getAttribute('href')).toBe('/cs/tickets/a');
 });

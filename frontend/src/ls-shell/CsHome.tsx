@@ -1,110 +1,233 @@
 import { Link } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ErrorState, Loading } from '../components/states';
-import { KvGrid, KvTitle, useHotkey, KvKey, type KvColumn } from './kv';
-import { STATE_LABEL, dayOf, type TicketState } from './cs-labels';
-import { useTicketPages } from './use-tickets';
-import type { TicketListResponse } from '../api/cs';
+import { useHotkey } from './kv';
+import { CHANNEL_LABEL, REQUEST_STATUS_LABEL, formatStamp, type TicketState } from './cs-labels';
+import { getApiMode } from '../api/client';
+import { getTicketAnalysis, listTicketsBy, type TicketAnalysisResponse, type TicketListResponse } from '../api/cs';
+import { me } from '../api/platform';
+import { listMyImprovements } from '../api/cs-improvements';
+import '../pages/ticket-detail-v3.css';
+import './cs-home.css';
 
 type Ticket = TicketListResponse['data']['items'][number];
 const DAY = 86_400_000;
-const STEPS: [string, TicketState | null][] = [['접수', 'RECEIVED'], ['검토중', 'IN_REVIEW'], ['부서 검토', 'TRANSFERRED'], ['고객 회신 대기', 'WAITING_CUSTOMER'], ['오늘 종결', null]];
-const TERMS: [string, string][] = [
-  ['내 차례', '다음 행동을 내가 해야 하는 문의. 부서나 고객 답을 기다리는 건은 빠집니다.'],
-  ['경과일', '접수된 날부터 오늘까지 며칠 지났는지. 7일이 넘으면 먼저 봅니다.'],
-  ['부서 검토', '기술 판단이 필요해 담당 부서에 넘긴 상태. 답변이 오면 다시 내 차례가 됩니다.'],
-  ['고객 회신 대기', '고객에게 정보를 더 물어 둔 상태. 고객 답장이 오면 자동으로 돌아옵니다.'],
-  ['개선요청', '단순 문의가 아니라 제품이나 절차를 고쳐 달라는 건. 번호가 IR로 시작합니다.'],
-  ['반복 사례 모음', '비슷한 문의와 그때의 답변을 모아 둔 곳. 답변 초안의 근거로 씁니다.'],
+const LIMIT = '100';
+// 기한·긴급·처리 준비를 읽어 올 최대 문의 수(내 담당 먼저, 다음 새 문의).
+const SIGNAL_LIMIT = 10;
+// 내가 움직여야 하는 문의 상태와 그때 할 일. 부서·고객 답을 기다리는 상태와 종결은 빠진다.
+const NEXT_ACTION: Partial<Record<TicketState, string>> = { RECEIVED: '검토 시작', IN_REVIEW: '답변·부서 검토·정보 요청', ANSWERED: '종결 여부 확인' };
+// 개선요청에서 C/S 담당자가 할 일. 급한 순서(앞일수록 먼저).
+const REQUEST_TASK: [string, string][] = [
+  ['REJECTED', '반려 확인'], ['INFO_REQUESTED', '자료 보완 후 다시 요청'], ['REVIEWED', '부서 전달'],
+  ['ACTION_TAKEN', '후속 확인 계획'], ['FOLLOW_UP', '후속 확인 결과·완료'], ['DRAFT', '검토 완료 기록'],
 ];
-// 부서나 고객의 답을 기다리는 상태(TRANSFERRED, WAITING_CUSTOMER)와 종결은 "내 차례"에서 뺀다.
-const NEXT_ACTION: Partial<Record<TicketState, string>> = { RECEIVED: '검토 시작', IN_REVIEW: '부서 검토 요청 또는 고객 정보 요청', ANSWERED: '종결 여부 확인' };
-const PENDING = '연결 전입니다. 처리 기록 API가 연결되면 표시됩니다.';
+const taskOf = new Map(REQUEST_TASK);
+const rank = new Map(REQUEST_TASK.map(([status], index) => [status, index]));
+const countText = (n: number, more: boolean) => `${n}${more ? '+' : ''}`;
+// 개선요청 목록 API가 한 번에 주는 최대 건수(backend LIST_LIMIT). 꽉 차면 더 있을 수 있다.
+const REQUEST_PAGE = 200;
 
-// 업무 홈 CS0001. 건수와 처리할 문의는 문의 목록(받아 온 쪽)에서 센다. 담당자·종결 시각·처리 기록·공지 API는 아직 없다.
+// 업무 홈 CS0001. 출근해서 처음 여는 화면: 오늘 내가 할 일을 한눈에 보인다.
+// 건수는 서버 필터(상태·담당자)로 센다. 한 번에 최대 100건까지 받고 넘으면 '+'를 붙인다.
 export default function CsHome() {
   const access = useBusinessAccess('cs');
-  const queryClient = useQueryClient();
-  const tickets = useTicketPages(access.ready);
-  const refresh = () => void queryClient.invalidateQueries();
-  useHotkey('F8', refresh, access.ready);
   if (!access.ready) return <BusinessGate access={access} title="업무 홈" />;
+  return <HomeView />;
+}
 
-  const ok = tickets.isSuccess && !tickets.isError;
-  const all: Ticket[] = ok ? tickets.data.pages.flatMap(page => page.data.items) : [];
+function HomeView() {
+  const mode = getApiMode();
+  const queryClient = useQueryClient();
+  const identity = useQuery({ queryKey: ['cs-home', mode, 'me'], queryFn: me, retry: false, staleTime: 60_000 });
+  const myId = identity.data?.data?.id ?? null;
+  const fresh = useQuery({ queryKey: ['cs-home', mode, 'new'], queryFn: ({ signal }) => listTicketsBy({ state: 'RECEIVED', sort: 'received_at_asc', limit: LIMIT }, signal), retry: false, staleTime: 0 });
+  const mine = useQuery({ queryKey: ['cs-home', mode, 'mine', myId], queryFn: ({ signal }) => listTicketsBy({ state: 'IN_REVIEW,ANSWERED', owner: myId!, sort: 'received_at_asc', limit: LIMIT }, signal), enabled: !!myId, retry: false, staleTime: 0 });
+  const waiting = useQuery({ queryKey: ['cs-home', mode, 'waiting', myId], queryFn: ({ signal }) => listTicketsBy({ state: 'TRANSFERRED,WAITING_CUSTOMER', owner: myId!, limit: LIMIT }, signal), enabled: !!myId, retry: false, staleTime: 0 });
+  // 개선요청도 내 담당(cs_owner)만. 팀 전체 요청은 개선요청 화면에서 본다(KAN-214 자동 배정 뒤).
+  const requests = useQuery({ queryKey: ['cs-home', mode, 'requests', myId], queryFn: ({ signal }) => listMyImprovements(myId!, signal), enabled: !!myId, retry: false, staleTime: 0 });
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: ['cs-home', mode] });
+  useHotkey('F8', refresh);
+
   const now = Date.now();
   const ageOf = (item: Ticket) => Math.max(0, Math.floor((now - Date.parse(item.received_at)) / DAY));
-  const count = (state: TicketState) => all.filter(item => item.workflow_state === state).length;
-  const stale = all.filter(item => item.workflow_state !== 'CLOSED' && ageOf(item) >= 7).length;
-  const today = dayOf(new Date().toISOString());
-  const todayCount = all.filter(item => dayOf(item.received_at) === today).length;
-  const mine = all.filter(item => NEXT_ACTION[item.workflow_state]).sort((a, b) => ageOf(b) - ageOf(a));
+  const newItems = fresh.data?.data.items ?? [];
+  const mineItems = mine.data?.data.items ?? [];
+  const waitItems = waiting.data?.data.items ?? [];
+  // 기한·긴급·처리 준비(건별 분석). 로컬 서버가 몰린 요청에 500을 내서 2건씩 차례로 읽는다.
+  const candidates = [...mineItems, ...newItems].slice(0, SIGNAL_LIMIT);
+  const ids = candidates.map(item => item.id);
+  const analyses = useQuery({ queryKey: ['cs-home', mode, 'analysis', ids.join(',')], enabled: ids.length > 0, retry: false, staleTime: 60_000,
+    queryFn: async ({ signal }) => {
+      const out: Record<string, { analysis?: TicketAnalysisResponse }> = {};
+      for (let i = 0; i < ids.length; i += 2) await Promise.all(ids.slice(i, i + 2).map(async id => {
+        out[id] = { analysis: await getTicketAnalysis(id, signal).catch(() => undefined) };
+      }));
+      return out;
+    } });
+  // 한국어 제목은 문의 목록 응답에 같이 온다(KAN-213 접수 때 번역). 없으면 원문 제목을 보인다.
+  const koById = new Map([...newItems, ...mineItems, ...waitItems].map(item => [item.id, item.subject_ko ?? null]));
+  const koOf = (id: string) => koById.get(id) || null;
+  const signalOf = new Map(candidates.map(item => [item.id, signals(analyses.data?.[item.id]?.analysis, now)]));
+  // 정렬: 긴급(P1) → 기한 가까운 순 → 오래된 순. 신호가 없는 건은 뒤로.
+  const urgency = (item: Ticket) => { const sig = signalOf.get(item.id); return sig ? (sig.priority === 'P1' ? -1000 : 0) + sig.dueDays : 1000; };
+  const todo = [...mineItems, ...newItems].sort((a, b) => urgency(a) - urgency(b) || ageOf(b) - ageOf(a));
+  const sigs = [...signalOf.values()].filter((sig): sig is Signal => !!sig);
+  const overdue = sigs.filter(sig => sig.dueDays < 0).length;
+  const dueToday = sigs.filter(sig => sig.dueDays === 0).length;
+  const p1 = sigs.filter(sig => sig.priority === 'P1').length;
+  const reqItems = requests.data?.data.items ?? [];
+  // 서버가 담당으로 걸렀지만, 화면도 내 담당만 센다(다른 사람 요청이 섞이지 않게).
+  const reqTodo = reqItems
+    .filter(item => item.cs_owner === myId && item.request_type === 'FAULT' && taskOf.has(item.status))
+    .sort((a, b) => (rank.get(a.status)! - rank.get(b.status)!) || Date.parse(a.created_at) - Date.parse(b.created_at));
+  const reqMore = reqItems.length >= REQUEST_PAGE;
+  // 초안(DRAFT)도 내가 검토 완료를 기록할 일이라 오늘 할 일에 센다.
+  const reqDraft = reqTodo.filter(item => item.status === 'DRAFT').length;
+  const name = identity.data?.data?.display_name;
+  const today = new Date().toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' });
+  const total = todo.length + reqTodo.length;
+  // 개선요청을 못 읽었으면 합계에서 그만큼 빠졌다는 것을 숨기지 않는다.
+  const totalMore = !!(fresh.data?.data.next_cursor || mine.data?.data.next_cursor) || reqMore || requests.isError;
+  const failed = fresh.isError ? fresh.error : mine.isError ? mine.error : null;
 
-  const columns: KvColumn<Ticket>[] = [
-    { key: 'pick', header: <input type="checkbox" aria-label="모두 선택" disabled />, width: 30, className: 'c', cell: item => <input type="checkbox" aria-label={`${item.external_id ?? item.id.slice(0, 8)} 선택`} disabled /> },
-    { key: 'no', header: 'No', width: 40, className: 'n', cell: (_item, index) => index + 1 },
-    { key: 'type', header: '유형', width: 64, className: 'c', cell: () => '문의' },
-    { key: 'id', header: '번호', width: 96, className: 'id', headClass: '', cell: item => <Link to={`/cs/tickets/${item.id}`}>{item.external_id ?? item.id.slice(0, 8)}</Link> },
-    { key: 'next', header: '다음 행동', width: 220, headClass: '', cell: item => NEXT_ACTION[item.workflow_state] },
-    { key: 'age', header: '경과일', width: 56, className: 'c', sort: 'descending', cell: item => ageOf(item) },
-    { key: 'state', header: '상태', width: 100, className: 'c', cell: item => STATE_LABEL[item.workflow_state] },
+  // 회신 도착: 부서 회신이나 고객 답장이 와서 다시 내 차례가 된 내 담당 문의.
+  const focus = todo[0];
+  const focusSig = focus ? signalOf.get(focus.id) : undefined;
+  const queue = todo.slice(1, 4);
+  const actionOf = (item: Ticket) => NEXT_ACTION[item.workflow_state] ?? '';
+  const label = (item: Ticket) => item.external_id ?? item.id.slice(0, 8);
+  const loadingTodo = fresh.isPending || (!!myId && mine.isPending);
+  // 부서 검토·회신: 내 개선요청 할 일 + 부서 답을 기다리는 문의.
+  const REQ_TONE: Record<string, string> = { REJECTED: 'red', INFO_REQUESTED: 'amber', REVIEWED: 'blue', ACTION_TAKEN: 'green', FOLLOW_UP: 'green', DRAFT: 'gray' };
+  const deptRows = [
+    ...reqTodo.map(item => ({ id: item.id, to: `/cs/improvements/${encodeURIComponent(item.id)}`, chip: taskOf.get(item.status)!, tone: REQ_TONE[item.status] ?? 'gray',
+      title: `${item.product_code}${item.fault_id ? ` · ${item.fault_id}` : ''}`, sub: `개선요청 · ${REQUEST_STATUS_LABEL[item.status] ?? item.status} · ${formatStamp(item.created_at)}` })),
+    ...waitItems.filter(item => item.workflow_state === 'TRANSFERRED').map(item => ({ id: item.id, to: `/cs/tickets/${item.id}`, chip: '부서 회신 대기', tone: 'blue',
+      title: koOf(item.id) ?? item.subject ?? '(제목 없음)', sub: `${label(item)} · 부서 답이 오면 내 차례` })),
   ];
 
-  return <main>
-    <KvTitle path="C/S 관리" title="업무 홈" code="CS0001">
-      <button className="kb primary" disabled={tickets.isFetching} onClick={refresh}>조회<KvKey>F8</KvKey></button>
-      <Link className="kb" to="/cs/tickets">문의 조회</Link>
-      <button className="kb" onClick={() => window.print()}>인쇄</button>
-    </KvTitle>
-    <div className="kv-next">
-      <span className="k">다음 할 일</span>
-      {ok
-        ? <><span>다음 <b>접수 {count('RECEIVED')}건 검토 시작</b>, 7일 이상 미처리 <b>{stale}</b></span><span className="sep">|</span><span><span className="m">받아 온 {all.length}건 기준, 오늘 접수 {todayCount}. 담당 구분과 요약·분류는 아직 없음</span></span></>
-        : <span>{tickets.isPending ? '불러오는 중' : '문의 목록을 불러오지 못했습니다.'}</span>}
-    </div>
-    <div className="kv-split" style={{ gridTemplateColumns: '1fr 1.15fr' }}>
-      <section className="kv-box">
-        <h2>업무 개요<small>팀 전체, 받아 온 목록을 상태별로 센 것</small></h2>
-        <div className="body" style={{ padding: 0 }}>
-          <div className="kv-steps" style={{ margin: 0, border: 0, borderBottom: '1px solid var(--erp-border-soft)' }}>
-            {STEPS.map(([label, state]) => <span key={label} title={state ? undefined : '종결 시각 API가 아직 없습니다'} style={{ height: 30, lineHeight: '30px' }}>{label} <b style={{ fontWeight: 500, fontSize: 14 }}>{ok && state ? count(state) : '-'}</b></span>)}
-          </div>
-          <div style={{ padding: '8px 10px', fontSize: '12.5px', lineHeight: 1.55, color: 'var(--erp-text)' }}>
-            메일과 전화로 들어온 문의가 접수되면 AI가 요약과 분류를 먼저 붙입니다. 상담원이 내용을 확인하고, 필요하면 부서에 검토를 요청하거나 고객에게 정보를 더 묻고, 답변을 보내면 종결됩니다. 아래 표에는 그중 내가 움직여야 하는 건만 모여 있습니다.
-          </div>
-        </div>
-      </section>
-      <section className="kv-box">
-        <h2>용어 풀이</h2>
-        <div className="body" style={{ padding: '6px 10px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 14px' }}>
-          {TERMS.map(([term, text]) => <div key={term} className="kv-field" style={{ gridTemplateColumns: '84px 1fr', marginTop: 0, alignItems: 'start', padding: '3px 0', borderBottom: '1px solid var(--erp-border-soft)' }}>
-            <span>{term}</span><div style={{ lineHeight: 1.45 }}>{text}</div>
-          </div>)}
-        </div>
-      </section>
-    </div>
-    <div className="kv-gridhead"><span>{ok ? `처리할 문의 ${mine.length}건, 경과일 내림차순. 담당 구분 API가 없어 팀 전체` : '처리할 문의'}</span></div>
-    {tickets.isPending && <Loading />}
-    {tickets.isError && <ErrorState error={tickets.error} onRetry={() => void tickets.refetch()} />}
-    {ok && <KvGrid label="처리할 문의" frozen columns={columns} rows={mine} rowKey={item => item.id} fallback="지금 처리할 문의가 없습니다." />}
-    <div className="kv-split" style={{ marginTop: 12 }}>
-      <div>
-        <div className="kv-sub" style={{ margin: '0 0 6px' }}>최근 처리 기록, 오늘</div>
-        <div className="kv-tablewrap"><table className="kv-grid">
-          <colgroup><col style={{ width: 56 }} /><col style={{ width: 84 }} /><col /><col style={{ width: 64 }} /></colgroup>
-          <thead><tr><th>일시</th><th>번호</th><th>내용</th><th>처리자</th></tr></thead>
-          <tbody><tr><td colSpan={4}>{PENDING}</td></tr></tbody>
-        </table></div>
+  return <main className="td3 home3">
+    <div className="title">
+      <span className="path">C/S 관리 ›</span><h1>업무 홈</h1><code className="kv-code">CS0001</code>
+      <div className="btns">
+        <button className="kb3 pri" disabled={fresh.isFetching || mine.isFetching} onClick={refresh}>새로고침<kbd aria-hidden="true">F8</kbd></button>
       </div>
-      <div>
-        <div className="kv-sub" style={{ margin: '0 0 6px' }}>공지</div>
-        <div className="kv-tablewrap"><table className="kv-grid">
-          <colgroup><col style={{ width: 56 }} /><col /></colgroup>
-          <thead><tr><th>날짜</th><th>내용</th></tr></thead>
-          <tbody><tr><td colSpan={2}>공지 API가 아직 없습니다.</td></tr></tbody>
-        </table></div>
+    </div>
+
+    <div className="body">
+      <div className="hello">
+        <div><small>{today}</small><h2>{name ? `${name}님, ` : ''}오늘 할 일 <b>{fresh.isPending || (myId && mine.isPending) ? '…' : `${total}${totalMore ? '+' : ''}건`}</b></h2>{requests.isError && <small className="req-miss" role="status">개선요청을 불러오지 못해 합계에서 빠졌습니다</small>}</div>
+        {(overdue + dueToday + p1) > 0 && <div className="alerts" role="status">
+          {overdue > 0 && <span className="al red"><i aria-hidden="true" />기한 넘긴 {overdue}건</span>}
+          {dueToday > 0 && <span className="al amber"><i aria-hidden="true" />오늘 기한 {dueToday}건</span>}
+          {p1 > 0 && <span className="al red solid">긴급 {p1}건</span>}
+          <small>부터 처리하세요</small>
+        </div>}
       </div>
+      {(identity.isError || (identity.isSuccess && !myId)) && <div className="stale">로그인 정보를 확인하지 못해 내 담당 문의는 비워 둡니다. 다시 로그인하세요.</div>}
+      {failed && <ErrorState error={failed} onRetry={refresh} />}
+
+      {!failed && <div className="cards">
+        <Link className="card t-red" to="/cs/tickets">
+          <div className="ct"><span className="ic" aria-hidden="true">{ICON.inbox}</span><small>새로 접수된 문의</small></div>
+          <b>{num(fresh.isPending ? '…' : countText(newItems.length, !!fresh.data?.data.next_cursor))}</b>
+          <div className="cf">{newItems.length
+            ? <><span className={`pill ${ageOf(newItems[0]) >= 3 ? 'warn' : ''}`}>가장 오래된 건 {ageOf(newItems[0])}일째</span><span>검토 시작</span></>
+            : <span>검토할 새 문의 없음</span>}</div>
+        </Link>
+        <Link className="card t-navy" to="/cs/tickets">
+          <div className="ct"><span className="ic" aria-hidden="true">{ICON.work}</span><small>내가 처리 중인 문의</small></div>
+          <b>{num(!myId ? '-' : mine.isPending ? '…' : countText(mineItems.length, !!mine.data?.data.next_cursor))}</b>
+          <Split parts={[['검토 중', mineItems.filter(item => item.workflow_state === 'IN_REVIEW').length, 'navy'], ['종결 확인', mineItems.filter(item => item.workflow_state === 'ANSWERED').length, 'green']]} />
+        </Link>
+        <Link className="card t-blue" to="/cs/tickets">
+          <div className="ct"><span className="ic" aria-hidden="true">{ICON.clock}</span><small>답을 기다리는 문의</small></div>
+          <b>{num(!myId ? '-' : waiting.isPending ? '…' : waiting.isError ? '!' : countText(waitItems.length, !!waiting.data?.data.next_cursor))}</b>
+          {waiting.isError ? <div className="cf"><span className="pill bad">대기 목록을 불러오지 못함 · 새로고침하세요</span></div>
+            : <Split parts={[['부서 회신', waitItems.filter(item => item.workflow_state === 'TRANSFERRED').length, 'blue'], ['고객 답장', waitItems.filter(item => item.workflow_state === 'WAITING_CUSTOMER').length, 'gray']]} />}
+        </Link>
+        <Link className="card t-green" to="/cs/improvements">
+          <div className="ct"><span className="ic" aria-hidden="true">{ICON.doc}</span><small>내 개선요청 할 일</small></div>
+          <b>{num(!myId ? '-' : requests.isPending ? '…' : requests.isError ? '!' : countText(reqTodo.length, reqMore))}</b>
+          <div className="cf">{requests.isError ? <span className="pill bad">불러오지 못함 · 합계에서 빠짐</span> : <span className="pill">{`내 담당만 · 초안 검토 ${reqDraft}건 포함`}</span>}</div>
+        </Link>
+      </div>}
+
+      {!failed && <div className="home-cols">
+        <div className="pane focus-pane">
+          <div className="ph"><h2>지금 할 일</h2><div className="r"><span className="meta">{loadingTodo ? '' : `처리할 문의 ${countText(todo.length, totalMore)}건 중 1순위`}</span></div></div>
+          {loadingTodo ? <Loading /> : !focus ? <div className="pb none">지금 처리할 문의가 없습니다.</div> : <div className="hm-focus">
+            <div className="hm-main">
+              <div className="hm-tags">
+                {focusSig?.priority === 'P1' && <span className="flag p1">긴급 P1</span>}
+                <span className={focus.workflow_state === 'RECEIVED' ? 'chip st-new' : 'chip st-open'}>{actionOf(focus)}</span>
+              </div>
+              <h3 title={focus.subject ? `원문: ${focus.subject}` : ''}>{koOf(focus.id) ?? <><span className="flag raw">번역 전</span>{focus.subject || '(제목 없음)'}</>}</h3>
+              <p className="hm-meta">{label(focus)} · {CHANNEL_LABEL[focus.channel as keyof typeof CHANNEL_LABEL] ?? focus.channel} · {focus.product_code}{focusSig && <> · <span className={`due ${focusSig.dueDays < 0 ? 'over' : focusSig.dueDays === 0 ? 'today' : ''}`}>기한 {dueText(focusSig.dueDays)}</span></>}</p>
+              <div className="hm-act">
+                <div className="hm-next"><small>할 일</small>{focus.workflow_state === 'RECEIVED' ? '내용을 확인하고 검토 시작' : focus.workflow_state === 'ANSWERED' ? '고객 답변 뒤 종결해도 되는지 확인' : '답변·부서 검토·추가 정보 요청 중 고르기'}{focusSig && focusSig.ready.tone !== 'idle' && <span className={`ready ${focusSig.ready.tone}`}>{focusSig.ready.text}</span>}</div>
+                <Link className="hm-go" to={`/cs/tickets/${focus.id}`}>문의 처리 <span aria-hidden="true">→</span></Link>
+              </div>
+            </div>
+            <div className="hm-queue">
+              <small>다음 순서</small>
+              {queue.map((item, index) => { const sig = signalOf.get(item.id); return <Link key={item.id} className="hm-q" to={`/cs/tickets/${item.id}`}>
+                <span className="n">{index + 2}</span>
+                <span className="b"><b>{koOf(item.id) ?? item.subject ?? '(제목 없음)'}</b><em>{[sig?.priority === 'P1' ? '긴급 P1' : null, actionOf(item), sig ? `기한 ${dueText(sig.dueDays)}` : `${ageOf(item)}일째`].filter(Boolean).join(' · ')}</em></span>
+              </Link>; })}
+              {todo.length > 4 && <Link className="hm-q" to="/cs/tickets"><span className="n">+{todo.length - 4}</span><span className="b"><b>나머지 문의</b><em>문의 조회에서 보기</em></span></Link>}
+              {queue.length === 0 && <em className="none">다음 문의 없음</em>}
+            </div>
+          </div>}
+        </div>
+        <div className="pane">
+          <div className="ph"><h2>부서 검토·회신</h2><div className="r"><span className="meta">내 담당 {deptRows.length}건</span><Link className="link" to="/cs/improvements">모두 보기</Link></div></div>
+          {!myId ? <div className="pb none">로그인 정보를 확인하지 못했습니다.</div> : requests.isPending ? <Loading /> : requests.isError ? <div className="pb"><ErrorState error={requests.error} onRetry={() => void requests.refetch()} /></div>
+            : deptRows.length === 0 ? <div className="pb none">부서와 주고받을 일이 없습니다.</div>
+            : <ul className="hm-dept">{deptRows.slice(0, 4).map(row => <li key={row.id}><Link to={row.to}>
+              <span className={`hm-chip ${row.tone}`}><i aria-hidden="true" />{row.chip}</span>
+              <span className="b"><b>{row.title}</b><em>{row.sub}</em></span>
+              <span className="go">처리 →</span>
+            </Link></li>)}</ul>}
+        </div>
+      </div>}
     </div>
   </main>;
+}
+
+// 숫자일 때만 '건'을 붙인다('-'·'…'·'!' 같은 상태 표시는 그대로).
+const num = (v: string) => <>{v}{/\d/.test(v) && <em>건</em>}</>;
+
+// 카드 아이콘(선 아이콘, 외부 의존성 없음).
+const svg = (d: string) => <svg viewBox="0 0 20 20"><path d={d} fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+const ICON = {
+  inbox: svg('M3 11l2-6h10l2 6v4H3v-4zm0 0h4l1 2h4l1-2h4'),
+  work: svg('M4 16l1-4 8-8 3 3-8 8-4 1zM11 6l3 3'),
+  clock: svg('M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14zm0 3v4l3 2'),
+  doc: svg('M6 3h6l3 3v11H6V3zm6 0v3h3M8 10h5M8 13h5'),
+};
+
+// 카드 안 구성 막대: 건수 비율 막대 + 항목별 건수.
+function Split({ parts }: { parts: [string, number, string][] }) {
+  const sum = parts.reduce((n, [, v]) => n + v, 0);
+  return <div className="split">
+    <div className="bar" aria-hidden="true">{sum > 0 && parts.map(([name, v, tone]) => v > 0 && <i key={name} className={tone} style={{ flexGrow: v }} />)}</div>
+    <div className="legend">{parts.map(([name, v, tone]) => <span key={name}><i className={tone} aria-hidden="true" />{name} <b>{v}</b></span>)}</div>
+  </div>;
+}
+
+type Signal = { priority: string | null; dueDays: number; ready: { text: string; tone: string } };
+const dueText = (days: number) => days < 0 ? `${-days}일 넘김` : days === 0 ? '오늘' : `D-${days}`;
+const startOfDay = (t: number) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
+
+// 저장된 AI 분석에서 우선순위·기한·처리 준비를 뽑는다. 분석이나 기한이 없으면 신호 없음(값을 지어내지 않는다).
+function signals(analysis: TicketAnalysisResponse | undefined, now: number): Signal | undefined {
+  const data = analysis?.data as unknown as { latest_run?: unknown; latest_valid_draft_id?: string | null; missing_info?: { effective?: { blocking_missing?: string[] } | null }; rules?: { effective?: { priority?: string } | null; resolution_due?: { effective?: string | null } | null; first_response_due?: { effective?: string | null } | null } | null } | undefined;
+  const due = data?.rules?.resolution_due?.effective ?? data?.rules?.first_response_due?.effective ?? null;
+  if (!data?.latest_run || !due) return undefined;
+  const blocking = data.missing_info?.effective?.blocking_missing?.length ?? 0;
+  return { priority: data.rules?.effective?.priority ?? null, dueDays: Math.floor((startOfDay(Date.parse(due)) - startOfDay(now)) / DAY),
+    ready: data.latest_valid_draft_id ? { text: '답변 초안 있음', tone: 'ok' } : blocking ? { text: '정보 부족', tone: 'warn' } : { text: 'AI 분석 끝', tone: 'ok' } };
 }

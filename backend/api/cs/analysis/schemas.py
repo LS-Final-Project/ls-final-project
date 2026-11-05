@@ -137,6 +137,11 @@ class MissingInfoView(BaseModel):
         description="Codes asked in messages that reached the customer."
     )
     missing: list[str] = Field(description="required − provided − already_asked, sorted.")
+    blocking_missing: list[str] = Field(
+        default_factory=list,
+        description="Missing codes the policy marks as blocking (blocking_fields), sorted. "
+        "Only these call for asking the customer before answering.",
+    )
 
 
 class MissingInfo(BaseModel):

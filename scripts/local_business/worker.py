@@ -19,15 +19,17 @@ from google.genai.errors import APIError
 from pydantic import SecretStr
 
 from backend.shared import ai
-from scripts.local_business.permit import MAX_PARALLEL_TFT_CALLS, Busy
+from scripts.local_business.permit import MAX_PARALLEL_TFT_CALLS, Busy, Denied
 
 CONCURRENCY_PROTOCOL = 1
+ADMISSION_LIMIT_CODES = frozenset({"LOCAL_JOB_LIMIT", "LOCAL_CALL_LIMIT", "LOCAL_BUDGET_EXHAUSTED"})
 
 
 class LocalStop(BaseException):
     """A fixed local reason that must not become a successful product fallback."""
 
-    def __init__(self, code: str):
+    def __init__(self, code: str, *, admission_reason: str | None = None):
+        self.admission_reason = admission_reason
         self.code = code
         super().__init__(code)
 
@@ -169,17 +171,19 @@ class Meter:
         self.slots = BoundedSemaphore(MAX_PARALLEL_TFT_CALLS if config.owner == "tft" else 1)
         self.active_charges: set[str] = set()
 
-    def stop(self, code: str) -> None:
+    def stop(self, code: str, *, admission_reason: str | None = None) -> None:
         with self.lock:
             self.stopped = self.stopped or code
             self.stop_event.set()
-            halt = getattr(self.permit, "halt", None)
+            # Reaching an explicit admission limit spent nothing and needs no cost review,
+            # so it does not halt the driver. Unknown spend and authorization failures do.
+            halt = None if admission_reason else getattr(self.permit, "halt", None)
             if halt is not None:
                 try:
                     halt(self.config.token)
                 except Exception:
                     pass  # Keep the original stop; unresolved charges stay fail-closed.
-            raise LocalStop(self.stopped) from None
+            raise LocalStop(self.stopped, admission_reason=admission_reason) from None
 
     def priced(self, model) -> str:
         if self.stopped:
@@ -235,8 +239,14 @@ class Meter:
                     break
                 except Busy:
                     pass  # Release Meter/SQLite locks before waiting; no reservation exists.
-                except Exception:
-                    self.stop("LOCAL_RESERVATION_DENIED")
+                except Exception as error:
+                    # Preserve only known admission limits for synchronous callers (C/S summary
+                    # bridge). Unknown spend and authorization failures stay fail-closed.
+                    reason = str(error) if isinstance(error, Denied) else None
+                    self.stop(
+                        "LOCAL_RESERVATION_DENIED",
+                        admission_reason=reason if reason in ADMISSION_LIMIT_CODES else None,
+                    )
             self.stop_event.wait(0.05)
         try:
             response = generate_content(**kwargs)

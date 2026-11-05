@@ -1,5 +1,5 @@
 {
-  "_note": "OpenAPI가 아니라 KAN-178 중계 허용표 테스트 픽스처이며 backend.openapi --check 대상이 아니다. 테스트 전용이고 서버는 읽지 않는다. frontend/server.mjs businessRoutes와 backend/api/platform/relay.py BUSINESS_ROUTES가 routes와 같아야 한다. cases의 path는 퍼센트 인코딩 원문이다. 웹·백엔드 테스트 이미지 빌드 컨텍스트에 모두 들어가도록 이 위치에 둔다. customer_pattern은 고객 ID 규약으로 backend/shared/models.py CUSTOMER_ID와 server.mjs placeholders의 {customer}가 같아야 한다. evidence_pattern은 조건 비교 근거 ID로 relay.py EVIDENCE_PATH와 server.mjs placeholders의 {evidence}가 같아야 한다. dept_pattern은 부서 코드(KAN-116 개선요청 부서 동작)로 relay.py DEPT_PATH와 server.mjs placeholders의 {dept}가 같아야 한다.",
+  "_note": "OpenAPI\uac00 \uc544\ub2c8\ub77c KAN-178 \uc911\uacc4 \ud5c8\uc6a9\ud45c \ud14c\uc2a4\ud2b8 \ud53d\uc2a4\ucc98\uc774\uba70 backend.openapi --check \ub300\uc0c1\uc774 \uc544\ub2c8\ub2e4. \ud14c\uc2a4\ud2b8 \uc804\uc6a9\uc774\uace0 \uc11c\ubc84\ub294 \uc77d\uc9c0 \uc54a\ub294\ub2e4. frontend/server.mjs businessRoutes\uc640 backend/api/platform/relay.py BUSINESS_ROUTES\uac00 routes\uc640 \uac19\uc544\uc57c \ud55c\ub2e4. cases\uc758 path\ub294 \ud37c\uc13c\ud2b8 \uc778\ucf54\ub529 \uc6d0\ubb38\uc774\ub2e4. \uc6f9\u00b7\ubc31\uc5d4\ub4dc \ud14c\uc2a4\ud2b8 \uc774\ubbf8\uc9c0 \ube4c\ub4dc \ucee8\ud14d\uc2a4\ud2b8\uc5d0 \ubaa8\ub450 \ub4e4\uc5b4\uac00\ub3c4\ub85d \uc774 \uc704\uce58\uc5d0 \ub454\ub2e4. customer_pattern\uc740 \uace0\uac1d ID \uaddc\uc57d\uc73c\ub85c backend/shared/models.py CUSTOMER_ID\uc640 server.mjs placeholders\uc758 {customer}\uac00 \uac19\uc544\uc57c \ud55c\ub2e4. evidence_pattern\uc740 \uc870\uac74 \ube44\uad50 \uadfc\uac70 ID\ub85c relay.py EVIDENCE_PATH\uc640 server.mjs placeholders\uc758 {evidence}\uac00 \uac19\uc544\uc57c \ud55c\ub2e4. dept_pattern\uc740 \ubd80\uc11c \ucf54\ub4dc(KAN-116 \uac1c\uc120\uc694\uccad \ubd80\uc11c \ub3d9\uc791)\ub85c relay.py DEPT_PATH\uc640 server.mjs placeholders\uc758 {dept}\uac00 \uac19\uc544\uc57c \ud55c\ub2e4.",
   "customer_pattern": "[A-Za-z0-9][A-Za-z0-9._-]{0,63}",
   "evidence_pattern": "[A-Za-z0-9][A-Za-z0-9._-]{0,63}",
   "dept_pattern": "[A-Z][A-Z0-9_]{0,63}",
@@ -63,6 +63,24 @@
         "POST"
       ],
       "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/translation",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/tickets/{uuid}/reply-analysis",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "query": [
+        "message_id"
+      ]
     },
     {
       "path": "/api/v1/cs/tickets/{uuid}/units",
@@ -243,7 +261,8 @@
         "status",
         "request_type",
         "dept",
-        "origin"
+        "origin",
+        "owner"
       ]
     },
     {
@@ -258,6 +277,14 @@
       "path": "/api/v1/cs/improvement-requests/{uuid}/versions",
       "methods": [
         "GET"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/improvement-requests/{uuid}/ai-draft",
+      "methods": [
+        "GET",
+        "POST"
       ],
       "query": []
     },
@@ -404,6 +431,50 @@
         "fault_id",
         "version"
       ]
+    },
+    {
+      "path": "/api/v1/cs/faults",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "product_code"
+      ]
+    },
+    {
+      "path": "/api/v1/cs/assignments/agents",
+      "methods": [
+        "GET"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/assignments/preview",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/assignments/apply",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/assignments/improvements/preview",
+      "methods": [
+        "POST"
+      ],
+      "query": []
+    },
+    {
+      "path": "/api/v1/cs/assignments/improvements/apply",
+      "methods": [
+        "POST"
+      ],
+      "query": []
     },
     {
       "path": "/api/v1/tft/projects",
@@ -854,6 +925,33 @@
       "status": 405
     },
     {
+      "method": "POST",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/translation",
+      "forward": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/translation",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/reply-analysis",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/reply-analysis?message_id=22222222-2222-4222-8222-222222222222",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/tickets/11111111-1111-4111-8111-111111111111/reply-analysis?ticket_id=x",
+      "forward": false,
+      "status": 400
+    },
+    {
       "method": "GET",
       "path": "/api/v1/cs/improvement-candidates",
       "forward": true
@@ -1178,6 +1276,76 @@
       "path": "/api/v1/cs/condition-comparisons?fault_id=FLT-902&fault_id=FLT-901",
       "forward": false,
       "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/faults",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/faults?product_code=PLC-XGI-CPUU",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/faults?fault_id=FLT-020",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/assignments/agents",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/assignments/agents?limit=5",
+      "forward": false,
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/assignments/preview",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/assignments/preview",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/assignments/apply",
+      "forward": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/cs/assignments/apply",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/assignments/improvements/preview",
+      "forward": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cs/assignments/improvements/apply",
+      "forward": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/assignments/improvements/apply",
+      "forward": false,
+      "status": 405
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cs/improvement-requests?owner=11111111-1111-4111-8111-111111111111",
+      "forward": true
     },
     {
       "method": "GET",

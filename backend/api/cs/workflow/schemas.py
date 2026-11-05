@@ -10,6 +10,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from backend.api.cs.assignments.schemas import AssignmentRecord
 from backend.api.cs.tickets.schemas import TransferStatus, WorkflowState
 from backend.shared.departments import TransferDepartment
 
@@ -88,12 +89,30 @@ class Workflow(BaseModel):
     customer_replies: list["CustomerReply"] = Field(
         default_factory=list, description="Oldest first."
     )
+    # KAN-214: the rule decision behind the current owner. Null when there is none, when a
+    # person chose the owner (reassignment, start of review), and for department users.
+    assignment: AssignmentRecord | None = Field(
+        default=None,
+        description="Latest assignment decision when it still matches the current owner.",
+    )
 
 
 class Action(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     version: int = Field(ge=0, description="The workflow version the user decided on.")
+
+
+class CloseRequest(Action):
+    response_note: Reason | None = Field(
+        default=None,
+        description=(
+            "How the agent answered the customer outside the system (KAN-211). Needed to close "
+            "a ticket that did not come by e-mail when there is no sent message and no accepted "
+            "department result: those channels are answered by phone, chat or portal, not by "
+            "a system e-mail. Kept in the audit event, not on the workflow."
+        ),
+    )
 
 
 class TransferRequest(Action):
@@ -246,6 +265,13 @@ class CustomerReply(BaseModel):
     received_at: datetime
     reopened: bool
     created_at: datetime
+    # KAN-230. Null for replies recorded before the platform sent the text, or when the platform
+    # could not read the original. The screen then says to read it in the mail account.
+    subject: str | None = Field(default=None, description="Reply subject from the mail.")
+    body: str | None = Field(
+        default=None,
+        description="Reply text from the mail, quoted history of earlier mail cut off.",
+    )
 
 
 class CustomerSendRequest(Action):
@@ -293,6 +319,9 @@ class CustomerReplyIn(BaseModel):
     message_id: UUID
     method: Literal["HEADER", "THREAD", "HUMAN"]
     received_at: datetime
+    # KAN-230. Optional so a platform that does not send them yet keeps working.
+    subject: str | None = Field(default=None, max_length=500)
+    body: str | None = Field(default=None, min_length=1, max_length=20000)
 
 
 class CustomerReplyResult(BaseModel):

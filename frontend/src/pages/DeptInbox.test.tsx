@@ -22,7 +22,7 @@ test('소속 부서로 목록을 읽어 차수·요청일시·상태·경과일�
   const fetch = serve([ticket(1, 2, 'OPEN', 0), ticket(2, 1, 'OPEN', 8), ticket(3, 1, 'OPEN', 13)]);
   vi.stubGlobal('fetch', fetch);
   show();
-  const table = await screen.findByRole('table', { name: '받은 요청' });
+  const table = await screen.findByRole('table', { name: '문의 검토' });
   const rows = within(table).getAllByRole('row').slice(1);
   expect(rows).toHaveLength(3);
   expect(rows[0].textContent).toContain('CS26-1001');
@@ -39,7 +39,7 @@ test('상태를 바꾸면 서버에 그 상태만 요청하고 전체는 상태 
   const fetch = serve([ticket(1, 1, 'RESULT_SUBMITTED', 3)]);
   vi.stubGlobal('fetch', fetch);
   show();
-  await screen.findByRole('table', { name: '받은 요청' });
+  await screen.findByRole('table', { name: '문의 검토' });
   fireEvent.change(screen.getByLabelText('상태'), { target: { value: 'RESULT_SUBMITTED' } });
   await waitFor(() => expect(listCalls(fetch).some(url => url.endsWith('dept=QA_CLAIM&transfer_status=RESULT_SUBMITTED'))).toBe(true));
   fireEvent.change(screen.getByLabelText('상태'), { target: { value: '' } });
@@ -49,9 +49,9 @@ test('상태를 바꾸면 서버에 그 상태만 요청하고 전체는 상태 
 test('차수와 요청일자는 받아 온 목록에서 거르고 범위가 거꾸로면 표를 비운다', async () => {
   vi.stubGlobal('fetch', serve([ticket(1, 2, 'OPEN', 1), ticket(2, 1, 'OPEN', 5)]));
   show();
-  await screen.findByRole('table', { name: '받은 요청' });
+  await screen.findByRole('table', { name: '문의 검토' });
   fireEvent.change(screen.getByLabelText('차수'), { target: { value: '2+' } });
-  expect(within(screen.getByRole('table', { name: '받은 요청' })).getAllByRole('row')).toHaveLength(2);
+  expect(within(screen.getByRole('table', { name: '문의 검토' })).getAllByRole('row')).toHaveLength(2);
   expect(screen.getByText('합성 문의 1')).toBeTruthy();
   expect(screen.queryByText('합성 문의 2')).toBeNull();
   fireEvent.change(screen.getByLabelText('시작일'), { target: { value: '2026-12-02' } });
@@ -60,13 +60,13 @@ test('차수와 요청일자는 받아 온 목록에서 거르고 범위가 거�
   expect(screen.getByText('조건에 맞는 요청이 없습니다.')).toBeTruthy();
 });
 
-test('이관 정보가 없는 항목은 표에 넣지 않고 더 보기는 다음 커서로 이어 붙인다', async () => {
+test('이관 정보가 없는 항목은 표에 넣지 않고 마지막 쪽의 다음은 다음 커서로 이어 붙인다', async () => {
   const fetch = serve([ticket(1, 1, 'OPEN', 1), { ...ticket(2, 1, 'OPEN', 1), transfer: null }], identity(), 'next-1');
   vi.stubGlobal('fetch', fetch);
   show();
-  await screen.findByRole('table', { name: '받은 요청' });
-  expect(within(screen.getByRole('table', { name: '받은 요청' })).getAllByRole('row')).toHaveLength(2);
-  fireEvent.click(screen.getByRole('button', { name: '더 보기' }));
+  await screen.findByRole('table', { name: '문의 검토' });
+  expect(within(screen.getByRole('table', { name: '문의 검토' })).getAllByRole('row')).toHaveLength(2);
+  fireEvent.click(screen.getByRole('button', { name: '다음' }));
   await waitFor(() => expect(listCalls(fetch).some(url => url.includes('cursor=next-1'))).toBe(true));
 });
 
@@ -88,4 +88,20 @@ test('접근 거절(403)은 오류 화면으로 보이고 로그인 전이면 �
   vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(401, errorBody('AUTH_REQUIRED', '만료'))));
   show();
   expect(await screen.findByText(/로그인이 필요합니다/)).toBeTruthy();
+});
+
+test('문의 조회와 같은 목록: 10건씩 쪽을 나누고 검색은 제목·고객·요청 사유를 찾고 한국어 제목을 먼저 보인다', async () => {
+  const many = Array.from({ length: 12 }, (_, i) => ticket(i, 1, 'OPEN', i));
+  many[0] = { ...many[0], subject_ko: '한국어 제목 0' } as TicketItem;
+  vi.stubGlobal('fetch', serve(many));
+  show();
+  const table = await screen.findByRole('table', { name: '문의 검토' });
+  expect(within(table).getAllByRole('row').slice(1)).toHaveLength(10);
+  expect(screen.getByText('총 12건 중 12건')).toBeTruthy();
+  expect(within(table).getByRole('link', { name: '한국어 제목 0' }).getAttribute('title')).toBe('원문: 합성 문의 0');
+  fireEvent.click(screen.getByRole('button', { name: '2쪽' }));
+  expect(within(screen.getByRole('table', { name: '문의 검토' })).getAllByRole('row').slice(1)).toHaveLength(2);
+  fireEvent.change(screen.getByLabelText('검색어'), { target: { value: '사유 3' } });
+  expect(within(screen.getByRole('table', { name: '문의 검토' })).getAllByRole('row').slice(1)).toHaveLength(1);
+  expect(screen.getByText('합성 문의 3')).toBeTruthy();
 });

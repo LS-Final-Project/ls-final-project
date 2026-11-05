@@ -110,12 +110,17 @@ def test_overview_counts_the_period_for_one_customer(client, customer):
             "results_submitted": 0,
             "results_accepted": 0,
             "returned_or_recalled": 0,
+            # KAN-233: still with the department now, for more than 7 days, no result yet.
+            "waiting": 1,
+            "waiting_over_7_days": 1,
+            "avg_reply_days": None,
         }
     ]
     assert data["top_customers"] == [
         {"customer_external_id": customer["name"], "received": 3, "open": 2}
     ]
-    assert data["unconfirmed"] == ["SLA_DUE", "RULE_ASSIGNED_DEPT"]
+    # SLA is computed on read since KAN-233; the rule department is still unconfirmed.
+    assert data["unconfirmed"] == ["RULE_ASSIGNED_DEPT"]
 
 
 def test_department_filter_keeps_transferred_tickets(client, customer):

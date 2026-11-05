@@ -45,6 +45,7 @@ async def list_requests(
     request_type: str | None = None,
     dept: str | None = None,
     origin: str | None = None,
+    owner: UUID | None = None,
 ) -> list[Row]:
     """Newest first, up to LIST_LIMIT. Filters narrow the caller's scope and never widen it."""
     conditions = [IN_DEPARTMENTS] if departments is not None else []
@@ -56,6 +57,8 @@ async def list_requests(
         conditions.append(INVOLVES_DEPT)
     if origin is not None:
         conditions.append("r.origin = %(origin)s")
+    if owner is not None:
+        conditions.append("r.cs_owner = %(owner)s")
     where = f"WHERE {' AND '.join(conditions)} " if conditions else ""
     cursor = await conn.execute(
         "SELECT r.id, r.request_type, r.origin, r.product_code, r.fault_id, r.doc_signal, "
@@ -72,6 +75,7 @@ async def list_requests(
             "request_type": request_type,
             "dept": dept,
             "origin": origin,
+            "owner": owner,
             "limit": LIST_LIMIT,
         },
     )
@@ -165,7 +169,7 @@ async def evidence_cases(conn: AsyncConnection[Row], request_id: UUID) -> list[R
         "t.received_at AS ticket_received_at, t.customer_external_id, "
         "COALESCE(c.product_code, t.product_code) AS product_code, e.case_id, "
         "c.external_id AS case_external_id, c.symptom, c.root_cause_type, c.root_cause, "
-        "c.action_taken, c.resolved_by_dept, c.known_at "
+        "c.action_taken, c.resolved_by_dept, c.known_at, c.fw_version_at_issue, c.onsite_visit "
         "FROM cs.request_evidence e JOIN cs.tickets t ON t.id = e.ticket_id "
         "LEFT JOIN cs.resolution_cases c ON c.id = e.case_id "
         "WHERE e.request_id = %s AND e.removed_at IS NULL "
@@ -187,7 +191,8 @@ async def candidate_case_rows(conn: AsyncConnection[Row], request: Row) -> list[
         "SELECT rc.ticket_id, t.external_id AS ticket_external_id, t.subject AS ticket_subject, "
         "t.received_at AS ticket_received_at, t.customer_external_id, rc.product_code, "
         "rc.id AS case_id, rc.external_id AS case_external_id, rc.symptom, rc.root_cause_type, "
-        "rc.root_cause, rc.action_taken, rc.resolved_by_dept, rc.known_at "
+        "rc.root_cause, rc.action_taken, rc.resolved_by_dept, rc.known_at, "
+        "rc.fw_version_at_issue, rc.onsite_visit "
         "FROM cs.resolution_cases rc JOIN cs.tickets t ON t.id = rc.ticket_id "
         "WHERE rc.data_origin = %s AND rc.product_code = %s AND rc.fault_id = %s "
         "AND rc.known_at <= now() AND NOT EXISTS (SELECT 1 FROM cs.request_evidence e "

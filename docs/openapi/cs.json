@@ -17,6 +17,334 @@
         "title": "Action",
         "type": "object"
       },
+      "AgentList": {
+        "properties": {
+          "items": {
+            "description": "By user_id.",
+            "items": {
+              "$ref": "#/components/schemas/AgentSkill"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "request_rule_version": {
+            "title": "Request Rule Version",
+            "type": "string"
+          },
+          "rule_version": {
+            "title": "Rule Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_version",
+          "request_rule_version",
+          "items"
+        ],
+        "title": "AgentList",
+        "type": "object"
+      },
+      "AgentSkill": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "data_origin": {
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "derivation_kind": {
+            "description": "ASSUMED: the employee table is assumed data.",
+            "title": "Derivation Kind",
+            "type": "string"
+          },
+          "families": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Families",
+            "type": "array"
+          },
+          "languages": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Languages",
+            "type": "array"
+          },
+          "open_count": {
+            "description": "Owned tickets that are not closed, now.",
+            "title": "Open Count",
+            "type": "integer"
+          },
+          "open_request_count": {
+            "default": 0,
+            "description": "Owned improvement requests that are open (stats definition).",
+            "title": "Open Request Count",
+            "type": "integer"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "languages",
+          "families",
+          "active",
+          "open_count",
+          "data_origin",
+          "derivation_kind"
+        ],
+        "title": "AgentSkill",
+        "type": "object"
+      },
+      "AiDraftAttempt": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "VALID",
+              "INVALID_OUTPUT",
+              "PROVIDER_ERROR"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "outcome",
+          "error_code",
+          "created_at"
+        ],
+        "title": "AiDraftAttempt",
+        "type": "object"
+      },
+      "AiDraftEvidence": {
+        "properties": {
+          "case_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Id"
+          },
+          "ref": {
+            "description": "The ref the model saw: the ticket or case external ID.",
+            "title": "Ref",
+            "type": "string"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "ticket_id",
+          "case_id"
+        ],
+        "title": "AiDraftEvidence",
+        "type": "object"
+      },
+      "AiDraftFact": {
+        "properties": {
+          "evidence_refs": {
+            "description": "Evidence refs (see evidence) this sentence rests on.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence Refs",
+            "type": "array"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "evidence_refs"
+        ],
+        "title": "AiDraftFact",
+        "type": "object"
+      },
+      "AiDraftQuestion": {
+        "properties": {
+          "dept_code": {
+            "title": "Dept Code",
+            "type": "string"
+          },
+          "question": {
+            "description": "One question for that department. Not sent anywhere.",
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dept_code",
+          "question"
+        ],
+        "title": "AiDraftQuestion",
+        "type": "object"
+      },
+      "AiDraftRecord": {
+        "properties": {
+          "confirmed_facts": {
+            "items": {
+              "$ref": "#/components/schemas/AiDraftFact"
+            },
+            "title": "Confirmed Facts",
+            "type": "array"
+          },
+          "created_at": {
+            "description": "AI \uc791\uc131 \uc2dc\uac01.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "dept_questions": {
+            "items": {
+              "$ref": "#/components/schemas/AiDraftQuestion"
+            },
+            "title": "Dept Questions",
+            "type": "array"
+          },
+          "evidence": {
+            "description": "Refs in the input and what they point to.",
+            "items": {
+              "$ref": "#/components/schemas/AiDraftEvidence"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "inconsistencies": {
+            "items": {
+              "$ref": "#/components/schemas/AiDraftFact"
+            },
+            "title": "Inconsistencies",
+            "type": "array"
+          },
+          "input_version": {
+            "title": "Input Version",
+            "type": "string"
+          },
+          "missing_info": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Info",
+            "type": "array"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "not_claimed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Not Claimed",
+            "type": "array"
+          },
+          "problem_statement": {
+            "title": "Problem Statement",
+            "type": "string"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "proposed_depts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Proposed Depts",
+            "type": "array"
+          },
+          "request_version": {
+            "description": "Request version the input was read from.",
+            "title": "Request Version",
+            "type": "integer"
+          },
+          "requested_model": {
+            "title": "Requested Model",
+            "type": "string"
+          },
+          "review_task": {
+            "title": "Review Task",
+            "type": "string"
+          },
+          "stale": {
+            "description": "True\uba74 \ucd08\uc548 \ub4a4 \uadfc\uac70\uac00 \ubc14\ub00c\uc5c8\uac70\ub098 \ud504\ub86c\ud504\ud2b8 \ud310\ubcf8\uc774 \ubc14\ub00c\uc5c8\ub2e4. \ub2e4\uc2dc \ub9cc\ub4e4 \uc218 \uc788\ub2e4.",
+            "title": "Stale",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "request_version",
+          "created_at",
+          "requested_model",
+          "model_version",
+          "prompt_version",
+          "input_version",
+          "stale",
+          "problem_statement",
+          "confirmed_facts",
+          "inconsistencies",
+          "missing_info",
+          "not_claimed",
+          "review_task",
+          "proposed_depts",
+          "dept_questions",
+          "evidence"
+        ],
+        "title": "AiDraftRecord",
+        "type": "object"
+      },
       "AnalysisJob": {
         "description": "\ud50c\ub7ab\ud3fc\uc5d0 \ub4f1\ub85d\ub41c AI \ubd84\uc11d \uc791\uc5c5(KAN-107). \ub4f1\ub85d\uc774 \ucc98\ub9ac \uc2dc\uc791\uc744 \ub73b\ud558\uc9c0 \uc54a\ub294\ub2e4.",
         "properties": {
@@ -166,6 +494,322 @@
           "created_at"
         ],
         "title": "AnalysisRun",
+        "type": "object"
+      },
+      "Applicability": {
+        "additionalProperties": false,
+        "description": "\uac19\uc740 \uc694\uccad\u00b7\uc7a5\ube44\u00b7\ud310\ubcf8\uc5d0 \ub300\ud55c \ud68c\uc2e0\uc778\uc9c0\uc640 \uac01 \ud310\uc815 \uc774\uc720.",
+        "properties": {
+          "same_request": {
+            "enum": [
+              "APPLIES",
+              "DIFFERENT_REQUEST",
+              "UNCLEAR"
+            ],
+            "title": "Same Request",
+            "type": "string"
+          },
+          "same_request_reason": {
+            "pattern": "\\S",
+            "title": "Same Request Reason",
+            "type": "string"
+          },
+          "same_unit": {
+            "enum": [
+              "SAME",
+              "DIFFERENT",
+              "NOT_MENTIONED",
+              "UNCLEAR"
+            ],
+            "title": "Same Unit",
+            "type": "string"
+          },
+          "same_unit_reason": {
+            "pattern": "\\S",
+            "title": "Same Unit Reason",
+            "type": "string"
+          },
+          "same_version": {
+            "enum": [
+              "SAME",
+              "DIFFERENT",
+              "NOT_MENTIONED",
+              "UNCLEAR"
+            ],
+            "title": "Same Version",
+            "type": "string"
+          },
+          "same_version_reason": {
+            "pattern": "\\S",
+            "title": "Same Version Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "same_request",
+          "same_request_reason",
+          "same_unit",
+          "same_unit_reason",
+          "same_version",
+          "same_version_reason"
+        ],
+        "title": "Applicability",
+        "type": "object"
+      },
+      "ApplyItem": {
+        "additionalProperties": false,
+        "properties": {
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The previewed agent; null for NO_MATCH.",
+            "title": "User Id"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "user_id"
+        ],
+        "title": "ApplyItem",
+        "type": "object"
+      },
+      "ApplyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ApplyItem"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          },
+          "rule_version": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Rule Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_version",
+          "items"
+        ],
+        "title": "ApplyRequest",
+        "type": "object"
+      },
+      "ApplyResponse": {
+        "properties": {
+          "assigned": {
+            "title": "Assigned",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ApplyResult"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "rule_version": {
+            "title": "Rule Version",
+            "type": "string"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rule_version",
+          "assigned",
+          "skipped",
+          "items"
+        ],
+        "title": "ApplyResponse",
+        "type": "object"
+      },
+      "ApplyResult": {
+        "properties": {
+          "outcome": {
+            "enum": [
+              "ASSIGNED",
+              "ALREADY_ASSIGNED",
+              "NOT_RECEIVED",
+              "NOT_FOUND",
+              "PREVIEW_CHANGED",
+              "NO_MATCH"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "enum": [
+                  "LANGUAGE_AND_FAMILY",
+                  "LANGUAGE_ONLY",
+                  "FAMILY_ENGLISH_FALLBACK"
+                ],
+                "type": "string"
+              },
+              {
+                "const": "NO_MATCH",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Owner after the call (or the new proposal).",
+            "title": "User Id"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "outcome",
+          "user_id",
+          "reason_code"
+        ],
+        "title": "ApplyResult",
+        "type": "object"
+      },
+      "AssignmentRecord": {
+        "description": "A stored rule assignment. Rule results, not AI output.",
+        "properties": {
+          "candidate_count": {
+            "description": "Agents in the tier that decided.",
+            "title": "Candidate Count",
+            "type": "integer"
+          },
+          "chosen_open_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Open tickets of the chosen agent when decided, before this one.",
+            "title": "Chosen Open Count"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decided_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null for the system at intake.",
+            "title": "Decided By"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "matched_family": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matched Family"
+          },
+          "matched_language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matched Language"
+          },
+          "reason_code": {
+            "enum": [
+              "LANGUAGE_AND_FAMILY",
+              "LANGUAGE_ONLY",
+              "FAMILY_ENGLISH_FALLBACK"
+            ],
+            "title": "Reason Code",
+            "type": "string"
+          },
+          "rule_version": {
+            "title": "Rule Version",
+            "type": "string"
+          },
+          "trigger": {
+            "enum": [
+              "INTAKE",
+              "BATCH"
+            ],
+            "title": "Trigger",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "user_id",
+          "rule_version",
+          "reason_code",
+          "matched_language",
+          "matched_family",
+          "candidate_count",
+          "chosen_open_count",
+          "trigger",
+          "decided_by",
+          "created_at"
+        ],
+        "title": "AssignmentRecord",
         "type": "object"
       },
       "AuditEvent": {
@@ -771,7 +1415,7 @@
       "CaseComparison": {
         "properties": {
           "hidden_case_count": {
-            "description": "Active evidence outside the viewer's scope. Candidate rows never count.",
+            "description": "Active evidence outside the viewer's scope and not shown. Limited rows and candidate rows never count.",
             "title": "Hidden Case Count",
             "type": "integer"
           },
@@ -834,8 +1478,28 @@
             "title": "Case Id"
           },
           "customer_external_id": {
-            "title": "Customer External Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null on a limited row (the viewer may not read that ticket).",
+            "title": "Customer External Id"
+          },
+          "fw_version_at_issue": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Firmware version when the fault happened, as recorded.",
+            "title": "Fw Version At Issue"
           },
           "known_at": {
             "anyOf": [
@@ -848,6 +1512,24 @@
               }
             ],
             "title": "Known At"
+          },
+          "limited": {
+            "default": false,
+            "description": "Evidence of a request sent to the viewer's department whose ticket the viewer may not read: the resolution record is shown, the customer and the ticket subject are not.",
+            "title": "Limited",
+            "type": "boolean"
+          },
+          "onsite_visit": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether an engineer visited.",
+            "title": "Onsite Visit"
           },
           "product_code": {
             "title": "Product Code",
@@ -1077,6 +1759,36 @@
           "cause_type"
         ],
         "title": "CauseItem",
+        "type": "object"
+      },
+      "CloseRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "response_note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How the agent answered the customer outside the system (KAN-211). Needed to close a ticket that did not come by e-mail when there is no sent message and no accepted department result: those channels are answered by phone, chat or portal, not by a system e-mail. Kept in the audit event, not on the workflow.",
+            "title": "Response Note"
+          },
+          "version": {
+            "description": "The workflow version the user decided on.",
+            "minimum": 0.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "CloseRequest",
         "type": "object"
       },
       "ComparisonEvidence": {
@@ -1830,6 +2542,18 @@
       },
       "CustomerReply": {
         "properties": {
+          "body": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Reply text from the mail, quoted history of earlier mail cut off.",
+            "title": "Body"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -1857,6 +2581,18 @@
           "reopened": {
             "title": "Reopened",
             "type": "boolean"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Reply subject from the mail.",
+            "title": "Subject"
           }
         },
         "required": [
@@ -2340,6 +3076,18 @@
             ],
             "title": "Subject"
           },
+          "subject_ko": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Korean subject from the latest valid translation (KAN-213).",
+            "title": "Subject Ko"
+          },
           "workflow_state": {
             "enum": [
               "RECEIVED",
@@ -2511,6 +3259,18 @@
       },
       "DepartmentCount": {
         "properties": {
+          "avg_reply_days": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Mean days from transfer to the department's submitted result, over the transfers with a result. Null without any result.",
+            "title": "Avg Reply Days"
+          },
           "dept_code": {
             "title": "Dept Code",
             "type": "string"
@@ -2530,6 +3290,30 @@
           "transferred": {
             "title": "Transferred",
             "type": "integer"
+          },
+          "waiting": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Of these transfers, still OPEN (no result, not ended) now.",
+            "title": "Waiting"
+          },
+          "waiting_over_7_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Still OPEN now and transferred more than 7 days ago.",
+            "title": "Waiting Over 7 Days"
           }
         },
         "required": [
@@ -3386,6 +4170,140 @@
         "title": "EvidenceWrite",
         "type": "object"
       },
+      "FaultEntry": {
+        "properties": {
+          "action": {
+            "description": "Typical action in the catalog.",
+            "title": "Action",
+            "type": "string"
+          },
+          "applies_to": {
+            "description": "Product codes this fault applies to.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Applies To",
+            "type": "array"
+          },
+          "diagnosis": {
+            "title": "Diagnosis",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Error code shown by the product, if any.",
+            "title": "Error Code"
+          },
+          "family": {
+            "description": "Product family.",
+            "title": "Family",
+            "type": "string"
+          },
+          "fault_id": {
+            "description": "Fault ID a resolution case records.",
+            "pattern": "^FLT-[0-9]{3}$",
+            "title": "Fault Id",
+            "type": "string"
+          },
+          "fw_fix_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Firmware version that fixes the fault, if any.",
+            "title": "Fw Fix Version"
+          },
+          "needs_onsite": {
+            "description": "The catalog marks this fault as needing a site visit.",
+            "title": "Needs Onsite",
+            "type": "boolean"
+          },
+          "needs_rma": {
+            "description": "The catalog marks this fault as needing an RMA.",
+            "title": "Needs Rma",
+            "type": "boolean"
+          },
+          "replacement_part": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replacement Part"
+          },
+          "root_cause": {
+            "description": "Typical cause in the catalog. Not the cause of a given ticket.",
+            "title": "Root Cause",
+            "type": "string"
+          },
+          "severity_hint": {
+            "title": "Severity Hint",
+            "type": "string"
+          },
+          "symptom": {
+            "title": "Symptom",
+            "type": "string"
+          },
+          "typical_resolution_hours": {
+            "title": "Typical Resolution Hours",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "fault_id",
+          "family",
+          "applies_to",
+          "error_code",
+          "symptom",
+          "root_cause",
+          "diagnosis",
+          "action",
+          "severity_hint",
+          "needs_onsite",
+          "needs_rma",
+          "replacement_part",
+          "fw_fix_version",
+          "typical_resolution_hours"
+        ],
+        "title": "FaultEntry",
+        "type": "object"
+      },
+      "FaultList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FaultEntry"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "source": {
+            "description": "Where the list comes from: the provided ref/fault_catalog.csv, unmodified.",
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items",
+          "source"
+        ],
+        "title": "FaultList",
+        "type": "object"
+      },
       "FieldView": {
         "properties": {
           "ai_value": {
@@ -3604,6 +4522,50 @@
         "title": "HistoryTicket",
         "type": "object"
       },
+      "ImprovementAiDraftView": {
+        "properties": {
+          "draft": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AiDraftRecord"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\uac00\uc7a5 \ucd5c\uadfc\uc758 \uc131\uacf5\ud55c \ucd08\uc548. \uc5c6\uc73c\uba74 null."
+          },
+          "latest_attempt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AiDraftAttempt"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\uac00\uc7a5 \ucd5c\uadfc \uc2dc\ub3c4(\uc2e4\ud328 \ud3ec\ud568). \uc2e4\ud328\ud588\uc73c\uba74 \ud654\uba74\uc774 \ub2e4\uc2dc \ub9cc\ub4e4\uae30\ub97c \ubcf4\uc5ec \uc904 \uc218 \uc788\ub2e4."
+          },
+          "provenance": {
+            "const": "ai_draft",
+            "default": "ai_draft",
+            "title": "Provenance",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "draft",
+          "latest_attempt"
+        ],
+        "title": "ImprovementAiDraftView",
+        "type": "object"
+      },
       "ImprovementCounts": {
         "properties": {
           "by_status": {
@@ -3626,6 +4588,30 @@
             "title": "By Type",
             "type": "object"
           },
+          "completed_in_period": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "COMPLETED now with completed_at in the period, whenever created.",
+            "title": "Completed In Period"
+          },
+          "info_requested": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Open requests with a current-round department in INFO_REQUESTED.",
+            "title": "Info Requested"
+          },
           "open": {
             "description": "Not completed and not ended by rejection review.",
             "title": "Open",
@@ -3634,6 +4620,41 @@
           "receiver_unconfirmed": {
             "title": "Receiver Unconfirmed",
             "type": "integer"
+          },
+          "recurrence_after_completion": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecurrenceCount"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the signal could not be computed."
+          },
+          "rejected": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Requests with a current-round department in REJECTED (including ended by rejection).",
+            "title": "Rejected"
+          },
+          "reply_overdue": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Open requests with a current-round department past reply_due_at that has not replied in that round.",
+            "title": "Reply Overdue"
           }
         },
         "required": [
@@ -4110,6 +5131,26 @@
         "title": "ImprovementReviewRequest",
         "type": "object"
       },
+      "InfoRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "info_code": {
+            "title": "Info Code",
+            "type": "string"
+          },
+          "question": {
+            "pattern": "\\S",
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "info_code",
+          "question"
+        ],
+        "title": "InfoRequest",
+        "type": "object"
+      },
       "InstalledUnit": {
         "properties": {
           "commissioning_date": {
@@ -4560,6 +5601,14 @@
             "title": "Already Asked",
             "type": "array"
           },
+          "blocking_missing": {
+            "description": "Missing codes the policy marks as blocking (blocking_fields), sorted. Only these call for asking the customer before answering.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Blocking Missing",
+            "type": "array"
+          },
           "category_code": {
             "description": "Category whose required-info row was used.",
             "enum": [
@@ -4638,6 +5687,30 @@
           "note"
         ],
         "title": "NewEvidence",
+        "type": "object"
+      },
+      "NewFact": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "STATED",
+              "UNCONFIRMED"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "text": {
+            "pattern": "\\S",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "kind"
+        ],
+        "title": "NewFact",
         "type": "object"
       },
       "NextOwner": {
@@ -4729,6 +5802,80 @@
         "title": "OpenAge",
         "type": "object"
       },
+      "OverdueTicket": {
+        "properties": {
+          "external_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Id"
+          },
+          "overdue_hours": {
+            "title": "Overdue Hours",
+            "type": "number"
+          },
+          "owner_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner User Id"
+          },
+          "priority": {
+            "enum": [
+              "P1",
+              "P2",
+              "P3",
+              "P4"
+            ],
+            "title": "Priority",
+            "type": "string"
+          },
+          "resolution_due": {
+            "format": "date-time",
+            "title": "Resolution Due",
+            "type": "string"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the user may not open this ticket (aggregate-only scope).",
+            "title": "Subject"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "external_id",
+          "subject",
+          "priority",
+          "resolution_due",
+          "overdue_hours",
+          "owner_user_id"
+        ],
+        "title": "OverdueTicket",
+        "type": "object"
+      },
       "Overview": {
         "properties": {
           "customer_external_id": {
@@ -4786,6 +5933,17 @@
             ],
             "title": "Scope",
             "type": "string"
+          },
+          "sla": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SlaSummary"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SLA figures (KAN-233)."
           },
           "tickets": {
             "$ref": "#/components/schemas/TicketCounts"
@@ -4848,6 +6006,18 @@
       },
       "OwnerLoad": {
         "properties": {
+          "avg_handle_days": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Mean days from receipt to closing over tickets closed in the period.",
+            "title": "Avg Handle Days"
+          },
           "by_state": {
             "additionalProperties": {
               "type": "integer"
@@ -4871,10 +6041,46 @@
             "title": "Closed",
             "type": "integer"
           },
+          "due_today": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Open now with a resolution deadline later today (Asia/Seoul), not passed.",
+            "title": "Due Today"
+          },
+          "improvements_open": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Open improvement requests whose cs_owner is this user, now.",
+            "title": "Improvements Open"
+          },
           "open": {
             "description": "Not closed now, whenever received: the owner's current load. Unlike the overview's open count, the period does not limit it.",
             "title": "Open",
             "type": "integer"
+          },
+          "overdue": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Open now, past the resolution deadline.",
+            "title": "Overdue"
           },
           "owner_user_id": {
             "anyOf": [
@@ -4893,6 +6099,18 @@
             "description": "Received in the period.",
             "title": "Received",
             "type": "integer"
+          },
+          "sla_unknown": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Open now without an SLA.",
+            "title": "Sla Unknown"
           }
         },
         "required": [
@@ -4982,6 +6200,195 @@
           "end"
         ],
         "title": "Period",
+        "type": "object"
+      },
+      "Preview": {
+        "properties": {
+          "items": {
+            "description": "In decision order: priority, then received.",
+            "items": {
+              "$ref": "#/components/schemas/Proposal"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "rule_version": {
+            "title": "Rule Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_version",
+          "items"
+        ],
+        "title": "Preview",
+        "type": "object"
+      },
+      "PreviewRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 50,
+            "description": "Oldest unassigned tickets first.",
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "title": "PreviewRequest",
+        "type": "object"
+      },
+      "Proposal": {
+        "properties": {
+          "body_language": {
+            "title": "Body Language",
+            "type": "string"
+          },
+          "candidate_count": {
+            "title": "Candidate Count",
+            "type": "integer"
+          },
+          "chosen_open_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chosen Open Count"
+          },
+          "external_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Id"
+          },
+          "family": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "product_master family; null for an unknown product.",
+            "title": "Family"
+          },
+          "matched_family": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matched Family"
+          },
+          "matched_language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matched Language"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rule priority from the latest analysis, if any.",
+            "title": "Priority"
+          },
+          "product_code": {
+            "title": "Product Code",
+            "type": "string"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "enum": [
+                  "LANGUAGE_AND_FAMILY",
+                  "LANGUAGE_ONLY",
+                  "FAMILY_ENGLISH_FALLBACK"
+                ],
+                "type": "string"
+              },
+              {
+                "const": "NO_MATCH",
+                "type": "string"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "external_id",
+          "subject",
+          "product_code",
+          "family",
+          "body_language",
+          "received_at",
+          "priority",
+          "user_id",
+          "reason_code",
+          "matched_language",
+          "matched_family",
+          "candidate_count",
+          "chosen_open_count"
+        ],
+        "title": "Proposal",
         "type": "object"
       },
       "ReadinessData": {
@@ -5175,6 +6582,273 @@
         "title": "RecordView",
         "type": "object"
       },
+      "RecurrenceCount": {
+        "description": "KAN-117 recurrence signal of requests completed in the period (by completed_at),\ncomputed on read (nothing stored).",
+        "properties": {
+          "checked": {
+            "description": "Completed fault requests whose signal was computed.",
+            "title": "Checked",
+            "type": "integer"
+          },
+          "limited": {
+            "default": false,
+            "description": "True when more completed fault requests exist than were checked (only the most recent 200 by completion time are checked).",
+            "title": "Limited",
+            "type": "boolean"
+          },
+          "not_applicable": {
+            "description": "Completed document requests: the signal applies to fault requests only.",
+            "title": "Not Applicable",
+            "type": "integer"
+          },
+          "recurrence": {
+            "description": "Of those, requests whose signal is RECURRENCE.",
+            "title": "Recurrence",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "checked",
+          "recurrence",
+          "not_applicable"
+        ],
+        "title": "RecurrenceCount",
+        "type": "object"
+      },
+      "ReplyAnalysisAttempt": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "message_id": {
+            "format": "uuid",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "VALID",
+              "INVALID_OUTPUT",
+              "PROVIDER_ERROR"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "message_id",
+          "outcome",
+          "error_code",
+          "created_at"
+        ],
+        "title": "ReplyAnalysisAttempt",
+        "type": "object"
+      },
+      "ReplyAnalysisRecord": {
+        "properties": {
+          "created_at": {
+            "description": "AI \uc791\uc131 \uc2dc\uac01.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "input_version": {
+            "title": "Input Version",
+            "type": "string"
+          },
+          "interpretation": {
+            "$ref": "#/components/schemas/ReplyInterpretation",
+            "description": "AI \ud574\uc11d: \uac19\uc740 \uc694\uccad\u00b7\uc7a5\ube44\u00b7\ud310\ubcf8\uc778\uc9c0\uc640 \uc774\uc720, \ub2f5\ud55c \uc694\uccad \ucf54\ub4dc, \uc0c8 \uc0ac\uc2e4, \ub0a8\uc740 \uc9c8\ubb38."
+          },
+          "message_id": {
+            "description": "\ud574\uc11d\ud55c \ud68c\uc2e0(cs.ticket_customer_replies).",
+            "format": "uuid",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "requested_model": {
+            "title": "Requested Model",
+            "type": "string"
+          },
+          "stale": {
+            "description": "True\uba74 \ud574\uc11d \ub4a4 \uc694\uccad\ud55c \uc815\ubcf4\u00b7\uc81c\uacf5 \uc815\ubcf4\u00b7\ud655\uc815 \uc7a5\ube44\u00b7\uc774\uc804 \ucd08\uc548\u00b7\ud504\ub86c\ud504\ud2b8 \ud310\ubcf8\uc774 \ubc14\ub00c\uc5c8\ub2e4. \ub2e4\uc2dc \ub9cc\ub4e4 \uc218 \uc788\ub2e4.",
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "update": {
+            "$ref": "#/components/schemas/ReplyUpdate",
+            "description": "\ud574\uc11d\uc744 \ubc18\uc601\ud558\uba74 \ucd08\uc548 \uc785\ub825\uc774 \uc5b4\ub5bb\uac8c \ubc14\ub00c\ub294\uc9c0(\uc81c\uacf5\u00b7\ubd80\uc871 \ucf54\ub4dc, \ub2e4\uc74c \ud589\ub3d9). \uc81c\uacf5 \uc815\ubcf4\uc5d0 \uc2e4\uc81c\ub85c \ubc18\uc601\ud558\ub294 \uac83\uc740 \uc0ac\ub78c\uc774 \uc815\uc815 API\ub85c \ud55c\ub2e4."
+          }
+        },
+        "required": [
+          "id",
+          "message_id",
+          "interpretation",
+          "update",
+          "created_at",
+          "requested_model",
+          "model_version",
+          "prompt_version",
+          "input_version",
+          "stale"
+        ],
+        "title": "ReplyAnalysisRecord",
+        "type": "object"
+      },
+      "ReplyAnalysisRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "message_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\ud574\uc11d\ud560 \uc5f0\uacb0\ub41c \ud68c\uc2e0. \uc5c6\uc73c\uba74 \ubcf8\ubb38\uc774 \uc788\ub294 \uac00\uc7a5 \ucd5c\uadfc \ud68c\uc2e0\uc774\ub2e4.",
+            "title": "Message Id"
+          }
+        },
+        "title": "ReplyAnalysisRequest",
+        "type": "object"
+      },
+      "ReplyInterpretation": {
+        "additionalProperties": false,
+        "description": "\ud68c\uc2e0 \ud574\uc11d \uc6d0\uc2dc \ucd9c\ub825. \ucf54\ub4dc\uac00 \uc694\uccad \ubc94\uc704 \uc548\uc778\uc9c0\ub294 validate_output\uc774 \ubcf8\ub2e4.",
+        "properties": {
+          "answered_codes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Answered Codes",
+            "type": "array"
+          },
+          "applicability": {
+            "$ref": "#/components/schemas/Applicability"
+          },
+          "new_facts": {
+            "items": {
+              "$ref": "#/components/schemas/NewFact"
+            },
+            "title": "New Facts",
+            "type": "array"
+          },
+          "remaining_questions": {
+            "items": {
+              "$ref": "#/components/schemas/InfoRequest"
+            },
+            "title": "Remaining Questions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "applicability",
+          "answered_codes",
+          "new_facts",
+          "remaining_questions"
+        ],
+        "title": "ReplyInterpretation",
+        "type": "object"
+      },
+      "ReplyUpdate": {
+        "additionalProperties": false,
+        "description": "\ucd08\uc548 \uc785\ub825 \uac31\uc2e0\uac12. \uc774\ub825\u00b7\uc7a5\ube44 \uc5f0\uacb0\u00b7\uc0c1\ud0dc \ud544\ub4dc\ub294 \ub450\uc9c0 \uc54a\uc73c\uba70 \ud638\ucd9c\uc790\uac00 \uc774\ub825 \ubcc0\uacbd\uc5d0 \uc4f8 \uac12\ub3c4 \ub0b4\uc9c0 \uc54a\ub294\ub2e4.",
+        "properties": {
+          "applicability": {
+            "$ref": "#/components/schemas/Applicability"
+          },
+          "new_facts": {
+            "items": {
+              "$ref": "#/components/schemas/NewFact"
+            },
+            "title": "New Facts",
+            "type": "array"
+          },
+          "next_action": {
+            "enum": [
+              "ESCALATE_TO_AGENT",
+              "CONFIRM_WITH_CUSTOMER",
+              "DRAFT_ANSWER",
+              "REQUEST_AGAIN"
+            ],
+            "title": "Next Action",
+            "type": "string"
+          },
+          "provided_codes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Provided Codes",
+            "type": "array"
+          },
+          "remaining_questions": {
+            "items": {
+              "$ref": "#/components/schemas/InfoRequest"
+            },
+            "title": "Remaining Questions",
+            "type": "array"
+          },
+          "still_missing": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Still Missing",
+            "type": "array"
+          }
+        },
+        "required": [
+          "provided_codes",
+          "still_missing",
+          "next_action",
+          "applicability",
+          "new_facts",
+          "remaining_questions"
+        ],
+        "title": "ReplyUpdate",
+        "type": "object"
+      },
       "RequestAction": {
         "properties": {
           "action": {
@@ -5252,6 +6926,149 @@
           "recorded_at"
         ],
         "title": "RequestAction",
+        "type": "object"
+      },
+      "RequestApplyItem": {
+        "additionalProperties": false,
+        "properties": {
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The previewed agent; null for NO_MATCH.",
+            "title": "User Id"
+          }
+        },
+        "required": [
+          "request_id",
+          "user_id"
+        ],
+        "title": "RequestApplyItem",
+        "type": "object"
+      },
+      "RequestApplyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RequestApplyItem"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          },
+          "rule_version": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Rule Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_version",
+          "items"
+        ],
+        "title": "RequestApplyRequest",
+        "type": "object"
+      },
+      "RequestApplyResponse": {
+        "properties": {
+          "assigned": {
+            "title": "Assigned",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RequestApplyResult"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "rule_version": {
+            "title": "Rule Version",
+            "type": "string"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rule_version",
+          "assigned",
+          "skipped",
+          "items"
+        ],
+        "title": "RequestApplyResponse",
+        "type": "object"
+      },
+      "RequestApplyResult": {
+        "properties": {
+          "outcome": {
+            "enum": [
+              "ASSIGNED",
+              "ALREADY_ASSIGNED",
+              "NOT_OPEN",
+              "NOT_FOUND",
+              "PREVIEW_CHANGED",
+              "NO_MATCH"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "enum": [
+                  "FAMILY",
+                  "NO_MATCH"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Owner after the call (or the new proposal).",
+            "title": "User Id"
+          }
+        },
+        "required": [
+          "request_id",
+          "outcome",
+          "user_id",
+          "reason_code"
+        ],
+        "title": "RequestApplyResult",
         "type": "object"
       },
       "RequestCreate": {
@@ -5636,6 +7453,140 @@
           "items"
         ],
         "title": "RequestList",
+        "type": "object"
+      },
+      "RequestPreview": {
+        "properties": {
+          "items": {
+            "description": "Oldest first, the decision order.",
+            "items": {
+              "$ref": "#/components/schemas/RequestProposal"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "rule_version": {
+            "title": "Rule Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_version",
+          "items"
+        ],
+        "title": "RequestPreview",
+        "type": "object"
+      },
+      "RequestProposal": {
+        "properties": {
+          "candidate_count": {
+            "title": "Candidate Count",
+            "type": "integer"
+          },
+          "chosen_open_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Open requests of the chosen agent.",
+            "title": "Chosen Open Count"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "family": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "product_master family; null for an unknown product.",
+            "title": "Family"
+          },
+          "fault_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fault Id"
+          },
+          "matched_family": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matched Family"
+          },
+          "product_code": {
+            "title": "Product Code",
+            "type": "string"
+          },
+          "reason_code": {
+            "enum": [
+              "FAMILY",
+              "NO_MATCH"
+            ],
+            "title": "Reason Code",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "request_type": {
+            "title": "Request Type",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          }
+        },
+        "required": [
+          "request_id",
+          "request_type",
+          "product_code",
+          "fault_id",
+          "family",
+          "status",
+          "created_at",
+          "user_id",
+          "reason_code",
+          "matched_family",
+          "candidate_count",
+          "chosen_open_count"
+        ],
+        "title": "RequestProposal",
         "type": "object"
       },
       "RequestRound": {
@@ -7145,6 +9096,156 @@
         "title": "Signal",
         "type": "object"
       },
+      "SlaCompliance": {
+        "properties": {
+          "breached": {
+            "title": "Breached",
+            "type": "integer"
+          },
+          "met": {
+            "title": "Met",
+            "type": "integer"
+          },
+          "pending": {
+            "default": 0,
+            "description": "First response only: no reply yet and not due yet.",
+            "title": "Pending",
+            "type": "integer"
+          },
+          "unrecorded": {
+            "default": 0,
+            "description": "First response only: closed without any recorded customer message.",
+            "title": "Unrecorded",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "met",
+          "breached"
+        ],
+        "title": "SlaCompliance",
+        "type": "object"
+      },
+      "SlaPriority": {
+        "properties": {
+          "at_risk": {
+            "description": "Open, 75% or more of the resolution target elapsed.",
+            "title": "At Risk",
+            "type": "integer"
+          },
+          "breached": {
+            "description": "Closed in the period after the resolution deadline.",
+            "title": "Breached",
+            "type": "integer"
+          },
+          "met": {
+            "description": "Closed in the period within the resolution deadline.",
+            "title": "Met",
+            "type": "integer"
+          },
+          "overdue": {
+            "description": "Open, past the resolution deadline.",
+            "title": "Overdue",
+            "type": "integer"
+          },
+          "priority": {
+            "enum": [
+              "P1",
+              "P2",
+              "P3",
+              "P4"
+            ],
+            "title": "Priority",
+            "type": "string"
+          }
+        },
+        "required": [
+          "priority",
+          "met",
+          "breached",
+          "at_risk",
+          "overdue"
+        ],
+        "title": "SlaPriority",
+        "type": "object"
+      },
+      "SlaSummary": {
+        "description": "Computed on read from rule inputs, the same deadlines as the analysis view (KAN-233).",
+        "properties": {
+          "at_risk": {
+            "description": "Open, received in the period, 75% or more elapsed.",
+            "title": "At Risk",
+            "type": "integer"
+          },
+          "by_priority": {
+            "items": {
+              "$ref": "#/components/schemas/SlaPriority"
+            },
+            "title": "By Priority",
+            "type": "array"
+          },
+          "first_response": {
+            "$ref": "#/components/schemas/SlaCompliance",
+            "description": "Tickets received in the period. First response is the first customer message (answer or information request) the mail platform accepted and the workflow recorded."
+          },
+          "measured_at": {
+            "description": "Database time open tickets are measured at.",
+            "format": "date-time",
+            "title": "Measured At",
+            "type": "string"
+          },
+          "overdue": {
+            "description": "Open, received in the period, past the resolution deadline.",
+            "title": "Overdue",
+            "type": "integer"
+          },
+          "overdue_tickets": {
+            "description": "Most overdue first, at most 10.",
+            "items": {
+              "$ref": "#/components/schemas/OverdueTicket"
+            },
+            "title": "Overdue Tickets",
+            "type": "array"
+          },
+          "resolution": {
+            "$ref": "#/components/schemas/SlaCompliance",
+            "description": "Tickets closed in the period, closing time against the resolution deadline."
+          },
+          "unknown": {
+            "description": "Received or closed in the period but without an SLA: no classification or a value outside the policy. Not in any other count.",
+            "title": "Unknown",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "measured_at",
+          "first_response",
+          "resolution",
+          "at_risk",
+          "overdue",
+          "unknown",
+          "by_priority",
+          "overdue_tickets"
+        ],
+        "title": "SlaSummary",
+        "type": "object"
+      },
+      "SuccessResponse_AgentList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AgentList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[AgentList]",
+        "type": "object"
+      },
       "SuccessResponse_AnalysisJob_": {
         "properties": {
           "data": {
@@ -7159,6 +9260,22 @@
           "meta"
         ],
         "title": "SuccessResponse[AnalysisJob]",
+        "type": "object"
+      },
+      "SuccessResponse_ApplyResponse_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ApplyResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[ApplyResponse]",
         "type": "object"
       },
       "SuccessResponse_AuditList_": {
@@ -7257,6 +9374,22 @@
         "title": "SuccessResponse[CustomerHistory]",
         "type": "object"
       },
+      "SuccessResponse_FaultList_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/FaultList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[FaultList]",
+        "type": "object"
+      },
       "SuccessResponse_HealthData_": {
         "properties": {
           "data": {
@@ -7271,6 +9404,22 @@
           "meta"
         ],
         "title": "SuccessResponse[HealthData]",
+        "type": "object"
+      },
+      "SuccessResponse_ImprovementAiDraftView_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ImprovementAiDraftView"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[ImprovementAiDraftView]",
         "type": "object"
       },
       "SuccessResponse_Overview_": {
@@ -7305,6 +9454,22 @@
         "title": "SuccessResponse[OwnerList]",
         "type": "object"
       },
+      "SuccessResponse_Preview_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Preview"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[Preview]",
+        "type": "object"
+      },
       "SuccessResponse_ReadinessData_": {
         "properties": {
           "data": {
@@ -7319,6 +9484,22 @@
           "meta"
         ],
         "title": "SuccessResponse[ReadinessData]",
+        "type": "object"
+      },
+      "SuccessResponse_RequestApplyResponse_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RequestApplyResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[RequestApplyResponse]",
         "type": "object"
       },
       "SuccessResponse_RequestDetail_": {
@@ -7351,6 +9532,22 @@
           "meta"
         ],
         "title": "SuccessResponse[RequestList]",
+        "type": "object"
+      },
+      "SuccessResponse_RequestPreview_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RequestPreview"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[RequestPreview]",
         "type": "object"
       },
       "SuccessResponse_RequestVersionList_": {
@@ -7449,6 +9646,22 @@
         "title": "SuccessResponse[TicketList]",
         "type": "object"
       },
+      "SuccessResponse_TicketReplyAnalysisView_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/TicketReplyAnalysisView"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[TicketReplyAnalysisView]",
+        "type": "object"
+      },
       "SuccessResponse_TicketSummaryView_": {
         "properties": {
           "data": {
@@ -7463,6 +9676,22 @@
           "meta"
         ],
         "title": "SuccessResponse[TicketSummaryView]",
+        "type": "object"
+      },
+      "SuccessResponse_TicketTranslationView_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/TicketTranslationView"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[TicketTranslationView]",
         "type": "object"
       },
       "SuccessResponse_TicketUnitList_": {
@@ -7511,6 +9740,38 @@
           "meta"
         ],
         "title": "SuccessResponse[UnitHistory]",
+        "type": "object"
+      },
+      "SuccessResponse_UnmatchedRequests_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/UnmatchedRequests"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[UnmatchedRequests]",
+        "type": "object"
+      },
+      "SuccessResponse_UnmatchedTickets_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/UnmatchedTickets"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[UnmatchedTickets]",
         "type": "object"
       },
       "SuccessResponse_Workflow_": {
@@ -8138,6 +10399,64 @@
         "title": "TicketLocation",
         "type": "object"
       },
+      "TicketReplyAnalysisView": {
+        "properties": {
+          "analysis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReplyAnalysisRecord"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\ub300\uc0c1 \ud68c\uc2e0\uc758 \uac00\uc7a5 \ucd5c\uadfc \uc131\uacf5\ud55c \ud574\uc11d(\uc9c0\uae08 \uc785\ub825\uacfc \ub9de\ub294 \uac83 \uc6b0\uc120). \uc5c6\uc73c\uba74 null."
+          },
+          "latest_attempt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReplyAnalysisAttempt"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\ub300\uc0c1 \ud68c\uc2e0\uc758 \uac00\uc7a5 \ucd5c\uadfc \uc2dc\ub3c4(\uc2e4\ud328 \ud3ec\ud568)."
+          },
+          "message_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\ub300\uc0c1 \ud68c\uc2e0. \uc694\uccad\ud55c \ud68c\uc2e0, \uc5c6\uc73c\uba74 \ubcf8\ubb38\uc774 \uc788\ub294 \uac00\uc7a5 \ucd5c\uadfc \ud68c\uc2e0. \uadf8\ub7f0 \ud68c\uc2e0\uc774 \uc5c6\uc73c\uba74 null.",
+            "title": "Message Id"
+          },
+          "provenance": {
+            "const": "ai_draft",
+            "default": "ai_draft",
+            "title": "Provenance",
+            "type": "string"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "message_id",
+          "analysis",
+          "latest_attempt"
+        ],
+        "title": "TicketReplyAnalysisView",
+        "type": "object"
+      },
       "TicketSummary": {
         "properties": {
           "channel": {
@@ -8219,6 +10538,18 @@
             ],
             "title": "Subject"
           },
+          "subject_ko": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Korean subject from the latest valid translation (KAN-213). None if not translated.",
+            "title": "Subject Ko"
+          },
           "transfer": {
             "anyOf": [
               {
@@ -8299,6 +10630,50 @@
           "latest_attempt"
         ],
         "title": "TicketSummaryView",
+        "type": "object"
+      },
+      "TicketTranslationView": {
+        "properties": {
+          "latest_attempt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TranslationAttempt"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\uac00\uc7a5 \ucd5c\uadfc \uc2dc\ub3c4(\uc2e4\ud328 \ud3ec\ud568). \uc2e4\ud328\ud588\uc73c\uba74 \ud654\uba74\uc774 \ub2e4\uc2dc \ub9cc\ub4e4\uae30\ub97c \ubcf4\uc5ec \uc904 \uc218 \uc788\ub2e4."
+          },
+          "provenance": {
+            "const": "ai_draft",
+            "default": "ai_draft",
+            "title": "Provenance",
+            "type": "string"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          },
+          "translation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TranslationRecord"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\uac00\uc7a5 \ucd5c\uadfc\uc758 \uc131\uacf5\ud55c \ubc88\uc5ed. \uc5c6\uc73c\uba74 null."
+          }
+        },
+        "required": [
+          "ticket_id",
+          "translation",
+          "latest_attempt"
+        ],
+        "title": "TicketTranslationView",
         "type": "object"
       },
       "TicketUnit": {
@@ -8558,6 +10933,114 @@
         "title": "TransferRequest",
         "type": "object"
       },
+      "TranslationAttempt": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "VALID",
+              "INVALID_OUTPUT",
+              "PROVIDER_ERROR"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "outcome",
+          "error_code",
+          "created_at"
+        ],
+        "title": "TranslationAttempt",
+        "type": "object"
+      },
+      "TranslationRecord": {
+        "properties": {
+          "body_ko": {
+            "description": "AI\uac00 \uc62e\uae34 \ud55c\uad6d\uc5b4 \ubcf8\ubb38 \uc804\uccb4. \ud310\uc815\uc774 \uc544\ub2c8\uba70 \uc6d0\ubb38\uc774 \uae30\uc900\uc774\ub2e4.",
+            "title": "Body Ko",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "AI \uc791\uc131 \uc2dc\uac01.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "input_version": {
+            "title": "Input Version",
+            "type": "string"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "requested_model": {
+            "title": "Requested Model",
+            "type": "string"
+          },
+          "stale": {
+            "description": "True\uba74 \ubc88\uc5ed \ub4a4 \ubb38\uc758 \uc6d0\ubb38\uc774 \ubc14\ub00c\uc5c8\uac70\ub098 \ud504\ub86c\ud504\ud2b8 \ud310\ubcf8\uc774 \ubc14\ub00c\uc5c8\ub2e4. \ub2e4\uc2dc \ub9cc\ub4e4 \uc218 \uc788\ub2e4.",
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "subject_ko": {
+            "description": "AI\uac00 \uc62e\uae34 \ud55c\uad6d\uc5b4 \uc81c\ubaa9. \uc6d0\ubb38\uc5d0 \uc81c\ubaa9\uc774 \uc5c6\uc73c\uba74 \ube48 \ubb38\uc790\uc5f4. \uc6d0\ubb38\uc774 \uae30\uc900\uc774\ub2e4.",
+            "title": "Subject Ko",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "subject_ko",
+          "body_ko",
+          "created_at",
+          "requested_model",
+          "model_version",
+          "prompt_version",
+          "input_version",
+          "stale"
+        ],
+        "title": "TranslationRecord",
+        "type": "object"
+      },
       "UnitHistory": {
         "properties": {
           "items": {
@@ -8740,6 +11223,248 @@
         "title": "UnitLinkWrite",
         "type": "object"
       },
+      "UnmatchedRequest": {
+        "description": "\ub9de\ub294 \ub2f4\ub2f9\uc790 \uc5c6\ub294 \uac1c\uc120\uc694\uccad \ud55c \uac74(KAN-234).",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decided_at": {
+            "format": "date-time",
+            "title": "Decided At",
+            "type": "string"
+          },
+          "family": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Family of the current product; null = product not in product_master.",
+            "title": "Family"
+          },
+          "fault_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fault Id"
+          },
+          "product_code": {
+            "title": "Product Code",
+            "type": "string"
+          },
+          "reason_code": {
+            "const": "NO_MATCH",
+            "title": "Reason Code",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "request_type": {
+            "title": "Request Type",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "trigger": {
+            "enum": [
+              "CANDIDATE",
+              "BATCH"
+            ],
+            "title": "Trigger",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "request_type",
+          "product_code",
+          "fault_id",
+          "status",
+          "created_at",
+          "reason_code",
+          "family",
+          "trigger",
+          "decided_at"
+        ],
+        "title": "UnmatchedRequest",
+        "type": "object"
+      },
+      "UnmatchedRequests": {
+        "properties": {
+          "has_more": {
+            "description": "More requests than `limit`.",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Newest created first.",
+            "items": {
+              "$ref": "#/components/schemas/UnmatchedRequest"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "has_more"
+        ],
+        "title": "UnmatchedRequests",
+        "type": "object"
+      },
+      "UnmatchedTicket": {
+        "description": "\ub9de\ub294 \ub2f4\ub2f9\uc790 \uc5c6\ub294 \ubb38\uc758 \ud55c \uac74(KAN-234). \uaddc\uce59 \uacb0\uacfc\uc774\uba70 AI \ucd9c\ub825\uc774 \uc544\ub2c8\ub2e4.",
+        "properties": {
+          "body_language": {
+            "title": "Body Language",
+            "type": "string"
+          },
+          "channel": {
+            "title": "Channel",
+            "type": "string"
+          },
+          "decided_at": {
+            "description": "When the newest (NO_MATCH) decision was made.",
+            "format": "date-time",
+            "title": "Decided At",
+            "type": "string"
+          },
+          "external_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Id"
+          },
+          "family": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Product family no agent covered with English; null = product not in product_master (unregistered product).",
+            "title": "Family"
+          },
+          "language": {
+            "description": "Primary language no active agent read when decided.",
+            "title": "Language",
+            "type": "string"
+          },
+          "product_code": {
+            "title": "Product Code",
+            "type": "string"
+          },
+          "reason_code": {
+            "const": "NO_MATCH",
+            "title": "Reason Code",
+            "type": "string"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          },
+          "subject_ko": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Current Korean subject translation, if any.",
+            "title": "Subject Ko"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          },
+          "trigger": {
+            "enum": [
+              "INTAKE",
+              "BATCH"
+            ],
+            "title": "Trigger",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "external_id",
+          "subject",
+          "subject_ko",
+          "channel",
+          "product_code",
+          "body_language",
+          "received_at",
+          "reason_code",
+          "language",
+          "family",
+          "trigger",
+          "decided_at"
+        ],
+        "title": "UnmatchedTicket",
+        "type": "object"
+      },
+      "UnmatchedTickets": {
+        "properties": {
+          "has_more": {
+            "description": "More tickets than `limit`.",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Newest received first.",
+            "items": {
+              "$ref": "#/components/schemas/UnmatchedTicket"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "has_more"
+        ],
+        "title": "UnmatchedTickets",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -8896,6 +11621,17 @@
       },
       "Workflow": {
         "properties": {
+          "assignment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentRecord"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Latest assignment decision when it still matches the current owner."
+          },
           "closed_at": {
             "anyOf": [
               {
@@ -9129,6 +11865,525 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/cs/assignments/agents": {
+      "get": {
+        "description": "The agent skill table (assumed data) with each agent's open tickets. Names are not\nhere: the C/S service cannot read identity, so the screen reads them from the platform.",
+        "operationId": "cs_list_assignment_agents",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_AgentList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "List Agents",
+        "tags": [
+          "assignments"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/assignments/apply": {
+      "post": {
+        "description": "Writes the previewed owners that the rules still give. Running it again changes nothing.\n\nEach ticket is locked and must still be RECEIVED without an owner. A ticket whose decision\nnow differs from the preview (another agent's load or skills changed) is not written and\ncomes back as PREVIEW_CHANGED with the new proposal; preview again to see it.",
+        "operationId": "cs_apply_assignments",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ApplyResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The rules changed since the preview"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Apply",
+        "tags": [
+          "assignments"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/assignments/improvements/apply": {
+      "post": {
+        "description": "Writes the previewed owners the rules still give, like the ticket apply. Idempotent.\n\nEach request is locked and must still be open without a C/S owner. The owner change gets a\nnew request version and audit event like a manager reassignment.",
+        "operationId": "cs_apply_improvement_assignments",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestApplyResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The rules changed since the preview"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Apply Requests",
+        "tags": [
+          "assignments"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/assignments/improvements/preview": {
+      "post": {
+        "description": "Proposed C/S owners for open improvement requests without one. Writes nothing.",
+        "operationId": "cs_preview_improvement_assignments",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RequestPreview_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Preview Requests",
+        "tags": [
+          "assignments"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/assignments/improvements/unmatched": {
+      "get": {
+        "description": "\ub9de\ub294 \ub2f4\ub2f9\uc790 \uc5c6\ub294 \uac1c\uc120\uc694\uccad(KAN-234): C/S \ub2f4\ub2f9 \uc5c6\ub294 \uc9c4\ud589 \uc694\uccad \uc911 \ucd5c\uc2e0 \ud310\ub2e8\uc774 NO_MATCH.\n\n\uc81c\ud488\uad70\uc740 \uc9c0\uae08 \uc81c\ud488 \ucf54\ub4dc\uc5d0\uc11c \ub2e4\uc2dc \uad6c\ud55c\ub2e4. \uac1c\uc120\uc694\uccad\uc758 NO_MATCH \uae30\ub85d\uc740 \uc81c\ud488\uad70\uc744 \uc801\uc9c0 \uc54a\uae30\n\ub54c\ubb38\uc774\ub2e4(null = product_master\uc5d0 \uc5c6\ub294 \uc81c\ud488).",
+        "operationId": "cs_list_unmatched_improvements",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_UnmatchedRequests_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Unmatched Requests",
+        "tags": [
+          "assignments"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/assignments/preview": {
+      "post": {
+        "description": "Proposed owners for the oldest unassigned RECEIVED tickets. Writes nothing.",
+        "operationId": "cs_preview_assignments",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Preview_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Preview",
+        "tags": [
+          "assignments"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/assignments/unmatched": {
+      "get": {
+        "description": "\ub9de\ub294 \ub2f4\ub2f9\uc790 \uc5c6\ub294 \ubb38\uc758(KAN-234): \uc9c0\uae08 \ubbf8\ubc30\uc815\u00b7RECEIVED\uc774\uace0 \ucd5c\uc2e0 \ubc30\uc815 \ud310\ub2e8\uc774 NO_MATCH.\n\n\ucd5c\uadfc \uc811\uc218 \uc21c `limit`\uac74. \ubc30\uc815\uc744 \uac70\uce58\uc9c0 \uc54a\uc740 \uacfc\uac70 \uc801\uc7ac \ubb38\uc758\ub294 \ud310\ub2e8 \uae30\ub85d\uc774 \uc5c6\uc5b4 \ube60\uc9c4\ub2e4.",
+        "operationId": "cs_list_unmatched_tickets",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_UnmatchedTickets_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No valid user context"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role may not take this action"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Unmatched Tickets",
+        "tags": [
+          "assignments"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
     "/api/v1/cs/condition-comparisons": {
       "get": {
         "description": "\ubb36\uc74c\uc758 \ube44\uad50 \uacb0\uacfc. \uc804\uccb4 \ubb38\uc758\ub97c \ubcf4\uc9c0 \uc54a\ub294 \uc0ac\uc6a9\uc790\ub294 \ubcfc \uc218 \uc788\ub294 \uc694\uccad\uc11c\uc5d0 \uc5f0\uacb0\ub41c \ube44\uad50\ub9cc \ubcf8\ub2e4.\n\nArgs:\n    request: \uc694\uccad.\n    product_code: \uc81c\ud488 \ucf54\ub4dc.\n    fault_id: \uace0\uc7a5 ID(FLT-000).\n    version: \ud310\ubcf8. \uc0dd\ub7b5\ud558\uba74 \ucd5c\uc2e0.\n    principal: \uc870\ud68c \uc0ac\uc6a9\uc790.\n\nReturns:\n    SuccessResponse[ConditionComparison]: \ube44\uad50 \uacb0\uacfc \ud55c \ud310\ubcf8.",
@@ -9610,6 +12865,79 @@
         "x-implementation-status": "partial"
       }
     },
+    "/api/v1/cs/faults": {
+      "get": {
+        "description": "Faults in the catalog, all of them or those that apply to one product.\n\nA product with no catalog entry gives an empty list, not an error: the person then writes\nthe resolution case without a catalog hint.",
+        "operationId": "cs_list_faults",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "product_code",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Product Code"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_FaultList_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "List Faults",
+        "tags": [
+          "faults"
+        ],
+        "x-implementation-status": "partial"
+      }
+    },
     "/api/v1/cs/health": {
       "get": {
         "description": "Checks this service process only; does not authorize business operations.",
@@ -9912,6 +13240,25 @@
               ],
               "description": "SYSTEM_CANDIDATE for saved candidates, MANUAL for written requests.",
               "title": "Origin"
+            }
+          },
+          {
+            "description": "Only requests whose C/S owner is this user.",
+            "in": "query",
+            "name": "owner",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only requests whose C/S owner is this user.",
+              "title": "Owner"
             }
           }
         ],
@@ -10279,6 +13626,226 @@
         "tags": [
           "improvement-requests"
         ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/improvement-requests/{request_id}/ai-draft": {
+      "get": {
+        "description": "\uc800\uc7a5\ub41c AI \uc791\uc131 \ucd08\uc548. \ub9cc\ub4e4\uc9c0\ub294 \uc54a\ub294\ub2e4(\ube44\uc6a9 \uc5c6\uc74c).",
+        "operationId": "cs_get_improvement_ai_draft",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ImprovementAiDraftView_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Ai Draft",
+        "tags": [
+          "improvements"
+        ],
+        "x-activation": "CS_IMPROVEMENT_DRAFT_ENABLED",
+        "x-implementation-status": "partial"
+      },
+      "post": {
+        "description": "AI \uc791\uc131 \ucd08\uc548\uc744 \ub9cc\ub4e0\ub2e4. \uac19\uc740 \uadfc\uac70 \uc785\ub825\uc758 \uc131\uacf5\ud55c \ucd08\uc548\uc774 \uc788\uc73c\uba74 \uadf8\ub300\ub85c \ub3cc\ub824\uc900\ub2e4(200, \ubaa8\ub378 \ud638\ucd9c \uc5c6\uc74c).",
+        "operationId": "cs_create_improvement_ai_draft",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ImprovementAiDraftView_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ImprovementAiDraftView_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Create Ai Draft",
+        "tags": [
+          "improvements"
+        ],
+        "x-activation": "CS_IMPROVEMENT_DRAFT_ENABLED",
         "x-implementation-status": "partial"
       }
     },
@@ -11555,7 +15122,7 @@
     },
     "/api/v1/cs/improvement-requests/{request_id}/departments/{dept_code}/reply": {
       "post": {
-        "description": "Department ACKNOWLEDGED \u2192 ADOPTED / INFO_REQUESTED / REJECTED. A rejection needs a reason.\n\nThe reply names the request version it answered. A reply is a claim, not a result:\nnothing here completes the request.",
+        "description": "Department SENT / ACKNOWLEDGED \u2192 ADOPTED / INFO_REQUESTED / REJECTED. A rejection needs a\nreason.\n\nReplying to a request the department has not acknowledged yet acknowledges it first, in the\nsame transaction: a reply means it was received (2026-11-04 decision, one step for the\ndepartment). The reply names the request version it answered. A reply is a claim, not a\nresult: nothing here completes the request.",
         "operationId": "cs_reply_improvement_request",
         "parameters": [
           {
@@ -14270,6 +17837,240 @@
         "x-implementation-status": "partial"
       }
     },
+    "/api/v1/cs/tickets/{ticket_id}/reply-analysis": {
+      "get": {
+        "description": "\uc800\uc7a5\ub41c \ud68c\uc2e0 \ud574\uc11d. \ub9cc\ub4e4\uc9c0\ub294 \uc54a\ub294\ub2e4(\ube44\uc6a9 \uc5c6\uc74c).\n\n\uace0\uac1d \ud68c\uc2e0\uc740 C/S \uc5c5\ubb34\ub77c \ubd80\uc11c \uc0ac\uc6a9\uc790\uc5d0\uac8c \ubcf4\uc774\uc9c0 \uc54a\ub294\ub2e4(tickets.md \uc870\ud68c \ubc94\uc704). \ud68c\uc2e0\uc5d0\uc11c \ub9cc\ub4e0\n\ud574\uc11d\ub3c4 \uac19\ub2e4: cs_agent\uc640 C/S \ubd80\uc11c \uad00\ub9ac\uc790\ub9cc \uc77d\ub294\ub2e4. \ubc94\uc704 \ubc16\uc774\uba74 \uba3c\uc800 404\ub2e4.",
+        "operationId": "cs_get_ticket_reply_analysis",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "message_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Message Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_TicketReplyAnalysisView_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Reply Analysis",
+        "tags": [
+          "reply-analysis"
+        ],
+        "x-activation": "CS_REPLY_ANALYSIS_ENABLED",
+        "x-implementation-status": "partial"
+      },
+      "post": {
+        "description": "\ud68c\uc2e0\uc744 \ud574\uc11d\ud55c\ub2e4. \uac19\uc740 \uc785\ub825\uc758 \uc131\uacf5\ud55c \ud574\uc11d\uc774 \uc788\uc73c\uba74 \uadf8\ub300\ub85c \ub3cc\ub824\uc900\ub2e4(200, \ubaa8\ub378 \ud638\ucd9c \uc5c6\uc74c).",
+        "operationId": "cs_create_ticket_reply_analysis",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ReplyAnalysisRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_TicketReplyAnalysisView_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_TicketReplyAnalysisView_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Create Reply Analysis",
+        "tags": [
+          "reply-analysis"
+        ],
+        "x-activation": "CS_REPLY_ANALYSIS_ENABLED",
+        "x-implementation-status": "partial"
+      }
+    },
     "/api/v1/cs/tickets/{ticket_id}/resolution-case": {
       "post": {
         "description": "\uc885\uacb0\ub41c \ubb38\uc758\uc5d0 \ud574\uacb0 \uc0ac\ub840\ub97c \ud55c \uac74 \ub4f1\ub85d\ud55c\ub2e4(\uc120\ud0dd).\n\n\uc5f0\uacb0\ud560 \ubd80\uc11c \uacb0\uacfc\ub294 \uc774 \ubb38\uc758\uc5d0\uc11c \ucc44\ud0dd\ub41c \uac83\ub9cc \uc4f8 \uc218 \uc788\ub2e4. \uc0ac\ub840 \ub4f1\ub85d\uc740 \uc5c5\ubb34 \uc0c1\ud0dc\ub97c \ubc14\uafb8\uc9c0\n\uc54a\uc73c\uba70, \ub4f1\ub85d\ud55c \uc885\uacb0 \ud310\ubcf8\uc744 \uac10\uc0ac\uc5d0 \ub0a8\uae34\ub2e4.\n\nArgs:\n    ticket_id: \uc885\uacb0\ub41c \ubb38\uc758.\n    payload: \uc0ac\ub78c\uc774 \ud655\uc778\ud55c \uc0ac\ub840 \ub0b4\uc6a9\uacfc \uc885\uacb0 \ud654\uba74\uc758 \uc5c5\ubb34 \ud310\ubcf8.\n    request: DB \uc5f0\uacb0\uc744 \uc81c\uacf5\ud558\ub294 \uc694\uccad.\n    principal: \uac80\uc99d\ub41c \uc0ac\uc6a9\uc790. cs_agent\ub9cc \ub4f1\ub85d\ud55c\ub2e4.\n\nReturns:\n    SuccessResponse[ResolutionCase]: \ub4f1\ub85d\ub41c \uc0ac\ub840. \ubc14\ub85c \ubb38\uc758 \uc0c1\uc138\uc5d0 \uadfc\uac70\ub85c \ubcf4\uc778\ub2e4.",
@@ -14572,6 +18373,206 @@
           "summary"
         ],
         "x-activation": "CS_SUMMARY_ENABLED",
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/tickets/{ticket_id}/translation": {
+      "get": {
+        "description": "\uc800\uc7a5\ub41c \ud55c\uad6d\uc5b4 \ubc88\uc5ed. \ub9cc\ub4e4\uc9c0\ub294 \uc54a\ub294\ub2e4(\ube44\uc6a9 \uc5c6\uc74c).",
+        "operationId": "cs_get_ticket_translation",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_TicketTranslationView_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Translation",
+        "tags": [
+          "translation"
+        ],
+        "x-activation": "CS_TRANSLATION_ENABLED",
+        "x-implementation-status": "partial"
+      },
+      "post": {
+        "description": "\ud55c\uad6d\uc5b4 \ubc88\uc5ed\uc744 \ub9cc\ub4e0\ub2e4. \uac19\uc740 \uc6d0\ubb38\uc758 \uc131\uacf5\ud55c \ubc88\uc5ed\uc774 \uc788\uc73c\uba74 \uadf8\ub300\ub85c \ub3cc\ub824\uc900\ub2e4(200, \ubaa8\ub378 \ud638\ucd9c \uc5c6\uc74c).",
+        "operationId": "cs_create_ticket_translation",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_TicketTranslationView_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_TicketTranslationView_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Create Translation",
+        "tags": [
+          "translation"
+        ],
+        "x-activation": "CS_TRANSLATION_ENABLED",
         "x-implementation-status": "partial"
       }
     },
@@ -14954,7 +18955,7 @@
     },
     "/api/v1/cs/tickets/{ticket_id}/workflow/close": {
       "post": {
-        "description": "Closes from ANSWERED, or from IN_REVIEW with an accepted department result or a sent\ncustomer message. An unreviewed department result blocks closing.\n\nA customer send whose outcome is not final (queued, submitting, unknown, or never\nanswered by the platform) blocks closing too (KAN-110, permissions.md 2.1): the current\nplatform status is read first, so a send that was accepted meanwhile does not block.",
+        "description": "Closes from ANSWERED, or from IN_REVIEW with an accepted department result or a sent\ncustomer message. An unreviewed department result blocks closing.\n\nA ticket that did not come by e-mail is answered outside the system (phone, chat, web\nform, partner portal; team decision 2026-11-03, KAN-211), so from IN_REVIEW it may also\nclose with `response_note`, how the agent answered. The note goes into the audit event.\n\nA customer send whose outcome is not final (queued, submitting, unknown, or never\nanswered by the platform) blocks closing too (KAN-110, permissions.md 2.1): the current\nplatform status is read first, so a send that was accepted meanwhile does not block.",
         "operationId": "cs_close_ticket",
         "parameters": [
           {
@@ -14972,7 +18973,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/Action"
+                "$ref": "#/components/schemas/CloseRequest"
               }
             }
           },

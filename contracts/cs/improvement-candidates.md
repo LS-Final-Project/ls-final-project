@@ -70,7 +70,19 @@
 - **`condition_status`**: 조건 비교의 `computed_condition_status`와 같은 규칙이다. 조건 항목이 1개 이상이고 모두 `CONFIRMED`일 때만 `CONFIRMED`다.
 - **`data_origin`**: 출처별로 따로 판정한다. 합성 기록이 실제 기록의 고객 수를 채우지 않는다. 응답 항목과 저장 요청에 그 출처가 있다.
 - **멱등**: 같은 묶음(출처·제품·고장)에 요청이 이미 있으면 사람이 쓴 요청이어도 만들지 않는다. 동시 실행은 부분 유일 색인 `improvement_requests_candidate_group`이 막는다. 다시 돌려도 근거를 덧붙이지 않는다. 재요청·재발은 KAN-117 경로다. `already_requested`는 요청이 이미 있어 만들지 않은 묶음 수다.
-- **저장 내용**: 근거는 `as_of`까지 알려진 그 묶음의 기록 전부다. 문장은 규칙의 사실만 옮긴다(요청서 문장 작성은 KAN-115). `cs_owner`는 비어 있고 검토한 사람이 맡는다. 제안 부서는 근거 사례의 `resolved_by_dept` 중 이관 부서 코드다. 고장 요청은 제안 부서가 필요하므로(`CS_DEPARTMENT_REQUIRED`), 이관 부서가 하나도 없는 묶음(모두 `GCS_L1`이 해결 등)은 저장하지 않고 응답 `skipped`에 `NO_PROPOSED_DEPARTMENT`로 돌려준다. 조회에서는 그대로 `ELIGIBLE`이고 `request_id`는 null이다. 사람이 부서를 정해 직접 작성한다. `candidate_reason_code`·`candidate_reached_at`·`candidate_rules_version`·`candidate_as_of`에 판정 당시 값을 남기고 `GET /improvement-requests/{id}`로 읽는다. 이후 검토·전달은 일반 요청과 같다.
+- **저장 내용**: 근거는 `as_of`까지 알려진 그 묶음의 기록 전부다. 문장은 규칙의 사실만 옮긴다(요청서 문장 작성은 KAN-115). `cs_owner`는 저장할 때 제품군 규칙으로 배정하고, 맞는 담당자가 없으면 비워 둔 채 검토한 사람이 맡는다([자동 배정](assignment.md), KAN-214). 제안 부서(`proposed_depts`)는 아래 **1차 제안 부서** 규칙으로 정하고 사람이 고친다. 고장 요청은 제안 부서가 필요하므로(`CS_DEPARTMENT_REQUIRED`), 규칙과 대체 규칙으로도 이관 부서가 하나도 없는 묶음은 저장하지 않고 응답 `skipped`에 `NO_PROPOSED_DEPARTMENT`로 돌려준다. 조회에서는 그대로 `ELIGIBLE`이고 `request_id`는 null이다. 사람이 부서를 정해 직접 작성한다. `candidate_reason_code`·`candidate_reached_at`·`candidate_rules_version`·`candidate_as_of`에 판정 당시 값을 남기고 `GET /improvement-requests/{id}`로 읽는다. 이후 검토·전달은 일반 요청과 같다.
+- **1차 제안 부서** (2026-11-04 김나영·오새결 합의, C/S 기획서 p.11 "개선요청서 구성"의 원인 유형별 1차 제안 부서): 근거 사례의 `root_cause_type`으로 정한다(`candidates.CAUSE_DEPARTMENTS`). 묶음 안 원인 유형이 여럿이면 그 합집합을 부서 코드 순으로 낸다. 목록 밖·없는 원인 유형은 아무 부서도 더하지 않는다.
+
+| `root_cause_type` | 1차 제안 부서 |
+| --- | --- |
+| `HARDWARE`, `WEAR_PART` | `QA_CLAIM`(품질보증/클레임) |
+| `FIRMWARE` | `RND_FW`(펌웨어 개발) + 제품 기술지원 |
+| `SETTING` | `FIELD_SVC`(현장 서비스) |
+| `SITE_CONDITION` | 제품 기술지원 |
+
+  - **제품 기술지원**: 제품의 제품군(`product_master.csv`의 `family`)으로 `routing_rules.csv`의 `TECH_SPEC` 기본 부서를 읽는다(`rules.product_family` → `rules.route(family, "TECH_SPEC")`, `TS_LV`·`TS_MV`·`TS_TRF`·`TS_AUTO`·`TS_ENERGY`). 제품 코드를 따로 적지 않는다. 제품군을 모르는 제품이면 제품 기술지원만 빠진다(펌웨어 원인이면 `RND_FW`만).
+  - **대체**: 원인 규칙으로 나온 부서가 없으면(쓸 원인 유형이 없거나, 제품군을 모르는 `SITE_CONDITION`뿐) 이전 규칙대로 근거 사례의 `resolved_by_dept` 중 이관 부서 코드를 제안한다. 그것도 없으면 위의 `NO_PROPOSED_DEPARTMENT`다.
+  - **해결 부서는 참고값**: 근거 사례의 `resolved_by_dept`는 제안 부서를 정하지 않지만 근거 비교 표의 근거 행마다 그대로 보인다. 이미 저장된 요청의 `proposed_depts`는 바꾸지 않는다. AI 초안의 부서 후보(`ai_draft.py`, 근거 해결 부서 중 이관 부서)도 이번 결정 범위 밖이다.
 - **감사**: 호출마다 `audit_events`에 `improvement_candidate_run` 한 행(`as_of`, 규칙 판본, `eligible`, `created`, `already_requested`, `skipped` 건수, 실행자)을 남긴다. 만든 요청은 `improvement_request`의 `create`에 `run_id`를 남긴다.
 - **제외되는 기록**: `fault_id`가 `FLT-000` 형식이 아닌 해결 기록은 요청이 될 수 없어 보지 않는다. 목록 밖 `root_cause_type`은 없는 값으로 본다.
 - **문서 후보 미연결**: 조회·수집 응답의 `document_candidates`는 지금 항상 `NOT_CONNECTED`다. 문서 신호를 쓰는 원천이 아직 없기 때문이다([조건 비교 계약](condition-comparison.md)). 규칙(`document_candidates()`)은 있지만 호출하지 않는다. 문서 후보가 0건이라는 뜻이 아니다.

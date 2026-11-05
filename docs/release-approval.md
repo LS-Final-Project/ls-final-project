@@ -14,9 +14,9 @@
 | --- | --- | --- |
 | 운영 리비전 | 서비스 4개 모두 main `5188b7e`(2026-10-26) | 아래 확인 |
 | 배포되지 않은 변경 | dev가 main보다 384커밋 앞섬 | `git rev-list --count origin/main..origin/dev` |
-| 공용 DB에 적용할 마이그레이션 | 70개: cs C3–C26(24), platform P10–P34(25), tft T2–T22(21). 번호 빠짐 없음(11/1 dev `705bc10` 기준. C23 고객 등급 #435·C24 검색 문맥 #439·C25 한국어 요약·C26 개선 후보·T19·P33 초안 작성·P34 알림 수신자 펼침 추가) | [SQL 안내 전체 적용 순서](../infra/sql/README.md#전체-적용-순서) |
+| 공용 DB에 적용할 마이그레이션 | 77개: cs C3–C32(30), platform P10–P35(26), tft T2–T22(21). 번호 빠짐 없음(11/1 dev `705bc10` 기준. C23 고객 등급 #435·C24 검색 문맥 #439·C25 한국어 요약·C26 개선 후보·C27 개선요청 AI 초안(KAN-115)·C28 한국어 번역·C29 담당자 배정 기준표(KAN-214)·C30 고객 회신 본문(KAN-230)·C31 회신 반영 분석(KAN-230)·C32 문의 NO_MATCH 기록(KAN-234)·T19·P33 초안 작성·P34 알림 수신자 펼침·P35 담당 배정 알림 종류(KAN-214) 추가) | [SQL 안내 전체 적용 순서](../infra/sql/README.md#전체-적용-순서) |
 | worker Job | 접속 검증 Job 3개뿐. 평가·C/S·RFP worker Job 없음 | 댓글 10729 |
-| 공용 DB 적용 상태 | 적용 기록 없음. 공용 상태 열은 T18~T22·P32~P34만 `미적용`, 나머지는 `미확인` | `infra/sql/README.md` |
+| 공용 DB 적용 상태 | 적용 기록 없음. 공용 상태 열은 T18~T22·P32~P35만 `미적용`, 나머지는 `미확인` | `infra/sql/README.md` |
 
 **배포 전 운영 상태 (2026-10-31 15:40 KST, 김나영 읽기 전용 확인)**. 배포 뒤 같은 항목을 다시 보고 비교한다.
 
@@ -58,10 +58,15 @@
 
 ### B. 공용 DB 마이그레이션 (운영자 터미널, 관리자 연결)
 
-- [ ] SQL 안내 표 순서대로 **C3–C26, P10–P34, T2–T22를 모두** 적용한다. 한 파일씩 `psql -X -v ON_ERROR_STOP=1 -f infra/migrations/<서비스>/<파일>`로 실행한다.
+- [ ] SQL 안내 표 순서대로 **C3–C32, P10–P35, T2–T22를 모두** 적용한다. 한 파일씩 `psql -X -v ON_ERROR_STOP=1 -f infra/migrations/<서비스>/<파일>`로 실행한다.
   - 서비스 사이 순서 의존은 없다. 서비스 안에서는 번호 순서를 지킨다. T14는 표에 P29를 선행으로 적었지만, T14가 필요한 역할을 스스로 만들어서 실제 의존은 없다.
   - **C19는 필수다**(시도 사용량 열). 이게 없으면 C/S worker가 저장할 때 `UndefinedColumn`으로 실패하고, C21도 적용되지 않는다.
   - C20(임베딩 표)은 pgvector 0.8 이상이 필요하다. 벡터 검색을 켜지 않아도 적용한다. C18을 다시 적용했다면 C20·C22도 다시 적용한다.
+  - **C29는 KAN-214 C/S 코드 배포 전에 적용한다.** 업무 상태 조회가 `cs.ticket_assignments`를 읽어 C29가 없으면 문의 처리 화면이 실패한다. 새 설정 값은 없다. 기준표(`cs.agent_skills`)가 비어 있으면 자동 배정은 아무것도 하지 않는다(모든 문의 미배정). 공용 DB의 기준표는 사용자 등록 뒤 `infra/sql/register_agent_skills.sql`로만 넣고 가정 자료로 표시한다([배정 계약](../contracts/cs/assignment.md)).
+  - **C30(KAN-230 고객 회신 본문)은 C/S 코드보다 먼저 적용하는 것을 권한다.** C/S 코드는 C30 없이도 동작한다(회신 본문 없이 기록·조회). 플랫폼은 C/S가 `subject`·`body`를 받을 수 있게 된 뒤(C/S 배포 뒤) 배포한다. C/S 입력은 모르는 칸을 422로 거절하므로, 플랫폼만 먼저 나가면 회신 통지가 실패하고 다음 실행에서 다시 시도한다.
+  - **C31(KAN-230 회신 반영 분석)은 C30 뒤, `CS_REPLY_ANALYSIS_ENABLED`를 켜기 전에 적용한다.** 기능이 꺼져 있으면(기본) 표를 읽지 않는다. 새 표만 만들고 기존 표·권한은 바꾸지 않는다(cs_app SELECT·INSERT).
+  - **C32는 KAN-234 C/S 코드 배포 전에 적용한다.** 새 코드는 맞는 담당자가 없을 때 `user_id` 없는 NO_MATCH 행을 쓴다. C32가 없으면 그 기록만 실패하고(접수 자동 배정은 `CS_AUTO_ASSIGN_FAILED` 로그, 관리자 적용은 오류) "맞는 담당자 없는 문의" 목록이 비어 보인다. NO_MATCH 행이 생긴 뒤 C/S 코드를 KAN-234 이전 리비전으로 되돌리면, 이전 코드의 업무 상태 조회가 미배정 문의의 최신 NO_MATCH 행을 배정 근거로 읽으려다 실패할 수 있다(롤백 전 확인).
+  - **P35는 KAN-214 담당 배정 알림(`cs.assigned`) 코드 배포 전에 적용한다.** 알림 의도 표의 kind·title CHECK에 새 값만 더한다(권한 변경 없음, 재실행 가능). P35가 없어도 배정·재배정은 성공하고 알림만 savepoint에서 빠지며 `NOTIFICATION_INTENT_FAILED` 경고가 남는다(알림 누락). P30 뒤에 적용한다.
 - [ ] 각 파일 전에 "적용 전 확인" 쿼리를 실행하고, true면 건너뛴다. **재실행 불가 행(P10–P14, P16–P19, P23)은 반복하지 않는다.**
 - [ ] 실행 역할이 `postgres`인 행(T3·T13·T14·T17·P13·P14·P15·P19·P28·P29)은 운영자 postgres 연결로 실행한다.
 - [ ] KAN-81(P13·P19)은 [사서함 보관 준비](../infra/sql/README.md#사서함-보관-준비-kan-81) 절을 따른다. 적용 뒤 platform_app 연결로 `infra/sql/004_check_mailbox_vault.sql`을 돌린다.
@@ -137,6 +142,9 @@
 | `MAIL_SEND_ENABLED` | 플랫폼 | `infra/setup_mail_send.sh` | 메일 발송 |
 | `CS_MAIL_ENABLED` | team4-cs | 수동 | C/S 고객 메일 발송 입구 |
 | `CS_SUMMARY_ENABLED` | team4-cs | 수동 | **[비용]** 문의 한국어 요약(`contracts/cs/summary.md`). C25 적용 뒤. 켜면 요약마다 모델 1회. 실제 모델 확인(사용자 승인) 전에는 꺼 둔다 |
+| `CS_TRANSLATION_ENABLED` | team4-cs | 수동 | **[비용]** 문의 한국어 번역(`contracts/cs/translation.md`). C28 적용 뒤. 켜면 번역마다 모델 1회(본문 전체라 요약보다 출력 토큰이 많다). 실제 모델 확인(사용자 승인) 전에는 꺼 둔다 |
+| `CS_REPLY_ANALYSIS_ENABLED` | team4-cs | 수동 | **[비용]** 고객 회신 반영 분석(`contracts/cs/reply-analysis.md`). C31 적용 뒤. 켜면 담당자가 회신 분석 버튼을 누를 때마다 모델 1회(자동 실행 없음, 같은 입력이면 재사용). 실제 모델 확인(사용자 승인) 전에는 꺼 둔다 |
+| `CS_IMPROVEMENT_DRAFT_ENABLED` | team4-cs | 수동 | **[비용]** 개선요청 AI 작성 초안(`contracts/cs/improvements.md` AI 작성 초안). C27 적용 뒤. 켜면 담당자가 만들 때마다 모델 1회. 실제 모델 확인(사용자 승인) 전에는 꺼 둔다 |
 | `NOTIFICATION_PUSH_ENABLED` | 플랫폼 | `infra/setup_notification_push.sh` | 브라우저 알림(선택) |
 | `CS_VECTOR_SEARCH_ENABLED=true`, `CS_EMBEDDING_MODEL=gemini-embedding-2`, `CS_EMBEDDING_QUERY_TASK_TYPE=RETRIEVAL_DOCUMENT` | team4-cs·cs-worker Job | 수동 | D의 임베딩 적재 뒤. 실패하면 FTS로 넘어가고 로그에 `CS_VECTOR_SEARCH_FAILED`가 남는지 본다 |
 
@@ -192,7 +200,7 @@
 | `JOBS_SWEEP_ENABLED`, `EVALUATION_DISPATCH_ENABLED`, `EVALUATION_JOBS_ENABLED`, `CS_JOBS_ENABLED`, `CS_JOBS_PROCESSOR_CONNECTED`, `CS_WORKER_JOBS_ENABLED`, `TFT_JOBS_ENABLED`, `TFT_JOBS_PROCESSOR_CONNECTED`, `TFT_WORKER_JOBS_ENABLED`, `TFT_PROCESSING_ENABLED`, `CS_ANALYSIS_ENABLED` | false | `setup_worker_jobs.py enable`(2-F) |
 | `CS_WORKER_ENABLED`, `TFT_WORKER_ENABLED` | false | `deploy_workers.py`(Job 환경, 2-F) |
 | `CS_POLICY_DOCUMENTS_FILE` | 없음(운영 worker는 시작 실패) | `deploy_workers.py`(이미지 안 `eval/policy/cs_policy_documents.json`) |
-| `CS_VECTOR_SEARCH_ENABLED`, `CS_SUMMARY_ENABLED` | false | 수동(2-G) |
+| `CS_VECTOR_SEARCH_ENABLED`, `CS_SUMMARY_ENABLED`, `CS_TRANSLATION_ENABLED` | false | 수동(2-G) |
 | `MICROSOFT_AUTH_ENABLED`, `MAILBOX_AUTH_ENABLED`, `MAIL_SYNC_ENABLED`, `MAIL_SEND_ENABLED`, `CS_MAIL_ENABLED`, `NOTIFICATION_PUSH_ENABLED`, `BUSINESS_RELAY_ENABLED` | false | 2-G 표(`MICROSOFT_AUTH`·`BUSINESS_RELAY`는 이미 켜짐) |
 | 웹: `BUSINESS_RELAY_ENABLED`, `EVALUATION_READ_RELAY_ENABLED`, `EVALUATION_CONTROL_RELAY_ENABLED`, `MAILBOX_AUTH_ENABLED` | false | team4-web 수동(2-G). `BUSINESS_RELAY`는 이미 켜짐 |
 
@@ -224,7 +232,7 @@ KAN-159에 아래를 채워 붙이고 검토자(김종하)에게 확인받는다
 - 근거·보고서: 선행 Q06~Q10 결과 링크
 - 동일 이미지: 서비스별 리비전 · digest · commit-sha = 이미지 빌드 digest · CI 성공 커밋, worker Job digest = worker 이미지 빌드 digest
 
-마이그레이션: C3–C26 / P10–P34 / T2–T22 적용 시각, 공용 상태 열 갱신 여부
+마이그레이션: C3–C31 / P10–P35 / T2–T22 적용 시각, 공용 상태 열 갱신 여부
 켠 설정: 3절 목록 중 켠 것
 미검증 한계: (예) 배포 환경 부하는 소규모만, 복구 훈련 미실행(비용 승인 대기), 초안 채택 측정은 합성 50건이고 검증 8192로 잰 적 없음,
   PITR 켠 시각(못 켰으면 하루 단위 복구), 모델 품질은 평가 세트 기준

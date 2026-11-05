@@ -32,11 +32,12 @@ KAN-112는 **저장 구조와 작성 API**다. 검토 완료·전달·부서 회
 | `PUT /{id}/owner` | C/S 부서(`GCS_L1`) manager | 담당자 재배정. 새 판본 |
 
 - **판본**: 모든 쓰기는 `version`을 보낸다. 다르면 409 `CS_REQUEST_VERSION_CONFLICT`. 완료된 요청은 고칠 수 없다(409 `CS_REQUEST_COMPLETED`). 재발 재개는 KAN-117 경로로만 연다. 변경마다 `audit_events`에 `improvement_request`로 남긴다.
+- **화면 범위(2026-11-04 결정)**: 개선요청은 고장 반복만 다룬다. 문서 담당 부서를 데이터로 알 수 없고(현업 확인 필요) 반복 사양 질문 대부분이 확인용 문의라, 문서 요청(`DOCUMENT`)은 화면에서 만들거나 보이지 않는다. API·DB의 문서 유형은 그대로 두며 기존 기록을 지우지 않는다.
 - **유형별 규칙**: 고장 요청은 `fault_id`(`FLT-000`)와 제안 부서 1개 이상이 필요하다(비우면 422 `CS_DEPARTMENT_REQUIRED`). 문서 요청은 `doc_signal`(`NOT_FOUND`·`VALUE_CONFLICT`·`BROKEN_LINK`·`REPEATED_SPEC`)이 필요하고, 문서 담당 부서가 부서 목록에 없으므로 제안 부서가 비어 있을 수 있다. 이때 `receiver_unconfirmed = true`이고 검토 뒤 다음 할 일은 `CONFIRM_RECEIVER`다(전달은 KAN-116에서 막는다). 묶음 키(유형·제품·고장·신호)는 만든 뒤 바꾸지 않는다.
 - **근거 검사**: 문의의 제품이 요청과 같아야 한다. 고장 요청은 그 문의의 **이미 알려진** 해결 사례가 필요하고 사례의 고장 ID가 요청과 같아야 한다. 문서 요청은 사례를 붙이지 않는다. 어긋나면 422 `CS_EVIDENCE_INVALID`, 이미 근거인 문의는 409 `CS_EVIDENCE_EXISTS`, 모르는 제품은 422 `CS_UNKNOWN_PRODUCT`.
 - **사용 조건**: `condition_status`가 `UNKNOWN`(기본)이면 조건을 확인하지 못한 묶음이다. 조건이 다른 사례는 다른 요청으로 나눈다. 조건 비교 판단은 KAN-114·113이 한다.
-- **시스템 후보**: `POST /api/v1/cs/improvement-candidates/collect`가 만든 요청은 `origin=SYSTEM_CANDIDATE`·`DRAFT`이고 `cs_owner`가 비어 있다. 검토한 사람이 담당자가 된다. 그 뒤 동작은 일반 요청과 같다. 판정 당시 값은 `candidate_*` 칸에 있고 수동 요청은 null이다.
-- **비교표 범위**: 요청은 볼 수 있어도 이관받지 않은 문의의 해결 원문은 볼 수 없다. 전체 문의를 보지 않는 사용자에게는 그 행을 통째로 빼고 건수만 `hidden_case_count`로 준다.
+- **시스템 후보**: `POST /api/v1/cs/improvement-candidates/collect`가 만든 요청은 `origin=SYSTEM_CANDIDATE`·`DRAFT`이다. 저장할 때(수집·사례 등록 직후 판정·로컬 부트스트랩 모두 `save_candidates`) 담당자 기준표로 `cs_owner`를 규칙 배정한다: 그 제품군을 맡는 활성 담당자 중 진행 개선요청(완료·반려 종결 아님)이 가장 적은 사람, 같으면 user_id 순, 한 번에 여러 건이면 배정할 때마다 부하를 센다. 언어는 보지 않는다. 맞는 사람이 없으면(`NO_MATCH`) 비워 두고 사유를 남기며, 그때만 검토 완료를 기록한 사람이 담당자가 된다(이미 담당이 있으면 바꾸지 않는다). 수동 요청은 작성자가 담당이다. 관리자 재배정과 미배정 요청의 일괄 배정은 [자동 배정 계약](assignment.md)을 따른다(KAN-214). 목록 `GET /improvement-requests?owner=<user_id>`는 그 사람이 C/S 담당인 요청만 준다(업무 홈 "내 개선요청 할 일"). 그 뒤 동작은 일반 요청과 같다. 판정 당시 값은 `candidate_*` 칸에 있고 수동 요청은 null이다.
+- **비교표 범위**: 전체 문의를 보는 사용자(cs_agent, C/S 부서 관리자)는 모든 근거 행을 받는다. 그 밖의 사용자 중 **그 요청을 어느 회차에든 받은 부서**(dept_staff, 그 부서 관리자)는 이관받지 않은 문의의 근거도 해결 기록 칸(증상·원인·조치·처리 부서·FW·출동 등)은 받고, 고객(`customer_external_id`)과 문의 제목(`ticket_subject`)은 null, `limited = true`다(2026-11-04 김나영 결정: 부서가 근거를 보고 판단해야 하므로). 문의 원문·상세는 여전히 열 수 없다. 제안만 되고 받지 않은 부서에는 그 행을 빼고 건수만 `hidden_case_count`로 준다.
 - **근거 표시값 범위**(KAN-202): 상세·쓰기 응답의 `evidence[]`에서 `ticket_subject`·`ticket_received_at`·`customer_external_id`는 비교표와 같은 범위만 채운다. 전체 문의를 보지 않는 사용자에게 이관받지 않은 문의의 이 값은 null이다(연결 행과 기존 칸은 그대로). 제목은 문의 목록(`GET /api/v1/cs/tickets`의 `subject`)처럼 저장된 원문을 그대로 내며, 채팅처럼 제목이 없으면 null이다.
 - **후보 행**(KAN-202, `include_candidates=true`): 고장 요청의 묶음(같은 출처·제품·고장)에서 지금까지 알려진 해결 기록 중 문의가 활성 근거가 아닌 것이다. 개선 후보 판정의 `evidence`와 같은 기록이며, 제외한 근거도 다시 후보로 나온다. 같은 행 형식이고 `row_kind = CANDIDATE`, 근거 행 뒤에 적재 시각순이다. 문서 요청에는 없다. 후보 행은 개선 후보와 같은 권한(cs_agent, C/S 부서 manager)에게만 준다. 그 밖의 사용자에게는 후보 행을 빼고, 후보 수도 `hidden_case_count`에 넣지 않는다(근거 행의 숨김 규칙만 적용되어 기본 응답과 같다). 웹 중계는 이 경로의 `include_candidates` 키 하나만 받는다.
 - **요청 번호**: 요청에는 화면용 번호 칸이 DB에 없다. 식별은 `id`(UUID)만이다.
@@ -51,8 +52,8 @@ KAN-112는 **저장 구조와 작성 API**다. 검토 완료·전달·부서 회
 | --- | --- | --- |
 | `POST /review` (`version`, `proposed_depts`?) | cs_agent | `DRAFT` → `REVIEWED`. `reviewed_by`·`reviewed_at`, 담당자 없으면 실행한 사람. 제안 부서 수정 가능 |
 | `POST /send` (`version`, `dept_codes`?, `reply_due_days`=7) | cs_agent | `REVIEWED` → 1회차. 대상 부서(기본 제안 부서)가 모두 `SENT`, `sent_version`·`reply_due_at`, 요청 `sent_at`. 대상이 없으면 422 `CS_DEPARTMENT_REQUIRED`(문서 요청은 받는 부서 확인 먼저). 부서 메일 발송은 이 서비스가 하지 않는다 |
-| `POST /departments/{dept}/acknowledge` (`version`) | 그 부서 dept_staff | 부서 `SENT` → `ACKNOWLEDGED`. 회신 이력에 `ACKNOWLEDGED` |
-| `POST /departments/{dept}/reply` (`version`, `reply_type`, `reason`) | 그 부서 dept_staff | 부서 `ACKNOWLEDGED` → `ADOPTED`·`INFO_REQUESTED`·`REJECTED`. 회신은 답한 요청 판본(`request_version`)을 남긴다. 반려는 사유 필수(422) |
+| `POST /departments/{dept}/acknowledge` (`version`) | 그 부서 dept_staff | 부서 `SENT` → `ACKNOWLEDGED`. 회신 이력에 `ACKNOWLEDGED`. 화면은 쓰지 않는다(회신이 함께 기록, 2026-11-04) |
+| `POST /departments/{dept}/reply` (`version`, `reply_type`, `reason`) | 그 부서 dept_staff | 부서 `SENT`·`ACKNOWLEDGED` → `ADOPTED`·`INFO_REQUESTED`·`REJECTED`. `SENT`에서 회신하면 수신 확인(`ACKNOWLEDGED` 회신 행)을 먼저 남긴다. 회신은 답한 요청 판본(`request_version`)을 남긴다. 반려는 사유 필수(422) |
 | `POST /departments/{dept}/action` (`version`, `action`, `action_scope`, `action_date`, `action_evidence`) | 그 부서 dept_staff | 부서 `ADOPTED` → `ACTION_TAKEN`. 다른 부서를 기다리지 않는다. 조치는 고객 한 명의 수리와 분리 적용 범위 `scope_kind`·`scope_value`(KAN-117, 기본 `OTHER`)를 함께 받는다 |
 | `POST /departments/{dept}/resend` (`version`, `reason`, `reply_due_days`=7) | cs_agent | 회차 안에서 그 부서만 `SENT`로. `INFO_REQUESTED`(자료 보완), `REJECTED`(반려 뒤 **새 근거**가 있어야 함, 없으면 422 `CS_EVIDENCE_REQUIRED`), `SENT`·`ACKNOWLEDGED`(회신 기한이 지난 뒤에만 재촉, 아니면 409) |
 | `POST /departments/{dept}/review-rejection` (`version`) | cs_agent | 반려 확인. 부서 상태 그대로, `rejection_reviewed_*` 기록. 모든 부서가 반려·확인되면 **반려 종료**(열린 요청 집계 제외) |
@@ -82,3 +83,19 @@ KAN-112는 **저장 구조와 작성 API**다. 검토 완료·전달·부서 회
 | `COMPLETED` | 없음 |
 
 C/S 할 일의 `user_id`는 요청의 담당자이며 아직 없으면 null이다. 부서 할 일은 부서 코드만 준다.
+
+## AI 작성 초안 (KAN-115)
+
+기획서 15쪽 "LLM이 확인된 사실·불일치·부족한 정보를 나눠 초안 작성, 프로그램이 근거 목록·건수 채우기"와 10쪽 개선요청서 구성을 따른다. 초안은 요청서를 **바꾸지 않는** AI 작성물(`ai_draft`)이다. 담당자가 고쳐 기존 내용 수정(`PATCH`)으로 반영해야 새 판본이 된다.
+
+| 경로 | 역할 | 동작 |
+| --- | --- | --- |
+| `GET /api/v1/cs/improvement-requests/{id}/ai-draft` | 요청 조회 범위 안에서 전체 문의를 보는 사용자(cs_agent·C/S 관리자). 근거 일부만 보는 받는 부서 담당자는 403 | 저장된 최근 성공 초안(`draft`)과 최근 시도(`latest_attempt`, 실패 포함). 모델을 부르지 않는다 |
+| `POST /api/v1/cs/improvement-requests/{id}/ai-draft` | cs_agent | 초안을 만든다. 같은 근거 입력·프롬프트 판본의 성공한 초안이 있으면 모델을 부르지 않고 200으로 돌려준다. 새로 만들면 201, 모델 실패·출력 거부는 시도를 저장하고 502 `CS_IMPROVEMENT_DRAFT_FAILED`(`details[0].code`에 원인). 완료된 요청은 409 `CS_REQUEST_COMPLETED`, 유효 근거가 없으면 422 `CS_IMPROVEMENT_DRAFT_INPUT_INVALID` |
+
+- `CS_IMPROVEMENT_DRAFT_ENABLED`가 꺼져 있으면 두 경로 모두 404다. 켜면 C/S 서비스가 모델을 직접 부른다(비용, 기본 `gemini-3.6-flash`). 로컬 업무 실행기는 요약과 같은 CS 실행기 중계(`/improvement-draft`)로 부르고 같은 원장에 기록한다.
+- 입력: 요청 유형·제품·고장 또는 문서 신호, 유효 근거 문의(제목+본문 앞 2,000자, 보고 펌웨어·오류 코드)와 그 해결 사례(고장 요청만), 조건 판정(`condition_status`·`condition_summary`를 그대로 인용), 후보 부서(근거를 해결한 부서 중 부서 목록 안, 없으면 전체 목록. 지금 제안 부서는 넣지 않는다). 근거 참조는 문의·사례 외부 ID다. 자유 서술은 분류와 같은 규칙으로 가린다.
+- 출력 검사(`backend/engine/cs/improvement_drafting.py`): 확인된 사실·불일치는 입력 근거 참조가 1개 이상, 제안 부서는 후보 안, 고장 요청은 제안 부서·단정하지 않는 내용이 1개 이상, 부서 질문은 제안 부서마다 하나, 모든 문장에 승인·확정 약속 금지(`CS_FORBIDDEN_COMMITMENT`). 원인 단정은 프롬프트 지시로만 막는다.
+- `draft`: `problem_statement`, `confirmed_facts`·`inconsistencies`(문장과 `evidence_refs`), `missing_info`, `not_claimed`, `review_task`, `proposed_depts`, `dept_questions`(부서별 질문 하나, 어디로도 보내지 않는다), `evidence`(참조 → 문의·사례 ID), `request_version`(입력을 읽은 판본), `stale`. 사람이 내용·제안 부서를 고쳐도 근거가 같으면 같은 초안이며, 근거를 넣거나 빼면 `stale`이 되고 다시 만들 수 있다.
+- 저장: `cs.improvement_ai_drafts`(C27, 추가만). 모델·판본·사용량·비용을 함께 남긴다. 같은 입력의 성공 초안은 하나다.
+

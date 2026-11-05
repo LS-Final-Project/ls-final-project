@@ -123,8 +123,8 @@ def test_review_then_send_opens_the_first_round(client, draft):
     assert depts(sent) == {"QA_CLAIM": "SENT", "RND_FW": "SENT"}
     assert all(d["reply_due_at"] for d in sent["departments"])
     assert tasks(sent) == [
-        ("DEPARTMENT", "QA_CLAIM", "ACKNOWLEDGE"),
-        ("DEPARTMENT", "RND_FW", "ACKNOWLEDGE"),
+        ("DEPARTMENT", "QA_CLAIM", "REPLY"),
+        ("DEPARTMENT", "RND_FW", "REPLY"),
     ]
 
 
@@ -176,13 +176,7 @@ def test_departments_progress_independently_and_the_status_is_summarized(client,
     qa = ok(act(client, rid, "departments/QA_CLAIM/acknowledge", user=QA_STAFF, version=v))
     assert qa["request"]["status"] == "ACKNOWLEDGED" and depts(qa)["RND_FW"] == "SENT"
     v = qa["request"]["version"]
-    # A reply before acknowledging, or a rejection without a reason, is refused.
-    assert code(
-        act(client, rid, "departments/RND_FW/reply", user=FW_STAFF, version=v, reply_type="ADOPTED")
-    ) == (
-        409,
-        "CS_REQUEST_INVALID_TRANSITION",
-    )
+    # A rejection without a reason is refused.
     assert (
         act(
             client,
@@ -423,3 +417,42 @@ def test_followup_and_rejection_closure_rules():
     assert followup_allowed([acted, reviewed]) and not followup_allowed([acted, unreviewed])
     assert not followup_allowed([reviewed]) and not followup_allowed([])
     assert rejection_closed([reviewed, reviewed]) and not rejection_closed([reviewed, unreviewed])
+
+
+def test_a_reply_straight_from_sent_acknowledges_first(client, admin, draft):
+    """The screen has no separate acknowledge step: the reply records the acknowledgement too."""
+    rid = draft["id"]
+    sent = delivered(client, draft)
+    assert ("DEPARTMENT", "QA_CLAIM", "REPLY") in {
+        (n["actor"], n["dept_code"], n["task"]) for n in sent["next_owners"]
+    }
+    replied = ok(
+        act(
+            client,
+            rid,
+            "departments/QA_CLAIM/reply",
+            user=QA_STAFF,
+            version=sent["request"]["version"],
+            reply_type="ADOPTED",
+        )
+    )
+    assert depts(replied)["QA_CLAIM"] == "ADOPTED"
+    rows = admin.execute(
+        "SELECT reply_type, request_version FROM cs.dept_replies WHERE request_id = %s "
+        "AND dept_code = 'QA_CLAIM' ORDER BY replied_at, reply_type",
+        (rid,),
+    ).fetchall()
+    version = sent["request"]["version"]
+    assert sorted(rows) == [("ACKNOWLEDGED", version), ("ADOPTED", version)]
+    # Replying again from ADOPTED is still refused.
+    assert code(
+        act(
+            client,
+            rid,
+            "departments/QA_CLAIM/reply",
+            user=QA_STAFF,
+            version=replied["request"]["version"],
+            reply_type="REJECTED",
+            reason="no",
+        )
+    ) == (409, "CS_REQUEST_INVALID_TRANSITION")

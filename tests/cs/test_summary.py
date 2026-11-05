@@ -107,3 +107,22 @@ def test_a_reported_claim_is_not_a_commitment():
     validate_output(raw("고객은 보증이 승인되었다고 주장함."), source=payload)
     with pytest.raises(SummaryOutputError):
         validate_output(raw("고객 문의는 확인했고 보증이 승인되었습니다."), source=payload)
+
+
+def test_v2_items_are_lines_without_markers_and_the_prompt_asks_for_noun_endings():
+    """KAN-162 QA: 1~3개 항목을 줄로 나누고 명사형으로 끝낸다. 모델이 붙인 번호·글머리표는 떼고 저장한다."""
+    from backend.engine.cs.summary import INSTRUCTION, SUMMARY_PROMPT_VERSION
+
+    assert SUMMARY_PROMPT_VERSION == "v2"
+    assert "1~3개 항목" in INSTRUCTION and "명사형" in INSTRUCTION
+    payload = build_summary_input(TICKET)
+    raw = json.dumps(
+        {"summary_ko": "1. TRF-OIL-1000 개스킷 누유가 있음\n\n- 보증 처리 가능 여부를 문의함"},
+        ensure_ascii=False,
+    )
+    output = validate_output(raw, source=payload)
+    assert output.summary_ko == "TRF-OIL-1000 개스킷 누유가 있음\n보증 처리 가능 여부를 문의함"
+    # 번호만 남은 줄은 없는 것과 같다.
+    with pytest.raises(SummaryOutputError) as error:
+        validate_output(json.dumps({"summary_ko": "1. \n- "}), source=payload)
+    assert error.value.code == "CS_SUMMARY_SCHEMA"

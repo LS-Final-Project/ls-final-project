@@ -32,10 +32,10 @@ const PREPARING = /준비 중입니다|운영 인증 중계와 권한 검증|운
 
 describe('운영 빌드에서 C/S·메일 화면을 연다', () => {
   test.each([
+    ['메일함', '/mail/inbox', 'MailBox', '/api/v1/platform/mail/reply-reviews'],
     ['발송 상태', '/mail/sent', 'MailSent', '/api/v1/platform/mail/send-intents'],
-    ['받은 메일 검토', '/mail/inbox', 'MailInbox', '/api/v1/platform/mail/reply-reviews'],
     ['메일 계정', '/mail/account', 'MailAccount', '/api/v1/platform/auth/mailbox'],
-    ['받은 요청', '/dept/inbox', 'DeptInbox', '/api/v1/cs/tickets'],
+    ['문의 검토', '/dept/inbox', 'DeptInbox', '/api/v1/cs/tickets'],
     ['운영 현황', '/cs/admin', 'CsAdmin', '/api/v1/cs/stats/'],
     ['문의 조회', '/cs/tickets', 'Tickets', '/api/v1/cs/tickets'],
   ])('%s 화면은 준비 중 대신 실제 API를 읽는다', async (_, path, page, api) => {
@@ -74,8 +74,7 @@ describe('운영 빌드에서 C/S·메일 화면을 연다', () => {
     show(`/cs/tickets/${ID}`, '/cs/tickets/:ticketId', <TicketDetail />);
     await screen.findByText('T-1');
     expect(screen.queryByText(PREPARING)).toBeNull();
-    fireEvent.click(screen.getByText(/^기타 \d/));
-    const start = () => screen.getByRole('menuitem', { name: /^검토 시작/ }) as HTMLButtonElement;
+    const start = () => screen.getByRole('button', { name: '검토 시작' }) as HTMLButtonElement;
     await waitFor(() => expect(start().disabled).toBe(false));
     fireEvent.click(start());
     await screen.findByText('검토를 시작했습니다.');
@@ -97,15 +96,14 @@ describe('운영 빌드에서 C/S·메일 화면을 연다', () => {
     show(`/cs/tickets/${ID}`, '/cs/tickets/:ticketId', <TicketDetail />);
     await screen.findByText('T-1');
     expect(calls.some(call => call.url.endsWith('/platform/auth/mailbox'))).toBe(false);
-    fireEvent.click(screen.getByText(/^기타 \d/));
-    fireEvent.click(screen.getByRole('menuitem', { name: /^AI 초안 보기/ }));
+    fireEvent.click(screen.getByRole('button', { name: '다른 초안' }));
     await waitFor(() => expect(calls.some(call => call.url.endsWith('/platform/auth/mailbox'))).toBe(true));
   });
 
   test('업무 UI 설정이 꺼진 운영 빌드는 화면을 열지 않고 업무 API를 부르지 않는다', async () => {
     const calls = production(false);
-    const { default: MailSent } = await import('./MailSent.tsx');
-    show('/mail/sent', '/mail/sent', <MailSent />);
+    const { default: MailBox } = await import('./MailBox.tsx');
+    show('/mail/inbox', '/mail/inbox', <MailBox />);
     expect(await screen.findByText(/준비 중입니다/)).toBeTruthy();
     expect(calls).toHaveLength(0);
   });

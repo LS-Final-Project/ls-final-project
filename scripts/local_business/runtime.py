@@ -20,6 +20,7 @@ from scripts.local_business.auth import (
     LocalIdentity,
 )
 from scripts.local_business.config import settings
+from scripts.local_business.mail import load as load_mail
 
 UNLIMITED_PROTOCOL = 1
 CONCURRENCY_PROTOCOL = 1
@@ -152,6 +153,12 @@ def app_for(service: str, state: Path):
             return forward(method, target, headers, body)
 
         app.state.business_forwarder = local_forward
+        mail = load_mail(state)
+        if mail is not None:
+            from scripts.local_business.mail import configure_platform
+
+            objects = Path(os.environ.get("TFT_DOCUMENT_ROOT", state / "files")) / ".mail-objects"
+            configure_platform(app, mail, identity, ports, objects, config["web_origin"])
 
         @app.middleware("http")
         async def require_enabled_driver(request: Request, call_next):
@@ -179,10 +186,54 @@ def app_for(service: str, state: Path):
             return await call_next(request)
     elif service == "cs":
         from backend.api.cs.analysis.jobs import CsAnalysisSettings, configure_analysis_jobs
+        from backend.api.cs.improvements.ai_draft import (
+            CsImprovementDraftSettings,
+            configure_improvement_draft,
+        )
         from backend.api.cs.main import create_app
+        from backend.api.cs.reply_analysis.routes import (
+            CsReplyAnalysisSettings,
+            configure_reply_analysis,
+        )
+        from backend.api.cs.summary.routes import CsSummarySettings, configure_summary
+        from backend.api.cs.translation.routes import (
+            CsTranslationSettings,
+            configure_translation,
+        )
         from backend.api.cs.workflow.mail import CustomerMailSettings
+        from scripts.local_business.summary import bridge_provider
 
         app = create_app(common, CustomerMailSettings(_env_file=None, enabled=False))
+        mail = load_mail(state)
+        if mail is not None and mail.get("send"):
+            from backend.api.cs.workflow.mail import configure_customer_mail
+
+            # Approved replies go to the local platform send worker, which applies the allow list.
+            configure_customer_mail(
+                app,
+                CustomerMailSettings(_env_file=None, enabled=True, platform_url=PLATFORM_ORIGIN),
+                token=lambda audience: identity.token(audience, CS_SA),
+                transport=ToPlatform(),
+            )
+        # No model key/client in the API. Cache reads and reuse work without a driver.
+        configure_summary(
+            app, CsSummarySettings(_env_file=None, enabled=True), provider=bridge_provider(state)
+        )
+        configure_improvement_draft(
+            app,
+            CsImprovementDraftSettings(_env_file=None, enabled=True),
+            provider=bridge_provider(state, "/improvement-draft"),
+        )
+        configure_translation(
+            app,
+            CsTranslationSettings(_env_file=None, enabled=True),
+            provider=bridge_provider(state, "/translation"),
+        )
+        configure_reply_analysis(
+            app,
+            CsReplyAnalysisSettings(_env_file=None, enabled=True),
+            provider=bridge_provider(state, "/reply-analysis"),
+        )
         configure_analysis_jobs(
             app,
             CsAnalysisSettings(_env_file=None, enabled=True, platform_url=PLATFORM_ORIGIN),

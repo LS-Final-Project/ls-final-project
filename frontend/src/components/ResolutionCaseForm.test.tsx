@@ -64,3 +64,17 @@ test('실행 중에는 저장하지 못한다', () => {
   form(vi.fn(), { busy: true }); fillRequired();
   expect(save().disabled).toBe(true);
 });
+
+test('고장 목록이 있어도 목록에 없는 새 고장 코드는 직접 적을 수 있다', () => {
+  const items = [{ fault_id: 'FLT-020', error_code: 'P.01', symptom: 'CPU stops', root_cause: 'loop', diagnosis: 'd', action: 'a', needs_onsite: false, needs_rma: false, fw_fix_version: null, replacement_part: null }];
+  form(vi.fn(), { faults: { items } });
+  const select = screen.getByLabelText('고장 코드') as HTMLSelectElement;
+  expect(select.tagName).toBe('SELECT');
+  fireEvent.change(select, { target: { value: '__manual__' } });
+  const input = screen.getByLabelText('고장 코드') as HTMLInputElement;
+  expect(input.tagName).toBe('INPUT');
+  fireEvent.change(input, { target: { value: 'FLT-990' } });
+  expect(input.value).toBe('FLT-990');
+  fireEvent.click(screen.getByRole('button', { name: '목록에서 고르기' }));
+  expect((screen.getByLabelText('고장 코드') as HTMLSelectElement).tagName).toBe('SELECT');
+});

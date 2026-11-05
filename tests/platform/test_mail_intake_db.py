@@ -316,3 +316,102 @@ def test_registration_is_closed_without_a_cs_caller(settings, notify, registered
             headers={"Origin": ORIGIN, CSRF_HEADER: csrf_token(session)},
         )
     assert response.status_code == 404
+
+
+class RawByHash:
+    """원문을 sha256으로 돌려주는 저장소. 모르는 원문은 읽기 실패(503)다."""
+
+    def __init__(self, *raws):
+        self.raws = {__import__("hashlib").sha256(raw).hexdigest(): raw for raw in raws}
+
+    async def get(self, stored):
+        from backend.shared.errors import ApplicationError
+
+        if stored.sha256 not in self.raws:
+            raise ApplicationError(503, "MAIL_OBJECT_UNAVAILABLE", "x")
+        return self.raws[stored.sha256]
+
+
+def test_reply_text_is_sent_with_the_quoted_history_cut_off(settings, notify):
+    """KAN-230: 저장소를 주면 회신 제목·본문을 같이 알린다. 우리가 보낸 이전 메일 인용은 뺀다."""
+    cs = FakeCs()
+    raw = (
+        "Subject: Re: 변압기 누유\r\nMessage-ID: <r1@customer.invalid>\r\n"
+        "Content-Type: text/plain; charset=utf-8\r\n\r\n"
+        "Serial is VSN-TRF-0042. Photos attached.\r\n\r\n"
+        "On Mon, Nov 3, 2026 at 10:00 AM LS C/S <cs@example.invalid> wrote:\r\n> Please send the serial.\r\n"
+    ).encode()
+    message = add_message(notify, raw, conversation=f"conv-{uuid4()}")
+    with psycopg.connect(notify["dsn"]) as conn:
+        conn.execute(
+            "INSERT INTO integration.mail_links (id, message_id, owner_service, business_ref, kind, "
+            "method) VALUES (%s, %s, 'cs', %s, 'REPLY', 'HEADER')",
+            (uuid4(), message, f"cs_ticket:{uuid4()}"),
+        )
+    assert (
+        asyncio.run(notify_cs_replies(settings, cs.caller(), store=RawByHash(raw)))["notified"] == 1
+    )
+    [sent] = [json.loads(c.content) for c in cs.calls]
+    assert sent["subject"] == "Re: 변압기 누유"
+    assert sent["body"] == "Serial is VSN-TRF-0042. Photos attached."
+    assert "Please send the serial" not in sent["body"]
+
+
+def test_a_reply_whose_original_cannot_be_read_is_reported_without_text(settings, notify):
+    """원문을 읽지 못해도 본문 없이 바로 알린다. 지워진 원문이 뒤 회신의 통지를 막지 않게 한다."""
+    cs = FakeCs()
+    message = link_reply(notify, uuid4())
+    assert asyncio.run(notify_cs_replies(settings, cs.caller(), store=RawByHash())) == {
+        "notified": 1,
+        "missing": 0,
+        "failed": 0,
+        "without_text": 1,
+    }
+    [sent] = [json.loads(c.content) for c in cs.calls]
+    assert "body" not in sent and "subject" not in sent
+    assert notified(notify, message) is not None
+
+
+def test_reply_text_keeps_a_body_that_starts_like_a_quote_header():
+    """'From:'으로 시작하는 본문을 인용으로 보고 통째로 지우지 않는다."""
+    from backend.engine.mail_triage.extract import reply_text
+
+    raw = (
+        b"Subject: Re: log\r\nContent-Type: text/plain\r\n\r\nFrom: PLC log 10:02 overload trip\r\n"
+    )
+    assert reply_text(raw) == ("Re: log", "From: PLC log 10:02 overload trip")
+
+
+def test_reply_text_cuts_an_outlook_header_block_and_drops_quote_only_replies():
+    """Outlook식 'From:' 다음에 머리글 줄이 이어지면 인용으로 자른다. 인용만 있는 답장은 본문 없음이다."""
+    from backend.engine.mail_triage.extract import reply_text
+
+    outlook = (
+        b"Subject: Re: x\r\nContent-Type: text/plain\r\n\r\nPhotos attached.\r\n\r\n"
+        b"From: LS C/S <cs@example.invalid>\r\nSent: Monday, November 3, 2026 10:00\r\n"
+        b"To: buyer@customer.invalid\r\nPlease send photos.\r\n"
+    )
+    assert reply_text(outlook) == ("Re: x", "Photos attached.")
+    quote_only = (
+        b"Subject: Re: x\r\nContent-Type: text/plain\r\n\r\n"
+        b"On Mon, Nov 3, 2026 at 10:00 AM LS C/S <cs@example.invalid> wrote:\r\n> Please send photos.\r\n"
+    )
+    assert reply_text(quote_only) == ("Re: x", None)
+
+
+def test_reply_text_cuts_folded_and_korean_gmail_quotes_and_drops_nul():
+    """접힌 'On … wrote:'·한국어 Gmail '… 님이 작성:' 인용을 자르고 NUL 문자는 뺀다."""
+    from backend.engine.mail_triage.extract import reply_text
+
+    folded = (
+        b"Subject: Re: x\r\nContent-Type: text/plain\r\n\r\nSerial is AB-1.\r\n\r\n"
+        b"On Mon, Nov 3, 2026 at 10:00 AM LS C/S <\r\ncs@example.invalid> wrote:\r\n> Please send photos.\r\n"
+    )
+    assert reply_text(folded) == ("Re: x", "Serial is AB-1.")
+    korean = (
+        "Subject: Re: x\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n사진 보냅니다.\r\n\r\n"
+        "2026년 11월 3일 (월) 오전 10:00, LS C/S <cs@example.invalid>님이 작성:\r\n> 사진을 보내 주세요.\r\n"
+    ).encode()
+    assert reply_text(korean) == ("Re: x", "사진 보냅니다.")
+    nul = b"Subject: Re: a\x00b\r\nContent-Type: text/plain\r\n\r\nok\x00 done\r\n"
+    assert reply_text(nul) == ("Re: ab", "ok done")

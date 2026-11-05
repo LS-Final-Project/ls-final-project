@@ -23,7 +23,9 @@ test('유효값과 사람 정정 표시, 규칙 결과를 보이고 반품 주�
   expect(screen.getByText(/반품 \(RETURN\)/)).toBeTruthy();
   expect(screen.getByText('사람 정정')).toBeTruthy();
   expect(screen.getByText('HMI')).toBeTruthy();
-  expect(screen.getByText('photos, serial_no')).toBeTruthy();
+  // 고객이 보낸 자료는 칩으로 하나씩 보인다.
+  expect(screen.getByText('✓ photos')).toBeTruthy();
+  expect(screen.getByText('✓ serial_no')).toBeTruthy();
   expect(screen.getByText(/자동화 기술지원 \(TS_AUTO\)/)).toBeTruthy();
   expect(screen.getByText('반품 사유(고객 주장)')).toBeTruthy();
   expect(screen.getByText('품질·불량 반품')).toBeTruthy();

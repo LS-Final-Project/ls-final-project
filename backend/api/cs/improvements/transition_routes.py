@@ -281,10 +281,13 @@ async def reply(
     request: Request,
     principal: Principal = Depends(current_principal),
 ) -> SuccessResponse[RequestDetail]:
-    """Department ACKNOWLEDGED → ADOPTED / INFO_REQUESTED / REJECTED. A rejection needs a reason.
+    """Department SENT / ACKNOWLEDGED → ADOPTED / INFO_REQUESTED / REJECTED. A rejection needs a
+    reason.
 
-    The reply names the request version it answered. A reply is a claim, not a result:
-    nothing here completes the request.
+    Replying to a request the department has not acknowledged yet acknowledges it first, in the
+    same transaction: a reply means it was received (2026-11-04 decision, one step for the
+    department). The reply names the request version it answered. A reply is a claim, not a
+    result: nothing here completes the request.
     """
     async with connection(request.app.state.settings) as conn:
         row = await begin(conn, principal, request_id, payload.version)
@@ -292,9 +295,22 @@ async def reply(
         if row["status"] in FROZEN_STATES:
             raise invalid_transition()
         dept = await department_row(conn, row, dept_code)
-        if dept["status"] != "ACKNOWLEDGED":
+        if dept["status"] not in ("SENT", "ACKNOWLEDGED"):
             raise invalid_transition()
         check_version(row, payload.version)
+        if dept["status"] == "SENT":
+            await repository.insert_reply(
+                conn,
+                {
+                    "id": uuid4(),
+                    "request_id": request_id,
+                    "round": row["current_round"],
+                    "dept_code": dept_code,
+                    "request_version": row["version"],
+                    "reply_type": "ACKNOWLEDGED",
+                    "replied_by": principal.user_id,
+                },
+            )
         target = reply_target(payload.reply_type)
         values: Row = {"status": target}
         if target != "REJECTED":

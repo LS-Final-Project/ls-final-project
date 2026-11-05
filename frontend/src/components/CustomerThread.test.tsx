@@ -10,11 +10,11 @@ const send = (over: Record<string, unknown> = {}) => ({ id: 's1', kind: 'INFO_RE
 const reply = (over: Record<string, unknown> = {}) => ({ message_id: 'm1', method: 'HEADER', received_at: '2026-10-29T08:40:00Z', created_at: '2026-10-29T08:41:00Z', reopened: true, ...over });
 const flow = (sends: unknown[], replies: unknown[]) => ({ customer_sends: sends, customer_replies: replies }) as unknown as WorkflowRecord;
 
-test('고객 원문·발송·회신을 최신이 위로 보이고 회신 본문은 저장하지 않았다고 밝힌다', () => {
+test('고객 원문·발송·회신을 최신이 위로 보이고, 본문이 없던 회신은 메일 계정을 안내한다', () => {
   render(<CustomerThread original={original} workflow={flow([send()], [reply()])} />);
   const heads = [...document.querySelectorAll('.hd b')].map(node => node.textContent);
   expect(heads).toEqual(['고객 회신', '정보 요청 발송', '고객 원문']);
-  expect(screen.getByText(/회신 본문은 메일 계정에서 확인합니다/)).toBeTruthy();
+  expect(screen.getByText(/본문이 기록되지 않았습니다. 메일 계정에서 확인하세요/)).toBeTruthy();
   expect(screen.getByText('검토중으로 복귀')).toBeTruthy();
   expect(screen.getByText('Could you send a clear photo of the label?')).toBeTruthy();
   expect(screen.getByText('The whole line is stopped.').className).toContain('kv-text');
@@ -70,4 +70,11 @@ test('실행 중이면 단추를 막고, actions가 없으면 단추가 없다',
   cleanup();
   render(<CustomerThread original={original} workflow={flow(sends, [])} />);
   expect(screen.queryByRole('button', { name: '상태 확인' })).toBeNull();
+});
+
+test('회신 본문이 기록돼 있으면 제목과 본문을 원문처럼 보인다(KAN-230)', () => {
+  render(<CustomerThread original={original} workflow={flow([send()], [reply({ subject: 'Re: label photo', body: 'Serial is VSN-HMI-0007. Photo attached.' })])} />);
+  expect(screen.getByText('Serial is VSN-HMI-0007. Photo attached.').className).toContain('kv-text');
+  expect(screen.getByText('Re: label photo')).toBeTruthy();
+  expect(screen.queryByText(/메일 계정에서 확인하세요/)).toBeNull();
 });

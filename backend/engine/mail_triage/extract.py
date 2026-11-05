@@ -194,3 +194,60 @@ def build_input(
         is_reply=is_reply,
         attachments=attachments,
     )
+
+
+# 회신의 인용 시작(KAN-230). 분류용 _QUOTE_START와 달리 'From:'·'보낸 사람:'은 바로 아래 몇 줄에
+# 메일 머리글(Sent/Date/To/보낸 날짜/받는 사람)이 이어질 때만 인용으로 본다. 본문의 'From: PLC log' 같은
+# 줄을 인용으로 잘못 보지 않기 위해서다.
+# Gmail은 긴 'On … wrote:' 줄을 두세 줄로 접고, 한국어 Gmail은 '… 님이 작성:'으로 쓴다.
+_REPLY_QUOTE = re.compile(
+    r"^(?:-{2,}\s*(?:Original Message|원본 메시지)\s*-{2,}"
+    r"|On [^\n]+(?:\n[^\n]+){0,2}? wrote:|[^\n]*\d{4}년[^\n]*(?:\n[^\n]+){0,2}?님이 작성:)$",
+    re.MULTILINE,
+)
+_REPLY_FROM = re.compile(r"^(?:From:\s.+|보낸 사람:.*)$", re.MULTILINE)
+_REPLY_HEADER_NEXT = re.compile(
+    r"^(?:Sent|Date|To|Cc|Subject|보낸 날짜|받는 사람|참조|제목):", re.MULTILINE
+)
+
+
+def _clean_reply(value: str) -> str:
+    """회신 본문에서 우리 이전 메일 인용과 '>' 줄을 자른다. 인용만 있으면 빈 문자열이다."""
+    cuts = [m.start() for m in _REPLY_QUOTE.finditer(value)]
+    for match in _REPLY_FROM.finditer(value):
+        following = value[match.end() :].split("\n", 4)[1:4]
+        if any(_REPLY_HEADER_NEXT.match(line.strip()) for line in following):
+            cuts.append(match.start())
+    if cuts:
+        value = value[: min(cuts)]
+    lines = [line.rstrip() for line in value.splitlines() if not line.lstrip().startswith(">")]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+
+
+# 고객 회신 본문 상한(KAN-230). C/S 회신 기록의 상한(C30)과 같다.
+REPLY_BODY_LIMIT = 20_000
+
+
+def reply_text(raw: bytes) -> tuple[str | None, str | None]:
+    """문의에 연결된 고객 회신의 제목과 본문(KAN-230). 우리가 보낸 이전 메일 인용은 자른다.
+
+    문의 접수(mail_text)처럼 가리지 않는다(문의 원문과 같은 수준으로 C/S에 남는다). 모델에 보낼 때는
+    C/S가 분류와 같은 마스킹을 한다. 상한을 넘으면 상한에서 자르고 잘렸다고 끝에 적는다.
+
+    Args:
+        raw: 원문 MIME 바이트.
+
+    Returns:
+        tuple: (제목 또는 None, 본문 또는 None). 인용만 있어 비면 None. 파싱할 수 없으면
+        ValueError("MAIL_INVALID_INPUT").
+    """
+    subject, body, _ = mail_text(raw)
+    # CRLF가 남으면 인용 시작 줄('… wrote:')을 줄 끝으로 찾지 못한다.
+    # NUL은 DB 텍스트에 넣을 수 없어 뺀다.
+    plain = body.replace("\x00", "").replace("\r\n", "\n").replace("\r", "\n")
+    subject = subject.replace("\x00", "") if subject else subject
+    text = _clean_reply(plain)
+    if len(text) > REPLY_BODY_LIMIT:
+        mark = "\n[이후 생략: 원문은 메일 계정에서 확인]"
+        text = text[: REPLY_BODY_LIMIT - len(mark)].rstrip() + mark
+    return (subject[:500] if subject else None), (text or None)

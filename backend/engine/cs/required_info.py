@@ -13,6 +13,17 @@ from pathlib import Path
 REQUIRED_INFO = Path(__file__).resolve().parents[3] / "eval" / "policy" / "cs_required_info.csv"
 
 
+def _by_family(path: Path, column: str) -> dict[str, dict[str, frozenset[str]]]:
+    reader = csv.DictReader(io.StringIO(path.read_text(encoding="utf-8-sig"), newline=""))
+    if not {"family", "category", column} <= set(reader.fieldnames or ()):
+        raise ValueError("CS_REQUIRED_INFO_COLUMNS")
+    table: dict[str, dict[str, frozenset[str]]] = {}
+    for row in reader:
+        codes = frozenset(code.strip() for code in row[column].split(";") if code.strip())
+        table.setdefault(row["family"], {})[row["category"]] = codes
+    return table
+
+
 def required_by_family(path: Path = REQUIRED_INFO) -> dict[str, dict[str, frozenset[str]]]:
     """정책표의 제품 계열 → 문의 유형 → 필요 정보 코드.
 
@@ -22,16 +33,21 @@ def required_by_family(path: Path = REQUIRED_INFO) -> dict[str, dict[str, frozen
     Returns:
         dict: 계열별 유형별 코드 집합. 열이 없으면 ValueError다.
     """
-    reader = csv.DictReader(io.StringIO(path.read_text(encoding="utf-8-sig"), newline=""))
-    if not {"family", "category", "required_fields"} <= set(reader.fieldnames or ()):
-        raise ValueError("CS_REQUIRED_INFO_COLUMNS")
-    table: dict[str, dict[str, frozenset[str]]] = {}
-    for row in reader:
-        codes = frozenset(
-            code.strip() for code in row["required_fields"].split(";") if code.strip()
-        )
-        table.setdefault(row["family"], {})[row["category"]] = codes
-    return table
+    return _by_family(path, "required_fields")
+
+
+def blocking_by_family(path: Path = REQUIRED_INFO) -> dict[str, dict[str, frozenset[str]]]:
+    """정책표의 제품 계열 → 문의 유형 → 처리를 막는 정보 코드(`blocking_fields`).
+
+    기획서 4.1 ②: 추가 정보 요청은 처리를 막는 누락만 고객에게 묻는다. 필요 정보의 일부다.
+
+    Args:
+        path: eval/policy/cs_required_info.csv.
+
+    Returns:
+        dict: 계열별 유형별 코드 집합. 열이 없으면 ValueError다.
+    """
+    return _by_family(path, "blocking_fields")
 
 
 @dataclass(frozen=True)
@@ -43,6 +59,8 @@ class MissingInfo:
     provided: tuple[str, ...]
     already_asked: tuple[str, ...]
     missing: tuple[str, ...]
+    # missing 가운데 처리를 막는 정보. 막는 정보 표를 주지 않으면 비어 있다.
+    blocking_missing: tuple[str, ...] = ()
 
 
 def missing_info(
@@ -51,6 +69,7 @@ def missing_info(
     *,
     required_by_category: Mapping[str, frozenset[str]],
     already_asked: Iterable[str],
+    blocking_by_category: Mapping[str, frozenset[str]] | None = None,
 ) -> MissingInfo | None:
     """필요 − 제공 − 이미 요청한 정보.
 
@@ -59,6 +78,7 @@ def missing_info(
         provided_info: 고객이 준 정보 코드(AI 값 또는 정정값).
         required_by_category: 문의 제품 계열의 유형별 필요 정보. 표에 없는 유형은 필요 정보가 없다.
         already_asked: 실제로 고객에게 나간 메시지에서 요청한 코드.
+        blocking_by_category: 같은 계열의 유형별 처리를 막는 정보. 주면 부족 정보 중 막는 것을 따로 센다.
 
     Returns:
         MissingInfo | None: 주분류가 없으면 None.
@@ -68,10 +88,13 @@ def missing_info(
     required = required_by_category.get(category_code, frozenset())
     provided = frozenset(provided_info or ())
     asked = frozenset(already_asked)
+    missing = required - provided - asked
+    blocking = (blocking_by_category or {}).get(category_code, frozenset())
     return MissingInfo(
         category_code=category_code,
         required=tuple(sorted(required)),
         provided=tuple(sorted(provided)),
         already_asked=tuple(sorted(asked)),
-        missing=tuple(sorted(required - provided - asked)),
+        missing=tuple(sorted(missing)),
+        blocking_missing=tuple(sorted(missing & blocking)),
     )

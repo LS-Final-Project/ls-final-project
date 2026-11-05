@@ -30,6 +30,8 @@ export const businessRoutes = [
   ['/api/v1/cs/tickets/{uuid}/analysis', ['GET', 'POST'], []],
   ['/api/v1/cs/tickets/{uuid}/analysis/corrections', ['POST'], []],
   ['/api/v1/cs/tickets/{uuid}/summary', ['GET', 'POST'], []],
+  ['/api/v1/cs/tickets/{uuid}/translation', ['GET', 'POST'], []],
+  ['/api/v1/cs/tickets/{uuid}/reply-analysis', ['GET', 'POST'], ['message_id']],
   ['/api/v1/cs/tickets/{uuid}/units', ['GET'], []],
   ['/api/v1/cs/tickets/{uuid}/unit-history', ['GET'], []],
   ['/api/v1/cs/tickets/{uuid}/units/{uuid}', ['PUT'], []],
@@ -52,9 +54,10 @@ export const businessRoutes = [
   ['/api/v1/cs/stats/customers/{customer}', ['GET'], ['start', 'end']],
   ['/api/v1/cs/improvement-candidates', ['GET'], ['as_of', 'outcome']],
   ['/api/v1/cs/improvement-candidates/collect', ['POST'], []],
-  ['/api/v1/cs/improvement-requests', ['GET', 'POST'], ['status', 'request_type', 'dept', 'origin']],
+  ['/api/v1/cs/improvement-requests', ['GET', 'POST'], ['status', 'request_type', 'dept', 'origin', 'owner']],
   ['/api/v1/cs/improvement-requests/{uuid}', ['GET', 'PATCH'], []],
   ['/api/v1/cs/improvement-requests/{uuid}/versions', ['GET'], []],
+  ['/api/v1/cs/improvement-requests/{uuid}/ai-draft', ['GET', 'POST'], []],
   ['/api/v1/cs/improvement-requests/{uuid}/case-comparison', ['GET'], ['include_candidates']],
   ['/api/v1/cs/improvement-requests/{uuid}/evidence', ['POST'], []],
   ['/api/v1/cs/improvement-requests/{uuid}/evidence/{uuid}/remove', ['POST'], []],
@@ -74,6 +77,12 @@ export const businessRoutes = [
   ['/api/v1/cs/improvement-requests/{uuid}/condition-comparison/judgements', ['POST'], []],
   ['/api/v1/cs/improvement-requests/{uuid}/condition-comparison/evidence/{evidence}/remove', ['POST'], []],
   ['/api/v1/cs/condition-comparisons', ['GET'], ['product_code', 'fault_id', 'version']],
+  ['/api/v1/cs/faults', ['GET'], ['product_code']],
+  ['/api/v1/cs/assignments/agents', ['GET'], []],
+  ['/api/v1/cs/assignments/preview', ['POST'], []],
+  ['/api/v1/cs/assignments/apply', ['POST'], []],
+  ['/api/v1/cs/assignments/improvements/preview', ['POST'], []],
+  ['/api/v1/cs/assignments/improvements/apply', ['POST'], []],
   ['/api/v1/tft/projects', ['GET', 'POST'], ['limit', 'cursor', 'output_status', 'judgement_status', 'q', 'page', 'search_field']],
   ['/api/v1/tft/projects/{uuid}', ['GET', 'PATCH'], []],
   ['/api/v1/tft/projects/{uuid}/assignment', ['PATCH'], []],
@@ -129,11 +138,12 @@ const notificationRoutes = [
   [/^\/api\/v1\/platform\/push\/subscription$/, ['PUT', 'DELETE'], []],
 ];
 // 메일 화면이 실제로 쓰는 경로만 플랫폼으로 보낸다: 읽기, 분류 변경, 결과 불명 발송의 쓰기 2개(KAN-178)와
-// 받은 메일 화면의 회신 연결·무시, 문의 접수(KAN-132). 재전송·연결·접수 조건은 서버가 검사한다(contracts/platform/mail.md).
+// 받은 메일 화면의 회신 연결·무시·후보 근거(KAN-235), 문의 접수(KAN-132). 재전송·연결·접수 조건은 서버가 검사한다(contracts/platform/mail.md).
 const mailRoutes = [
   [/^\/api\/v1\/platform\/mail\/send-intents$/, ['GET'], ['status']],
   [/^\/api\/v1\/platform\/mail\/send-intents\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/(?:check-sent-copy|resend)$/, ['POST'], []],
   [/^\/api\/v1\/platform\/mail\/reply-reviews$/, ['GET'], []],
+  [/^\/api\/v1\/platform\/mail\/reply-reviews\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/candidates$/, ['GET'], []],
   [/^\/api\/v1\/platform\/mail\/messages\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/triage$/, ['GET', 'POST'], []],
   [/^\/api\/v1\/platform\/mail\/reply-reviews\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/(?:link|dismiss)$/, ['POST'], []],
   [/^\/api\/v1\/platform\/mail\/messages\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/register-ticket$/, ['POST'], []],

@@ -14,7 +14,7 @@ const METHOD_LABEL: Record<string, string> = { HEADER: '답장 헤더로 연결'
 
 /**
  * 대화(최신이 위). 고객 원문, 우리가 보낸 답변·정보 요청, 고객 회신 도착을 시간순으로 보인다.
- * 고객 회신의 본문은 저장하지 않아 도착 사실만 보이고, 본문은 메일 계정에서 확인한다.
+ * 고객 회신은 연결할 때 플랫폼이 보낸 본문(이전 메일 인용 제외)을 보인다(KAN-230). 본문이 없던 기록은 메일 계정을 안내한다.
  * workflow가 없으면(권한 없음 등) 원문만 보인다.
  */
 export default function CustomerThread({ original, workflow, actions }: { original: Original; workflow: WorkflowRecord | undefined; actions?: Actions }) {
@@ -29,8 +29,10 @@ export default function CustomerThread({ original, workflow, actions }: { origin
     })),
     ...replies.map((item: Reply): Message => ({
       key: `reply-${item.message_id}`, at: item.received_at, head: '고객 회신',
-      meta: [METHOD_LABEL[item.method] ?? item.method, ...(item.reopened ? ['검토중으로 복귀'] : [])], text: null,
-      note: '회신 본문은 메일 계정에서 확인합니다. 여기에는 저장하지 않습니다.', isNew: !lastSend || item.received_at > lastSend,
+      // KAN-230: 플랫폼이 보낸 회신 본문(이전 메일 인용 제외)을 보인다. 그 전 기록은 본문이 없어 메일 계정을 안내한다.
+      meta: [METHOD_LABEL[item.method] ?? item.method, ...(item.reopened ? ['검토중으로 복귀'] : [])], text: item.body ?? null,
+      subject: item.body ? item.subject ?? undefined : undefined, plain: !!item.body,
+      note: '이 회신은 본문이 기록되지 않았습니다. 메일 계정에서 확인하세요.', isNew: !lastSend || item.received_at > lastSend,
     })),
   ].sort((a, b) => b.at.localeCompare(a.at));
   return <div className="kv-thread" role="log" aria-label="대화">

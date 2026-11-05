@@ -6,6 +6,15 @@ Values come from the provided training data (CSV1-000044 / RC-0007, gasket leak 
 from datetime import UTC, date, datetime
 from uuid import UUID
 
+from backend.api.cs.assignments.schemas import (
+    AgentList,
+    AgentSkill,
+    AssignmentRecord,
+    UnmatchedRequest,
+    UnmatchedRequests,
+    UnmatchedTicket,
+    UnmatchedTickets,
+)
 from backend.api.cs.comparisons.examples import response as comparison_response
 from backend.api.cs.improvements.schemas import (
     Evidence,
@@ -19,8 +28,13 @@ from backend.api.cs.stats.schemas import (
     DepartmentCount,
     ImprovementCounts,
     OpenAge,
+    OverdueTicket,
     Overview,
     Period,
+    RecurrenceCount,
+    SlaCompliance,
+    SlaPriority,
+    SlaSummary,
     TicketCounts,
 )
 from backend.api.cs.tickets.schemas import (
@@ -39,6 +53,7 @@ from backend.api.cs.units.schemas import (
     UnitLink,
 )
 from backend.api.cs.workflow.schemas import DeptResult, Transfer, Workflow
+from backend.engine.cs.assignment import ASSIGNMENT_RULES_VERSION, IMPROVEMENT_RULES_VERSION
 from backend.shared.models import ResponseMeta, SuccessResponse
 
 META = ResponseMeta(request_id=UUID("11111111-1111-4111-8111-111111111111"))
@@ -256,6 +271,19 @@ def workflow_example() -> dict:
                 review_note=None,
             )
         ],
+        assignment=AssignmentRecord(
+            id=UUID("dddddddd-dddd-4ddd-8ddd-ddddddddddd1"),
+            user_id=AGENT_ID,
+            rule_version=ASSIGNMENT_RULES_VERSION,
+            reason_code="LANGUAGE_AND_FAMILY",
+            matched_language="tr",
+            matched_family="TRANSFORMER",
+            candidate_count=2,
+            chosen_open_count=3,
+            trigger="INTAKE",
+            decided_by=None,
+            created_at=datetime(2025, 10, 5, 16, 43, 0, tzinfo=UTC),
+        ),
     )
     return {
         "method": "GET",
@@ -263,6 +291,97 @@ def workflow_example() -> dict:
         "status": 200,
         "body": SuccessResponse(data=workflow, meta=META).model_dump(mode="json"),
     }
+
+
+def assignment_agents_example() -> dict:
+    """The agent skill table (assumed data) with current loads (KAN-214)."""
+    agents = AgentList(
+        rule_version=ASSIGNMENT_RULES_VERSION,
+        request_rule_version=IMPROVEMENT_RULES_VERSION,
+        items=[
+            AgentSkill(
+                user_id=AGENT_ID,
+                languages=["en", "tr", "ru"],
+                families=["TRANSFORMER", "MV_EQUIP"],
+                active=True,
+                open_count=3,
+                open_request_count=1,
+                data_origin="demo",
+                derivation_kind="ASSUMED",
+            ),
+            AgentSkill(
+                user_id=UUID("88888888-8888-4888-8888-888888888883"),
+                languages=["en", "th", "vi"],
+                families=["LV_BREAKER", "DRIVE"],
+                active=True,
+                open_count=1,
+                data_origin="demo",
+                derivation_kind="ASSUMED",
+            ),
+        ],
+    )
+    return {
+        "method": "GET",
+        "path": "/api/v1/cs/assignments/agents",
+        "status": 200,
+        "body": SuccessResponse(data=agents, meta=META).model_dump(mode="json"),
+    }
+
+
+def unmatched_examples() -> list[dict]:
+    """맞는 담당자 없는 문의·개선요청(KAN-234). 헝가리어 문의의 미등록 제품, PLC 개선요청."""
+    decided = datetime(2026, 11, 5, 9, 0, tzinfo=UTC)
+    tickets = UnmatchedTickets(
+        items=[
+            UnmatchedTicket(
+                ticket_id=UUID("22222222-2222-4222-8222-222222222234"),
+                external_id="MAIL-20261105-0007",
+                subject="A PLC nem indul újra áramszünet után",
+                subject_ko=None,
+                channel="EMAIL",
+                product_code="PLC-NX-32",
+                body_language="hu",
+                received_at=decided,
+                reason_code="NO_MATCH",
+                language="hu",
+                family=None,
+                trigger="INTAKE",
+                decided_at=decided,
+            )
+        ],
+        has_more=False,
+    )
+    requests = UnmatchedRequests(
+        items=[
+            UnmatchedRequest(
+                request_id=UUID("66666666-6666-4666-8666-666666666634"),
+                request_type="FAULT",
+                product_code="PLC-XGI-CPUU",
+                fault_id="FLT-031",
+                status="DRAFT",
+                created_at=decided,
+                reason_code="NO_MATCH",
+                family="PLC",
+                trigger="CANDIDATE",
+                decided_at=decided,
+            )
+        ],
+        has_more=False,
+    )
+    return [
+        {
+            "method": "GET",
+            "path": "/api/v1/cs/assignments/unmatched",
+            "status": 200,
+            "body": SuccessResponse(data=tickets, meta=META).model_dump(mode="json"),
+        },
+        {
+            "method": "GET",
+            "path": "/api/v1/cs/assignments/improvements/unmatched",
+            "status": 200,
+            "body": SuccessResponse(data=requests, meta=META).model_dump(mode="json"),
+        },
+    ]
 
 
 def case_example() -> dict:
@@ -427,6 +546,9 @@ def stats_example() -> dict:
                 results_submitted=3,
                 results_accepted=2,
                 returned_or_recalled=1,
+                waiting=1,
+                waiting_over_7_days=0,
+                avg_reply_days=2.4,
             )
         ],
         top_customers=[CustomerLoad(customer_external_id="CUST-0374", received=3, open=1)],
@@ -435,8 +557,38 @@ def stats_example() -> dict:
             by_type={"FAULT": 2, "DOCUMENT": 0},
             open=2,
             receiver_unconfirmed=0,
+            completed_in_period=0,
+            info_requested=0,
+            rejected=0,
+            reply_overdue=1,
+            recurrence_after_completion=RecurrenceCount(checked=0, recurrence=0, not_applicable=0),
         ),
-        unconfirmed=["SLA_DUE", "RULE_ASSIGNED_DEPT"],
+        unconfirmed=["RULE_ASSIGNED_DEPT"],
+        sla=SlaSummary(
+            measured_at=datetime(2026, 10, 1, tzinfo=UTC),
+            first_response=SlaCompliance(met=36, breached=4, pending=1, unrecorded=1),
+            resolution=SlaCompliance(met=31, breached=4),
+            at_risk=2,
+            overdue=1,
+            unknown=0,
+            by_priority=[
+                SlaPriority(priority="P1", met=3, breached=1, at_risk=1, overdue=1),
+                SlaPriority(priority="P2", met=6, breached=1, at_risk=0, overdue=0),
+                SlaPriority(priority="P3", met=18, breached=2, at_risk=1, overdue=0),
+                SlaPriority(priority="P4", met=4, breached=0, at_risk=0, overdue=0),
+            ],
+            overdue_tickets=[
+                OverdueTicket(
+                    ticket_id=TICKET_ID,
+                    external_id="CSV1-000044",
+                    subject="Oil leakage at gasket",
+                    priority="P1",
+                    resolution_due=datetime(2026, 9, 30, 9, tzinfo=UTC),
+                    overdue_hours=15.0,
+                    owner_user_id=None,
+                )
+            ],
+        ),
     )
     return {
         "method": "GET",
@@ -537,6 +689,7 @@ def examples() -> list[dict]:
         + write_examples()
         + unit_examples()
         + [workflow_example(), case_example(), improvement_example(), stats_example()]
+        + [assignment_agents_example(), *unmatched_examples()]
         + [
             {
                 "method": "GET",

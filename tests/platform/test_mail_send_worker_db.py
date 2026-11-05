@@ -476,3 +476,28 @@ def test_tasks_token_failure_after_acceptance_is_not_a_queue_retry(settings, sen
         200,
         "MAIL_CONFIRM_NOT_REGISTERED",
     )
+
+
+def test_local_allow_list_records_a_blocked_send_without_calling_graph(settings, sender, tmp_path):
+    from scripts.local_business.mail import LocalMailTransport
+
+    world = World(settings)
+    intent = created(world, sender)
+    key = payload(sender, world)["attachments"][0]["storage_key"]
+    (tmp_path / key).parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / key).write_bytes(FILE)
+    # The local stack's transport: customer@example.invalid is not on the allow list.
+    world.client.app.state.mail_send_transport = LocalMailTransport(
+        ports={"platform": 1, "cs": 2},
+        token=lambda audience, email: "local",
+        objects=tmp_path,
+        allow=["@outlook.kr"],
+        real=httpx.MockTransport(world.graph.handler),
+    )
+    response = world.post("send", {"intent_id": intent}, AS_TASKS)
+    assert response.json()["data"] == {
+        "intent_id": intent,
+        "status": "FAILED",
+        "code": "GRAPH_FORBIDDEN",
+    }
+    assert world.graph.posts() == []

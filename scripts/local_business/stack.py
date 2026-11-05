@@ -130,7 +130,18 @@ def start(state: Path):
     if not pg["State"]["Running"]:
         docker("start", ns + "-pg")
     pg = inspect(ns + "-pg")
-    if list(pg["NetworkSettings"]["Networks"]) != [ns + "-internal"]:
+    networks = list(pg["NetworkSettings"]["Networks"])
+    # The APIs share the DB network namespace. Real mail mode alone adds outbound internet
+    # (Microsoft sign-in and Graph); mail-off removes it on the next start.
+    egress = ns + "-worker-egress"
+    want = (state / "auth" / "mail.json").exists()
+    if want and egress not in networks:
+        docker("network", "connect", egress, ns + "-pg")
+    elif not want and egress in networks:
+        docker("network", "disconnect", egress, ns + "-pg")
+    if sorted(list(inspect(ns + "-pg")["NetworkSettings"]["Networks"])) != sorted(
+        [ns + "-internal"] + ([egress] if want else [])
+    ):
         raise ValueError("LOCAL_DB_NETWORK_MISMATCH")
     names = set(docker("ps", "-a", "--format", "{{.Names}}").decode().splitlines())
     for service in ("cs", "tft", "platform", "web"):

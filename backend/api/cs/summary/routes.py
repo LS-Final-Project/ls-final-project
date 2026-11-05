@@ -1,7 +1,7 @@
 """문의 원문의 한국어 요약 조회·생성(KAN-131 화면 요청). 기본 비활성.
 
 - `GET  /api/v1/cs/tickets/{id}/summary`: 저장된 최근 요약과 최근 시도. 문의 조회 범위와 같다.
-- `POST /api/v1/cs/tickets/{id}/summary`: cs_agent가 요약을 만든다. 같은 원문·프롬프트 판본의 성공한 요약이
+- `POST /api/v1/cs/tickets/{id}/summary`: cs_agent와 이관받은 부서의 dept_staff가 요약을 만든다. 같은 원문·프롬프트 판본의 성공한 요약이
   이미 있으면 모델을 부르지 않고 그것을 돌려준다(200). 새로 만들면 201, 실패하면 시도를 저장하고 502다.
 - `CS_SUMMARY_ENABLED`가 꺼져 있으면 두 경로 모두 404다. 켜면 C/S 서비스가 모델을 직접 부른다(비용).
 
@@ -22,7 +22,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from backend.api.cs.summary import repository
 from backend.api.cs.summary.schemas import SummaryAttempt, SummaryRecord, TicketSummaryView
 from backend.api.cs.tickets import repository as tickets
-from backend.api.cs.tickets.access import require_ticket_write
+from backend.api.cs.tickets.access import require_ai_reading_aid
 from backend.api.cs.tickets.routes import PARTIAL, check_visible, not_found, respond
 from backend.engine.cs.classification_call import ClassificationCallError
 from backend.engine.cs.summary import (
@@ -192,7 +192,7 @@ async def create_summary(
     async with connection(request.app.state.settings) as conn:
         # permissions.md 1.3: 범위(404) 다음 역할(403).
         ticket = await load(conn, principal, ticket_id)
-        require_ticket_write(principal)
+        require_ai_reading_aid(principal)
     payload, sha = prepared(ticket)
     locks: dict[tuple[UUID, str], list[Any]] = request.app.state.summary_locks
     key = (ticket_id, sha)
@@ -267,6 +267,8 @@ async def make(
         values.update(outcome="PROVIDER_ERROR", error_code=error.code)
         values.update(usage_values(error.usage, model))
     else:
+        model = generation.model or model
+        values["requested_model"] = model
         values.update(
             model_version=generation.model_version,
             latency_ms=generation.elapsed_ms,

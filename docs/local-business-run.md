@@ -8,7 +8,7 @@
 uv run --frozen --python 3.12 python -m scripts.local_business.bootstrap --namespace team4-kan159-my-pc
 ```
 
-최초 실행은 승인된 Drive 입력 다운로드·해시 대조 → 새 전용 Docker 이미지/DB/계정 준비 → 개발 문의 3,403건과 제공 해결 사례 696건 → 가정 장비 34개와 이전 문의 후보 연결 10개 → 검색 문서·기본 협력사 → RFP 원문 22개와 합성 시연 1개 등록 → localhost 기동 순서다. 가정 장비는 기존 문의를 재사용하며 신규 문의·확정 연결을 만들지 않는다. 평가용 RFP 4개는 등록만 하고 자동 분석하지 않는다. 평가 정답이나 과거 분석·승인·초안 결과를 seed하지 않으며 메일은 OFF다.
+최초 실행은 승인된 Drive 입력 다운로드·해시 대조 → 새 전용 Docker 이미지/DB/계정 준비 → 개발 문의 3,403건과 제공 해결 사례 696건 → 가정 장비 34개와 이전 문의 후보 연결 10개 → 반복 기준에 이미 도달한 고장 묶음의 개선요청 초안(KAN-162, 서비스의 후보 수집과 같은 판정을 설치 시각 기준 1회) → 검색 문서·기본 협력사 → RFP 원문 22개와 합성 시연 1개 등록 → localhost 기동 순서다. 가정 장비는 기존 문의를 재사용하며 신규 문의·확정 연결을 만들지 않는다. 평가용 RFP 4개는 등록만 하고 자동 분석하지 않는다. 평가 정답이나 과거 분석·승인·초안 결과를 seed하지 않으며 메일은 OFF다.
 
 C/S 제공 문의는 과거 접수 자료이므로 목록의 날짜 범위를 `2025-10-01`~`2026-09-30`으로 넓혀 확인한다. 기본 최근 기간에는 빈 목록이 보일 수 있다. 분석·초안·부서 회신·개선 요청은 사전 생성하지 않으므로, 화면에서 실제 업무를 진행한 뒤 생긴다. RFP 첫 처리 연결 확인에는 `DEMO-EN` 합성 시연 프로젝트를 사용하고, 평가 라벨 4건은 별도 승인 없이 모델에 넣지 않는다.
 
@@ -60,7 +60,7 @@ docker pull pgvector/pgvector:0.8.7-pg17-trixie
 
 ## 2. 새 setup과 일반 기동
 
-**새 namespace에 한 번만** 실행한다. 이 명령은 새 로컬 DB·스키마·개발 계정 4개·worker 로그인·로컬 인증 키·TLS 인증서를 만든다. 문의/프로젝트/분석·비교 결과를 사전 seed하지 않는다.
+**새 namespace에 한 번만** 실행한다. 이 명령은 새 로컬 DB·스키마·개발 계정 4개(와 자동 배정용 가정 상담원 6명·배정 기준표)·worker 로그인·로컬 인증 키·TLS 인증서를 만든다. 문의/프로젝트/분석·비교 결과를 사전 seed하지 않는다.
 
 ```bash
 uv run --frozen --python 3.12 python -m scripts.local_business setup \
@@ -227,6 +227,63 @@ uv run --frozen --python 3.12 python -m scripts.local_business disable-real --na
 
 활성화 후 UI에서 새 C/S 분석 또는 RFP 처리 요청을 만든다. dispatcher는 활성화 시각 이후의 해당 owner 신규 작업만 고르고, 정규 worker의 lease·DB 결과를 사용한다. 예전 QUEUED/RUNNING을 자동 재전송하지 않는다. 제한 모드에서는 허용한 작업 수를 쓰면 종료하며 다시 활성화하려면 상태·비용을 먼저 확인한다. unlimited는 사용자가 끄기 전까지 다음 신규 작업을 기다리되 실패·UNKNOWN·worker 중단 경계에서는 보존 후 중단한다. 활성화 전에는 모델 작업 요청이 `LOCAL_REAL_DRIVER_DISABLED`로 거부된다. 실제 업무 생성 결과만 확인하고 사용자 사전 시연 결과를 넣지 않는다.
 
+## 로컬에서 실제 Outlook 메일 시험하기
+
+기본값은 꺼짐이다. `mail-on`을 실행한 namespace에서만 실제 Microsoft 사서함에 연결하고, 받기와 보내기는 따로 켠다. 로그인은 지금처럼 로컬 합성 계정(local-1~4)을 쓰고, 그 계정에 실제 Outlook 사서함을 연결하는 구조다. 합성 로그인 화면은 그대로이며 사서함 연결 동의만 실제 Microsoft 화면을 거친다.
+
+**보내기를 켜면 메일이 실제로 나간다.** 허용 목록 밖의 수신자(받는 사람·참조 중 한 명이라도)가 있으면 Graph를 부르지 않고 발송 의도를 `FAILED`/`GRAPH_FORBIDDEN`으로 남긴다. 플랫폼 로그에는 `LOCAL_MAIL_SEND_BLOCKED`와 수신자 수만 남는다. 허용 목록의 기본값은 시연 계정 도메인 `@outlook.kr`이다. `@outlook.kr`은 공용 도메인이라 같은 도메인의 다른 사람에게도 나갈 수 있으므로, 가능하면 `--allow csdesk-01@outlook.kr`처럼 주소를 하나씩 지정한다.
+
+### 준비
+
+1. 이 기능이 들어간 dev를 받은 뒤 **새 namespace**로 준비한다. 기존 namespace는 설치 때 보관한 source를 쓰므로 `git pull`과 `restart`만으로는 메일 모드가 생기지 않는다.
+2. 본인 Microsoft 계정으로 [Entra 앱 등록](https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade)을 하나 만든다.
+   - 지원 계정 유형: 개인 Microsoft 계정을 포함하는 항목(서버가 `consumers` 권한 기관만 쓴다)
+   - 플랫폼: **웹**. 리디렉션 URI는 `https://localhost:<웹 포트>/api/v1/platform/auth/mailbox/callback` 형식이다. 예: 38443 포트면 `https://localhost:38443/api/v1/platform/auth/mailbox/callback`. 포트가 다르면 다시 등록해야 한다. `mail-on`이 정확한 주소를 출력한다.
+   - API 권한(위임): Microsoft Graph `Mail.Read`, `Mail.Send`
+   - 인증서 및 비밀 → 새 클라이언트 비밀. 값은 한 번만 보이므로 바로 아래 파일에 옮긴다.
+3. 시험용 Outlook 계정을 정한다. 연결할 사서함과 보낼 상대 모두 시연 계정(manager-01·csdesk-01·csdesk-02 등)을 쓰고, 고객이나 개인 주소는 쓰지 않는다.
+4. 앱 정보는 본인만 읽는 파일(권장)이나 환경 변수로 넘긴다. 저장소 안에 두지 않고, 채팅·명령행 인자에 비밀 값을 적지 않는다.
+
+```bash
+mkdir -p ~/.config/team4 && touch ~/.config/team4/ms-mail-app.json && chmod 600 ~/.config/team4/ms-mail-app.json
+# 편집기로 {"client_id": "<앱 ID>", "client_secret": "<비밀 값>"} 을 넣는다.
+```
+
+파일 대신 `LOCAL_MAIL_CLIENT_ID`·`LOCAL_MAIL_CLIENT_SECRET` 환경 변수를 써도 된다. 둘 다 없거나 형식이 틀리면 `LOCAL_MAIL_CLIENT_REQUIRED`, 파일을 다른 사용자가 읽을 수 있으면 `LOCAL_MAIL_SECRET_FILE_PERMISSIONS`로 멈춘다.
+
+### 켜기
+
+```bash
+# 받기만
+uv run --frozen --python 3.12 python -m scripts.local_business mail-on --namespace "$NS" \
+  --receive --secret-file ~/.config/team4/ms-mail-app.json
+# 받기 + 보내기(허용 주소 지정)
+uv run --frozen --python 3.12 python -m scripts.local_business mail-on --namespace "$NS" \
+  --receive --send --allow csdesk-01@outlook.kr --allow manager-01@outlook.kr \
+  --secret-file ~/.config/team4/ms-mail-app.json
+uv run --frozen --python 3.12 python -m scripts.local_business restart --namespace "$NS"
+```
+
+`mail-on`은 `artifacts/local-business/$NS/auth/mail.json`(0600, git 제외)에 앱 정보·사서함 암호화 키·켠 기능·허용 목록을 쓴다. 다시 실행하면 설정을 바꾸되 암호화 키는 유지한다. `--allow`는 `--send`와 함께만 쓴다. `--interval`(기본 60초, 60~3600)은 받기 주기와 발송 정리 주기다.
+
+메일 모드에서는 API 컨테이너가 바깥 인터넷(Microsoft 로그인·Graph)에 나갈 수 있다. 꺼져 있을 때는 지금처럼 내부망만 쓴다. Cloud Tasks·Cloud Storage·Scheduler는 로컬에서 대신한다. 작업은 플랫폼 내부 경로를 바로 부르고, 받은 메일 원문은 `files/.mail-objects/`에 저장한다.
+
+### 확인 순서
+
+1. 웹에 합성 계정으로 로그인한 뒤 메일 계정 화면에서 사서함 연결을 시작하고, Microsoft 화면에서 시험용 Outlook 계정으로 동의한다.
+2. 받기: 시연 계정에서 연결한 사서함으로 시험 메일을 보낸다. 다음 주기(기본 1분) 뒤 받은 메일 목록에 보이면 분류를 확인하고 C/S 접수를 누른다. 문의 목록에 새 건이 생기는지 본다.
+3. 보내기: 그 문의의 답변을 승인해 발송한다. 받는 주소가 허용 목록에 있으면 실제로 나가고, 보낸편지함 사본은 다음 정리 주기에 확인된다. 허용 목록 밖 주소로 한 번 시도해 `GRAPH_FORBIDDEN`으로 막히는지도 확인한다.
+4. 문제가 생기면 `docker logs "$NS-platform"`에서 `LOCAL_MAIL_` 코드만 확인한다. 로그나 `mail.json` 내용을 공유하지 않는다.
+
+### 끄기
+
+```bash
+uv run --frozen --python 3.12 python -m scripts.local_business mail-off --namespace "$NS"
+uv run --frozen --python 3.12 python -m scripts.local_business restart --namespace "$NS"
+```
+
+`mail-off`는 `mail.json`을 지운다. 암호화 키도 함께 사라지므로 다시 켜면 사서함을 새로 연결해야 한다. 다음 start/restart에서 API 컨테이너의 바깥 연결도 끊긴다. Microsoft 쪽 동의를 거두려면 [계정의 앱 권한](https://account.live.com/consent/Manage)에서 해당 앱을 제거한다.
+
 ## 4. 중지·재시작과 미완료 작업
 
 real 처리를 먼저 비활성화한 후 앱을 중지한다. 실행 중 요청을 중단할 수 있으므로 원격 처리·비용·lease가 정리됐다고 가정하지 않는다.
@@ -301,3 +358,21 @@ uv run --frozen --python 3.12 python -m scripts.local_business manage-project \
 ```
 
 새 작업은 활성화 시각 이후의 정상 접수만 선택한다. SDK 호출 전 SQLite 트랜잭션에서 공통 슬롯을 예약하고 응답을 정산한 뒤 반환한다. 정상 진행 중인 다른 작업의 예약은 오류로 취급하지 않는다. UNKNOWN/worker 실패를 발견하면 새 접수·호출을 막고 다른 진행 중 호출은 정산하도록 기다린다. 각 worker의 기존 총수명은 유지하며, 명시적인 `disable-real`은 실행 중 worker도 종료하므로 미정산이 남을 수 있다. 프로세스 중단·lease 상실 후 자동 재처리나 비용 삭제는 하지 않는다.
+
+### 각 PC의 한국어 요약 QA (KAN-159)
+
+요약 bridge를 포함한 새 코드로 준비한 namespace에서는 문의 상세의 한국어 요약을 사용할 수 있다. 저장본 조회와 같은 원문·프롬프트의 재사용(POST 200)은 CS driver가 꺼져 있어도 가능하다. 새 요약 생성에는 **CS `enable-real` driver**가 필요하다. RFP driver만 켠 상태에서는 생성할 수 없다. 제한 모드에서는 요약 한 번도 분류와 같은 작업 1개·모델 호출 1회로 합산하며, 명시한 `--unlimited` 모드에서도 사용량·비용 기록과 불명 비용 차단은 유지된다.
+
+새 snapshot을 포함한 코드를 받은 뒤, 기존에 사용하지 않은 namespace와 해당 PC의 빈 포트로 실행한다. 개인 키 경로는 각자 소유한 파일로 바꾼다.
+
+```sh
+uv run --frozen --python 3.12 python -m scripts.local_business.bootstrap \
+  --namespace team4-kan159-summary-qa --port 42443 --enable-model cs \
+  --key-file "$HOME/.config/team4/gemini-api-key" --unlimited
+```
+
+기존 namespace는 설치 시 보관한 source를 사용한다. `git pull`이나 `restart`만으로 요약 bridge가 추가되지 않는다. 기존 DB·업로드·결과·비용 원장을 보존하고 새 namespace를 준비한다. 기존 40443 환경이나 별도 RFP 실험판을 교체하는 명령이 아니다.
+
+모델 키는 driver에만 제공된다. API는 내부 Docker망의 인증된 요약 bridge에 마스킹된 입력을 보내며, 표준 요약 API의 권한·입력/출력 검사·저장 계약을 그대로 적용한다. 분류 실행 중에는 새 요약 요청이 503 `LOCAL_SUMMARY_UNAVAILABLE`로 거절될 수 있으므로 진행 중인 작업이 끝난 뒤 다시 누른다. 같은 성공 요약을 다시 만들 때는 모델을 재호출하지 않는다. HTTP나 모델 실패에 자동 재전송하지 않으며 비용이 불명확하면 driver를 중지하고 원장을 대조한다.
+
+기존 업무 중계의 응답 대기 제한은 20초다. 긴 모델 호출은 화면에서 먼저 실패로 보이더라도 서버에서 완료·저장될 수 있으므로 새로고침하여 저장본을 먼저 확인한다. fake SDK·로컬 HTTP 회귀 통과는 실제 모델의 한국어 요약 품질이나 업무 QA 완료를 뜻하지 않는다. 요약 시도에는 driver가 선택한 요청 모델과 사용량을 기록하며, 로컬 비용 원장의 정산에는 driver에 명시한 가격표를 사용한다.

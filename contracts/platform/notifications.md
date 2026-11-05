@@ -11,7 +11,7 @@ Python writer는 제공 conn에 INSERT 한 번만 실행하며 commit·SELECT·R
 P34의 생성 trigger가 같은 트랜잭션에서 플랫폼 소유 함수로 활성 수신자를 펼친다. 업무 역할의 직접 identity 접근 권한은 추가하지 않는다. 성공 INSERT는 true,
 유일 dedupe_key 충돌은 false다. 호출자가 업무와 같은 트랜잭션 안에서 부르며 rollback되면 의도도 없다.
 
-- kind는 `cs.review_wait`, `cs.safety`, `cs.reply`, `mail.unknown`, `cs.transfer`, `rfp.done`, `rfp.failed`다.
+- kind는 `cs.review_wait`, `cs.safety`, `cs.reply`, `mail.unknown`, `cs.transfer`, `rfp.done`, `rfp.failed`, `cs.assigned`(KAN-214, P35)다.
 - owner·제목은 kind의 고정 매핑이며, link는 UUID subject_id로 만든 `/cs/tickets/{id}` 또는 `/tft/projects/{id}`만 허용한다.
   고객명·문의/회신 원문·오류 코드를 제목에 넣지 않는다. `rfp.done`의 needs_review만 고정 제목의 검토 필요 변형을 허용한다.
 - audience는 1~64개의 단일 키 범위다: `{user: UUID}`, `{role: cs_agent}`, `{dept: 부서코드}`, `{manager_dept: 부서코드}`.
@@ -73,7 +73,7 @@ CS 시스템 완료 시에도 기존 계획대로 lease.actor_id를 제외한다
 
 ## 적용·검증
 
-[SQL 적용 순서](../../infra/sql/README.md)의 C22·T16·P30·P34를 코드 배포 전에 적용한다. 모두 재실행 가능하며 기존 역할을 확장/승격하지 않는다.
+[SQL 적용 순서](../../infra/sql/README.md)의 C22·T16·P30·P34·P35를 코드 배포 전에 적용한다. 모두 재실행 가능하며 기존 역할을 확장/승격하지 않는다.
 실제 writer 역할의 최초/중복 INSERT가 SELECT 권한 없이 되는지, 신규 표 권한, SKIP LOCKED 동시성·rollback·본인 API·CSRF·Origin·
 안전/확인 대기 상호배제·RFP 접수자 포함을 검증한다. 로컬에 전용 DB가 없으면 실제 DB 검사는 미실행으로 구분하고 CI에 위임한다.
 단위 fake 성공은 실제 DB 동시성·운영 배포·화면 표시·Web Push 성공의 근거가 아니다.
@@ -99,10 +99,13 @@ CS 시스템 완료 시에도 기존 계획대로 lease.actor_id를 제외한다
 | 이관 수신 | transfer 또는 부서 결과 REWORK의 insert_transfer 성공 | 대상 dept의 dept_staff와 manager_dept; actor=행동한 principal.user_id | cs.transfer:{실제 저장 transfer_id} |
 | 사람 안전 정정 | 현재 effective urgency와 비교해 changed.urgency_flag가 SAFETY인 실제 전이 | owner+cs_agent 전체+manager_dept GCS_L1; actor=정정자 | cs.safety:{ticket_id} |
 | 발송 결과 불명 | mail.finish 또는 expire_submitting의 UPDATE가 실제 반환한 행이 UNKNOWN으로 전이 | approved_by+manager_dept GCS_L1; 시스템 결과이므로 actor=null | mail.unknown:{intent_id}:{attempts} |
+| 담당 배정(KAN-214) | 접수 자동 배정·관리자 일괄 배정 적용·관리자 재배정(`PUT /workflow/owner`)이 담당을 실제로 바꾼 `save` 직후. 검토 시작으로 스스로 담당이 되거나 행위자가 새 담당이면 만들지 않음 | 새 담당 `{user}` 하나; 접수 배정 actor=null, 일괄·재배정 actor=관리자. 제목 `새 문의 배정` | cs.assigned:{ticket_id}:{owner}:{업무 판본} |
 
 중복 회신, 검토/이관 중의 재투입 없는 회신, ACCEPT 검토, 이미 SAFETY인 문의의 다른 필드 정정은 알리지 않는다.
 안전 알림은 E1과 같은 문의 단위 키를 사용해 AI와 사람이 함께 감지해도 한 번만 남는다.
 이관은 INSERT에 사용한 UUID를 그대로 키에 쓰며 재작업은 새 transfer UUID로 구분한다.
+담당 배정 키의 업무 판본은 담당을 바꾼 `save`가 만든 판본이라 배정 사건마다 다르다. 멱등 일괄 적용 재호출(`ALREADY_ASSIGNED`)은 `save`가 없어 알림도 없다.
+P35 전 DB에서는 CHECK 위반이 savepoint 안에서 되돌려져 배정은 성공하고 알림만 빠진다.
 메일 알림 metadata(business_ref·approved_by·attempts) 조회도 SAVEPOINT 안에 있으며, 기존 UPDATE는 변경하지 않는다.
 같은 attempts의 재호출은 중복 알림을 만들지 않는다. 만료 전환은 UPDATE RETURNING의 ID만 순회한다.
 C/S 링크는 business_ref가 `cs_ticket:{정규 UUID}`일 때만 생성한다. 다른 업무 참조에는 임의 링크를 만들지 않고,

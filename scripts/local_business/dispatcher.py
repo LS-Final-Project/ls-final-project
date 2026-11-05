@@ -6,6 +6,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from uuid import UUID
@@ -130,10 +131,17 @@ def main():
     # Each started process remains owned here until wait() and log.close() finish.
     children = {}
     failure = None
+    # C/S only: the summary bridge and a C/S job never call the model at the same time.
+    bridge = None
+    execution_lock = threading.Lock()
+    locked_job = None
+    summary_marker = {}
 
     def stop(_signal, _frame):
         nonlocal stopped
         stopped = True
+        if bridge is not None:
+            bridge.accepting = False
 
     def halt(reason):
         nonlocal failure
@@ -142,12 +150,19 @@ def main():
             marker.unlink(missing_ok=True)
             permit.halt(token)
 
+    def release(job):
+        nonlocal locked_job
+        if locked_job == job:
+            locked_job = None
+            execution_lock.release()
+
     def finish(job):
         child, log, _started = children[job]
         code = child.wait()
         log.close()
         del children[job]
         permit.finish_job(token, job)
+        release(job)
         return code
 
     def terminate_job(job):
@@ -166,6 +181,7 @@ def main():
             log.close()
         del children[job]
         permit.finish_job(token, job)
+        release(job)
 
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
@@ -182,11 +198,25 @@ def main():
             limit_mode = permission["limit_mode"]
             limit = None if limit_mode == "unlimited" else permission["job_limit"]
             used = db.execute("SELECT count(*) FROM grants WHERE token=?", (token,)).fetchone()[0]
+        if owner == "cs":
+            from scripts.local_business.summary import SummaryBridge
+
+            bridge = SummaryBridge(
+                permit, token, control, os.environ["LOCAL_MODEL"], execution_lock
+            )
+            namespace = json.loads((state / "settings.json").read_text())["namespace"]
+            summary_marker = {
+                "summary_bridge": {
+                    "host": namespace + "-driver-" + token[:8],
+                    "capability": bridge.capability,
+                }
+            }
 
         def heartbeat(permission):
             save(
                 marker,
                 {
+                    **summary_marker,
                     "mode": "real",
                     "owner": owner,
                     "started_after": after.isoformat(),
@@ -229,8 +259,15 @@ def main():
                 with permit.transaction() as db:
                     permission = permit.driver(db, token)
                     concurrency = permission["concurrent_jobs"]
+                    # The summary bridge also takes grants under this token.
+                    used = db.execute(
+                        "SELECT count(*) FROM grants WHERE token=?", (token,)
+                    ).fetchone()[0]
             except Denied as error:
                 halt(str(error))
+                continue
+            if bridge is not None and bridge.failed:
+                halt("LOCAL_SUMMARY_FAILED_REVIEW_REQUIRED")
                 continue
             heartbeat(permission)
             if limit is not None and used >= limit:
@@ -241,25 +278,38 @@ def main():
             if len(children) >= concurrency:
                 time.sleep(0.5)
                 continue
+            if bridge is not None and not execution_lock.acquire(blocking=False):
+                time.sleep(0.5)  # A summary call is running; C/S jobs wait for it.
+                continue
+            claimed = bridge is not None
             try:
                 row = candidate(settings, owner, after)
             except Exception:
+                if claimed:
+                    execution_lock.release()
                 halt(stage)
                 continue
-            if row is None:
-                time.sleep(0.5)
-                continue
-            if stopped:
+            if row is None or stopped:
+                if claimed:
+                    execution_lock.release()
+                if row is None:
+                    time.sleep(0.5)
                 continue
             job = str(row["id"])
             try:
                 permit.register_job(token, job)
             except Busy:
+                if claimed:
+                    execution_lock.release()
                 time.sleep(0.5)
                 continue
             except Denied as error:
+                if claimed:
+                    execution_lock.release()
                 halt(str(error))
                 continue
+            if claimed:
+                locked_job = job
             bundle = None
             try:
                 permit.grant(token, job)
@@ -287,6 +337,7 @@ def main():
                 halt(str(error) if isinstance(error, Denied) else stage)
                 if job not in children:
                     permit.finish_job(token, job)
+                    release(job)
                     if bundle is not None:
                         try:
                             asyncio.run(sent(settings, bundle, False))
@@ -310,6 +361,8 @@ def main():
         )
         raise SystemExit(reason) from None
     finally:
+        if bridge is not None:
+            bridge.close()
         marker.unlink(missing_ok=True)
         # Explicit stop/timeout/exception: reap every child before closing permission.
         # Reservations remain untouched when a process cannot finish its call.

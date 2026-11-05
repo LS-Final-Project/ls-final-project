@@ -2,10 +2,19 @@ from fastapi import FastAPI
 
 from backend.api.common.application import create_application
 from backend.api.cs.analysis.jobs import CsAnalysisSettings, configure_analysis_jobs
+from backend.api.cs.improvements.ai_draft import (
+    CsImprovementDraftSettings,
+    configure_improvement_draft,
+)
+from backend.api.cs.reply_analysis.routes import (
+    CsReplyAnalysisSettings,
+    configure_reply_analysis,
+)
 from backend.api.cs.routes import router
 from backend.api.cs.summary.routes import CsSummarySettings, configure_summary
+from backend.api.cs.translation.routes import CsTranslationSettings, configure_translation
 from backend.api.cs.workflow.mail import CustomerMailSettings, configure_customer_mail
-from backend.engine.cs.rules import firmware_releases, load_policy
+from backend.engine.cs.rules import fault_catalog, firmware_releases, load_policy
 from backend.shared.settings import Settings
 
 
@@ -24,6 +33,7 @@ def create_app(
     # An edited or mismatched policy table stops the service here, not at the first ticket.
     load_policy()
     firmware_releases()
+    fault_catalog()
     app = create_application("cs", settings)
     if (
         app.state.settings.business_relay_enabled
@@ -33,5 +43,8 @@ def create_app(
     configure_customer_mail(app, customer_mail or CustomerMailSettings())
     configure_analysis_jobs(app, CsAnalysisSettings())
     configure_summary(app, CsSummarySettings())
+    configure_translation(app, CsTranslationSettings())
+    configure_reply_analysis(app, CsReplyAnalysisSettings())
+    configure_improvement_draft(app, CsImprovementDraftSettings())
     app.include_router(router)
     return app

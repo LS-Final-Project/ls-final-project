@@ -539,7 +539,9 @@ class CaseRow(BaseModel):
     ticket_external_id: str | None
     ticket_subject: str | None = Field(description="The ticket's subject. Null without one (chat).")
     ticket_received_at: datetime
-    customer_external_id: str
+    customer_external_id: str | None = Field(
+        description="Null on a limited row (the viewer may not read that ticket)."
+    )
     product_code: str
     case_id: UUID | None
     case_external_id: str | None
@@ -549,11 +551,82 @@ class CaseRow(BaseModel):
     action_taken: str | None
     resolved_by_dept: str | None
     known_at: datetime | None
+    fw_version_at_issue: str | None = Field(
+        default=None, description="Firmware version when the fault happened, as recorded."
+    )
+    onsite_visit: bool | None = Field(default=None, description="Whether an engineer visited.")
+    limited: bool = Field(
+        default=False,
+        description="Evidence of a request sent to the viewer's department whose ticket the "
+        "viewer may not read: the resolution record is shown, the customer and the ticket "
+        "subject are not.",
+    )
 
 
 class CaseComparison(BaseModel):
     request_id: UUID
     items: list[CaseRow]
     hidden_case_count: int = Field(
-        description="Active evidence outside the viewer's scope. Candidate rows never count."
+        description="Active evidence outside the viewer's scope and not shown. Limited rows and "
+        "candidate rows never count."
     )
+
+
+# KAN-115 AI 작성 초안(backend/api/cs/improvements/ai_draft.py). 요청서를 바꾸지 않는 AI 작성물이다.
+AiDraftOutcome = Literal["VALID", "INVALID_OUTPUT", "PROVIDER_ERROR"]
+
+
+class AiDraftFact(BaseModel):
+    text: str
+    evidence_refs: list[str] = Field(
+        description="Evidence refs (see evidence) this sentence rests on."
+    )
+
+
+class AiDraftQuestion(BaseModel):
+    dept_code: str
+    question: str = Field(description="One question for that department. Not sent anywhere.")
+
+
+class AiDraftEvidence(BaseModel):
+    ref: str = Field(description="The ref the model saw: the ticket or case external ID.")
+    ticket_id: UUID
+    case_id: UUID | None
+
+
+class AiDraftRecord(BaseModel):
+    id: UUID
+    request_version: int = Field(description="Request version the input was read from.")
+    created_at: datetime = Field(description="AI 작성 시각.")
+    requested_model: str
+    model_version: str | None
+    prompt_version: str
+    input_version: str
+    stale: bool = Field(
+        description="True면 초안 뒤 근거가 바뀌었거나 프롬프트 판본이 바뀌었다. 다시 만들 수 있다."
+    )
+    problem_statement: str
+    confirmed_facts: list[AiDraftFact]
+    inconsistencies: list[AiDraftFact]
+    missing_info: list[str]
+    not_claimed: list[str]
+    review_task: str
+    proposed_depts: list[str]
+    dept_questions: list[AiDraftQuestion]
+    evidence: list[AiDraftEvidence] = Field(description="Refs in the input and what they point to.")
+
+
+class AiDraftAttempt(BaseModel):
+    id: UUID
+    outcome: AiDraftOutcome
+    error_code: str | None
+    created_at: datetime
+
+
+class ImprovementAiDraftView(BaseModel):
+    request_id: UUID
+    draft: AiDraftRecord | None = Field(description="가장 최근의 성공한 초안. 없으면 null.")
+    latest_attempt: AiDraftAttempt | None = Field(
+        description="가장 최근 시도(실패 포함). 실패했으면 화면이 다시 만들기를 보여 줄 수 있다."
+    )
+    provenance: Literal["ai_draft"] = "ai_draft"
