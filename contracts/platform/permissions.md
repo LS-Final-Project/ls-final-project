@@ -31,8 +31,8 @@
 | --- | --- | --- | --- |
 | 자기 부서 | `dept_staff`의 `users.dept` | 사용자 등록 시 | 확정(필드 존재) |
 | 관리 대상 부서 | `manager`에게 명시 부여한 C/S 부서 집합 | 사용자 등록 스크립트(서버 밖) | 확정, 저장 구조 미구현(KAN-78) |
-| 관리 대상 프로젝트 | `manager`에게 명시 부여한 RFP 프로젝트 집합 | 사용자 등록 스크립트(서버 밖) | 확정, 저장 구조 미구현(KAN-78) |
-| 담당 프로젝트 | `sales`가 담당하는 RFP 프로젝트(`projects.sales_user_id`) | 접수한 `sales`가 담당. 변경은 관리 대상 `manager`의 `assignment` | 확정(명세 §4.1) |
+| 관리 대상 프로젝트 | `manager`는 **모든 RFP 프로젝트**를 관리 대상으로 본다(KAN-236, 2026-11-05). `identity.manager_projects` 등록은 남아 있으나 RFP 접근을 좁히지 않는다 | 없음(역할만으로) | 확정(KAN-236) |
+| 담당 프로젝트 | `sales`가 담당하는 RFP 프로젝트(`projects.sales_user_id`) | 접수한 `sales`가 담당. 변경은 `manager`의 `assignment` | 확정(명세 §4.1) |
 | 검토 부서 | RFP 프로젝트의 `review_departments`에 있는 부서. `dept_staff.dept`와 비교 | 담당 `sales`·책임자가 프로젝트 PATCH로 지정 | 확정(명세 §2.2, 옛 '요청 부서' 행 대체) |
 | 수신 부서 | C/S 개선요청의 전달 대상 부서(`proposed_depts`). 여러 부서 가능 | 전달 시 `cs_agent`가 확정 | 확정 |
 | 프로젝트 책임자 | `projects.responsible_user_id`. 프로젝트별 속성이며 로그인 역할이 아님. `sales` 범위 + 제안 승인·기각·검토본 저장 | 관리 대상 `manager`가 `assignment`로 지정 | 확정 |
@@ -66,7 +66,7 @@ C/S·TFT 서비스는 DB 권한상 `identity` 스키마를 읽지 못한다. 플
 | `roles` | `identity.user_roles`의 역할 목록(1개 이상) |
 | `dept` | `users.dept`. `dept_staff`는 필수 |
 | `managed_departments` | manager의 관리 대상 부서 코드(`identity.manager_departments`) |
-| `managed_projects` | manager의 관리 대상 RFP 프로젝트 ID(`identity.manager_projects`) |
+| `managed_projects` | `identity.manager_projects` 등록값. KAN-236부터 RFP 접근 판정에 쓰지 않는다(manager는 모든 RFP 프로젝트) |
 
 - 전달: 요청 헤더 `X-Team4-Principal`에 위 필드의 JSON. 알 수 없는 필드, 역할 없음, 부서 없는 dept_staff, manager가 아닌 사용자의 관리 범위는 401로 거부한다.
 - 신뢰 범위: KAN-178은 이 공통 모델을 운영 세션에서 만들고 브라우저의 같은 헤더를 제거한다. 업무 중계는 기본 비활성이며 production은 DB 조회 전 404 잠금을 유지한다. 명시 활성화 시에는 Google 서명·수신 서비스 audience·플랫폼 실행 계정을 검증한 `X-Team4-Caller-Token`이 있어야 이 JSON을 읽는다. 호출자 인증 뒤에도 업무 역할·객체 검사를 수행한다. 설정·허용 경로·거부 조건·실제 공용 검증의 구분은 [인증 계약](auth.md#업무-json-중계와-호출자-검증-kan-178)을 따른다. 비활성 local/test의 unsigned fake는 독립 개발에만 사용한다.
@@ -227,11 +227,11 @@ C/S에는 **문의(ticket) 상태**와 **개선요청(improvement request) 상�
 
 | 항목 | 규칙 |
 | --- | --- |
-| 지정·변경 주체 | 해당 프로젝트를 **관리 대상으로 가진 `manager`만** (`PATCH /projects/{uuid}/assignment`) |
+| 지정·변경 주체 | **`manager`만**, 모든 RFP 프로젝트에서(KAN-236) (`PATCH /projects/{uuid}/assignment`) |
 | 대상 | 담당 `sales`(`sales_user_id`)와 책임자(`responsible_user_id`). 책임자 후보는 그 프로젝트의 담당 `sales` 또는 그 프로젝트를 관리하는 `manager`의 로그인 사용자 ID(명세 §4.1) |
 | 자동 부여 | 접수한 `sales`가 담당이 된다. 책임자는 자동 지정하지 않는다 |
 | 이력 필드 | 프로젝트 ID, 변경자 ID, 이전·신규 `sales_user_id`, 이전·신규 `responsible_user_id`(바뀌지 않은 쪽은 같은 값), 사유, 변경 시각. 한 호출이 한 행이며 두 대상 모두 보존한다. 조회 경로는 두지 않는다(저장만) |
-| 거부 | 관리 대상 밖 404 `NOT_FOUND`, 관리 `manager`가 아님 403 `FORBIDDEN`, 조건 불일치 422 `VALIDATION_ERROR` |
+| 거부 | 조회 범위 밖 404 `NOT_FOUND`, 볼 수 있으나 `manager`가 아님 403 `FORBIDDEN`, 조건 불일치 422 `VALIDATION_ERROR` |
 | 자기 자신 지정 허용 여부 | 미확정(팀). 별도 결정 전 추가 제약을 넣지 않는다 |
 
 ---
@@ -264,16 +264,16 @@ O = 허용, X = 거부, △ = 조건부. 괄호는 범위 조건. "책임자" �
 
 ### 4.2 RFP 자사 대응·협력사 보완 (2026-10-28 범위 변경)
 
-명세 §2.2·§3의 요약이다. 조회 역할 = 담당 `sales`·책임자·검토 부서 `dept_staff`·관리 대상 `manager`. 역할 자체가 없으면 403, 역할은 있으나 프로젝트 범위 밖이면 404, 범위 안에서 행동이 불허면 403이다. 경로별 허용 역할은 명세 §3 표(구현 후에는 `contracts/tft/rfp-*.md`)가 원본이다.
+명세 §2.2·§3의 요약이다. 조회 역할 = 담당 `sales`·책임자·검토 부서 `dept_staff`·`manager`(모든 RFP 프로젝트, KAN-236). C/S의 `manager` 범위는 그대로 관리 대상 부서다. 역할 자체가 없으면 403, 역할은 있으나 프로젝트 범위 밖이면 404, 범위 안에서 행동이 불허면 403이다. 경로별 허용 역할은 명세 §3 표(구현 후에는 `contracts/tft/rfp-*.md`)가 원본이다.
 
-책임자 열은 로그인 역할이 아니라 프로젝트 속성이다. 책임자로 지정된 사용자(담당 `sales` 또는 관리 `manager`, 3.3)는 그 프로젝트 안에서 로그인 역할과 관계없이 `sales` 범위 행동과 승인·기각·검토본 저장을 한다. `manager`가 책임자로 지정되면 그 프로젝트에서만 이 쓰기가 열리고 다른 관리 대상 프로젝트에서는 열리지 않는다.
+책임자 열은 로그인 역할이 아니라 프로젝트 속성이다. 책임자로 지정된 사용자(담당 `sales` 또는 관리 `manager`, 3.3)는 그 프로젝트 안에서 로그인 역할과 관계없이 `sales` 범위 행동과 승인·기각·검토본 저장을 한다. `manager`가 책임자로 지정되면 그 프로젝트에서만 이 쓰기가 열리고 다른 프로젝트에서는 열리지 않는다.
 
 | 행동 | cs_agent | dept_staff | manager | sales | 책임자 |
 | --- | --- | --- | --- | --- | --- |
-| 프로젝트·문서·조항·요구·비교·보완 선택지·후보·질문·제안·초안 조회 | X | △ 검토 부서(`review_departments`)인 프로젝트 | △ 관리 대상 프로젝트. 그 외 집계 없음 | △ 담당 프로젝트 | O (해당 프로젝트) |
+| 프로젝트·문서·조항·요구·비교·보완 선택지·후보·질문·제안·초안 조회 | X | △ 검토 부서(`review_departments`)인 프로젝트 | O (모든 RFP 프로젝트, KAN-236) | △ 담당 프로젝트 | O (해당 프로젝트) |
 | 프로젝트 접수, 문서 업로드, 처리 작업 실행 | X | X | X | O (접수자가 담당 `sales`) | O (`sales` 범위) |
 | 프로젝트 속성·검토 부서 목록 수정 | X | X | X | O | O |
-| 담당 `sales`·책임자 지정·변경 (`assignment`) | X | X | O (관리 대상 프로젝트) | X | X |
+| 담당 `sales`·책임자 지정·변경 (`assignment`) | X | X | O (모든 RFP 프로젝트, KAN-236) | X | X |
 | 보완 경로·협력사 후보·역할 분담 선택 | X | X | X | O | O |
 | 고객 질문 작성 | X | O (검토 부서) | X | O | O |
 | 고객 회신 기록 | X | X | X | O | O |
@@ -431,6 +431,7 @@ SSE 구독과 작업 조회도 1.3의 검사 순서를 적용한다. 다른 소�
 | 2026-10-23 | 이 문서: 검사 순서와 오류 매핑, 문의·개선요청·역할 요청 상태 enum 제안, 권한 행렬, 화면별 행동, 개발 모드 적용 범위 | KAN-57 산출물 |
 | 2026-10-23 | 계정·역할·`manager` 관리 범위는 서버 밖 등록 스크립트로만 부여(API·화면 없음). `cs_agent`는 C/S 문의 전체 조회, 문의·개선요청 담당자 재배정은 `manager`만. 여러 수신 부서는 부서별 상태로 진행하고 요청 상태는 시스템이 요약, 조치 등록은 그 부서가 채택했을 때. 요청 단위 재전달은 새 회차(대상 외 부서 이월), 전부 반려·반려 확인은 반려 종료 | KAN-78 (김나영) |
 | 2026-10-28 | 프로젝트 2 범위를 TFT 팀 구성에서 RFP 자사 대응·협력사 보완으로 변경(KAN-7). 3절·4.2·5.5~5.7을 [RFP API 명세](https://docs.google.com/document/d/1lh6blP9IqACKvr3nyPp7NuU07jOmliIvIH_h87HDu9g/edit) 기준으로 교체. 2026-10-21의 인력요청·추천·검증·구성안 확정 결정은 제거된 기능에만 해당 | Jira KAN-181·182, 명세 v1.1 |
+| 2026-11-05 | `manager`는 `manager_projects` 등록 없이 모든 RFP 프로젝트를 조회·책임자 지정한다. 운영에서 새 프로젝트마다 등록 SQL이 필요했던 문제 해소. C/S 부서 범위는 그대로 | Jira KAN-236 |
 | 2026-10-27 | 문의 상태 enum 확정. 부서 처리 결과는 등록(`SUBMITTED`)과 C/S 채택(`ACCEPTED`)을 구분하고 채택된 결과만 종결 조건에 쓴다. 보완 요청은 같은 부서로 새 이관 회차. 오배정은 부서 반송(`dept_staff`)과 C/S 회수(`cs_agent`) 둘 다 허용하고 사유 필수, 재이관은 일반 이관. 이관 이력이 있는 부서는 이관이 끝난 뒤에도 문의를 조회(쓰기는 현재 이관 부서만). 해결 사례 등록은 종결 후 선택. 발송 전이는 메일 발송(KAN-74)의 내부 함수로만 | KAN-108 (김나영) |
 | 2026-10-29 | 사람 분류 정정은 기획서 ⑥ 게이트 범위로 KAN-107에서 제공(정정은 cs_agent, `RECEIVED`·`CLOSED` 409). 정정은 AI 결과를 고치지 않는 별도 `human_input` 행이고 AI 재실행이 덮어쓰지 않는다. 긴급도 정정 시 SLA 기한은 접수 시각 기준으로 다시 계산하되 AI 기준보다 늦어지지 않게 둘 중 이른 쪽을 쓴다. 정정값은 평가 정답이 아니다 | KAN-107 (김나영) |
 | 2026-11-02 | 평가 권한 행(4.1·5.8·6절·7.2)을 구현에 맞춤: 업무 역할이 아닌 지정 평가자 목록(`EVALUATION_EVALUATOR_USER_IDS`)으로 열고, 변경은 Origin·CSRF, 접수는 local·test의 승인 해시만, 웹 중계는 READ/CONTROL 설정으로 나눔. 미확정에서 해결로 | KAN-163 (김나영) |

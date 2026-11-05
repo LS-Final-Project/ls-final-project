@@ -61,7 +61,7 @@ T13을 재적용해도 허용집합을 과거로 되돌리지 않는다. 정렬�
 
 ## 전체 적용 순서
 
-`infra/migrations/` 아래 서비스별 마이그레이션 106개의 적용 순서와 적용 전 확인 방법이다. cs·tft 마이그레이션은 platform의 표를 FK로 참조하지 않아 서비스 사이 순서 의존은 없다. 서비스 안에서는 파일명 정렬 순서가 아래 선행 조건을 모두 만족하며, 새 로컬 DB의 `infra/local/init.sh`도 001 다음 cs → tft → platform 순서로 각 폴더를 파일명 정렬로 적용한다. 표의 순서 번호는 추가된 차례라 파일명 정렬과 다를 수 있다(P20은 파일명상 P16 앞). 어느 쪽으로 적용해도 선행 조건을 만족한다.
+`infra/migrations/` 아래 서비스별 마이그레이션 107개의 적용 순서와 적용 전 확인 방법이다. cs·tft 마이그레이션은 platform의 표를 FK로 참조하지 않아 서비스 사이 순서 의존은 없다. 서비스 안에서는 파일명 정렬 순서가 아래 선행 조건을 모두 만족하며, 새 로컬 DB의 `infra/local/init.sh`도 001 다음 cs → tft → platform 순서로 각 폴더를 파일명 정렬로 적용한다. 표의 순서 번호는 추가된 차례라 파일명 정렬과 다를 수 있다(P20은 파일명상 P16 앞). 어느 쪽으로 적용해도 선행 조건을 만족한다.
 
 **공용 상태 열: 운영자가 공용 DB(team4)에 적용·확인한 날짜를 이 열에 직접 기록한다.** 현재 이 저장소에는 공용 DB 적용 기록이 없어 모두 `미확인`이다. 기록 없이 적용됐다고 가정하지 않는다.
 
@@ -167,7 +167,7 @@ T13을 재적용해도 허용집합을 과거로 되돌리지 않는다. 정렬�
 | P26 | `platform/20261030_KAN-110_mail_link_notify.sql` | P23(헤더) | platform_migrator | 가능 | 열 `integration.mail_links.business_notified_at` | 미확인 |
 | P27 | `platform/20261030_KAN-90_receipt_origin.sql` | P8·P14(헤더) | platform_migrator | 가능 | 열 `evaluation.admission_receipts.origin` | 미확인 |
 | P28 | `platform/20261031_KAN-194_cs_jobs.sql` | P11·P24(헤더) | postgres(CREATE ROLE `cs_worker`) → platform_migrator | 가능(P24 뒤에만, `jobs_owner_kind_route`는 이 파일이 cs까지 정의, 다시 적용하면 P38도 이어서 다시 적용) | to_regclass('runtime.job_control') | 미확인 |
-| P29 | `platform/20261031_KAN-199_tft_worker.sql` | P28(헤더) | postgres(CREATE ROLE `tft_worker`) → platform_migrator | 가능 | 역할 `tft_worker` | 미확인 |
+| P29 | `platform/20261031_KAN-199_tft_worker.sql` | P28(헤더) | postgres(CREATE ROLE `tft_worker`) → platform_migrator | 가능 | `has_table_privilege('tft_worker','runtime.job_control','SELECT')`(아래 `권한 행(P29)` CASE 형식. 역할은 T13·T14가 먼저 만들 수 있어 역할 존재로는 판단하지 않는다) | 미확인 |
 | P30 | `platform/20261101_KAN-201_notifications.sql` | P1·P4·P7·P28·P29(헤더) | 운영자(CREATE SCHEMA) → platform_migrator | 가능 | to_regclass('notify.notification_intents') | 미확인 |
 | P31 | `platform/20261102_KAN-201_web_push.sql` | P30 | platform_migrator | 가능 | notify.push_subscriptions / push_deliveries | 미확인 |
 | P32 | `platform/20261108_KAN-159_job_reap.sql` | P28(헤더) | platform_migrator | 가능 | has_column_privilege('platform_app','runtime.job_control','failure_code','UPDATE') | 미적용 |
@@ -178,6 +178,7 @@ T13을 재적용해도 허용집합을 과거로 되돌리지 않는다. 정렬�
 | P37 | `platform/20261118_KAN-188_context_jobs.sql` | P33 | platform_migrator | 가능(다시 적용하면 P38도 이어서 다시 적용) | pg_get_constraintdef로 `jobs_owner_kind_route`에 'rfp.context' 포함 | 미적용 |
 | P38 | `platform/20261125_KAN-224_reply_read_jobs.sql` | P37 | platform_migrator | 가능(`jobs_owner_kind_route`를 정의하는 P24·P28·P33·P37을 다시 적용하면 이 파일을 마지막에 다시 적용) | pg_get_constraintdef로 `jobs_owner_kind_route`에 'rfp.reply_read' 포함 | 미적용 |
 | P39 | `platform/20261127_KAN-201_notification_dismiss.sql` | P30(헤더) | platform_migrator | 가능 | 열 `notify.user_notifications.dismissed_at`, has_column_privilege('platform_app','notify.user_notifications','dismissed_at','UPDATE'). P30을 다시 돌리면 이 열 권한이 회수되므로 P39도 다시 적용 | 미적용 |
+| P40 | `platform/20261128_KAN-239_mail_table_privileges.sql` | P17·P23·P26·P36(헤더) | platform_migrator | 가능(표 단위 회수가 열 권한도 지우므로 P17·P23·P26을 다시 적용하면 이 파일을 마지막에 다시 적용) | 아래 `권한 행(P40)` 쿼리(메일 표 다섯 개에 platform_app 표 단위 UPDATE·DELETE 없음) | 미적용 |
 
 적용 전 확인 쿼리(운영자 연결, 읽기 전용):
 
@@ -199,6 +200,14 @@ SELECT has_column_privilege('evaluation_worker', 'evaluation.runs', 'held_count'
 SELECT NOT has_table_privilege('platform_app', 'integration.mail_send_intents', 'UPDATE');
 -- 역할 행(P14)
 SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'evaluation_worker');
+-- 권한 행(P29): 역할이 아직 없으면 has_table_privilege가 오류이므로 CASE로 false를 낸다.
+SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tft_worker')
+  THEN has_table_privilege('tft_worker', 'runtime.job_control', 'SELECT') ELSE false END;
+-- 권한 행(P40): 메일 표 다섯 개의 표 단위 UPDATE·DELETE가 모두 회수됐으면 true다.
+SELECT bool_and(NOT has_table_privilege('platform_app', 'integration.' || t, 'UPDATE')
+  AND NOT has_table_privilege('platform_app', 'integration.' || t, 'DELETE'))
+  FROM unnest(ARRAY['mail_triage', 'mail_triage_latest', 'mail_links', 'mail_reply_reviews',
+    'mail_reply_checks']) AS t;
 ```
 
 적용 후 권한 확인(결과가 모두 false여야 한다). 검사 SQL 파일은 001·002, 003(플랫폼 인증), 004(KAN-81)만 있고 나머지는 아래 쿼리로 확인한다.
@@ -214,7 +223,9 @@ SELECT has_table_privilege('tft_app', 'runtime.jobs', 'INSERT'); -- P24 뒤(tft�
 SELECT has_table_privilege('platform_app', 'evaluation.case_attempts', 'UPDATE');
 SELECT has_table_privilege('platform_app', 'evaluation.metrics', 'DELETE');
 SELECT has_column_privilege('platform_app', 'mailbox_auth.connections', 'owner_user_id', 'UPDATE'); -- P19 뒤
-SELECT has_table_privilege('platform_app', 'integration.mail_triage', 'UPDATE'); -- P17 뒤
+SELECT has_table_privilege('platform_app', 'integration.mail_triage', 'UPDATE'); -- P40 뒤(001 기본 권한은 P17이 회수하지 않는다)
+SELECT has_table_privilege('platform_app', 'integration.mail_links', 'DELETE'); -- P40 뒤
+SELECT has_column_privilege('platform_app', 'integration.mail_reply_reviews', 'candidates', 'UPDATE'); -- P40 뒤
 SELECT has_table_privilege('platform_app', 'integration.mail_send_events', 'UPDATE'); -- P18 뒤
 SELECT has_schema_privilege('cs_app', 'runtime', 'USAGE');
 SELECT has_schema_privilege('tft_app', 'mailbox_auth', 'USAGE');
@@ -350,7 +361,7 @@ platform_app의 UPDATE를 열 단위로 바꾼다(소유자·Microsoft 식별자
 
 ## 회신 연결 표 적용 (KAN-75)
 
-메일 발송 표(KAN-74, 아래)와 분류 표(KAN-73) 뒤에 `infra/migrations/platform/20261029_KAN-75_mail_links.sql`을 한 번 적용한다. `integration.mail_links`·`mail_reply_reviews`·`mail_reply_checks`가 생기고, `platform_app`은 세 표에 SELECT·INSERT, 검토의 결정 칸과 판정 표시의 결과 칸만 UPDATE한다(연결·후보 수정과 삭제 불가). 적용 전에도 수집 워커는 동작하고 회신 판정만 실패로 센다.
+메일 발송 표(KAN-74, 아래)와 분류 표(KAN-73) 뒤에 `infra/migrations/platform/20261029_KAN-75_mail_links.sql`을 한 번 적용한다. `integration.mail_links`·`mail_reply_reviews`·`mail_reply_checks`가 생기고, `platform_app`은 세 표에 SELECT·INSERT, 검토의 결정 칸과 판정 표시의 결과 칸만 UPDATE한다(연결·후보 수정과 삭제 불가). 001의 integration 기본 권한(표 단위 UPDATE·DELETE)은 이 파일이 회수하지 않으므로 P40(`20261128_KAN-239_mail_table_privileges.sql`)을 이어서 적용해야 이 상태가 된다. 적용 전에도 수집 워커는 동작하고 회신 판정만 실패로 센다.
 
 ## 메일 발송 표 적용 (KAN-74)
 

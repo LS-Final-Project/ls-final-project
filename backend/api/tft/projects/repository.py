@@ -35,7 +35,7 @@ REQUIREMENT_COLUMNS = (
 
 
 def project_scope(
-    managed_projects: list[UUID],
+    all_projects: bool,
     user_id: UUID,
     department: str | None,
     output_status: str | None,
@@ -43,9 +43,12 @@ def project_scope(
     q: str | None,
     search_field: str,
 ) -> tuple[str, list[Any]]:
-    """Shared authorization and literal search for numbered totals and list rows."""
-    scope = "(p.id = ANY(%s) OR p.responsible_user_id = %s OR p.sales_user_id = %s"
-    params: list[Any] = [managed_projects, user_id, user_id]
+    """Shared authorization and literal search for numbered totals and list rows.
+
+    `all_projects` is true for a manager, who sees every RFP project (KAN-236).
+    """
+    scope = "(%s OR p.responsible_user_id = %s OR p.sales_user_id = %s"
+    params: list[Any] = [all_projects, user_id, user_id]
     if department is not None:
         scope += " OR %s = ANY(p.review_departments)"
         params.append(department)
@@ -73,7 +76,7 @@ async def list_projects(
     conn: AsyncConnection[Row],
     limit: int,
     after: tuple[datetime, UUID] | None,
-    managed_projects: list[UUID],
+    all_projects: bool,
     user_id: UUID,
     department: str | None = None,
     *,
@@ -89,7 +92,7 @@ async def list_projects(
     dept_staff department. Filters and counts run in this one statement, never per project.
     """
     scope, params = project_scope(
-        managed_projects, user_id, department, output_status, judgement_status, q, search_field
+        all_projects, user_id, department, output_status, judgement_status, q, search_field
     )
     if after is None:
         cursor = await conn.execute(
@@ -109,7 +112,7 @@ async def list_projects(
 
 async def count_projects(
     conn: AsyncConnection[Row],
-    managed_projects: list[UUID],
+    all_projects: bool,
     user_id: UUID,
     department: str | None = None,
     *,
@@ -119,7 +122,7 @@ async def count_projects(
     search_field: str = "all",
 ) -> int:
     scope, params = project_scope(
-        managed_projects, user_id, department, output_status, judgement_status, q, search_field
+        all_projects, user_id, department, output_status, judgement_status, q, search_field
     )
     cursor = await conn.execute(
         f"SELECT count(*) AS total FROM tft.projects p WHERE {scope}", params

@@ -63,9 +63,7 @@ def project_row(index: int) -> dict:
 
 ROWS = [project_row(i) for i in range(5)]
 PROJECT = ROWS[0]
-PROJECTS_MANAGER = Principal(
-    user_id=uuid4(), roles={"manager"}, managed_projects={r["id"] for r in ROWS}
-)
+PROJECTS_MANAGER = Principal(user_id=uuid4(), roles={"manager"})
 REQ_ID = UUID(int=100)
 ORIGIN = {"data_origin": "synthetic", "derivation_kind": "SYSTEM"}
 
@@ -111,24 +109,20 @@ def fakes(monkeypatch):
     async def fake_connection(settings):
         yield object()
 
-    async def list_projects(
-        conn, limit, after, managed_projects, user_id, department=None, **filters
-    ):
+    async def list_projects(conn, limit, after, all_projects, user_id, department=None, **filters):
         rows = [
             r
             for r in ROWS
-            if r["id"] in managed_projects
-            or r["responsible_user_id"] == user_id
-            or r["sales_user_id"] == user_id
+            if all_projects or r["responsible_user_id"] == user_id or r["sales_user_id"] == user_id
         ]
         rows = sorted(rows, key=lambda r: (r["created_at"], r["id"]), reverse=True)
         if after:
             rows = [r for r in rows if (r["created_at"], r["id"]) < after]
         return rows[filters.get("offset", 0) : filters.get("offset", 0) + limit + 1]
 
-    async def count_projects(conn, managed_projects, user_id, department=None, **filters):
+    async def count_projects(conn, all_projects, user_id, department=None, **filters):
         return len(
-            await list_projects(conn, 100, None, managed_projects, user_id, department, **filters)
+            await list_projects(conn, 100, None, all_projects, user_id, department, **filters)
         )
 
     async def get_project(conn, project_id):
@@ -344,13 +338,12 @@ def as_user(**fields) -> dict:
     return principal_header(Principal(user_id=uuid4(), **fields))
 
 
-def test_manager_sees_only_managed_projects(client):
+def test_manager_sees_every_project_regardless_of_managed_projects(client):
+    """KAN-236: managed_projects는 남지만 RFP 접근을 좁히지 않는다."""
     headers = as_user(roles={"manager"}, managed_projects={ROWS[2]["id"]})
     items = client.get("/api/v1/tft/projects", headers=headers).json()["data"]["items"]
-    assert [i["id"] for i in items] == [str(ROWS[2]["id"])]
-    other = client.get(f"/api/v1/tft/projects/{ROWS[3]['id']}", headers=headers)
-    assert other.status_code == 404
-    assert other.json()["error"]["code"] == "TFT_PROJECT_NOT_FOUND"
+    assert {i["id"] for i in items} == {str(r["id"]) for r in ROWS}
+    assert client.get(f"/api/v1/tft/projects/{ROWS[3]['id']}", headers=headers).status_code == 200
 
 
 def test_responsible_user_sees_own_project(client):
@@ -416,14 +409,14 @@ def test_list_and_count_share_authorization_and_literal_search_scope():
         ("name", ("name",)),
     ]:
         scope, params = repository.project_scope(
-            [UUID(int=1)], SALES, "TS_TRF", "INTAKE", "NEEDS_REVIEW", "a_%", field
+            False, SALES, "TS_TRF", "INTAKE", "NEEDS_REVIEW", "a_%", field
         )
         assert (
-            "p.id = ANY(%s) OR p.responsible_user_id = %s OR p.sales_user_id = %s OR %s = ANY(p.review_departments)"
+            "(%s OR p.responsible_user_id = %s OR p.sales_user_id = %s OR %s = ANY(p.review_departments)"
             in scope
         )
         assert "p.output_status = %s" in scope and "p.judgement_status = %s" in scope
-        assert params[:6] == [[UUID(int=1)], SALES, SALES, "TS_TRF", "INTAKE", "NEEDS_REVIEW"]
+        assert params[:6] == [False, SALES, SALES, "TS_TRF", "INTAKE", "NEEDS_REVIEW"]
         assert params[6:] == [r"%a\_\%%"] * len(columns)
         assert all(f"p.{column} ILIKE %s" in scope for column in columns)
         assert scope.count("ILIKE") == len(columns)

@@ -127,7 +127,7 @@ erDiagram
 - **쓰기 경로(KAN-188, `rfp/routes_write.py`)**: 2·4·5·6이다. 응답은 `RfpProjectDetail`이다.
   - 2 접수: `sales`만. 호출자가 담당이 되고 책임자는 자동 지정하지 않는다. `review_departments`는 `department_kinds`에 있어야 한다.
   - 4 수정: 담당 `sales`·책임자만. 본문에 있는 칸만 바꾼다. `name`·`review_departments`·`integration_responsibility`의 `null`은 422, `strategic_customer: null`은 입력자·메모와 함께 지운다.
-  - 5 지정: 관리 대상 `manager`만(범위 밖 404, 볼 수만 있으면 403). 호출마다 `project_assignments` 한 행이다. 다른 manager의 관리 범위는 tft가 읽지 못해 책임자 후보는 새 담당 `sales`·기존 책임자·호출한 manager다. `sales_user_id`는 검증하지 않는다: identity를 읽지 못하므로 없는 사용자나 `sales` 역할이 없는 ID도 들어간다.
+  - 5 지정: `manager`만, 모든 프로젝트에서(KAN-236. 범위 밖 404, 볼 수만 있으면 403). 호출마다 `project_assignments` 한 행이다. 다른 manager의 관리 범위는 tft가 읽지 못해 책임자 후보는 새 담당 `sales`·기존 책임자·호출한 manager다. `sales_user_id`는 검증하지 않는다: identity를 읽지 못하므로 없는 사용자나 `sales` 역할이 없는 ID도 들어간다.
   - 6 업로드: 담당 `sales`·책임자만. 25 MiB 초과 413 `TFT_DOCUMENT_TOO_LARGE`(Content-Length가 없어도 받는 동안 멈춘다). 형식은 내용으로 판별한다(PDF는 `%PDF-`, DOCX는 zip 안 `word/document.xml`). 다음 판본은 같은 프로젝트·같은 `kind`만 되고 제목·메모는 첫 판본 것을 유지한다. 저장소가 없으면 503 `TFT_DOCUMENT_UNAVAILABLE`이다.
   - 원문은 `rfp/{project_id}/{document_version_id}`에 쓴 뒤 DB를 커밋한다. DB 실패 시 객체가 남을 수 있다(실행 계정에 삭제 권한이 없다).
 - **변경 제안(KAN-189, `rfp/routes_proposals.py`)**: 21~24다. 작성은 담당 `sales`·책임자·검토 부서 `dept_staff`, 승인·기각은 담당 `sales`·책임자다. 범위 밖은 404 `TFT_PROPOSAL_NOT_FOUND`다.

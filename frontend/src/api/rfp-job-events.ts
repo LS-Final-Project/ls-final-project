@@ -150,12 +150,26 @@ export async function replayRfpJob(target: RfpTarget, signal: AbortSignal): Prom
   return { job, activity, startedAt };
 }
 
+export const RECONNECT_NOTICE_MS = 4000;
 export async function watchRfpJob(target: RfpTarget, signal: AbortSignal, update: (view: RfpWatch) => void): Promise<void> {
   let cursor: number | undefined, progress: RfpProgress | undefined, failures = 0, resetCursor = false;
   let job: RfpJob | undefined, checkedAt: number | undefined;
   let activity: RfpProgress[] = [], startedAt: string | undefined;
   let restoreThrough = 0, restoredCount = 0;
-  const publish = (connection: RfpWatch['connection'], message?: string) => { if (!signal.aborted) update({ connection, job, progress: (cursor ?? 0) < restoreThrough ? undefined : progress, checkedAt, message, activity: (cursor ?? 0) < restoreThrough ? [] : activity, startedAt, restoredCount }); };
+  // 한 번 끊긴 뒤 1초 대기·재조회로 곧 다시 붙는 경우(서버 배치 오류·Cloud Run 요청 제한 등)는 안내하지 않는다(KAN-239).
+  // 유예 안에 다시 연결되지 않으면 그때 끊김을 알린다.
+  let shown: RfpWatch['connection'] | undefined, notice: ReturnType<typeof setTimeout> | undefined;
+  const view = (connection: RfpWatch['connection'], message?: string): RfpWatch => ({ connection, job, progress: (cursor ?? 0) < restoreThrough ? undefined : progress, checkedAt, message, activity: (cursor ?? 0) < restoreThrough ? [] : activity, startedAt, restoredCount });
+  const publish = (connection: RfpWatch['connection'], message?: string) => {
+    if (signal.aborted || connection === 'reconnecting' && notice !== undefined) return;
+    clearTimeout(notice); notice = undefined; shown = connection; update(view(connection, message));
+  };
+  // 유예가 끝나면 끊긴 순간의 화면(마지막 관측)을 그대로 안내와 함께 낸다. 재조회 스냅샷 복원 중의 빈 기록을 내지 않는다.
+  const lost = (message: string) => {
+    if (shown === 'reconnecting' || notice !== undefined) return;
+    const last = view('reconnecting', message);
+    notice = setTimeout(() => { notice = undefined; if (!signal.aborted) { shown = 'reconnecting'; update(last); } }, RECONNECT_NOTICE_MS);
+  };
   while (!signal.aborted) {
     try {
       publish(failures ? 'reconnecting' : 'connecting');
@@ -186,7 +200,8 @@ export async function watchRfpJob(target: RfpTarget, signal: AbortSignal, update
       if (!job || failures > 3 || error instanceof ApiError && error.status < 500 && !(error instanceof CursorExpired)) {
         publish('fallback', '실시간 연결을 확인하지 못했습니다. 30초 간격 상태 조회로 확인합니다.'); return;
       }
-      publish('reconnecting', '실시간 연결이 끊겼습니다. 작업 실패로 판정하지 않고 상태를 다시 확인합니다.');
+      const message = '실시간 연결이 끊겼습니다. 작업 실패로 판정하지 않고 상태를 다시 확인합니다.';
+      lost(message); publish('reconnecting', message);
       try { await delay(1000 * 2 ** (failures - 1), signal); } catch { return; }
     }
   }

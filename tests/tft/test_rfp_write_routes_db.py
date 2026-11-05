@@ -211,7 +211,7 @@ def test_update_is_for_the_sales_owner_and_responsible(client, chain):
 
 
 def test_assignment_is_for_the_managing_manager_and_keeps_history(client, admin, chain):
-    """5: 관리 manager만, 후보 밖 책임자 422, 호출마다 이력 한 행."""
+    """5: manager만(범위 밖 sales 404), 후보 밖 책임자 422, 호출마다 이력 한 행."""
     url = f"/projects/{chain['project']}/assignment"
     new_sales = uuid4()
     body = {
@@ -221,8 +221,7 @@ def test_assignment_is_for_the_managing_manager_and_keeps_history(client, admin,
         "reason": "담당 변경",
     }
     assert call(client, "PATCH", url, OWNER, body).status_code == 403
-    other = Principal(user_id=uuid4(), roles=frozenset({"manager"}), managed_projects={uuid4()})
-    assert error(call(client, "PATCH", url, other, body)) == (404, "TFT_PROJECT_NOT_FOUND")
+    assert error(call(client, "PATCH", url, OTHER_SALES, body)) == (404, "TFT_PROJECT_NOT_FOUND")
     boss = manager(chain)
     wrong = {**body, "responsible_user_id": str(uuid4())}
     assert error(call(client, "PATCH", url, boss, wrong)) == (422, "VALIDATION_ERROR")
@@ -477,3 +476,28 @@ def test_human_project_constraints_create_sparse_patch_clear_and_reject_empty_li
         ).status_code
         == 422
     )
+
+
+def test_manager_without_managed_projects_sees_and_takes_responsibility(client, chain):
+    """KAN-236: manager는 managed_projects 등록 없이 모든 RFP를 목록·상세로 보고 책임자를 맡는다.
+
+    cs_agent는 그대로 403, 관계없는 sales는 그대로 404다.
+    """
+    boss = Principal(user_id=uuid4(), roles=frozenset({"manager"}))
+    listed = call(client, "GET", "/projects?limit=100", boss)
+    assert str(chain["project"]) in [item["id"] for item in listed.json()["data"]["items"]]
+    url = f"/projects/{chain['project']}"
+    assert call(client, "GET", url, boss).status_code == 200
+    take = {
+        "version": 1,
+        "sales_user_id": str(SALES),
+        "responsible_user_id": str(boss.user_id),
+        "reason": "책임자 맡기",
+    }
+    done = call(client, "PATCH", url + "/assignment", boss, take)
+    assert done.status_code == 200, done.text
+    assert done.json()["data"]["responsible_user_id"] == str(boss.user_id)
+    cs = Principal(user_id=uuid4(), roles=frozenset({"cs_agent"}))
+    assert call(client, "GET", "/projects", cs).status_code == 403
+    assert call(client, "GET", url, cs).status_code == 403
+    assert error(call(client, "GET", url, OTHER_SALES)) == (404, "TFT_PROJECT_NOT_FOUND")

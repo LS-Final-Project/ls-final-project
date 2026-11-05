@@ -74,7 +74,7 @@ ls_push_run run jobs deploy notification-push --region="$LS_PUSH_REGION" --image
   --set-env-vars="ENVIRONMENT=production,DEV_AUTH_ENABLED=false,SERVICE_NAME=platform,PGHOST=/cloudsql/$LS_PUSH_PROJECT:$LS_PUSH_REGION:team4-sql,PGDATABASE=team4,PGUSER=platform_app,NOTIFICATION_PUSH_ENABLED=true,NOTIFICATION_PUSH_PUBLIC_KEY=$NOTIFICATION_PUSH_PUBLIC_KEY,NOTIFICATION_PUSH_SUBJECT=$NOTIFICATION_PUSH_SUBJECT" \
   --set-secrets=PGPASSWORD=platform-db-password:1,NOTIFICATION_PUSH_PRIVATE_KEY=notification-vapid-key:1
 # Existing platform runtime may launch only this Job, with no env overrides permission.
-ls_push_run run jobs add-iam-policy-binding notification-push --region="$LS_PUSH_REGION" --member="serviceAccount:$LS_PUSH_PLATFORM" --role=roles/run.invoker --condition=None --format=none
+ls_push_run run jobs add-iam-policy-binding notification-push --region="$LS_PUSH_REGION" --member="serviceAccount:$LS_PUSH_PLATFORM" --role=roles/run.invoker --format=none
 ls_push_run run services add-iam-policy-binding team4-platform --region="$LS_PUSH_REGION" --member="serviceAccount:$LS_PUSH_INVOKER" --role=roles/run.invoker --condition=None --format=none
 # Never create/update an active target pointing at dispatch. POST /health is an
 # inert parked target (the application's health route accepts GET only). This is

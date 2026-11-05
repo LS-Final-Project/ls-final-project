@@ -100,7 +100,8 @@ def job_commands(
             "GEMINI_API_KEY=gemini-api-key:1",
         ]
         if account:
-            command.append(f"--account={account}")
+            # --container 뒤의 플래그는 컨테이너 설정으로 읽혀 --account를 거부한다(gcloud 585). 앞에 둔다.
+            command.insert(command.index("--quiet"), f"--account={account}")
         commands.append(command)
     return commands
 

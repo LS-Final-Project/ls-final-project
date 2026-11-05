@@ -38,9 +38,19 @@ MIGRATIONS = (
     Path("infra/migrations/platform/20261029_KAN-75_mail_links.sql"),
 )
 # 다시 적용해도 같은 것. 회신 통지 칸(KAN-110)은 C/S 호출이 있는 검사에서 쓰인다. P36(KAN-235).
+# P40(KAN-239)은 P26 뒤에 둔다(표 단위 회수가 통지 칸 열 권한도 지우고 다시 준다).
+PRIVILEGES = Path("infra/migrations/platform/20261128_KAN-239_mail_table_privileges.sql")
 AGAIN = (
     Path("infra/migrations/platform/20261030_KAN-110_mail_link_notify.sql"),
     Path("infra/migrations/platform/20261115_KAN-235_mail_link_basis.sql"),
+    PRIVILEGES,
+)
+MAIL_TABLES = (
+    "mail_triage",
+    "mail_triage_latest",
+    "mail_links",
+    "mail_reply_reviews",
+    "mail_reply_checks",
 )
 
 
@@ -312,6 +322,39 @@ def test_runtime_role_cannot_rewrite_links_or_review_candidates(settings, links)
     with psycopg.connect(settings.database_url.get_secret_value()) as conn:
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             conn.execute("DELETE FROM integration.mail_reply_reviews WHERE message_id=%s", (reply,))
+
+
+def test_p40_revokes_default_table_writes_and_keeps_decision_columns(send_database, links):
+    """001 기본 권한처럼 표 단위 UPDATE·DELETE가 있어도 P40 뒤에는 코드가 쓰는 열 UPDATE만 남는다."""
+    with psycopg.connect(send_database, autocommit=True) as conn:
+        tables = ", ".join(f"integration.{table}" for table in MAIL_TABLES)
+        conn.execute(f"GRANT UPDATE, DELETE ON {tables} TO platform_app")
+        sql = PRIVILEGES.read_text()
+        conn.execute("\n".join(x for x in sql.splitlines() if not x.startswith("\\")))
+        for table in MAIL_TABLES:
+            for privilege in ("UPDATE", "DELETE", "TRUNCATE"):
+                assert not conn.execute(
+                    "SELECT has_table_privilege('platform_app', %s, %s)",
+                    (f"integration.{table}", privilege),
+                ).fetchone()[0], (table, privilege)
+        for table, column in (
+            ("mail_triage_latest", "latest_version"),
+            ("mail_links", "business_notified_at"),
+            ("mail_reply_reviews", "status"),
+            ("mail_reply_reviews", "decided_by"),
+            ("mail_reply_reviews", "decided_at"),
+            ("mail_reply_reviews", "note"),
+            ("mail_reply_checks", "outcome"),
+            ("mail_reply_checks", "checked_at"),
+        ):
+            assert conn.execute(
+                "SELECT has_column_privilege('platform_app', %s, %s, 'UPDATE')",
+                (f"integration.{table}", column),
+            ).fetchone()[0], (table, column)
+        assert not conn.execute(
+            "SELECT has_column_privilege('platform_app', 'integration.mail_links', "
+            "'business_ref', 'UPDATE')"
+        ).fetchone()[0]
 
 
 # --- 메일함 주인의 검토 API ------------------------------------------------------------------
