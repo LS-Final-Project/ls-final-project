@@ -914,3 +914,58 @@ def test_next_parent_item_glued_into_a_child_paragraph_opens_the_parent_sibling(
     # 짧은 대문자 제목과 쌍점이 없으면 문장 속 숫자다.
     assert "3.05.L.7" not in clauses
     assert not [i for i in tree.numbering_issues if i.kind == "DUPLICATE"]
+
+
+def test_table_rows_with_several_numbers_a_held_number_and_a_leaked_page_header():
+    """표로 바뀐 쪽에서 번호 칸이 어긋난 배치(개발 문서 유형)를 원문 번호대로 읽는다."""
+    tree = tree_of(
+        p("PART 2 - PRODUCTS"),
+        p("2.6 SWITCHGEAR"),
+        p("C. Switchgear Bus:"),
+        p("1. Use bus bars to connect compartments."),
+        # 번호 칸 하나에 2. 3. 4., 본문 칸에 세 항목. 삭제 값은 해당 항목으로 간다.
+        cell(0, 0, 0, "2. 3. 4."),
+        cell(
+            0,
+            0,
+            1,
+            "Main Phase Bus: Uniform capacity. Neutral Bus: Refer to the Drawings. "
+            "Vertical Section Bus Size: Comply with IEEE C37.20.1, including allowance for spare",
+            ("None", 47),
+        ),
+        p("circuit breakers."),
+        p("D. Breakers:"),
+        p("3. Operating Mechanism:"),
+        p("c. Stored-Energy Mechanism: Electrically charged."),
+        p("1) Operating Handle: One for each breaker. 2) Electric Close Button: One for each."),
+        p("4. Trip Devices:"),
+        p("g. Ground-fault protection:"),
+        # 5.는 다음 항목 번호, 1)은 g.의 이어짐. 5.는 번호 없는 다음 행에서 연다.
+        cell(1, 0, 0, "5."),
+        cell(1, 0, 1, "1)"),
+        cell(1, 0, 2, "Arrange to provide protection for four-wire circuit."),
+        cell(1, 1, 0, "2)"),
+        cell(1, 1, 1, "Provide zone interlocking."),
+        cell(1, 2, 1, "In addition to the trip unit, provide a protection relay for the"),
+        p("Main Circuit Breaker"),
+        p("6. MCCB Features:"),
+        p("g. Undervoltage Trip: Set to operate at 35 percent."),
+        # 쪽 머리말 조각이 다음 번호 칸 앞과 본문 칸 앞에 섞였다.
+        cell(2, 0, 0, "PROJECT 2300096 h."),
+        cell(2, 0, 1, "[LOCATION REDACTED] Auxiliary Contacts: Two SPDT switches."),
+    )
+    clauses = by_no(tree)
+    assert clauses["2.6.C.2"].text == "Main Phase Bus: Uniform capacity."
+    assert clauses["2.6.C.3"].text == "Neutral Bus: Refer to the Drawings."
+    assert [(v.text, v.position) for v in clauses["2.6.C.3"].deleted_values] == [("None", 13)]
+    assert clauses["2.6.C.4"].text.endswith("allowance for spare circuit breakers.")
+    assert clauses["2.6.C.1"].table_rows == []
+    assert clauses["2.6.D.3.c.1"].text == "Operating Handle: One for each breaker."
+    assert clauses["2.6.D.3.c.2"].text == "Electric Close Button: One for each."
+    assert clauses["2.6.D.3.c.2"].label == "2)"
+    assert clauses["2.6.D.4.g.1"].text == "Arrange to provide protection for four-wire circuit."
+    assert clauses["2.6.D.4.g.2"].text == "Provide zone interlocking."
+    assert clauses["2.6.D.5"].text.startswith("In addition to the trip unit")
+    assert clauses["2.6.D.5"].text.endswith("Main Circuit Breaker")
+    assert clauses["2.6.D.6.h"].text == "Auxiliary Contacts: Two SPDT switches."
+    assert not [i for i in tree.numbering_issues if i.kind in ("GAP", "DUPLICATE")]

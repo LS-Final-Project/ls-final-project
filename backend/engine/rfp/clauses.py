@@ -44,6 +44,11 @@
 - 하위 항목 문단 안에 열린 상위 항목의 다음 번호가 붙어 있으면(`… MIN) 5. AUTOMATIC MODE: a. …`) 그 자리에서 문단을
   나눈다. 앞이 문장 끝·닫는 괄호이거나, 뒤가 대문자 단어로 된 짧은 제목과 쌍점일 때만이다.
 - 표에 뜬 미룬 절은 제목만 있는 대문자 행(`STATION POWER`)이 오면 그 자리에서 연다.
+- 괄호 번호(`1)`)도 문장 끝 뒤에 붙은 다음 형제(`… operation. 2) Electric …`)를 나눈다.
+- 표 행의 번호 칸 하나에 같은 깊이 번호가 여럿(`2. 3. 4.`)이고 본문 칸이 짧은 대문자 제목+쌍점 경계로 그 수만큼
+  나뉘면 항목별로 연다. `5. | 1) | 본문`처럼 뒤 번호가 두 단계 이상 깊고 지금 목록의 이어짐이면 1)을 먼저 열고
+  5.는 번호 없는 다음 표 행(또는 같거나 얕은 번호 앞)에서 연다. 첫 칸 번호 앞에 대문자 머리말 조각이 섞인
+  `PROJECT 2300096 h.`는 h.가 지금 항목의 다음 번호일 때만 조각을 뗀다(다음 칸 앞 `[… REDACTED]` 자리표시도 뗀다).
 - PDF 글자층은 빈 줄 없는 줄들을 한 문단으로 준다(`SECTION …\n2.1 …`, `A. …\nB. …`). 문단 안의 줄이 번호로
   시작하고 앞 줄이 문장 끝이거나 제목 줄(SECTION·PART·대문자 절)이면 그 줄에서 나눈다. 나눈 조각은 원래 block_id를
   그대로 쓴다(원문 강조 위치는 같은 블록이다). 앞 줄이 문장 끝이 아닌 `13.8 kV class` 같은 끊긴 줄은 나누지 않는다(KAN-229).
@@ -69,7 +74,8 @@ from backend.engine.documents.model import Block, CrossReference, DeletedValue, 
 
 # v5: 공백 없는 번호 제목의 잡음 오인·장 항목 부모, 점선 목차 제외(KAN-215)
 # v6: PDF 문단 안 번호 줄 나누기, PART 없는 SECTION 문서의 대문자 절 제목(KAN-229)
-# v7: 소문자 로마 숫자 단계, 붙은 목록 항목(공백 없음·마침표 없음·상위 다음 번호), 미룬 절의 제목 행(KAN-188)
+# v7: 소문자 로마 숫자 단계, 붙은 목록 항목(공백 없음·마침표 없음·상위 다음 번호·괄호 번호), 미룬 절의 제목 행,
+#     표 행 번호 칸 어긋남(번호 여럿·잡아 둔 번호·머리말 조각)(KAN-188)
 CLAUSE_TREE_VERSION = "clause-tree-v7"
 # "PART 2 - PRODUCTS"(14번) 또는 대시 없는 "PART 1 GENERAL"(평가 11번 유형, KAN-207). 대시가 없으면 제목이 대문자일
 # 때만 PART다(본문의 "PART 2 of …"를 PART로 읽지 않는다).
@@ -564,15 +570,18 @@ def _inline_items(block: Block) -> list[Block]:
     ]
 
 
-def _sibling_mark(text: str, nxt: str, *, loose: bool) -> re.Match[str] | None:
+def _sibling_mark(text: str, nxt: str, *, loose: bool, paren: bool = False) -> re.Match[str] | None:
     """본문에 붙은 다음 형제 번호(`… open. b. Expulsion`). 대문자 글 앞이어야 한다.
+
+    paren이면 괄호 번호(`… operation. 2) Electric …`)를 본다.
 
     보통은 문장 끝 바로 뒤만 본다. loose(소문자 글자 항목)면 값 목록처럼 마침표 없이 이어진 자리
     (`… 4000 A c. Rated …`)도 본다. 숫자는 문장 속 수량(`… shall be 3. Each …`)과 구별되지 않아 넣지 않는다.
     참조 단어 뒤(`Type c.`)는 번호가 아니다.
     """
     lead = r"(?<=\S)" if loose else r"(?<=[.;:])"
-    for m in re.finditer(lead + r"\s+(" + re.escape(nxt) + r")\.\s+(?=[A-Z(<\"])", text):
+    mark = r"\(?(" + re.escape(nxt) + r")\)" if paren else r"(" + re.escape(nxt) + r")\."
+    for m in re.finditer(lead + r"\s+" + mark + r"\s+(?=[A-Z(<\"])", text):
         words = text[: m.start()].split()
         if (
             text[m.start() - 1] not in SENTENCE_END
@@ -590,6 +599,26 @@ def _inline_all(block: Block) -> list[Block]:
     if len(pieces) == 1:
         return pieces
     return [pieces[0], *(part for piece in pieces[1:] for part in _inline_all(piece))]
+
+
+# 한 칸에 번호 여럿(`2. 3. 4.`)이 있는 표 행의 본문 칸은 짧은 대문자 제목과 쌍점 앞에서 항목이 바뀐다.
+HEADING_BOUNDARY = re.compile(r"(?<=[.;])\s+(?=[A-Z][\w/-]*(?:\s+[A-Z][\w/-]*){0,7}:)")
+# 쪽 머리말 조각이 표 첫 칸 번호 앞(`PROJECT 2300096 h.`)과 다음 칸 앞(`[LOCATION REDACTED] …`)에 섞인 배치.
+LEAKED_HEADER = re.compile(r"^(\S.{0,40}?)\s+(\S+)$")
+LEAKED_PLACEHOLDER = re.compile(r"^\[[A-Z][A-Z ]*\]\s+")
+
+
+def _label_run(text: str) -> list[tuple[int, str, str, str | None]] | None:
+    """칸 글이 같은 깊이의 이어지는 번호들(`2. 3. 4.`)뿐이면 그 번호들. 아니면 None."""
+    found = [_label(token + " x") for token in text.split()]
+    if len(found) < 2 or any(f is None for f in found):
+        return None
+    run = [f for f in found if f is not None]
+    if any(f[2] != token for f, token in zip(run, text.split(), strict=True)):
+        return None
+    if any(b[0] != run[0][0] or b[1] != _next(a[1]) for a, b in zip(run, run[1:])):
+        return None
+    return run
 
 
 # 상위 항목의 다음 번호가 하위 항목 문단 안에 붙은 자리(`… 4) TDEN-B = 5 MINUTES 5. AUTOMATIC MODE …`).
@@ -625,6 +654,9 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
     section_title: str | None = None
     started = False
     pending: tuple[str, str, Block] | None = None
+    # 표 행 `5. | 1) | 본문`의 앞 번호 칸과 그 깊이. 1)이 앞 목록의 이어짐이라 5.는 다음 번호 없는 표 행에서 연다.
+    held: Block | None = None
+    held_depth = 0
     part_no: str | None = None
     korean = False
     compact_korean = (
@@ -814,7 +846,10 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
             nxt = _next(current.token)
             if nxt is None:
                 break
-            found = _sibling_mark(current.text, nxt, loose=current.depth == 5 and nxt.islower())
+            paren = current.label.endswith(")")
+            found = _sibling_mark(
+                current.text, nxt, loose=current.depth == 5 and nxt.islower(), paren=paren
+            )
             if found is None:
                 break
             head_text, tail = current.text[: found.start()], current.text[found.end() :]
@@ -852,7 +887,7 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
             sibling = _Open(
                 clause_no=clause_no,
                 token=nxt,
-                label=f"{nxt}.",
+                label=current.label.replace(current.token, nxt, 1) if paren else f"{nxt}.",
                 depth=current.depth,
                 parent_no=current.parent_no,
                 title=None,
@@ -1043,6 +1078,23 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
             )
         )
 
+    def release_held(text: str) -> None:
+        """잡아 둔 번호와 깊이가 같거나 얕은 번호가 오면 그 앞에서 빈 본문으로 연다. 더 깊은 번호는 앞 목록의 이어짐이다."""
+        found = contextual_label(text) if held is not None else None
+        if found is not None and found[0] <= held_depth:
+            open_held("", [], [])
+
+    def open_held(body: str, deleted: list[DeletedValue], extra: list[str]) -> None:
+        nonlocal held
+        if held is None:
+            return
+        head, held = held, None
+        found = contextual_label(head.text.strip() + " x")
+        assert found is not None
+        open_clause(found[0], found[1], found[2], None, head, body, deleted, [], extra)
+        if current is not None:
+            current.flags.add("FROM_TABLE_ROW")
+
     def row_body(rest: list[Block]) -> tuple[str, list[DeletedValue]]:
         body, deleted = "", []
         for cell in rest:
@@ -1081,6 +1133,70 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
                 cells.append(blocks[i])
                 i += 1
             filled = [c for c in cells if c.text.strip()]
+            if held is not None and filled:
+                if _row_label(cells) is None and _label(filled[0].text.strip()) is None:
+                    body, deleted = row_body(filled)
+                    open_held(body, deleted, [c.block_id for c in filled])
+                    continue
+                release_held(filled[0].text.strip() + " x")
+            if (
+                started
+                and not korean
+                and current is not None
+                and len(filled) >= 2
+                and not filled[0].deleted_values
+                and not filled[1].deleted_values
+                and (leak := LEAKED_HEADER.match(filled[0].text.strip()))
+                and _upper_title(leak.group(1))
+                and (lead_label := _label(leak.group(2) + " x")) is not None
+                and lead_label[2] == leak.group(2)
+                and lead_label[0] == current.depth
+                and lead_label[1] == _next(current.token)
+            ):
+                # 머리말 조각을 떼면 앞 목록의 다음 번호 행이다(`PROJECT 2300096 h.` → `h.`).
+                fixed = {
+                    filled[0].block_id: filled[0].model_copy(update={"text": leak.group(2)}),
+                    filled[1].block_id: filled[1].model_copy(
+                        update={"text": LEAKED_PLACEHOLDER.sub("", filled[1].text.strip())}
+                    ),
+                }
+                cells = [fixed.get(c.block_id, c) for c in cells]
+                filled = [c for c in cells if c.text.strip()]
+            run = (
+                _label_run(filled[0].text.strip())
+                if started and not korean and len(filled) >= 2
+                else None
+            )
+            if run is not None and not filled[0].deleted_values:
+                body, deleted = row_body(filled[1:])
+                bounds = [m.span() for m in HEADING_BOUNDARY.finditer(body)]
+                if len(bounds) == len(run) - 1:
+                    # 번호 칸 하나(`2. 3. 4.`)와 본문 칸 하나에 항목 여럿이 함께 있다. 제목 경계로 나눠 차례로 연다.
+                    starts = [0, *(end for _, end in bounds)]
+                    ends = [*(start for start, _ in bounds), len(body)]
+                    for n, (found_, start, end) in enumerate(zip(run, starts, ends, strict=True)):
+                        found = contextual_label(found_[2] + " x")
+                        assert found is not None
+                        last = n == len(run) - 1
+                        moved = [
+                            v.model_copy(update={"position": v.position - start})
+                            for v in deleted
+                            if start <= v.position < end or (last and v.position == end)
+                        ]
+                        open_clause(
+                            found[0],
+                            found[1],
+                            found[2],
+                            None,
+                            filled[0],
+                            body[start:end],
+                            moved,
+                            [],
+                            [c.block_id for c in filled[1:]],
+                        )
+                        if current is not None:
+                            current.flags.add("FROM_TABLE_ROW")
+                    continue
             compound = (
                 COMPOUND.match(filled[0].text.strip())
                 if filled and started and not korean
@@ -1126,6 +1242,17 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
                 head = cells[at]
                 found = contextual_label(head.text.strip() + " x")
                 assert found is not None
+                inner = contextual_label(rest[0].text.strip() + " x") if len(rest) >= 2 else None
+                if (
+                    inner is not None
+                    and current is not None
+                    and rest[0].text.strip() == inner[2]
+                    and inner[0] > found[0] + 1
+                    and current.depth >= inner[0] - 1
+                ):
+                    # `5. | 1) | 본문`: 1)은 지금 목록 아래 이어짐(5.의 바로 아래 단계가 아니다). 5.는 다음 행에서 연다.
+                    held, held_depth = head, found[0]
+                    head, rest, found = rest[0], rest[1:], inner
                 depth, token, label, _ = found
                 history = [v.text.strip() for v in head.deleted_values if v.position == 0]
                 body, deleted = row_body(rest)
@@ -1172,6 +1299,9 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
         if block.kind != "PARAGRAPH" or not text:
             i += 1
             continue
+        if SECTION_HEAD.match(text) or PART.match(text):
+            open_held("", [], [])
+        release_held(text)
         if SECTION_HEAD.match(text):
             if section_title is None:
                 section_title = text
@@ -1267,6 +1397,7 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
         else:
             append(block.text.strip(), block.deleted_values, block)
         i += 1
+    open_held("", [], [])
     flush_pending()
     close()
     order = [b.block_id for b in blocks]
