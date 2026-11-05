@@ -175,7 +175,11 @@ def test_two_items_in_one_paragraph_split_only_on_the_next_label():
     assert clauses["2.4.C.3.b"].text.startswith("Expulsion Fuses")
     assert "INLINE_SPLIT" in clauses["2.4.C.3.b"].flags
     assert clauses["2.4.C.3.c"].text.endswith("is not d.")
-    assert not tree.numbering_issues
+    # 발췌가 C.3부터라 늦게 시작한 목록만 남는다(본문 나누기 문제는 없다).
+    assert [(i.clause_no, i.kind, i.detail) for i in tree.numbering_issues] == [
+        ("2.4", "STRUCTURE_GAP", "LATE_START: A,B"),
+        ("2.4.C", "STRUCTURE_GAP", "LATE_START: 1,2"),
+    ]
 
 
 def test_gaps_and_repeats_are_reported_not_renumbered():

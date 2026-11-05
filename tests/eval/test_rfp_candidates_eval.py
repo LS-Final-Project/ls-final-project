@@ -640,3 +640,24 @@ def test_summary_takes_the_processed_draft_for_the_trace_rate():
     assert summary["draft_trace"]["denominator"] == 1
     with pytest.raises(ValueError, match="EVAL_INVALID_INPUT"):
         summarize(GOLD, [run], "REMEASURE", {})
+
+
+def test_structure_repair_is_off_by_default_and_recorded_in_meta_when_on(tmp_path, monkeypatch):
+    """--structure-repair는 기본 끔이다. 켜면 같은 공급자 설정으로 보정 호출을 만들고 meta에 판본·건수를 남긴다."""
+    schemas = []
+
+    def gemini(_env, _thinking=None, schema=None):
+        schemas.append(schema)
+        return "model-x", rfp_candidate_run.fake_provider
+
+    monkeypatch.setattr(rfp_candidate_run, "gemini", gemini)
+    ledger = ["--official-ledger", str(tmp_path / "official.jsonl")]
+    off = ["--run-label", "FIRST", "--out", str(tmp_path / "off.json"), *ledger]
+    assert evaluation_run(tmp_path, monkeypatch, *off, patch_gemini=False) == 0
+    assert "structure_repair" not in json.loads((tmp_path / "off.json").read_text())["meta"]
+    assert schemas == [None]
+    on = ["--run-label", "REMEASURE", "--out", str(tmp_path / "on.json"), *ledger]
+    assert evaluation_run(tmp_path, monkeypatch, *on, "--structure-repair", patch_gemini=False) == 0
+    meta = json.loads((tmp_path / "on.json").read_text())["meta"]
+    assert meta["structure_repair"]["version"] == "rfp-structure-repair-v1"
+    assert schemas[-1].__name__ == "RepairOutput"
