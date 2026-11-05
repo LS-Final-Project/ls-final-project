@@ -229,6 +229,11 @@ def system(settings, business_database, registered_user, google_tokens, monkeypa
             ]
             conn.execute("DELETE FROM cs.audit_events WHERE actor_user_id=%s", (user_id,))
             conn.execute("DELETE FROM cs.ticket_workflows WHERE ticket_id=ANY(%s)", (ticket_ids,))
+            # KAN-214 자동 배정은 표가 있을 때만 행을 남긴다(앞 시험이 같은 DB에 적용한 경우).
+            if conn.execute("SELECT to_regclass('cs.ticket_assignments')").fetchone()[0]:
+                conn.execute(
+                    "DELETE FROM cs.ticket_assignments WHERE ticket_id=ANY(%s)", (ticket_ids,)
+                )
             conn.execute("DELETE FROM cs.tickets WHERE id=ANY(%s)", (ticket_ids,))
             conn.execute("DELETE FROM tft.projects WHERE id=ANY(%s)", (list(projects),))
 
