@@ -16,6 +16,7 @@ from backend.api.tft.rfp.comparison import Requirement, compare_in_family, load_
 from backend.api.tft.worker_processor import (
     candidate_pool,
     grading_groups,
+    image_comparison_review,
     integration_of,
     to_comparison,
     to_grading,
@@ -339,6 +340,22 @@ def test_a_plain_value_on_a_minimum_rating_is_read_as_at_least():
         if c.product_code == "SWGR-MV-12kV"
     )
     assert swgr.status == "EVIDENCE_FOUND"
+
+
+def test_a_drawing_voltage_on_a_switchgear_tag_is_judged_on_the_switchgear():
+    """KAN-217: 도면 "11 kV 중전압 개폐반"을 MV-SWG-01 정격 11 kV로 뽑아도 12 kV 개폐반이 근거다(정격 ≥ 계통 전압).
+
+    태그를 개폐반으로 읽지 못하면 차단기 VCB-25kV-1250(25.8 kV)이 근거가 됐고, 24 kV 계통 요구도 충족으로 나왔다.
+    """
+    nominal = _mv("OCR-DOCX-0001.7", "MV-SWG-01", "rated_max_voltage", "11", "kV", "EQ")
+    shown = image_comparison_review(
+        nominal, compare_in_family(to_comparison(nominal), "MV_EQUIP", load_own_products())
+    )
+    assert shown.status == "CONDITIONAL"
+    assert "DS-SWGR-MV-12kV" in shown.reason
+    shortfall = _mv("2.1", "MV-SWG-01", "rated_max_voltage", "24", "kV", "EQ")
+    outcome = compare_in_family(to_comparison(shortfall), "MV_EQUIP", load_own_products())
+    assert outcome.status == "SPEC_GAP"
 
 
 def test_a_breaker_is_not_evidence_for_a_switch_fuse_or_arrester():
