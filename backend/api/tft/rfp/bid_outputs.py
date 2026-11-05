@@ -142,7 +142,7 @@ def requirement_label(code: str) -> str:
 _OCR_ANY = re.compile(r"(?:[0-9a-f]{8}:)?OCR-(DOCX-|PDF-P)(\d+)(?:\.[\d.]+)?(?:-(\d+))?")
 _OCR_TITLE = re.compile(r"(?:[0-9a-f]{8}:)?OCR-(?:DOCX-|PDF-P)\d+\s+(?=본문 이미지|PDF )")
 _CONDITION_HEAD = re.compile(
-    r"^(" + "|".join(sorted(_CONDITION, key=len, reverse=True)) + r")(?=\s)"
+    r"^((?:조건·미확인: )?)(" + "|".join(sorted(_CONDITION, key=len, reverse=True)) + r")(?=\s)"
 )
 
 
@@ -162,7 +162,7 @@ def readable_text(text: str) -> str:
         ),
         text,
     )
-    return _CONDITION_HEAD.sub(lambda m: _CONDITION[m.group(1)], text)
+    return _CONDITION_HEAD.sub(lambda m: m.group(1) + _CONDITION[m.group(2)], text)
 
 
 def reason_text(reason: str | None) -> str:
