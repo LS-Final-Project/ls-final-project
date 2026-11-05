@@ -50,9 +50,11 @@ class JobsSweepSettings(BaseSettings):
     service_url: str = ""
     # Scheduler가 ID 토큰을 받는 호출 전용 서비스 계정.
     invoker_email: str = ""
-    # 살아 있는 lease 없이 이 시간 동안 이벤트가 없으면 작업을 실패로 닫는다. 전송 재시도(3회×30초)와
-    # Job 시작 시간보다 길어야 한다.
-    stale_seconds: int = Field(default=900, ge=300, le=86400)
+    # 살아 있는 lease 없이 이 시간 동안 이벤트가 없으면 작업을 실패로 닫는다. RUNNING은 worker가 이벤트와
+    # lease 연장을 한 트랜잭션에 남기므로 lease(기본 300초)가 먼저 지킨다. lease가 없는 QUEUED는 이 값만
+    # 본다: 전송 3회가 전송 lease 만료(30초)·재시도 간격(30초)·1분 주기로 늦어지는 최악 약 280초에 Job
+    # 시작 시간을 더한 것보다 길어야 한다. 실측 최대 이벤트 간격은 67초다(KAN-155).
+    stale_seconds: int = Field(default=600, ge=300, le=86400)
 
     @model_validator(mode="after")
     def validate_enabled(self) -> Self:

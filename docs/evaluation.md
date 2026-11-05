@@ -665,6 +665,7 @@ uv run --frozen python scripts/eval_adopt.py --task rfp --results <저장소 밖
 worker 복구: 처리 도중 C/S worker를 강제 종료했다(작업 2건, 각 1회).
 
 - 아무도 다시 띄우지 않으면 죽인 뒤 912.2초에 `FAILED`로 닫혔다. 닫는 조건은 lease(300초) 만료와 마지막 이벤트 뒤 900초 경과다. 그동안 같은 문의의 새 분석 접수는 409다.
+- 이 측정 뒤 기본값을 600초로 줄였다(KAN-155). 실측 이벤트 간격 최대는 67초이고, RUNNING은 lease가 먼저 지키며, lease가 없는 QUEUED의 전송 최악은 약 280초다. 같은 시험을 다시 돌리니 죽인 뒤 607.3초에 `FAILED`(`JOB_WORKER_LOST`)로 닫혔다.
 - Cloud Run Job은 재시도하지 않아(`--max-retries=0`) 자동으로 다시 띄우는 경로가 없다.
 - lease가 끝난 뒤 worker를 손으로 다시 띄우면 체크포인트에서 이어 가 성공했다(죽인 뒤 325.5초).
 - 도중에 죽은 작업도 `failure_code=JOB_NOT_STARTED`로 닫힌다. 화면·운영 문구가 이 코드를 "시작 못 함"으로 보여 주면 틀린 설명이 된다. 코드는 고치지 않았다.
