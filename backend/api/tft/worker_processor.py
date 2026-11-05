@@ -93,6 +93,8 @@ class ProcessorSettings(BaseSettings):
     extraction_concurrency: int = Field(default=6, ge=1, le=6)
     # 요구 추출 호출의 thinking 수준. None이면 모델 기본(설정을 보내지 않음). 측정: 2026-11-06 rfp-timing 보고서.
     extraction_thinking_level: Literal["LOW", "MEDIUM", "HIGH"] | None = None
+    # 맥락 정리(설비 묶기·연결) 호출의 thinking 수준. None이면 모델 기본.
+    context_thinking_level: Literal["LOW", "MEDIUM", "HIGH"] | None = None
     extraction_provider: Literal["gemini", "fake"] = "gemini"
     extraction_model: str = Field(default="gemini-3.6-flash", pattern=r"^[a-zA-Z0-9._-]+$")
     extraction_max_output_tokens: int = Field(default=16384, ge=1, le=65536)
@@ -237,7 +239,9 @@ def build(settings: Settings) -> Processor:
         async def organize(stage: Stage, payload: dict[str, Any]) -> ContextProposal:
             nonlocal context_client
             if context_client is None:
-                context_client = create_gemini_context_provider(extraction_settings(config))
+                context_client = create_gemini_context_provider(
+                    extraction_settings(config), config.context_thinking_level
+                )
             return await context_client(stage, payload)
 
         context_provider = organize
