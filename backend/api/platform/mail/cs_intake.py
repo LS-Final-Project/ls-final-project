@@ -5,7 +5,10 @@
    분류가 RFP·기타(`NEW_RFP`·`OTHER`)가 아닌 메일을 고른다. 보낸 주소가 C/S 고객 연락처(C33)에 있는
    메일만 남긴다. 플랫폼은 cs 스키마를 읽지 않으므로 연락처는 C/S 내부 경로(`sender-customers`)로 묻는다.
 2. `GET /messages/{id}/content`: 확인 화면에 보일 제목·본문을 원문에서 꺼낸다(저장하지 않는다).
+   KAN-238부터 역할과 무관하게 메일함 주인이면 읽는다(영업이 RFP 메일을 본다).
 3. 등록은 기존 `register-ticket`(KAN-110), [문의 아님]은 기존 재분류(`OTHER`)를 쓴다.
+
+4. `GET /messages`(KAN-238): 메일함 화면의 받은 메일 전체 목록과 연결 상태. 메타데이터만 DB에서 읽는다.
 
 모델을 부르지 않는다. 자동 접수는 하지 않는다(후보는 추천).
 """
@@ -24,8 +27,9 @@ from backend.api.platform.auth.mailbox_http import mailbox_provider
 from backend.api.platform.auth.microsoft import PersonalMicrosoftOAuth
 from backend.api.platform.mail.business import SENDER_CUSTOMERS_PATH, cs_caller
 from backend.api.platform.mail.intake import BODY_LIMIT, read_raw
-from backend.api.platform.mail.links import not_found
+from backend.api.platform.mail.links import OwnerService, not_found
 from backend.engine.mail_triage.extract import mail_text
+from backend.engine.mail_triage.triage import MailType
 from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
 from backend.shared.models import ErrorResponse, ResponseMeta, SuccessResponse
@@ -62,6 +66,32 @@ class CsCandidate(BaseModel):
 
 class CsCandidateList(BaseModel):
     items: list[CsCandidate]
+
+
+class MailLink(BaseModel):
+    owner_service: OwnerService
+    # 예: cs_ticket:<문의 ID>, rfp_project:<프로젝트 ID>
+    business_ref: str
+
+
+class InboxMessage(BaseModel):
+    """받은 메일 한 통과 연결 상태(KAN-238). 본문은 담지 않는다."""
+
+    message_id: UUID
+    received_at: datetime
+    from_address: str | None
+    subject: str | None
+    has_attachments: bool
+    # 가장 먼저 붙은 업무 연결(문의·RFP 프로젝트). 없으면 null.
+    link: MailLink | None
+    # 사람이 어느 문의의 답장인지 정해야 하는 열린 회신 검토가 있는지.
+    reply_review_open: bool
+    # 최신 분류 유형(규칙·사람). 분류가 없으면 null.
+    mail_type: MailType | None
+
+
+class InboxMessageList(BaseModel):
+    items: list[InboxMessage]
 
 
 class MailContent(BaseModel):
@@ -165,6 +195,66 @@ async def list_candidates(
 
 
 @router.get(
+    "/messages",
+    response_model=SuccessResponse[InboxMessageList],
+    operation_id="platform_list_mail_messages",
+    openapi_extra=ACTIVATION,
+)
+async def list_messages(
+    request: Request,
+    response: Response,
+    provider: PersonalMicrosoftOAuth = Depends(mailbox_provider),
+) -> SuccessResponse[InboxMessageList]:
+    """내 메일함의 받은 메일(최근 순 최대 100통)과 연결 상태. 역할과 무관하게 자기 메일함만 보인다.
+
+    Args:
+        request: 운영 세션 요청.
+        response: CSRF 헤더를 받을 응답.
+        provider: 사서함 기능 비활성이면 404로 닫는 의존성.
+
+    Returns:
+        SuccessResponse[InboxMessageList]: 받은 시각 내림차순. 본문 없음.
+    """
+    user = await operational_identity(request, response)
+    # ponytail: 최근 100통 고정. 메일이 많아지면 received_at 커서를 붙인다.
+    async with connection(request.app.state.settings) as conn:
+        cursor = await conn.execute(
+            "SELECT m.id, m.received_at, m.from_address, m.subject, m.has_attachments, "
+            "k.owner_service, k.business_ref, t.mail_type, EXISTS (SELECT 1 FROM "
+            "integration.mail_reply_reviews v WHERE v.message_id=m.id AND v.status='OPEN') "
+            "AS reply_review_open "
+            "FROM integration.mail_messages m JOIN mailbox_auth.connections c ON c.id=m.mailbox_id "
+            "LEFT JOIN LATERAL (SELECT owner_service, business_ref FROM integration.mail_links "
+            "WHERE message_id=m.id ORDER BY created_at, id LIMIT 1) k ON true "
+            "LEFT JOIN integration.mail_triage_latest l ON l.message_id=m.id "
+            "LEFT JOIN integration.mail_triage t ON t.message_id=l.message_id "
+            "AND t.version=l.latest_version "
+            "WHERE c.owner_user_id=%s AND m.folder='inbox' AND m.removed_at IS NULL "
+            "ORDER BY m.received_at DESC, m.id LIMIT 100",
+            (user.id,),
+        )
+        rows = await cursor.fetchall()
+    items = [
+        InboxMessage(
+            message_id=r["id"],
+            received_at=r["received_at"],
+            from_address=r["from_address"],
+            subject=r["subject"],
+            has_attachments=r["has_attachments"],
+            link=MailLink(owner_service=r["owner_service"], business_ref=r["business_ref"])
+            if r["business_ref"]
+            else None,
+            reply_review_open=r["reply_review_open"],
+            mail_type=r["mail_type"],
+        )
+        for r in rows
+    ]
+    return SuccessResponse(
+        data=InboxMessageList(items=items), meta=ResponseMeta(request_id=request.state.request_id)
+    )
+
+
+@router.get(
     "/messages/{message_id}/content",
     response_model=SuccessResponse[MailContent],
     operation_id="platform_get_mail_content",
@@ -176,9 +266,10 @@ async def get_content(
     response: Response,
     provider: PersonalMicrosoftOAuth = Depends(mailbox_provider),
 ) -> SuccessResponse[MailContent]:
-    """내 받은 메일 한 통의 제목·본문 텍스트(문의 등록 전 확인용). 원문에서 꺼내고 저장하지 않는다.
+    """내 받은 메일 한 통의 제목·본문 텍스트(문의 등록 전 확인·메일함 보기). 원문에서 꺼내고 저장하지 않는다.
 
-    다른 사람 메일함·보낸편지함·지운 메일은 404, cs_agent가 아니면 403, 원문 저장소가 없으면 404.
+    역할과 무관하게 메일함 주인만 읽는다(KAN-238). 다른 사람 메일함·보낸편지함·지운 메일은 404,
+    원문 저장소가 없으면 404.
 
     Args:
         message_id: 받은 메일 ID.
@@ -190,7 +281,6 @@ async def get_content(
         SuccessResponse[MailContent]: 제목·보낸 사람·본문.
     """
     user = await operational_identity(request, response)
-    await _cs_agent(request)
     async with connection(request.app.state.settings) as conn:
         cursor = await conn.execute(
             "SELECT m.from_address, m.received_at, m.raw_storage_key, m.raw_sha256, m.raw_size "

@@ -1,10 +1,12 @@
 """KAN-237 문의로 보이는 새 메일: 후보 목록, 본문 확인, 확인 후 문의 등록, 문의 아님.
+KAN-238 메일함의 받은 메일 목록과 연결 상태, 역할과 무관한 본문 보기.
 
 C/S는 가짜 호출 기록기다(고객 연락처 답 포함). 실제 Graph·사서함·C/S에는 연결하지 않는다. 메일은 합성이다.
 """
 
 import asyncio
 import json
+from uuid import uuid4
 
 import httpx
 import psycopg
@@ -27,6 +29,7 @@ NEW_MAIL = (
     b"Message-ID: <orig-237@customer.invalid>\r\n\r\nOil leaks from the gasket.\r\n"
 )
 CANDIDATES = "/api/v1/platform/mail/cs-candidates"
+MESSAGES = "/api/v1/platform/mail/messages"
 
 
 class ContactCs(FakeCs):
@@ -194,8 +197,10 @@ def test_only_a_cs_agent_sees_and_registers(settings, web, notify, registered_us
         )
     client = web["client"]
     assert client.get(CANDIDATES).status_code == 403
-    assert client.get(f"/api/v1/platform/mail/messages/{message}/content").status_code == 403
     assert register(web, message, **FIELDS).status_code == 403
+    # KAN-238: 본문 보기와 받은 메일 목록은 메일함 주인이면 역할과 무관하다(영업이 RFP 메일을 본다).
+    assert client.get(f"/api/v1/platform/mail/messages/{message}/content").status_code == 200
+    assert [i["message_id"] for i in client.get(MESSAGES).json()["data"]["items"]] == [str(message)]
 
 
 def test_candidates_are_unavailable_when_cs_does_not_answer(settings, web, notify):
@@ -205,3 +210,88 @@ def test_candidates_are_unavailable_when_cs_does_not_answer(settings, web, notif
     cs.raise_next = httpx.ConnectError("down")
     response = web["client"].get(CANDIDATES)
     assert (response.status_code, response.json()["error"]["code"]) == (503, "CS_UNAVAILABLE")
+
+
+def received_at(web, notify, hour):
+    message = received(web, notify, NEW_MAIL)
+    with psycopg.connect(notify["dsn"]) as conn:
+        conn.execute(
+            "UPDATE integration.mail_messages SET received_at=%s WHERE id=%s",
+            (f"2026-11-05T0{hour}:00:00+00:00", message),
+        )
+    return message
+
+
+def test_inbox_lists_own_received_mail_newest_first_with_link_state(settings, web, notify):
+    ticket = received_at(web, notify, 1)
+    rfp = received_at(web, notify, 2)
+    review = received_at(web, notify, 3)
+    looks = received_at(web, notify, 4)
+    plain = received_at(web, notify, 5)
+    sent = received(web, notify, NEW_MAIL, folder="sentitems")
+    project = "rfp_project:00000000-0000-4000-8000-000000000001"
+    with psycopg.connect(notify["dsn"]) as conn:
+        for message, service, ref in (
+            (ticket, "cs", "cs_ticket:00000000-0000-4000-8000-000000000002"),
+            (rfp, "platform", project),
+        ):
+            conn.execute(
+                "INSERT INTO integration.mail_links (id, message_id, owner_service, business_ref, "
+                "kind, method) VALUES (gen_random_uuid(), %s, %s, %s, 'ORIGIN', 'BUSINESS')",
+                (message, service, ref),
+            )
+        conn.execute(
+            "INSERT INTO integration.mail_reply_reviews (message_id, reason, candidates) "
+            "VALUES (%s, 'AMBIGUOUS', '[]')",
+            (review,),
+        )
+    marked = web["client"].post(
+        f"{MESSAGES}/{looks}/triage",
+        json={"version": 0, "mail_type": "NEW_RFP", "reason": "영업 확인"},
+        headers=web["headers"],
+    )
+    assert marked.status_code == 200, marked.text
+
+    items = web["client"].get(MESSAGES).json()["data"]["items"]
+    state = [(i["message_id"], i["link"], i["reply_review_open"], i["mail_type"]) for i in items]
+    assert state == [  # 최근 순, 보낸편지함 제외
+        (str(plain), None, False, None),
+        (str(looks), None, False, "NEW_RFP"),
+        (str(review), None, True, None),
+        (str(rfp), {"owner_service": "platform", "business_ref": project}, False, None),
+        (
+            str(ticket),
+            {
+                "owner_service": "cs",
+                "business_ref": "cs_ticket:00000000-0000-4000-8000-000000000002",
+            },
+            False,
+            None,
+        ),
+    ]
+    assert str(sent) not in {i["message_id"] for i in items}
+    assert (items[0]["from_address"], items[0]["subject"]) == (CUSTOMER, "s")  # DB 메타데이터
+    assert "body" not in items[0]
+
+    # 다른 사람 메일함이 되면 목록·본문 모두 보이지 않는다.
+    other = uuid4()
+    with psycopg.connect(notify["dsn"]) as conn:
+        conn.execute(
+            "INSERT INTO identity.users(id,tid,oid,email,display_name,dept) "
+            "VALUES (%s,%s,%s,%s,%s,%s)",
+            (other, uuid4(), uuid4(), "o@example.invalid", "다른 사용자", "TS_AUTO"),
+        )
+        conn.execute(
+            "UPDATE mailbox_auth.connections SET owner_user_id=%s WHERE id=%s",
+            (other, notify["id"]),
+        )
+    try:
+        assert web["client"].get(MESSAGES).json()["data"]["items"] == []
+        assert web["client"].get(f"{MESSAGES}/{plain}/content").status_code == 404
+    finally:
+        with psycopg.connect(notify["dsn"]) as conn:
+            conn.execute(
+                "UPDATE mailbox_auth.connections SET owner_user_id=%s WHERE id=%s",
+                (notify["owner"], notify["id"]),
+            )
+            conn.execute("DELETE FROM identity.users WHERE id=%s", (other,))
