@@ -90,6 +90,17 @@ def prepare(accounts: set[str], schedulers: set[str], url: str) -> list[list[str
             "--role=roles/storage.objectViewer",
         ]
     )
+    # 처리 중 도면 이미지와 내보내기 파일(XLSX·DOCX)을 같은 버킷에 쓴다. 생성만 주고 삭제·덮어쓰기는 주지 않는다.
+    commands.append(
+        [
+            "storage",
+            "buckets",
+            "add-iam-policy-binding",
+            f"gs://{BUCKET}",
+            member("tft-worker-runtime"),
+            "--role=roles/storage.objectCreator",
+        ]
+    )
     if SCHEDULER not in schedulers:
         commands.append(
             [
