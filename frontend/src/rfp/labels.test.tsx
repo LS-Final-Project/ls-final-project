@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { ATTRIBUTE_LABEL, partnerNote, reasonText, requirementNo } from './labels';
+import { ATTRIBUTE_LABEL, codeLabel, partnerNote, reasonText, requirementNo } from './labels';
 
 const read = (name: string) => readFileSync(new URL(name, import.meta.url), 'utf-8');
 
@@ -44,5 +44,9 @@ describe('partnerNote', () => {
     expect(partnerNote({ exclusion_reasons: ['조립품 공급이라 통합 책임(조립)이 필요: 후보 불가.', '조립품 공급이라 통합 책임(시험)이 필요: 후보 불가.'],
       reasons: ['원문 제2조.1 단시간 내전류 요구 25 kA 이상: 제안 모델에 같은 속성 근거가 없어 확인 필요.'] }).text)
       .toBe('통합 책임 불가: 조립·시험 / 단시간 내전류 자료 없음, 확인 필요');
+  });
+  it('직접 추가 요구 코드는 내부 ID 대신 조항과 직접 추가 순번으로 보인다', () => {
+    expect(codeLabel('f4cc6a52:제3조.2:m1')).toBe('제3조.2 직접 추가 1');
+    expect(codeLabel('f4cc6a52:제7조.5:3')).toBe('제7조.5');
   });
 });

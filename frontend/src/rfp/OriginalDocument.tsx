@@ -11,10 +11,25 @@ import { OCR_CLAUSE } from './labels';
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 const FRAME = '<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data:; font-src \'none\'; form-action \'none\'; base-uri \'none\'"><style>body{margin:0;background:#e9edf2} .docx-wrapper{padding:14px!important} section.docx{box-sizing:border-box;max-width:100%;padding:30px!important;min-height:0!important} mark[data-rfp-quote]{background:#fff0a6;color:inherit;text-decoration:underline;text-decoration-color:#d18d00;text-decoration-thickness:2px;text-underline-offset:3px;cursor:pointer} table{max-width:100%} img{max-width:100%}</style></head><body></body></html>';
 
+// 서비스 재시작 직후 등 순간 끊김이면 짧게 두 번 더 받아 본다(0.4초, 1.2초). 권한·형식 오류(4xx)는 바로 알린다.
+async function fetchOriginal(document: DocumentVersion, signal: AbortSignal): Promise<Response> {
+  const url = `/api/v1/tft/documents/${encodeURIComponent(document.document_id)}/file`;
+  for (const wait of [400, 1200, -1]) {
+    try {
+      const response = await fetch(url, { credentials: 'same-origin', signal, redirect: 'error' });
+      if (response.status < 500 || wait < 0) return response;
+    } catch (error) {
+      if (signal.aborted || wait < 0) throw error;
+    }
+    await new Promise(done => setTimeout(done, wait));
+  }
+  throw new Error('unreachable');
+}
+
 /** The normal authenticated file route remains authoritative; never fetch third-party document URLs. */
 export async function readOriginal(document: DocumentVersion, signal: AbortSignal): Promise<ArrayBuffer> {
   if (![DOCX, 'application/pdf'].includes(document.mime)) throw new Error('이 형식의 원문 미리보기는 지원하지 않습니다.');
-  const response = await fetch(`/api/v1/tft/documents/${encodeURIComponent(document.document_id)}/file`, { credentials: 'same-origin', signal, redirect: 'error' });
+  const response = await fetchOriginal(document, signal);
   if (!response.ok) throw new ApiError(response.status, '원문을 읽지 못했습니다. 로그인과 문서 접근 권한을 확인하세요.');
   if (response.headers.get('content-type')?.split(';')[0] !== document.mime) throw new Error('원문 파일 형식이 문서 정보와 다릅니다.');
   const bytes = await response.arrayBuffer();

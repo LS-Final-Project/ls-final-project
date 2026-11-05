@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ApiError, getApiMode } from '../api/client';
@@ -27,12 +27,23 @@ import { DEPARTMENT_LABEL } from './labels';
 import { constraintsBody, emptyConstraints } from './ProjectConstraintsForm';
 import './RfpWorkspace.css';
 
+// 결정은 요구 판본을 올린다. 목록·프로젝트만 다시 읽으면 열린 요구 상세(판본)가 옛 값으로 남아 다음 결정이 409가 된다.
+const afterDecision = (client: QueryClient) => {
+  for (const queryKey of [['workspace-requirements'], ['projects'], ['requirement'], ['comparison']]) void client.invalidateQueries({ queryKey });
+};
+
 // 통합 작업 공간(KAN-222, 사본 캔버스 "RFP 검토 화면 개편안" 1번 보드): 올리기 → 분석 시작 → 분석 중 → 결정 + 출력.
 // 묶음 종류: 입찰 판정 + 도면 확인. 도면 OCR 조항 요구는 판정과 관계없이 decision.drawing_check로 "도면 확인" 묶음에 모은다(KAN-227).
 export type Kind = BidVerdict | 'DRAWING';
 export const VERDICT: Record<Kind, string> = { DEVIATION: '편차', QUERY: '질의', SUPPLEMENT: '보완', ASSIGN: '배정', CONFIRM: '근거 확인', MET: '충족', DRAWING: '근거 확인' };
 // 남은 할 일 묶음 순서(사용자 확정 2026-11-05): 질의 → 편차 → 보완 → 배정 → 근거 확인. 도면 확인은 근거 확인에 합치고 행에 "도면" 표시.
 export const DECIDE_ORDER: Kind[] = ['QUERY', 'DEVIATION', 'SUPPLEMENT', 'ASSIGN', 'CONFIRM'];
+// 판정 변경 목록: 서버 판정 값만(도면 확인은 화면 묶음이라 제외, 근거 확인 중복 없음), 지금 판정은 빼고,
+// 배정은 과업·제출물만 된다(서버 422). 목록 응답에 요구 종류가 없어 과업 문장(task)이 있을 때만 배정을 보인다.
+// ponytail: 제출물 요구에 task가 없으면 배정이 안 보인다. 목록 응답에 kind가 생기면 그것으로 바꾼다.
+const CHANGE_TO: BidVerdict[] = ['QUERY', 'DEVIATION', 'SUPPLEMENT', 'ASSIGN', 'CONFIRM', 'MET'];
+const changeTargets = (r: Pick<RequirementSummary, 'bid_verdict' | 'task'>) =>
+  CHANGE_TO.filter(v => v !== r.bid_verdict && (v !== 'ASSIGN' || !!r.task));
 export const kindOf = (r: Pick<RequirementSummary, 'bid_verdict' | 'decision'>): Kind => r.decision?.drawing_check ? 'DRAWING' : r.bid_verdict as BidVerdict;
 // 묶음·거르기용: 도면 확인은 근거 확인 묶음에 들어간다(결정 단추는 kindOf로 따로).
 export const groupOf = (r: Pick<RequirementSummary, 'bid_verdict' | 'decision'>): Kind => { const k = kindOf(r); return k === 'DRAWING' ? 'CONFIRM' : k; };
@@ -341,15 +352,15 @@ export function Decide({ project, documents, rows, role, actorId, log }: { proje
     && (!text || [r.code, r.attribute, r.value_text, r.equipment].some(v => v?.toLowerCase().includes(text))));
   const count = (v: Kind) => visible.filter(r => groupOf(r) === v).length;
   const groups = filter === 'todo' && !byEq
-    ? [...DECIDE_ORDER, ...(showMet ? ['MET' as const] : [])].map(v => ({ title: VERDICT[v], verdict: v, rows: visible.filter(r => groupOf(r) === v) })).filter(g => g.rows.length)
-    : equipments.map(e => ({ title: e, verdict: undefined, rows: visible.filter(r => eqKey(r) === e && (filter === 'all' || (filter === 'todo' ? open(r) : groupOf(r) === filter))) })).filter(g => g.rows.length);
+    ? [...DECIDE_ORDER, ...(showMet ? ['MET' as const] : [])].map(v => ({ title: VERDICT[v], verdict: v, rows: visible.filter(r => groupOf(r) === v && (v === 'MET' || open(r))) })).filter(g => g.rows.length)
+    : equipments.map(e => ({ title: e, verdict: filter !== 'all' && filter !== 'todo' ? filter : undefined, rows: visible.filter(r => eqKey(r) === e && (filter === 'all' || (filter === 'todo' ? open(r) : groupOf(r) === filter))) })).filter(g => g.rows.length);
   const lines: Line[] = groups.flatMap(g => [{ kind: 'group' as const, ...g }, ...g.rows.flatMap(row => [{ kind: 'row' as const, row }, ...(unfold.has(row.requirement_id) ? membersOf(row.requirement_id).map(m => ({ kind: 'row' as const, row: m })) : [])])]);
   if (filter === 'todo' && !byEq && !showMet && count('MET') > 0) lines.push({ kind: 'fold', n: count('MET') });
   // 펼친 중복 구성원도 고를 수 있게 화면 줄 순서를 쓴다(구성원 패널은 대표로 보낸다).
   const order = lines.flatMap(l => l.kind === 'row' ? [l.row] : []);
   const current = order.find(r => r.requirement_id === sel) ?? order[0];
   const win = useWindow(lines.length);
-  const refresh = () => { client.invalidateQueries({ queryKey: ['workspace-requirements'] }); client.invalidateQueries({ queryKey: ['projects'] }); };
+  const refresh = () => afterDecision(client);
   // 일괄 결정은 서버 일괄 경로가 없어 결정 경로를 건별로 부른다. 중간에 실패하면 거기서 멈추고 앞의 결정은 남는다.
   // 일괄 결정은 서버 일괄 경로 한 번이다. 한 건이라도 실패하면 아무것도 저장되지 않고 첫 실패 건이 온다. 되돌리기는 묶음 되돌리기.
   const bulk = useMutation({
@@ -553,7 +564,7 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
   const value = text ?? (row.bid_verdict === 'QUERY' ? draftQuestion ?? '' : reasonText(reason));
   const decide = useMutation({
     mutationFn: (body: Omit<DecisionRequest, 'version'>) => decideRequirement(row.requirement_id, { version: d?.version ?? row.version, ...body } as DecisionRequest, key()),
-    onSuccess: (_result, body) => { client.invalidateQueries({ queryKey: ['workspace-requirements'] }); client.invalidateQueries({ queryKey: ['projects'] }); if (body.action !== 'undo') onDecided(body); },
+    onSuccess: (_result, body) => { afterDecision(client); if (body.action !== 'undo') onDecided(body); },
   });
   const own = comparison.data?.data.candidates.find(c => c.attribute_match?.our_value);
   const ownText = row.own_value ? ownValueText(row.own_value) : own ? `${own.attribute_match?.our_value ?? ''} ${own.attribute_match?.our_unit ?? ''}`.trim() : '─';
@@ -569,7 +580,8 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
   // 판정 변경·제외·변경 이력은 주 단추와 같은 줄의 작은 링크(펼치면 그 줄 아래로 넓게, CSS .ws-tools).
   const tools = <span className="ws-tools">
     {!responsible && !decided && (changing
-      ? <label className="ws-field inline">판정<select defaultValue={row.bid_verdict} onChange={event => decide.mutate({ action: 'change_verdict', verdict: event.target.value as BidVerdict })}>{(Object.keys(VERDICT) as BidVerdict[]).map(v => <option key={v} value={v}>{VERDICT[v]}</option>)}</select></label>
+      ? <><label className="ws-field inline">판정<select value="" onChange={event => event.target.value && decide.mutate({ action: 'change_verdict', verdict: event.target.value as BidVerdict })}><option value="">바꿀 판정</option>{changeTargets(row).map(v => <option key={v} value={v}>{VERDICT[v]}</option>)}</select></label>
+        {decide.isError && <span role="alert" className="ws-err">{failureText(decide.error)}</span>}</>
       : <button className="ws-link muted" onClick={() => setChanging(true)}>판정 변경</button>)}
     {!responsible && <ExcludeLine row={row} version={d?.version ?? row.version} />}
     <RequirementHistory id={row.requirement_id} />
@@ -592,7 +604,7 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
     </div>
     </div>
     <div className="ws-top">
-    {adding ? <AddRequirement projectId={projectId} quote={adding.quote} clause={adding.clause} equipment={row.equipment} onCancel={() => setAdding(undefined)} onDone={id => { setAdding(undefined); setPicked(''); onMove(id); }} />
+    {adding ? <AddRequirement key={`${adding.clause.clause_id}:${adding.quote}`} projectId={projectId} quote={adding.quote} clause={adding.clause} equipment={row.equipment} onCancel={() => setAdding(undefined)} onDone={id => { setAdding(undefined); setPicked(''); onMove(id); }} />
     : <div className="ws-pick">
       <div className="hd"><span className="name">{row.attribute ?? codeLabel(row.code)}</span><span className="muted">{codeLabel(row.code)} {row.equipment}</span><span className="sp" /><span>{decided ? '결정 완료' : VERDICT[kindOf(row)]}</span>{!decided && <span className="ws-aimark" title="AI가 정한 판정입니다" role="img" aria-label="AI 판정"><ElloMark size={14} /></span>}</div>
       <div className="ws-cmp"><span className="k">요구</span><span className={row.value_text ? 'v' : 'v empty'}>{row.value_text ?? '빈 칸'}</span><span className="k">자사</span><span className="v">{ownText}{(row.own_value ?? own) && <small className="muted"> {row.own_value?.product_code ?? own?.product_code}{row.own_value?.note ? ` ${row.own_value.note}` : ''}</small>}</span>{reason && <><span className="k">판정 이유</span><span className="v why" title={reason}>{reasonText(reason)}</span></>}</div>
@@ -691,7 +703,7 @@ function Output({ project, rows, excluded = [], responsible, actorId, onJump, on
         if (result.data.requirement_version) versions.set(p.row.requirement_id, result.data.requirement_version);
       }
     },
-    onSettled: () => { client.invalidateQueries({ queryKey: ['workspace-requirements'] }); client.invalidateQueries({ queryKey: ['projects'] }); },
+    onSettled: () => { afterDecision(client); },
   });
   const save = useMutation({
     mutationFn: async () => {
@@ -777,7 +789,7 @@ function Output({ project, rows, excluded = [], responsible, actorId, onJump, on
     </div>
     <section className="ws-sec ws-doc">
       {doc === 'dev' && <table className="ws-table ws-otbl two"><colgroup><col style={{ width: 150 }} /><col style={{ width: 200 }} /><col style={{ width: 160 }} /><col /></colgroup><thead><tr><th>조항</th><th>항목</th><th>요구</th><th>편차 내용</th></tr></thead>
-        <tbody>{deviations.map(r => <tr key={r.requirement_id}><td title={codeLabel(r.code)}>{codeLabel(r.code)}</td><td title={`${r.equipment ?? ''} ${r.attribute ?? ''}`}>{r.equipment} {r.attribute}</td><td title={r.value_text ?? undefined}>{r.value_text}</td><td className="wrap"><Clamp text={r.decision?.summary} /></td></tr>)}
+        <tbody>{deviations.map(r => <tr key={r.requirement_id}><td title={codeLabel(r.code)}>{codeLabel(r.code)}</td><td title={`${r.equipment ?? ''} ${r.attribute ?? ''}`}>{r.equipment} {r.attribute}</td><td title={r.value_text ?? undefined}>{r.value_text}</td><td className="wrap"><Clamp text={r.decision?.note ?? ''} /></td></tr>)}
           {deviations.length === 0 && <tr><td colSpan={4} className="muted">편차로 결정한 요구가 없습니다.</td></tr>}</tbody></table>}
       {doc === 'tq' && !responsible && unsent.length > 0 && <div className="ws-go ws-tqbar"><span className="muted">메일 화면에서 질의서를 보냈으면 보낸 것으로 기록하세요. 회신 기다림 날수가 그날부터 셉니다.</span>
         <button className="kb" disabled={sent.isPending} onClick={() => sent.mutate()}>보낸 것으로 기록 {unsent.length}건</button>{sent.isError && <span role="alert">{failureText(sent.error)}</span>}</div>}
@@ -834,7 +846,7 @@ function ReplyFlow({ projectId, detail, question, onDone }: { projectId: string;
   const [value, setValue] = useState(read?.value ?? '');
   const [unit, setUnit] = useState(read?.unit ?? detail.spec?.unit ?? '');
   const [cond, setCond] = useState(read?.conditions?.map(c => [c.value, c.unit].filter(Boolean).join(' ')).join(', ') ?? '');
-  const refresh = () => client.invalidateQueries({ queryKey: ['workspace-requirements'] });
+  const refresh = () => afterDecision(client);
   // KAN-224: AI 읽기는 worker 작업이다. 기다리는 동안 질문 목록을 다시 읽고, 값이 오면 빈 칸을 채운다.
   const waiting = found?.ai === 'QUEUED';
   useEffect(() => {
@@ -887,7 +899,7 @@ function ReplyFlow({ projectId, detail, question, onDone }: { projectId: string;
     <div className="ws-go">
       <label className="ws-field inline">새 요구값<input value={value} size={10} placeholder="값을 직접 입력" onChange={event => setValue(event.target.value)} /></label>
       <label className="ws-field inline">단위<input value={unit} size={5} onChange={event => setUnit(event.target.value)} /></label>
-      <label className="ws-field inline">조건<input value={cond} placeholder="1 min" size={8} onChange={event => setCond(event.target.value)} /></label>
+      <label className="ws-field inline">조건<input value={cond} placeholder="예: 1 min" size={8} onChange={event => setCond(event.target.value)} /></label>
     </div>
     {!result ? <div className="ws-go">
       <button className="kb primary" disabled={!value.trim() || apply.isPending} onClick={() => apply.mutate()}>회신 값으로 다시 판정</button>
@@ -1000,7 +1012,7 @@ function AddRequirement({ projectId, quote, clause, equipment, onDone, onCancel 
         value: value.trim() || null, unit: unit.trim() || null, conditions: cv ? [{ name: 'duration', value: cv, unit: cu ?? null }] : [], allow_duplicate: dupe,
       } as ManualRequirementRequest, key());
     },
-    onSuccess: result => { client.invalidateQueries({ queryKey: ['workspace-requirements'] }); client.invalidateQueries({ queryKey: ['projects'] }); onDone(result.data.requirement_id); },
+    onSuccess: result => { afterDecision(client); onDone(result.data.requirement_id); },
     onError: error => { if (error instanceof ApiError && error.status === 409) setDupe(true); },
   });
   const failed = add.error instanceof ApiError && add.error.status !== 409 ? add.error : add.isError && !(add.error instanceof ApiError) ? add.error : undefined;
@@ -1016,7 +1028,7 @@ function AddRequirement({ projectId, quote, clause, equipment, onDone, onCancel 
     <div className="ws-go">
       <label className="ws-field inline">값<input value={value} size={10} onChange={event => { setValue(event.target.value); setDupe(false); }} /></label>
       <label className="ws-field inline">단위<input value={unit} size={5} onChange={event => setUnit(event.target.value)} /></label>
-      <label className="ws-field inline">조건<input value={cond} size={8} placeholder="1 min" onChange={event => setCond(event.target.value)} /></label>
+      <label className="ws-field inline">조건<input value={cond} size={8} placeholder="예: 1 min" onChange={event => setCond(event.target.value)} /></label>
     </div>
     {!valueOk && <p role="alert" className="ws-alert">값이 고른 글에 없습니다. 고른 글에 있는 값만 넣을 수 있습니다.</p>}
     {dupe && <p role="status" className="ws-note">같은 설비·속성·값의 요구가 이미 있습니다. 그래도 추가하려면 다시 누르세요.</p>}
@@ -1031,7 +1043,7 @@ function ExcludeLine({ row, version }: { row: Row; version: number }) {
   const [why, setWhy] = useState('');
   const exclude = useMutation({
     mutationFn: () => decideRequirement(row.requirement_id, { version, action: 'exclude_requirement', text: why.trim() } as DecisionRequest, key()),
-    onSuccess: () => { client.invalidateQueries({ queryKey: ['workspace-requirements'] }); client.invalidateQueries({ queryKey: ['projects'] }); },
+    onSuccess: () => { afterDecision(client); },
   });
   if (!open) return <button className="ws-link muted ws-histlink" onClick={() => setOpen(true)}>검토 대상에서 제외</button>;
   return <div className="ws-form ws-exclude">
@@ -1045,7 +1057,7 @@ function ExcludedTable({ rows, responsible }: { rows: Row[]; responsible: boolea
   const client = useQueryClient();
   const restore = useMutation({
     mutationFn: (r: Row) => decideRequirement(r.requirement_id, { version: r.version, action: 'restore_requirement' } as DecisionRequest, key()),
-    onSettled: () => { client.invalidateQueries({ queryKey: ['workspace-requirements'] }); client.invalidateQueries({ queryKey: ['projects'] }); },
+    onSettled: () => { afterDecision(client); },
   });
   return <section className="ws-sec ws-review" aria-label="제외한 요구">
     <h2>제외한 요구 <span className="muted">{rows.length}건</span></h2>
