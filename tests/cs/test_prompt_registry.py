@@ -8,11 +8,13 @@ import pytest
 
 from backend.engine.cs import drafting, improvement_drafting, improvement_reply, reply
 from backend.engine.cs.prompt_registry import (
+    COMMITMENT_RULE,
     CONFIRMATION_RULES,
     DEFAULT_VERSIONS,
     EVIDENCE_RULE,
     EVIDENCE_RULE_V4,
     PROMPTS,
+    PROVIDED_INFO_CODES_RULE,
     get_prompt,
     list_versions,
     prompt_fingerprint,
@@ -33,6 +35,8 @@ V1_FINGERPRINTS = {
 V2_CLASSIFICATION_FINGERPRINT = "143d7655ee22fed7"
 # 분류 v3(KAN-105 6차, return_subtype null 규칙 강조). v2의 return_subtype 줄만 바꾼 판본이다.
 V3_CLASSIFICATION_FINGERPRINT = "f299989ca90bcf99"
+# 분류 v4(KAN-161, 헷갈린 정보 코드의 칸 이름). v3의 provided_info 줄 뒤에 한 줄만 더한 판본이다.
+V4_CLASSIFICATION_FINGERPRINT = "08619d15b472d41c"
 # KAN-193 v2: 초안·회신·개선요청 네 단계에 확정 금지 줄 하나만 더한 판본이다.
 V2_FINGERPRINTS = {
     "draft": "a19901526261ff5c",
@@ -44,6 +48,8 @@ V2_FINGERPRINTS = {
 V3_DRAFT_FINGERPRINT = "70bf469f2450f676"
 # KAN-200 v4: v3 규칙 대신 인사를 쓰지 않고 미확인·요청 구분을 지키는 줄을 더한 판본이다.
 V4_DRAFT_FINGERPRINT = "1c35a30973e5c1b7"
+# KAN-161 검증 v2: v1 이유 줄 앞에 비근거 문장 처리와 확정 약속 표시 두 줄을 더한 판본이다.
+V2_VERIFICATION_FINGERPRINT = "8e7561653cd0b38e"
 MODULES = {
     "draft": (drafting, drafting.DRAFT_PROMPT),
     "reply": (reply, reply.REPLY_PROMPT),
@@ -62,8 +68,8 @@ def test_v1_fingerprints_are_pinned():
         None: 지문과 판본 목록을 확인한다.
     """
     assert {stage: prompt_fingerprint(stage, "v1") for stage in PROMPTS} == V1_FINGERPRINTS
-    assert list_versions("classification") == ("v1", "v2", "v3")
-    assert list_versions("verification") == ("v1",)
+    assert list_versions("classification") == ("v1", "v2", "v3", "v4")
+    assert list_versions("verification") == ("v1", "v2")
     assert list_versions("draft") == ("v1", "v2", "v3", "v4")
     assert all(
         list_versions(stage) == ("v1", "v2") for stage in V2_FINGERPRINTS if stage != "draft"
@@ -126,6 +132,21 @@ def test_draft_v4_adds_only_its_rule_to_v2():
     assert prompt_fingerprint("draft", "v4") == V4_DRAFT_FINGERPRINT
 
 
+def test_verification_v2_adds_only_the_commitment_rule():
+    """검증 v2는 v1의 이유 줄 바로 앞에 확정 약속 규칙 두 줄만 더하고, 기본 지시문이 v2 출력 스키마를 붙인다."""
+    from backend.engine.cs import verification
+
+    v1, v2 = get_prompt("verification", "v1"), get_prompt("verification", "v2")
+    assert v2.replace(COMMITMENT_RULE, "", 1) == v1
+    assert v2.splitlines()[v2.splitlines().index(COMMITMENT_RULE.splitlines()[-1]) + 1].startswith(
+        "- 모든 판정에 이유를 쓴다"
+    )
+    assert prompt_fingerprint("verification", "v2") == V2_VERIFICATION_FINGERPRINT
+    assert verification.instruction() == verification.instruction("v2")
+    assert "firm_commitment" in verification.instruction("v2")
+    assert "firm_commitment" not in verification.instruction("v1")
+
+
 def test_classification_v1_states_the_output_contract():
     """분류 v1 본문은 다섯 필드와 시리얼 원값 금지를 지시하고 스키마는 호출자가 붙인다.
 
@@ -176,7 +197,7 @@ def test_classification_v2_adds_only_the_urgency_guide():
 
 
 def test_product_defaults_are_pinned():
-    """제품 경로 기본 판본은 분류 v3·검증 v1·나머지 v2이고, 공급자·실행기·초안·회신 모듈의 기본값이 DEFAULT_VERSIONS와 같다.
+    """제품 경로 기본 판본은 분류 v4·초안 v4·검증 v2·나머지 v2이고, 공급자·실행기·초안·회신 모듈의 기본값이 DEFAULT_VERSIONS와 같다.
 
     Args:
         없음.
@@ -188,9 +209,9 @@ def test_product_defaults_are_pinned():
     from backend.engine.cs import providers
 
     assert DEFAULT_VERSIONS == {
-        "classification": "v3",
+        "classification": "v4",
         "draft": "v4",
-        "verification": "v1",
+        "verification": "v2",
         "reply": "v2",
         "improvement_reply": "v2",
         "improvement_draft": "v2",
@@ -234,6 +255,27 @@ def test_classification_v3_replaces_only_the_return_subtype_rule():
     assert "category_code WARRANTY, secondary_category DEFECT → return_subtype null" in rule
     # 긴급도 지침과 출력 형식 줄은 v2 그대로다.
     assert new[-1] == old[-1] and any("가장 구체적인 신호 하나" in line for line in new)
+
+
+def test_classification_v4_adds_only_the_provided_info_codes_rule():
+    """분류 v4는 v3의 provided_info 줄 바로 뒤에 헷갈린 코드의 칸 이름 줄 하나만 더하고 지문을 고정한다."""
+    v3, v4 = (
+        get_prompt("classification", "v3").splitlines(),
+        get_prompt("classification", "v4").splitlines(),
+    )
+    index = v4.index(PROVIDED_INFO_CODES_RULE.rstrip("\n"))
+    assert v4[:index] + v4[index + 1 :] == v3
+    assert v4[index - 1].startswith("- provided_info는")
+    for phrase in (
+        "'PO or invoice number'",
+        "purchase_doc",
+        "po_number",
+        "error_code",
+        "failure_description",
+    ):
+        assert phrase in PROVIDED_INFO_CODES_RULE
+    assert prompt_fingerprint("classification", "v3") == V3_CLASSIFICATION_FINGERPRINT
+    assert prompt_fingerprint("classification", "v4") == V4_CLASSIFICATION_FINGERPRINT
 
 
 @pytest.mark.parametrize(

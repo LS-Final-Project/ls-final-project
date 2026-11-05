@@ -7,6 +7,8 @@
    있는지 확인한다. 어기면 버리고 이유를 남긴다(`rejected`). 모델이 지운 값(예: 2.5 C.1의 50)이나 없는
    조항을 지어내면 여기서 걸린다. 단, 문장형 요구(`operator=TEXT`)의 값이 인용에 없으면 모델이 바꿔 쓴
    말이므로 값만 비우고 요구는 남긴다(`value_dropped`). 수치 요구는 그대로 버린다.
+   모델이 필수 여부를 UNDETERMINED로 냈는데 인용·상위 조항 문맥에 의무 표현이 있으면 MANDATORY로 올린다
+   (`_raised_necessity`, KAN-161).
 
 4. 포괄 확인(`coverage`): 조항을 문장으로 나눠, 요구 문장(`:`로 끝나는 머리글 제외)마다 채택한 요구의 인용이
    겹치는지 본다. 빠진 문장이 있으면 그 문장만 모아 한 번 더 부른다(`gap_fill`). 긴 조항(14번 2.5 D는 한
@@ -146,10 +148,13 @@ class ExtractedRequirement(Strict):
     )
     # 코드가 정한다(모델 응답 스키마에 없다): 허용 오차 표기가 인용과 맞지 않거나 빠졌으면 사람이 본다.
     needs_review: bool = False
+    # 코드가 정한다: 모델이 UNDETERMINED로 냈지만 인용·상위 조항 문맥의 의무 표현으로 MANDATORY로 올렸는지.
+    # 저장하지 않는다(평가 결과·디버깅용).
+    necessity_by_rule: bool = False
 
 
 # 모델이 채우지 않고 코드가 정하는 칸. 응답 스키마와 필드를 맞출 때 뺀다.
-CODE_ONLY_FIELDS = frozenset({"needs_review"})
+CODE_ONLY_FIELDS = frozenset({"needs_review", "necessity_by_rule"})
 
 
 class DesignatedItem(Strict):
@@ -511,6 +516,56 @@ def _reviewed(req: ExtractedRequirement, distrusted: bool) -> ExtractedRequireme
     )
 
 
+# 지시문 necessity 정의(MANDATORY = shall/must/imperative)의 의무 표현과, 그와 반대인 선호·허용 표현.
+# 한글은 개발 문서의 '-여야 한다'·'해야 하며'·'할 것' 꼴만 본다. 평서문 '-한다'는 범위 설명(적용한다)과 섞여 보지 않는다.
+# 허용은 문장 끝 '수 있다'만 본다('할 수 있어야 한다'는 의무다). 'manufacturer's recommended'처럼 수식어로 쓰는
+# recommended는 선호가 아니어서 'is/are recommended'만 본다.
+OBLIGATION = re.compile(
+    r"\b(?:shall|must|(?:is|are|be) required to)\b|야\s*(?:한다|함|하며|하고|합니다)|할\s*것\b"
+)
+IMPERATIVE = re.compile(r"^\W*(?:provide|furnish|comply|submit|supply|install|perform)\b")
+PERMISSIVE = re.compile(
+    r"\b(?:should|may|preferred|preferably|(?:is|are) recommended|desirable|optional|not (?:be )?required)\b"
+    r"|권장|바람직|수\s*있(?:다|음|습니다)"
+)
+
+
+def _modality(text: str) -> bool | None:
+    """문장 조각의 의무 여부. 의무 표현이면 True, 선호·허용 표현이 있으면 False, 둘 다 없으면 None."""
+    spaced = _space(text)
+    if PERMISSIVE.search(spaced):
+        return False
+    if OBLIGATION.search(spaced) or IMPERATIVE.match(spaced):
+        return True
+    return None
+
+
+def _raised_necessity(req: ExtractedRequirement, path: str) -> ExtractedRequirement:
+    """모델이 UNDETERMINED로 낸 요구를 의무 표현이 있으면 MANDATORY로 올린다. 다른 값은 그대로 둔다.
+
+    인용을 먼저 보고, 표현이 없으면 모델이 받은 상위 조항 문맥(path)을 가까운 상위부터 본다. 처음 만난 표현이
+    정한다: 선호·허용(should·may 등)이면 올리지 않는다. 'shall not'도 의무라 MANDATORY다.
+    모델이 보낸 necessity_by_rule은 쓰지 않는다.
+
+    Args:
+        req: 검사를 통과한 요구.
+        path: 그 조항 입력의 상위 조항 문맥(' > '로 이은 첫머리들).
+
+    Returns:
+        ExtractedRequirement: 올렸으면 necessity=MANDATORY·necessity_by_rule=True, 아니면 necessity_by_rule=False.
+    """
+    verdict = None
+    if req.necessity == "UNDETERMINED":
+        # ponytail: 상위 문맥을 ' > '로 다시 나눈다. 원문에 ' > '가 있으면 조각이 하나 더 생길 뿐 순서는 같다.
+        for text in [req.quote, *reversed(path.split(" > "))]:
+            verdict = _modality(text)
+            if verdict is not None:
+                break
+    if verdict:
+        return req.model_copy(update={"necessity": "MANDATORY", "necessity_by_rule": True})
+    return req.model_copy(update={"necessity_by_rule": False})
+
+
 def validate_output(
     raw: str, item: ExtractionInput
 ) -> tuple[list[ExtractedRequirement], list[Rejected], int, int]:
@@ -533,6 +588,7 @@ def validate_output(
     except (json.JSONDecodeError, ValidationError, TypeError, AttributeError):
         raise ValueError("RFP_INVALID_OUTPUT") from None
     texts = {c.clause_no: _space(_clause_text(c)) for c in item.clauses}
+    paths = {c.clause_no: c.path for c in item.clauses}
     kept: list[ExtractedRequirement] = []
     rejected: list[Rejected] = []
     dropped = 0
@@ -552,7 +608,9 @@ def validate_output(
         if reason is None:
             req, cleared = _grounded_designation(req, texts[req.clause_no])
             undesignated += cleared
-            kept.append(_reviewed(req, index in distrusted))
+            kept.append(
+                _raised_necessity(_reviewed(req, index in distrusted), paths[req.clause_no])
+            )
         else:
             rejected.append(
                 Rejected(clause_no=req.clause_no, attribute=req.attribute, reason=reason)

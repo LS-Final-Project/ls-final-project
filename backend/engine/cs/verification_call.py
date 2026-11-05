@@ -7,10 +7,12 @@ from dataclasses import dataclass, field, replace
 from typing import Literal
 
 from backend.engine.cs.classification_call import CallErrorCode, ClassificationCallError
+from backend.engine.cs.prompt_registry import DEFAULT_VERSIONS
 from backend.engine.cs.verification import (
     VERIFICATION_INPUT_VERSION,
     VerificationInput,
     VerificationOutput,
+    input_version,
     instruction,
     render_prompt,
     unverified_output,
@@ -57,7 +59,7 @@ def run_verification_attempt(
     provider: Callable[[str], Generation],
     attempt_number: int,
     draft_id: str | None = None,
-    prompt_version: str = "v1",
+    prompt_version: str = DEFAULT_VERSIONS["verification"],
 ) -> VerificationAttempt:
     """검증자를 한 번만 호출한다. 실패 원문은 오류 코드로 바꾸며 자동 재시도하지 않는다."""
     if type(attempt_number) is not int or attempt_number < 1:
@@ -68,6 +70,7 @@ def run_verification_attempt(
         payload,
         draft_id=draft_id,
         prompt_version=prompt_version,
+        input_version=input_version(prompt_version),
         instruction_fingerprint=fingerprint,
         input_sha256=hashlib.sha256(payload.model_dump_json().encode("utf-8")).hexdigest(),
         call_started=True,
@@ -108,7 +111,7 @@ def run_verification_attempt(
         call_attempts=response.attempts,
     )
     try:
-        prediction = validate_output(response.text, payload=payload)
+        prediction = validate_output(response.text, payload=payload, prompt_version=prompt_version)
     except ValueError as error:
         return replace(result, outcome="SCHEMA_VIOLATION", error_code=str(error))
     return replace(result, outcome="VALID", prediction=prediction)

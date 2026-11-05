@@ -67,6 +67,7 @@ VERIFICATION = json.dumps(
                 "verdict": "SUPPORTED",
                 "reason": "Synthetic only.",
                 "evidence_chunk_ids": ["chunk-1"],
+                "firm_commitment": False,
             }
             for label in ("CONCISE", "DETAILED", "INFO_FIRST")
         ]
@@ -210,7 +211,7 @@ def test_runner_stores_the_classification_prompt_version(sdk_http):
             return super().record_attempt(kind, ticket_id, attempt)
 
     run_ticket(runner(InMemorySaver(), Recording({"t-1": TICKET})), "thread-v", "t-1")
-    assert seen == [("classification", "v3"), ("draft", "v4"), ("verification", "v1")]
+    assert seen == [("classification", "v4"), ("draft", "v4"), ("verification", "v2")]
     seen.clear()
     graph = runner(InMemorySaver(), Recording({"t-1": TICKET}), prompt_version="v2")
     run_ticket(graph, "thread-v2", "t-1")
