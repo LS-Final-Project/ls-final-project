@@ -804,3 +804,168 @@ def test_inline_numbers_that_are_references_or_out_of_sequence_stay_in_the_text(
     assert "2.1.C.1" not in clauses
     # 삭제값이 있는 문단은 위치를 지키려고 나누지 않는다.
     assert "2.1.D.1" not in clauses
+
+
+def test_lowercase_roman_items_sit_under_the_letter_item():
+    """a. 아래 i.·ii.·iii.는 로마 숫자 단계다. i.는 앞 형제가 h(빠진 번호 포함 f·g)면 영문자 항목이다."""
+    tree = tree_of(
+        p("PART 2 - PRODUCTS"),
+        p("2.4 SWITCHGEAR"),
+        p("G. Ratings:"),
+        p("3. Circuit Breakers: a. Same as the assembly, and as follows:"),
+        p("i. Rated Continuous Current: 4000 A"),
+        p("ii. Closing current is 2.6 times the short-circuit current."),
+        # 표 칸에 뜬 다음 절 번호 뒤의 번호 칸도 같은 목록의 이어짐이다.
+        cell(0, 0, 0, "2.5"),
+        cell(0, 0, 1, "A."),
+        cell(0, 0, 2, "iii."),
+        cell(0, 0, 3, "Rated Closing Current: 104 kA."),
+        cell(0, 1, 0, "iv."),
+        cell(0, 1, 1, "Rated Interrupting Time: 50 msec."),
+        cell(0, 2, 0, "v."),
+        cell(0, 2, 1, "Rated Voltage: 15 kV."),
+        # 미뤄 둔 절은 제목 행에서 연다.
+        cell(0, 3, 0, "STATION POWER"),
+        cell(0, 4, 0, "Provide two load interrupter switches."),
+        p("2.6 INSTRUMENTS"),
+        p("A. Meter:"),
+        p("1. Functions:"),
+        p("a. Volts."),
+        p("b. Amps."),
+        p("c. Watts."),
+        p("d. Vars."),
+        p("e. VA."),
+        p("f. Frequency."),
+        p("h. Power factor."),
+        p("i. Harmonics."),
+        p("2. Relay:"),
+        p("g. Trip."),
+        p("i. Close."),
+    )
+    clauses = by_no(tree)
+    assert clauses["2.4.G.3.a.i"].text == "Rated Continuous Current: 4000 A"
+    assert clauses["2.4.G.3.a.ii"].depth == 6
+    assert clauses["2.4.G.3.a.iii"].text == "Rated Closing Current: 104 kA."
+    assert clauses["2.4.G.3.a.iv"].text == "Rated Interrupting Time: 50 msec."
+    assert clauses["2.4.G.3.a.v"].text == "Rated Voltage: 15 kV."
+    assert "DEFERRED_ARTICLE" in clauses["2.5.A"].flags
+    assert clauses["2.5.A"].table_rows == [
+        ["STATION POWER"],
+        ["Provide two load interrupter switches."],
+    ]
+    assert clauses["2.6.A.1.i"].depth == 5
+    assert clauses["2.6.A.2.i"].depth == 5
+    assert "2.4.G.3.i" not in clauses
+
+
+def test_list_items_glued_without_a_sentence_end_or_a_space():
+    """값 목록은 마침표 없이 다음 소문자 항목이 붙고(`4000 A c. Rated`), 번호 뒤 공백이 빠지기도 한다(`b.Prevent`)."""
+    tree = tree_of(
+        p("PART 2 - PRODUCTS"),
+        p("2.4 SWITCHGEAR"),
+        p("D. Cable compartments:"),
+        p("2. Clearances:"),
+        p("a. Provide stress cone distance."),
+        p("b.Prevent cross-phasing."),
+        p("c. Rated Continuous Current: 4000 A d. Rated Short-Time Current: 40 kA"),
+        p("e. Remote panel see appendix C for layout f. One racking device. g. Test set."),
+        p("h. Mount per Type i. Notes apply."),
+        p("3. The quantity of spares shall be 3. Each spare is boxed."),
+    )
+    clauses = by_no(tree)
+    assert clauses["2.4.D.2.b"].text == "Prevent cross-phasing."
+    assert clauses["2.4.D.2.c"].text == "Rated Continuous Current: 4000 A"
+    assert clauses["2.4.D.2.d"].text == "Rated Short-Time Current: 40 kA"
+    assert clauses["2.4.D.2.e"].text == "Remote panel see appendix C for layout"
+    assert clauses["2.4.D.2.f"].text == "One racking device."
+    assert clauses["2.4.D.2.g"].text == "Test set."
+    # 참조 단어 뒤 글자와 문장 속 숫자는 번호가 아니다.
+    assert clauses["2.4.D.2.h"].text == "Mount per Type i. Notes apply."
+    assert "2.4.D.4" not in clauses
+    assert not [i for i in tree.numbering_issues if i.kind in ("GAP", "DUPLICATE")]
+
+
+def test_next_parent_item_glued_into_a_child_paragraph_opens_the_parent_sibling():
+    """하위 항목 문단 끝에 상위 목록의 다음 번호가 붙어 있으면(`… MIN) 5. AUTOMATIC MODE: a. …`) 그 자리에서 나눈다."""
+    tree = tree_of(
+        p("PART 3 - EXECUTION"),
+        p("3.05 SWITCHGEAR SECTION"),
+        p("L. Main and Tie Breakers 1. Main breakers shall be rated as follows: a. Rating 4000 A."),
+        p("4. Sequence of operation: a. Definitions: 1) SOURCE A 2) SOURCE B"),
+        p(
+            "b. Default delays: 1) TDNE = 5 SECONDS 2) TDEN = 5 MINUTES (RANGE 0-60 MIN) "
+            "5. AUTOMATIC MODE for substations: a. Normal operation: mains closed."
+        ),
+        p("b. Loss of source A: the tie closes."),
+        p("c. Return of source A: the tie opens."),
+        p("r. Cold load pickup 6. Field-Selectable Relay Settings: Required by the study."),
+        p("a. Phase Protection: inverse curves."),
+        p("b. The number of relays shall be 7. Each relay is drawout."),
+    )
+    clauses = by_no(tree)
+    assert clauses["3.05.L.1.a"].text == "Rating 4000 A."
+    assert clauses["3.05.L.4.b"].text.endswith("(RANGE 0-60 MIN)")
+    assert clauses["3.05.L.5"].text == "AUTOMATIC MODE for substations:"
+    assert clauses["3.05.L.5.a"].text == "Normal operation: mains closed."
+    assert clauses["3.05.L.5.b"].parent_no == "3.05.L.5"
+    assert clauses["3.05.L.5.r"].text == "Cold load pickup"
+    assert clauses["3.05.L.6"].text.startswith("Field-Selectable Relay Settings:")
+    assert clauses["3.05.L.6.a"].parent_no == "3.05.L.6"
+    # 짧은 대문자 제목과 쌍점이 없으면 문장 속 숫자다.
+    assert "3.05.L.7" not in clauses
+    assert not [i for i in tree.numbering_issues if i.kind == "DUPLICATE"]
+
+
+def test_table_rows_with_several_numbers_a_held_number_and_a_leaked_page_header():
+    """표로 바뀐 쪽에서 번호 칸이 어긋난 배치(개발 문서 유형)를 원문 번호대로 읽는다."""
+    tree = tree_of(
+        p("PART 2 - PRODUCTS"),
+        p("2.6 SWITCHGEAR"),
+        p("C. Switchgear Bus:"),
+        p("1. Use bus bars to connect compartments."),
+        # 번호 칸 하나에 2. 3. 4., 본문 칸에 세 항목. 삭제 값은 해당 항목으로 간다.
+        cell(0, 0, 0, "2. 3. 4."),
+        cell(
+            0,
+            0,
+            1,
+            "Main Phase Bus: Uniform capacity. Neutral Bus: Refer to the Drawings. "
+            "Vertical Section Bus Size: Comply with IEEE C37.20.1, including allowance for spare",
+            ("None", 47),
+        ),
+        p("circuit breakers."),
+        p("D. Breakers:"),
+        p("3. Operating Mechanism:"),
+        p("c. Stored-Energy Mechanism: Electrically charged."),
+        p("1) Operating Handle: One for each breaker. 2) Electric Close Button: One for each."),
+        p("4. Trip Devices:"),
+        p("g. Ground-fault protection:"),
+        # 5.는 다음 항목 번호, 1)은 g.의 이어짐. 5.는 번호 없는 다음 행에서 연다.
+        cell(1, 0, 0, "5."),
+        cell(1, 0, 1, "1)"),
+        cell(1, 0, 2, "Arrange to provide protection for four-wire circuit."),
+        cell(1, 1, 0, "2)"),
+        cell(1, 1, 1, "Provide zone interlocking."),
+        cell(1, 2, 1, "In addition to the trip unit, provide a protection relay for the"),
+        p("Main Circuit Breaker"),
+        p("6. MCCB Features:"),
+        p("g. Undervoltage Trip: Set to operate at 35 percent."),
+        # 쪽 머리말 조각이 다음 번호 칸 앞과 본문 칸 앞에 섞였다.
+        cell(2, 0, 0, "PROJECT 2300096 h."),
+        cell(2, 0, 1, "[LOCATION REDACTED] Auxiliary Contacts: Two SPDT switches."),
+    )
+    clauses = by_no(tree)
+    assert clauses["2.6.C.2"].text == "Main Phase Bus: Uniform capacity."
+    assert clauses["2.6.C.3"].text == "Neutral Bus: Refer to the Drawings."
+    assert [(v.text, v.position) for v in clauses["2.6.C.3"].deleted_values] == [("None", 13)]
+    assert clauses["2.6.C.4"].text.endswith("allowance for spare circuit breakers.")
+    assert clauses["2.6.C.1"].table_rows == []
+    assert clauses["2.6.D.3.c.1"].text == "Operating Handle: One for each breaker."
+    assert clauses["2.6.D.3.c.2"].text == "Electric Close Button: One for each."
+    assert clauses["2.6.D.3.c.2"].label == "2)"
+    assert clauses["2.6.D.4.g.1"].text == "Arrange to provide protection for four-wire circuit."
+    assert clauses["2.6.D.4.g.2"].text == "Provide zone interlocking."
+    assert clauses["2.6.D.5"].text.startswith("In addition to the trip unit")
+    assert clauses["2.6.D.5"].text.endswith("Main Circuit Breaker")
+    assert clauses["2.6.D.6.h"].text == "Auxiliary Contacts: Two SPDT switches."
+    assert not [i for i in tree.numbering_issues if i.kind in ("GAP", "DUPLICATE")]
