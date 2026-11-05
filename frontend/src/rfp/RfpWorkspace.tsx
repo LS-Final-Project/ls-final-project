@@ -657,6 +657,11 @@ function Output({ project, rows, excluded = [], responsible, actorId, onJump, on
   const review = useMutation({
     // 한 요구에 확인할 것이 둘이면 앞 호출로 판본이 오른다. 응답의 판본으로 다음 호출을 보낸다.
     mutationFn: async ({ ids, action }: { ids: PendingReview[]; action: 'review_confirm' | 'review_return' }) => {
+      // 모두 확인은 한 번에 보낸다(서버가 한 트랜잭션에서 같은 요구의 판본을 잇는다). 되돌려 보내기는 건마다 판단이다.
+      if (action === 'review_confirm' && ids.length > 1) {
+        await bulkDecide(project.id, ids.map(p => ({ requirement_id: p.row.requirement_id, version: p.row.version, action, decision_id: p.decisionId }) as BulkDecisionItem), key());
+        return;
+      }
       const versions = new Map<string, number>();
       for (const p of ids) {
         const result = await decideRequirement(p.row.requirement_id, { version: versions.get(p.row.requirement_id) ?? p.row.version, action, decision_id: p.decisionId } as DecisionRequest, key());
@@ -719,7 +724,7 @@ function Output({ project, rows, excluded = [], responsible, actorId, onJump, on
   const unsent = tq.filter(q => q.status === 'OPEN' && !q.sent_at);
   const sent = useMutation({ mutationFn: () => markQuestionsSent(project.id, unsent.map(q => q.question_id), key()), onSettled: () => client.invalidateQueries({ queryKey: ['questions'] }) });
   const reviewBlock = <section className="ws-sec ws-review" aria-label="책임자 확인">
-    <h2>책임자 확인 <span className="muted">{name(project.responsible_user_id)} {pending.length}건</span>{responsible && pending.length > 0 && <button className="kb primary" disabled={review.isPending} onClick={() => review.mutate({ ids: pending, action: 'review_confirm' })}>모두 확인</button>}</h2>
+    <h2>책임자 확인 <span className="muted">{name(project.responsible_user_id)} {pending.length}건</span>{responsible && pending.length > 0 && <button className="kb primary" disabled={review.isPending} onClick={() => review.mutate({ ids: pending, action: 'review_confirm' })}>{review.isPending && review.variables?.action === 'review_confirm' ? `확인 중 (${review.variables.ids.length}건)` : '모두 확인'}</button>}{review.isError && <span role="alert" className="muted">{failureText(review.error)}</span>}</h2>
     <table className="ws-table"><tbody>{pending.map(p => <tr key={p.decisionId}><td className="tag">{p.row.equipment}</td><td>{p.row.attribute ?? codeLabel(p.row.code)}</td><td>{p.label}</td>
       <td className="r">{responsible && <button className="ws-link" disabled={review.isPending} onClick={() => review.mutate({ ids: [p], action: 'review_return' })}>되돌려 보내기</button>}</td></tr>)}
       {pending.length === 0 && <tr><td className="muted">확인할 결정이 없습니다.</td></tr>}</tbody></table>

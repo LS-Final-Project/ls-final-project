@@ -290,6 +290,23 @@ describe('원문에서 요구 추가와 빼기 (KAN-225)', () => {
     expect(screen.queryByRole('button', { name: '요구에서 빼기' })).toBeNull();
   });
 
+  it('모두 확인은 일괄 결정 경로를 한 번 부르고 기다리는 동안 건수를 보인다', async () => {
+    const f = serve();
+    const pend = (i: number, id: string) => ({ ...MOCK_WORKSPACE_REQUIREMENTS[i], decision: { needed: true, decided: true, reviewed: false, decision_id: id, summary: '충족 확정', excluded: false } }) as never;
+    const rows = [pend(0, 'd1'), pend(1, 'd2'), pend(2, 'd3'), ...MOCK_WORKSPACE_REQUIREMENTS.slice(3)];
+    renderAt('/tft/projects/p1', 'tft/projects/:projectId', <Decide project={project} documents={[]} rows={rows} role="responsible" actorId="boss" />);
+    const reply = bulkReply;
+    let release = () => {};
+    bulkReply = items => new Promise<Response>(done => { release = () => done(reply(items)); }) as never;
+    fireEvent.click(screen.getByRole('button', { name: '모두 확인' }));
+    expect(await screen.findByRole('button', { name: '확인 중 (3건)' })).toBeTruthy();
+    release();
+    bulkReply = reply;
+    await waitFor(() => expect(bulks(f)).toHaveLength(1));
+    expect(bulks(f)[0].map((x: { action: string; decision_id: string }) => [x.action, x.decision_id])).toEqual([['review_confirm', 'd1'], ['review_confirm', 'd2'], ['review_confirm', 'd3']]);
+    expect(decisions(f)).toEqual([]);
+  });
+
   it('책임자 확인 목록에 직접 추가·빼기·되살리기를 같은 요구의 결정과 따로 넣는다', () => {
     const r = { ...MOCK_WORKSPACE_REQUIREMENTS[0], decision: { needed: true, decided: true, reviewed: false, decision_id: 'd1', summary: '충족 확정', change_id: 'c1', change_action: 'add_requirement', change_reviewed: false, excluded: false, manually_added: true } } as never;
     const gone = { ...MOCK_WORKSPACE_REQUIREMENTS[1], decision: { needed: false, decided: true, reviewed: false, decision_id: 'd2', change_id: 'c2', change_action: 'exclude_requirement', change_reviewed: false, excluded: true, manually_added: false } } as never;
