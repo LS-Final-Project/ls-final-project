@@ -11,6 +11,7 @@ import { listSupplementCandidates } from '../api/rfp-supplement';
 import { downloadExportFile, getDraft, getExportJob, getExports, getReviewVersions, sendCommand, type Accepted, type ExportRow } from '../api/rfp-draft';
 import { getProject, listProjects, type ProjectDetail } from '../api/tft';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
+import { ElloMark, ElloWorking } from '../components/Ello';
 import { ErrorState, Loading } from '../components/states';
 import { KvTitle } from '../ls-shell/kv';
 import { MOCK_WORKSPACE_REQUIREMENTS } from '../mocks/rfp-workspace';
@@ -261,7 +262,7 @@ function AnalysisStrip({ projectId, documents, live, failed }: { projectId: stri
   const line = latest ? lineOf(latest) : STEP_NOW[step ?? 'parse'];
   return <>
     <div className="ws-strip" aria-label="AI 분석 상태">
-      <span className={failed ? 'ws-orb stop' : 'ws-orb'} role="img" aria-label={failed ? 'AI 분석 멈춤' : 'AI 분석 중'}><span className="p-body" /><span className="p-light" /><span className="p-gloss" /><span className="p-spark" /></span>
+      <span className="ws-ello" role="img" aria-label={failed ? 'AI 분석 멈춤' : 'AI 분석 중'}><ElloWorking size={28} still={failed} /></span>
       {failed ? <span className="ws-strong">{STEPS.length}단계 중 {at + 1}단계에서 멈췄습니다</span>
         : <><span className="ws-shim">분석 중</span><span className="muted ws-small">{STEP_LABEL[step ?? 'parse'] ?? STEP_LABEL[STEPS[at]]} ({at + 1}/{STEPS.length})</span></>}
       <span className="ws-seg" role="img" aria-label={`${STEPS.length}단계 중 ${at + 1}단계`}>{STEPS.map((s, i) => <i key={s} className={i < at ? 'done' : i === at ? (failed ? 'stop' : 'now') : ''} />)}</span>
@@ -593,7 +594,7 @@ function Panel({ row, projectId, responsible, documents, onDecided, order, onMov
     <div className="ws-top">
     {adding ? <AddRequirement projectId={projectId} quote={adding.quote} clause={adding.clause} equipment={row.equipment} onCancel={() => setAdding(undefined)} onDone={id => { setAdding(undefined); setPicked(''); onMove(id); }} />
     : <div className="ws-pick">
-      <div className="hd"><span className="name">{row.attribute ?? codeLabel(row.code)}</span><span className="muted">{codeLabel(row.code)} {row.equipment}</span><span className="sp" /><span>{decided ? '결정 완료' : VERDICT[kindOf(row)]}</span>{!decided && <span className="dot" title="AI가 정한 판정입니다" aria-label="AI 판정" />}</div>
+      <div className="hd"><span className="name">{row.attribute ?? codeLabel(row.code)}</span><span className="muted">{codeLabel(row.code)} {row.equipment}</span><span className="sp" /><span>{decided ? '결정 완료' : VERDICT[kindOf(row)]}</span>{!decided && <span className="ws-aimark" title="AI가 정한 판정입니다" role="img" aria-label="AI 판정"><ElloMark size={14} /></span>}</div>
       <div className="ws-cmp"><span className="k">요구</span><span className={row.value_text ? 'v' : 'v empty'}>{row.value_text ?? '빈 칸'}</span><span className="k">자사</span><span className="v">{ownText}{(row.own_value ?? own) && <small className="muted"> {row.own_value?.product_code ?? own?.product_code}{row.own_value?.note ? ` ${row.own_value.note}` : ''}</small>}</span>{reason && <><span className="k">판정 이유</span><span className="v why" title={reason}>{reasonText(reason)}</span></>}</div>
       {followsOf(row) ? <div className="ws-decided"><span>원문 {row.duplicate?.member_count ?? 2}곳에 같은 요구가 있어 대표 요구에서 결정합니다.</span><span className="sp" /><button className="ws-link" onClick={() => onMove(followsOf(row) as string)}>대표로 이동</button>{tools}</div>
       : replied && d && !responsible ? <>
