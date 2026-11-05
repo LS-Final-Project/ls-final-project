@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { DocumentVersion, RequirementDetail } from '../api/rfp';
 import { ApiError } from '../api/client';
 import { ErrorState, Loading } from '../components/states';
-import { highlightQuote, revealQuote } from './document-highlight';
+import { highlightQuote, revealImage, revealQuote } from './document-highlight';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import './pdf-text-layer.css';
@@ -26,9 +26,9 @@ export async function readOriginal(document: DocumentVersion, signal: AbortSigna
 
 export function originalQuote(origin?: RequirementDetail['origin']) {
   const ocr = origin?.clause_no?.match(OCR_CLAUSE);
-  if (!ocr) return { quote: origin?.quote ?? '', notice: undefined };
+  if (!ocr) return { quote: origin?.quote ?? '', notice: undefined, image: undefined };
   const location = ocr[1] === 'DOCX-' ? `본문 이미지 순번 ${Number(ocr[2])}` : `PDF 원문 ${origin?.page ?? Number(ocr[2])}쪽`;
-  return { quote: '', notice: `이미지 전사 · ${location}. 원본 이미지와 수치를 대조하세요. 이미지의 글자를 원문 텍스트와 일치했다고 표시하지 않습니다.` };
+  return { quote: '', notice: `이미지 전사 · ${location}. 원본 이미지와 수치를 대조하세요. 이미지의 글자를 원문 텍스트와 일치했다고 표시하지 않습니다.`, image: ocr[1] === 'DOCX-' ? Number(ocr[2]) : undefined };
 }
 
 // onSelectText: 원문에서 드래그로 고른 글. 표 안에서 고르면 빈 글로 알린다(표 글은 조항 텍스트에 없어 요구로 추가할 수 없다).
@@ -49,7 +49,7 @@ function cachedOriginal(document: DocumentVersion, retry: boolean) {
 }
 
 export function OriginalDocument({ document, origin, onQuoteClick, selectionRevision = 0, onSelectText }: { document: DocumentVersion; origin?: RequirementDetail['origin']; selectionRevision?: number; onQuoteClick: () => void; onSelectText?: (text: string) => void }) {
-  const { quote, notice } = originalQuote(origin);
+  const { quote, notice, image } = originalQuote(origin);
   const [bytes, setBytes] = useState<ArrayBuffer>();
   const [error, setError] = useState<unknown>();
   const [attempt, setAttempt] = useState(0);
@@ -61,7 +61,7 @@ export function OriginalDocument({ document, origin, onQuoteClick, selectionRevi
   return <section className="rfp-original-pane" aria-label="실제 원문 문서">
     <header><div><b>{document.title}</b><small>판본 {document.version} · {document.mime === DOCX ? 'DOCX' : 'PDF'}</small></div><a className="kb" href={`/api/v1/tft/documents/${encodeURIComponent(document.document_id)}/file`}>선택 문서 내려받기</a></header>
     <p className="rfp-review-help">{document.mime === DOCX ? '업로드한 DOCX의 본문·표입니다. Word와 글꼴·페이지 나눔은 다를 수 있습니다.' : '업로드한 PDF입니다. 스캔 이미지처럼 문자가 없는 페이지는 밑줄 위치를 확인할 수 없습니다.'}</p>
-    {error ? <ErrorState error={error} onRetry={() => setAttempt(attempt + 1)} /> : !bytes ? <Loading label="원문 파일 읽는 중" /> : document.mime === DOCX ? <DocxOriginal bytes={bytes} quote={quote} notice={notice} selectionRevision={selectionRevision} onQuoteClick={onQuoteClick} onSelectText={onSelectText} /> : <PdfOriginal bytes={bytes} quote={quote} notice={notice} sourcePage={origin?.page} selectionRevision={selectionRevision} onQuoteClick={onQuoteClick} onSelectText={onSelectText} />}
+    {error ? <ErrorState error={error} onRetry={() => setAttempt(attempt + 1)} /> : !bytes ? <Loading label="원문 파일 읽는 중" /> : document.mime === DOCX ? <DocxOriginal bytes={bytes} quote={quote} notice={notice} image={image} selectionRevision={selectionRevision} onQuoteClick={onQuoteClick} onSelectText={onSelectText} /> : <PdfOriginal bytes={bytes} quote={quote} notice={notice} sourcePage={origin?.page} selectionRevision={selectionRevision} onQuoteClick={onQuoteClick} onSelectText={onSelectText} />}
   </section>;
 }
 
@@ -69,7 +69,7 @@ function MatchNotice({ count, quote, notice }: { count?: number; quote: string; 
   return <p className="rfp-match-notice" role="status">{notice ?? (!quote ? '분석한 요구를 고르면 그 인용문을 원문에 강조합니다.' : count === undefined ? '인용 위치 확인 중' : count === 1 ? '선택한 요구의 인용문을 원문에 강조했습니다.' : count === 2 ? '같은 인용문이 여러 곳에 있습니다. 조항을 대조해 위치를 확인하세요.' : '인용 위치 확인 필요 — 인용문과 원문을 대조하세요.')}</p>;
 }
 
-function DocxOriginal({ bytes, quote, notice, onQuoteClick, selectionRevision, onSelectText }: { bytes: ArrayBuffer; quote: string; notice?: string; selectionRevision: number; onQuoteClick: () => void; onSelectText?: (text: string) => void }) {
+function DocxOriginal({ bytes, quote, notice, image, onQuoteClick, selectionRevision, onSelectText }: { bytes: ArrayBuffer; quote: string; notice?: string; image?: number; selectionRevision: number; onQuoteClick: () => void; onSelectText?: (text: string) => void }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const revealed = useRef(0);
   const [ready, setReady] = useState(0);
@@ -103,9 +103,10 @@ function DocxOriginal({ bytes, quote, notice, onQuoteClick, selectionRevision, o
   useEffect(() => {
     const body = frame.current?.contentDocument?.body;
     const scroller = frame.current?.contentDocument?.scrollingElement as HTMLElement | null;
-    if (!rendered || !body || !scroller || !quote || selectionRevision <= revealed.current) return;
-    revealQuote(body, scroller); revealed.current = selectionRevision;
-  }, [quote, rendered, selectionRevision]);
+    if (!rendered || !body || !scroller || (!quote && !image) || selectionRevision <= revealed.current) return;
+    if (quote) revealQuote(body, scroller); else revealImage(body, scroller, image as number);
+    revealed.current = selectionRevision;
+  }, [quote, image, rendered, selectionRevision]);
   useEffect(() => {
     const body = frame.current?.contentDocument?.body;
     if (!rendered || !body) return;
@@ -141,7 +142,8 @@ function PdfOriginal({ bytes, quote, notice, sourcePage, onQuoteClick, selection
     }).catch(reason => { if (!cancelled) setError(reason); });
     return () => { cancelled = true; void task?.destroy(); };
   }, [bytes]);
-  useEffect(() => { setPage(sourcePage && pdf && sourcePage > 0 && sourcePage <= pdf.numPages ? sourcePage : 1); }, [sourcePage, quote, pdf]);
+  // 요구를 고르면 그 쪽으로 넘기고 칸 맨 위부터 보인다(인용문이 있으면 그려진 뒤 그 위치로 다시 내린다).
+  useEffect(() => { setPage(sourcePage && pdf && sourcePage > 0 && sourcePage <= pdf.numPages ? sourcePage : 1); scroller.current?.scrollTo(0, 0); }, [sourcePage, quote, pdf]);
   useEffect(() => {
     if (!pdf || !canvas.current || !layer.current) return;
     let cancelled = false;

@@ -112,7 +112,7 @@
 .ws-seg2{display:inline-flex}
 .ws-seg2 button{font:inherit;font-size:12px;border:1px solid #c4ccd6;background:#fff;padding:3px 9px;margin-left:-1px;cursor:pointer}
 .ws-seg2 button.on{background:#e9eff8;border-color:#24518a;color:#1a3c68}
-.ws-source{flex:1;overflow:auto;min-height:300px}
+.ws-source{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column}
 .ws-quote{padding:12px 16px;line-height:1.75;margin:0;background:#fdf1c4}
 
 .ws-out{display:flex;flex-direction:column;gap:12px;padding:12px 0}
@@ -170,7 +170,7 @@ button.ws-gateitem{color:#24518a;cursor:pointer}
 .ls-root :is(.ws-opts,.ws-plist) label{white-space:nowrap;flex:none}
 /* 작업 공간 원문 칸: 보드처럼 원문 막대 바로 아래에 문서를 두고, 고른 요구의 인용문이 칸 안 위쪽에 보이게 높이를 줄인다. */
 .ws-source .rfp-original-pane>header,.ws-source .rfp-review-help{display:none}
-.ws-source .rfp-docx-frame,.ws-source .rfp-pdf-scroll{height:420px;min-height:0}
+.ws-source .rfp-docx-frame,.ws-source .rfp-pdf-scroll{flex:1;height:auto;min-height:0}
 .ls-root .ws-field.inline input,.ls-root .ws-field.inline select{width:auto}
 .ws-form .ws-go{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .ws-reply{margin:6px 0 2px}
@@ -282,3 +282,17 @@ button.ws-gateitem{color:#24518a;cursor:pointer}
 .ws-prow.off .nm,.ws-prow.off .grade{color:#9aa3ae;border-color:#e1e5ea}
 .ws-prow.off .note{color:#8a939e}
 .ls-root .ws-role input{max-width:360px}
+
+/* 오른쪽 칸 "안 1"(2026-11-05): 화면 높이에 고정, 위 결정·아래 원문이 각자 스크롤, 경계선으로 높이 조절. */
+.ws-right .ws-panel{flex:1;min-height:0;height:auto}
+.ws-top{flex:0 0 40%;min-height:160px;overflow:auto}
+.ws-bottom{flex:1 1 0;min-height:160px;display:flex;flex-direction:column}
+.ws-split{flex:none;height:6px;cursor:row-resize;background:#e6eaf0;border-top:1px solid #d5dbe3;border-bottom:1px solid #d5dbe3;touch-action:none}
+.ws-split:hover,.ws-split:focus-visible{background:#c9d3e0;outline:none}
+.ws-source>.ws-quote{overflow:auto}
+.ws-source .rfp-original-pane{flex:1;min-height:0;display:flex;flex-direction:column}
+.ws-more{display:block;margin:6px 12px 10px;font-size:12px}
+/* 표(왼쪽)·결정+원문(오른쪽)을 화면 높이에 맞추고 각자 안에서 스크롤한다. --ws-grid-top은 화면이 잰 칸 위치. */
+.ws-fit{padding-bottom:0}
+.ws-fit>.ws-left,.ws-fit>.ws-right{height:calc(100vh - var(--ws-grid-top,280px) - 12px);min-height:480px;overflow:hidden}
+.ws-fit>.ws-left .ws-tbox{flex:1;height:auto;min-height:0}

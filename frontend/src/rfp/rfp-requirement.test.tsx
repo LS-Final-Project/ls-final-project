@@ -298,7 +298,7 @@ describe('질문', () => {
   it('회신된 질문은 다시 기록하지 않고 받은 일시를 보인다', async () => {
     questions = [question('q1', { status: 'REPLIED', reply_received_at: '2026-10-27T00:30:00Z' })];
     await open();
-    expect(screen.getByText('회신 기록됨')).toBeTruthy();
+    expect(screen.getByText('회신 도착')).toBeTruthy();
     expect(screen.queryByRole('button', { name: '회신 기록' })).toBeNull();
   });
 });
@@ -343,7 +343,7 @@ describe('회신', () => {
     questions = [question('q1', { status: 'REPLIED' })];
     fireEvent.click(screen.getByRole('button', { name: '다시 불러오기' }));
     await waitFor(() => expect(screen.queryByLabelText('회신 내용')).toBeNull());
-    expect(screen.getByText('회신 기록됨')).toBeTruthy();
+    expect(screen.getByText('회신 도착')).toBeTruthy();
   });
 
   it('충돌은 입력을 지키고 다시 읽는다', async () => {

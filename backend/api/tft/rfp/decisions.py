@@ -41,7 +41,7 @@ DECIDING = frozenset(
 )
 VERDICT_WORDS = {
     "MET": "충족",
-    "CONFIRM": "충족 확인",
+    "CONFIRM": "근거 확인",
     "DEVIATION": "편차",
     "QUERY": "질의",
     "SUPPLEMENT": "보완",
