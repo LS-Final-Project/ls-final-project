@@ -3,10 +3,11 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import Pager, { paged } from '../components/Pager';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
+import RoleHello from '../components/RoleHello';
 import { ErrorState, Loading } from '../components/states';
 import { ApiError, getApiMode } from '../api/client';
 import { getOverview, getOwners, type Overview, type Owners, type StatsFilters } from '../api/cs-stats';
-import { listUserNames } from '../api/platform';
+import { listUserNames, me } from '../api/platform';
 import { useHotkey } from '../ls-shell/kv';
 import { DEPT_CODES, deptName } from '../ls-shell/cs-labels';
 import { emptyFilters, rangeError, toApiFilters } from '../ls-shell/stats-common';
@@ -57,6 +58,8 @@ function StatsView() {
   const [filters, setFilters] = useState<StatsFilters>(emptyFilters);
   const [error, setError] = useState('');
   const [ownerPage, setOwnerPage] = useState(0);
+  // 인사말의 이름(KAN-243). 못 읽으면 이름 없이 인사만 한다.
+  const identity = useQuery({ queryKey: ['cs-stats', mode, 'me'], queryFn: me, retry: false, staleTime: 60_000 });
   const overview = useQuery({ queryKey: ['cs-stats', mode, 'overview', filters], queryFn: ({ signal }) => getOverview(filters, signal), retry: false, staleTime: 0 });
   // 담당자별 집계는 관리자 범위다. 권한이 없으면 그 구역만 안내로 바꾸고 나머지는 그대로 보인다.
   const owners = useQuery({ queryKey: ['cs-stats', mode, 'owners', filters], queryFn: ({ signal }) => getOwners(filters, signal), retry: false, staleTime: 0 });
@@ -137,6 +140,7 @@ function StatsView() {
     </div>
 
     <div className="body">
+      <RoleHello role="manager" label="C/S 관리자" name={identity.data?.data?.display_name} headline="오늘 업무 현황입니다" />
       {mode === 'mock' && <div className="stale" role="status">모의 응답 모드 — 계약 예시이며 실제 업무 집계가 아닙니다.</div>}
       <form className="cond lc" onSubmit={event => { event.preventDefault(); apply(); }}>
         <span className="field"><span className="k">기간</span><span className="range"><input type="date" aria-label="시작일" value={draft.start} onChange={event => setDraft({ ...draft, start: event.target.value })} /><em>~</em><input type="date" aria-label="종료일 (포함)" value={draft.end} onChange={event => setDraft({ ...draft, end: event.target.value })} /></span></span>
