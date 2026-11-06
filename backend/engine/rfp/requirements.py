@@ -877,8 +877,58 @@ def merge_general(
     return [merged.get(i, r) for i, r in enumerate(requirements) if i not in dropped]
 
 
+# 차단기 규격이 정하는 차단 방식. UL 1066·ANSI C37.13은 저압 기중(전력) 차단기, UL 489는 배선용(MCCB)이다.
+# IEC 60947-2는 둘 다 덮어 방식을 말하지 않는다.
+BREAKER_STANDARDS = {
+    "ACB": re.compile(r"\bUL\s*1066\b|\bC37\.13\b", re.IGNORECASE),
+    "MCCB": re.compile(r"\bUL\s*489\b", re.IGNORECASE),
+}
+BREAKER_WORD = re.compile(r"breaker|차단기", re.IGNORECASE)
+
+
+def switching_from_standards(
+    item: ExtractionInput, requirements: list[ExtractedRequirement]
+) -> list[ExtractedRequirement]:
+    """같은 첫 단계 조항(예 3.05.J) 묶음의 인증 요구가 차단기 규격 하나만 말하면, 방식 없는 차단기 요구 장비에 붙인다.
+
+    "Circuit Breakers" 아래 정격 요구는 장비 이름에 방식이 없어 MCCB 정격으로 충족 처리될 수 있는데, 같은 묶음의
+    "Comply with UL 1066"이 저압 기중 차단기임을 말한다(comparison._switching). 규격이 둘 이상의 방식을 말하면 붙이지
+    않는다.
+    """
+    depth = item.section_no.count(".") + 2
+
+    def article(clause_no: str) -> str:
+        return ".".join(clause_no.split(".")[:depth])
+
+    kinds: dict[str, set[str]] = {}
+    for r in requirements:
+        if r.kind == "COMPLIANCE":
+            text = f"{r.value or ''} {r.quote}"
+            found = {kind for kind, pattern in BREAKER_STANDARDS.items() if pattern.search(text)}
+            kinds.setdefault(article(r.clause_no), set()).update(found)
+    out = []
+    for r in requirements:
+        named = kinds.get(article(r.clause_no), set())
+        if (
+            len(named) == 1
+            and r.equipment
+            and BREAKER_WORD.search(r.equipment)
+            and "switching" not in form_axes(r.equipment)
+        ):
+            r = r.model_copy(update={"equipment": f"{r.equipment} ({next(iter(named))})"})
+        out.append(r)
+    return out
+
+
 def _merged(item: ExtractionInput, result: SectionResult) -> SectionResult:
-    return replace(result, requirements=merge_general(item, result.requirements))
+    return replace(result, requirements=_finished(item, result.requirements))
+
+
+def _finished(
+    item: ExtractionInput, requirements: list[ExtractedRequirement]
+) -> list[ExtractedRequirement]:
+    """절 전체 요구에 마지막으로 적용하는 결정 규칙: 차단기 규격으로 방식 붙이기, 같은 조항 일반 의무 합치기."""
+    return merge_general(item, switching_from_standards(item, requirements))
 
 
 def extract_section(item: ExtractionInput, provider: Callable[[str], Generation]) -> SectionResult:
@@ -928,7 +978,7 @@ def extract_section(item: ExtractionInput, provider: Callable[[str], Generation]
     return SectionResult(
         section_no=item.section_no,
         outcome=failed[0].outcome if failed else "VALID",
-        requirements=merge_general(item, [req for r in valid for req in r.requirements]),
+        requirements=_finished(item, [req for r in valid for req in r.requirements]),
         rejected=[rej for r in valid for rej in r.rejected],
         value_dropped=sum(r.value_dropped for r in valid),
         designated_dropped=sum(r.designated_dropped for r in valid),

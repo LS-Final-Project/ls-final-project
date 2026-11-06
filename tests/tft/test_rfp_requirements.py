@@ -1193,3 +1193,33 @@ def test_breaker_kind_named_only_in_the_parent_heading_is_added_to_the_equipment
     assert _switching_from_path(row, "Switchboard") == row
     acb = row.model_copy(update={"equipment": "air circuit breaker"})
     assert _switching_from_path(acb, "Molded-Case Circuit Breaker (MCCB)") == acb
+
+
+def test_breaker_standard_in_the_same_article_names_the_breaker_kind():
+    """같은 첫 단계 조항의 UL 1066은 저압 기중 차단기다. 방식 없는 차단기 정격 요구에 붙인다(KAN-188)."""
+    from backend.engine.rfp.requirements import switching_from_standards
+
+    item = section()  # 절 2.5 → 첫 단계 조항은 2.5.X
+    rows = [
+        ExtractedRequirement.model_validate(r)
+        for r in [
+            req(
+                "2.5.D.2", "Breakers shall be 600 volt", "voltage", "600", "V", equipment="breaker"
+            ),
+            req(
+                "2.5.D.6",
+                "meeting UL 1066",
+                "standard",
+                "UL 1066",
+                kind="COMPLIANCE",
+                equipment="Breakers",
+            ),
+            req("2.5.K", "BIL: 95 kV", "BIL", "95", "kV", equipment="breaker"),
+        ]
+    ]
+    out = switching_from_standards(item, rows)
+    assert out[0].equipment == "breaker (ACB)" and out[1].equipment == "Breakers (ACB)"
+    # 다른 첫 단계 조항(2.5.K)에는 붙이지 않는다. 규격이 두 방식을 말하면 아무 데도 붙이지 않는다.
+    assert out[2] == rows[2]
+    both = rows[:2] + [rows[1].model_copy(update={"value": "UL 489", "quote": "UL 489"})]
+    assert switching_from_standards(item, both) == both

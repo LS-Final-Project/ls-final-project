@@ -46,6 +46,7 @@
    - 필수 여부 규칙(KAN-161). 모델이 `necessity=UNDETERMINED`로 냈는데 인용, 없으면 그 조항 입력의 상위 조항 문맥(`path`, 가까운 상위부터)에서 처음 만난 표현이 의무(shall·must·is/are required to·Provide 등 명령문 첫머리, 한글 '-야 한다'·'-야 하며'·'할 것')면 `MANDATORY`로 올리고 코드 전용 칸 `necessity_by_rule=true`로 남긴다(저장하지 않는다). 처음 만난 표현이 선호·허용(should·may·preferred·optional·is recommended, 권장·바람직·문장 끝 '수 있다')이면 올리지 않는다. `PREFERRED`·`CONDITION_BOUND`·`MANDATORY`는 바꾸지 않는다. 처리 worker와 평가 스크립트가 같은 `validate_output`을 지난다.
 4. **빠진 문장 보완** `coverage`: 조항을 문장으로 나눠, 요구 문장마다 채택한 요구의 인용이 겹치는지 본다. `:`로 끝나는 머리글은 요구 문장에서 뺀다. 빠진 문장이 있으면 **그 문장만** 모아 한 번 더 부른다. 보완 결과도 원 조항 기준으로 같은 검사를 받는다. 그 밖의 자동 재시도는 없다.
 5. **같은 조항 일반 의무 합치기** `merge_general`: 보완까지 끝난 뒤, 같은 조항에서 어휘 키가 없는(`OTHER`) 줄 가운데 종류·필수 여부·대상·과업·연산자·단위·규격 체계·계열이 같고 지정품·조건·허용 오차가 없으며 값이 서로 다르지 않은 줄을 한 줄로 합친다. 인용은 첫 인용부터 끝 인용까지의 원문 연속 구간, 속성은 원래 속성을 ` · `로 잇는다. 인증(`COMPLIANCE`)은 규격마다 따로 비교하므로 합치지 않는다. 합친 인용이 4000자, 속성이 200자를 넘으면 합치지 않는다. 문장마다 일반 의무 한 줄씩 나와 검토 화면 줄이 늘어나는 것을 막는다(KAN-188).
+6. **차단 방식 붙이기**: 장비 이름에 차단 방식(MCCB·ACB·VCB)이 없으면, 상위 조항 첫머리가 한 방식만 말할 때(`_switching_from_path`) 또는 같은 첫 단계 조항 묶음의 인증 요구가 차단기 규격 하나만 말할 때(UL 1066·ANSI C37.13 → ACB, UL 489 → MCCB, `switching_from_standards`) 장비 이름 뒤에 `(방식)`을 붙인다. 자사 비교가 다른 방식 차단기 정격으로 충족 처리하지 않게 한다(`comparison._switching`).
 
 모델에 주는 스키마(`ResponseSchema`)는 엄격 모델(`ExtractionOutput`)과 필드가 같다(코드만 정하는 `needs_review`·`necessity_by_rule` 제외). 다른 점은 `extra=forbid`가 없다는 것이다. Gemini가 `additionalProperties`를 받지 않아서(400 INVALID_ARGUMENT) 이렇게 둔다. 받은 응답은 엄격 모델로 다시 검사한다.
 
