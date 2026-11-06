@@ -1168,6 +1168,12 @@ def test_general_obligations_of_one_clause_merge_into_one_row_with_a_covering_qu
     # 값이 서로 다르거나 필수 여부가 다르면 합치지 않는다.
     differ = [rows[0], rows[1].model_copy(update={"necessity": "PREFERRED"})]
     assert merge_general(item, differ) == differ
+    # 뒤 줄만 검토 표시·규칙 필수가 켜져 있어도 합친 줄에 남는다(PR #656 리뷰).
+    flagged = merge_general(
+        item,
+        [rows[0], rows[1].model_copy(update={"needs_review": True, "necessity_by_rule": True})],
+    )
+    assert len(flagged) == 1 and flagged[0].needs_review and flagged[0].necessity_by_rule
     valued = [
         rows[0].model_copy(update={"value": "coated"}),
         rows[1].model_copy(update={"value": "Fans"}),

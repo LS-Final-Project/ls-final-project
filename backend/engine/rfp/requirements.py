@@ -878,6 +878,9 @@ def merge_general(
                 "certification_listed": any(r.certification_listed for r in rows),
                 "assembly_clause": any(r.assembly_clause for r in rows),
                 "approval_procedure_missing": any(r.approval_procedure_missing for r in rows),
+                # 코드가 정한 검토 표시는 한 줄이라도 켜져 있으면 합친 줄에 남긴다(CODE_ONLY_FIELDS).
+                "needs_review": any(r.needs_review for r in rows),
+                "necessity_by_rule": any(r.necessity_by_rule for r in rows),
             }
         )
         dropped.update(members[1:])

@@ -35,7 +35,8 @@ ASSEMBLY_TEXT = re.compile(
             r"\bunit responsibility\b",
             rf"\bcompleted\b{_IN}{{0,40}}\b(?:line-?up|assembly)\b",
             # 다른 장비·구획과 모선·구획·결선을 맞춘다.
-            rf"\bmatch(?:es|ing)?\b{_IN}{{0,40}}\b(?:bus(?:es)?|compartments?|sections?|harness(?:es)?)\b",
+            # 'section'만으로는 잡지 않는다('finish shall match the adjacent sections'는 마감 색 맞춤이다).
+            rf"\bmatch(?:es|ing)?\b{_IN}{{0,40}}\b(?:bus(?:es)?|compartments?|harness(?:es)?)\b",
             # 장비 사이 전환 구획의 모선·접속.
             rf"\btransition (?:sections?|compartments?)\b{_IN}{{0,80}}\b(?:bus|connections?)\b",
             rf"\b(?:bus|connections?)\b{_IN}{{0,80}}\btransition (?:sections?|compartments?)\b",

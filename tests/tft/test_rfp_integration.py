@@ -111,6 +111,7 @@ def test_assembly_wording_in_the_clause_text_is_a_basis_without_a_model_mark(tex
         "Touchup Paint: Three containers of paint matching enclosure's exterior finish.",
         "Repair damaged finish to match original finish. Vacuum interiors of the sections.",
         "Verify that fuse ratings match Drawings.",
+        "The finish shall match the adjacent sections.",
         "Obtain switchboards and components from single source from single manufacturer.",
         "Tie Breaker rating: 4000 A, coordinate with plans as applicable.",
         "Coil Assembly: the primary and secondary coil assemblies shall be epoxy-cast.",
