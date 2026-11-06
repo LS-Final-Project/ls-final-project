@@ -359,7 +359,7 @@ def test_gemini_shared_factory_and_runtime_schema_validation(monkeypatch):
     client = object()
     monkeypatch.setattr(graph.ai, "create_client", lambda settings: client)
 
-    def generate(actual_client, settings, prompt, *, response_schema):
+    def generate(actual_client, settings, prompt, *, response_schema, thinking_level=None):
         assert actual_client is client and settings.gemini_transient_retries == 0
         schema = response_schema.model_json_schema()
         encoded = json.dumps(schema)

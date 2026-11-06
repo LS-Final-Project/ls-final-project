@@ -105,7 +105,7 @@ def test_fatal_accounting_stop_drains_other_calls_without_submitting_more(monkey
     assert sorted(finished) == [1, 2]
 
 
-@pytest.mark.parametrize("concurrency", [0, 4, True, 1.5])
+@pytest.mark.parametrize("concurrency", [0, 7, True, 1.5])
 def test_bad_parallelism_rejected_before_work(concurrency):
     with pytest.raises(ValueError, match="INVALID_EXTRACTION_CONCURRENCY"):
         processor.extract_sections(
