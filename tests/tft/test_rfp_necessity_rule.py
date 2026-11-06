@@ -193,6 +193,7 @@ STREAMLINED = section(
     "1. Comply with IEEE C37.06.",
     "2. Rated Continuous Current: 4000 A.",
     "3. Enclosure color: ANSI 61 gray.",
+    "4. Optional: 2000 A main breaker.",
 )
 
 
@@ -214,4 +215,18 @@ def test_a_streamlined_rating_line_without_any_modality_is_mandatory():
 def test_a_streamlined_text_line_stays_undetermined():
     # 측정값이 없는 문장형(TEXT)은 축약 문장 규칙으로 올리지 않는다.
     kept = judged("2.4.G.3", "Enclosure color: ANSI 61 gray.", "UNDETERMINED", item=STREAMLINED)
+    assert (kept.necessity, kept.necessity_by_rule) == ("UNDETERMINED", False)
+
+
+def test_an_optional_or_alternate_colon_line_is_not_a_streamlined_obligation():
+    """'Optional: 2000 A'처럼 선택·대안 표지로 시작하는 콜론 문장은 필수로 올리지 않는다(PR #655 리뷰)."""
+    kept = judged(
+        "2.4.G.4",
+        "Optional: 2000 A main breaker.",
+        "UNDETERMINED",
+        item=STREAMLINED,
+        value="2000",
+        unit="A",
+        operator="EQ",
+    )
     assert (kept.necessity, kept.necessity_by_rule) == ("UNDETERMINED", False)

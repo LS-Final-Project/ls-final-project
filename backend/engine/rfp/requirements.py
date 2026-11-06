@@ -543,6 +543,12 @@ def _modality(text: str) -> bool | None:
 # 영문 규격서의 축약 문장('항목: 값'). CSI 규격서 작성 관행에서 'Rated Current: 4000 A'는
 # 'Rated current shall be 4000 A'를 줄인 말이다(streamlined language).
 STREAMLINED = re.compile(r"^\W*[A-Za-z][A-Za-z0-9 ,()/&'\-.]{1,80}:\s*\S")
+# 선택·대안·참고 표지로 시작하는 콜론 문장('Optional: 2000 A', 'Alternate: 1200 A', 'Note: ...')은 축약 의무가 아니다.
+NOT_STREAMLINED = re.compile(
+    r"^\W*(?:optional|options?|alternates?|alternatives?|notes?|examples?|typical|preferred|recommended|"
+    r"if|where|when|unless)\b",
+    re.IGNORECASE,
+)
 
 
 def _raised_necessity(req: ExtractedRequirement, path: str) -> ExtractedRequirement:
@@ -575,6 +581,7 @@ def _raised_necessity(req: ExtractedRequirement, path: str) -> ExtractedRequirem
             and req.value is not None
             and req.operator != "TEXT"
             and STREAMLINED.match(req.quote)
+            and not NOT_STREAMLINED.match(req.quote)
         ):
             verdict = True
     if verdict:
