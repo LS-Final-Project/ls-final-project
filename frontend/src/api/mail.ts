@@ -215,18 +215,8 @@ export async function linkMailRfpProject(messageId: string, projectId: string): 
   return data;
 }
 
-// KAN-237 문의로 보이는 새 메일: 고객 연락처 주소로 온, 아직 업무에 연결하지 않은 받은 메일과 본문 확인.
-export type CsCandidate = paths['/api/v1/platform/mail/cs-candidates']['get']['responses'][200]['content']['application/json']['data']['items'][number];
+// 받은 메일 한 통의 본문 확인(메일함).
 export type MailContent = paths['/api/v1/platform/mail/messages/{message_id}/content']['get']['responses'][200]['content']['application/json']['data'];
-
-/** 내 메일함에서 문의로 보이는 새 메일(cs_agent). 모의 모드에서는 빈 목록이다. */
-export async function listCsCandidates(signal?: AbortSignal): Promise<CsCandidate[]> {
-  const body = await request<unknown>('/api/v1/platform/mail/cs-candidates', { signal, mockFallback: () => ({ data: { items: [] } }) });
-  const items = (body as { data?: { items?: unknown } } | null)?.data?.items;
-  const valid = (c: unknown) => typeof (c as CsCandidate | null)?.message_id === 'string' && Array.isArray((c as CsCandidate).customer_external_ids);
-  if (!Array.isArray(items) || !items.every(valid)) throw new ApiError(502, '문의로 보이는 메일 목록을 확인할 수 없습니다.');
-  return items as CsCandidate[];
-}
 
 /** 받은 메일 한 통의 제목·본문(등록 전 확인용, 서버가 원문에서 꺼낸다). */
 export async function getMailContent(messageId: string, signal?: AbortSignal): Promise<MailContent> {

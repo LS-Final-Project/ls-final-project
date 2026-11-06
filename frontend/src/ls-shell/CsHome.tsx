@@ -8,7 +8,6 @@ import { getApiMode } from '../api/client';
 import { getTicketAnalysis, listTicketsBy, type TicketAnalysisResponse, type TicketListResponse } from '../api/cs';
 import { me } from '../api/platform';
 import { listMyImprovements } from '../api/cs-improvements';
-import { CsMailCandidates } from './CsMailCandidates';
 import RoleProfile, { roleArt } from '../components/RoleProfile';
 import '../pages/ticket-detail-v3.css';
 import './cs-home.css';
@@ -36,11 +35,11 @@ const REQUEST_PAGE = 200;
 export default function CsHome() {
   const access = useBusinessAccess('cs');
   if (!access.ready) return <BusinessGate access={access} title="업무 홈" />;
-  // 문의로 보이는 메일(KAN-237)은 메일함 주인인 C/S 담당자만 등록한다.
-  return <HomeView mail={access.user.data?.data.roles.includes('cs_agent') === true || !access.operational} />;
+  // 문의는 앞단 접수 시스템에서 문의 조회로 들어온다. 업무 홈에서 메일을 문의로 등록하지 않는다(KAN-242).
+  return <HomeView />;
 }
 
-function HomeView({ mail }: { mail: boolean }) {
+function HomeView() {
   const mode = getApiMode();
   const queryClient = useQueryClient();
   const identity = useQuery({ queryKey: ['cs-home', mode, 'me'], queryFn: me, retry: false, staleTime: 60_000 });
@@ -159,8 +158,6 @@ function HomeView({ mail }: { mail: boolean }) {
           <div className="cf">{requests.isError ? <span className="pill bad">불러오지 못함 · 합계에서 빠짐</span> : <span className="pill">{`내 담당만 · 초안 검토 ${reqDraft}건 포함`}</span>}</div>
         </Link>
       </div>}
-
-      {!failed && <CsMailCandidates enabled={mail} products={[...new Set([...newItems, ...mineItems, ...waitItems].map(item => item.product_code))].sort()} />}
 
       {!failed && <div className="home-cols">
         <div className="pane focus-pane">
