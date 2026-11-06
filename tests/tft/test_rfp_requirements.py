@@ -1173,3 +1173,23 @@ def test_general_obligations_of_one_clause_merge_into_one_row_with_a_covering_qu
         rows[1].model_copy(update={"value": "Fans"}),
     ]
     assert merge_general(item, valued) == valued
+
+
+def test_breaker_kind_named_only_in_the_parent_heading_is_added_to_the_equipment():
+    """상위 조항이 MCCB라고만 말하면 하위 요구 장비에 붙여 ACB 근거로 충족 처리하지 않게 한다(KAN-188)."""
+    from backend.engine.rfp.requirements import _switching_from_path
+    from backend.engine.rfp.vocabulary import form_axes
+
+    row = ExtractedRequirement.model_validate(
+        req(
+            "2.3.A.3.a", "Instantaneous trip.", "trip", equipment="Electronic trip circuit breakers"
+        )
+    )
+    added = _switching_from_path(row, "Molded-Case Circuit Breaker (MCCB): Comply with UL 489")
+    assert added.equipment == "Electronic trip circuit breakers (MCCB)"
+    assert form_axes(added.equipment)["switching"] == "MCCB"
+    # 방식이 둘이거나 장비 이름에 이미 있거나 상위에 없으면 그대로 둔다.
+    assert _switching_from_path(row, "Main ACB and feeder MCCB") == row
+    assert _switching_from_path(row, "Switchboard") == row
+    acb = row.model_copy(update={"equipment": "air circuit breaker"})
+    assert _switching_from_path(acb, "Molded-Case Circuit Breaker (MCCB)") == acb

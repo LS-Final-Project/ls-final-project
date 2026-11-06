@@ -37,6 +37,7 @@ from backend.engine.rfp.vocabulary import (
     AttributeKeyOrOther,
     ConditionNameOrOther,
     FamilyOrOther,
+    form_axes,
     is_canonical,
 )
 from backend.shared.ai import Generation, Usage
@@ -563,6 +564,19 @@ def _modality(text: str) -> bool | None:
 STREAMLINED = re.compile(r"^\W*[A-Za-z][A-Za-z0-9 ,()/&'\-.]{1,80}:\s*\S")
 
 
+def _switching_from_path(req: ExtractedRequirement, path: str) -> ExtractedRequirement:
+    """대상 장비 이름에 차단 방식이 없고 상위 조항 첫머리가 한 방식(MCCB·ACB·VCB 등)만 말하면 장비 이름 뒤에 붙인다.
+
+    "Molded-Case Circuit Breaker (MCCB)" 아래 "Electronic trip circuit breakers"의 하위 조항처럼 모델이 장비를
+    일반 이름으로 내면, 자사 비교가 다른 방식 차단기(ACB) 근거로 충족 처리할 수 있다(comparison._switching). 원문
+    상위 조항에 적힌 방식만 붙이고, 방식이 둘 이상이거나 부정어가 있으면 붙이지 않는다(vocabulary.form_axes).
+    """
+    if not req.equipment or "switching" in form_axes(req.equipment):
+        return req
+    kind = form_axes(path).get("switching")
+    return req.model_copy(update={"equipment": f"{req.equipment} ({kind})"}) if kind else req
+
+
 def _raised_necessity(req: ExtractedRequirement, path: str) -> ExtractedRequirement:
     """모델이 UNDETERMINED로 낸 요구를 의무 표현이 있으면 MANDATORY로 올린다. 다른 값은 그대로 둔다.
 
@@ -642,9 +656,9 @@ def validate_output(
         if reason is None:
             req, cleared = _grounded_designation(req, texts[req.clause_no])
             undesignated += cleared
-            kept.append(
-                _raised_necessity(_reviewed(req, index in distrusted), paths[req.clause_no])
-            )
+            path = paths[req.clause_no]
+            req = _switching_from_path(req, path)
+            kept.append(_raised_necessity(_reviewed(req, index in distrusted), path))
         else:
             rejected.append(
                 Rejected(clause_no=req.clause_no, attribute=req.attribute, reason=reason)
