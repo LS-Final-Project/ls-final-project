@@ -281,7 +281,10 @@ def test_process_stores_every_step_once_and_a_rerun_reuses_it(worker_dsn, projec
     # extract는 모델 호출마다(counts 없음)와 절(2.1·2.2)마다(누적 counts) 남는다(lease 연장).
     assert [e["step"] for e in events] == ["parse", *["extract"] * 4, *STEPS[2:]]
     assert events[0] == {"step": "parse", "document_version_id": str(project["docver"])}
-    assert [e.get("counts", {}).get("requirements") for e in events[1:5]] == [None, 2, None, 3]
+    # 절은 동시에 추출되어 이벤트 순서가 실행마다 다르다. 모델 호출 2번(counts 없음)과 절 완료 2번(누적)만 본다.
+    counts = [e.get("counts", {}).get("requirements") for e in events[1:5]]
+    done = [c for c in counts if c is not None]
+    assert counts.count(None) == 2 and done in ([2, 3], [1, 3])
     assert all(e["counts"] == {"requirements": 3, "proposals": 0} for e in events[5:])
     assert summary == {"counts": {"requirements": 3, "proposals": 0}, "needs_review": False}
     assert extractor.calls == 2  # 절 두 개, 빠진 요구 문장 없음.

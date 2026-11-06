@@ -80,3 +80,46 @@ def test_project_integration_gives_the_ids_of_the_basis_clauses_only():
     )
     assert both["basis_clause_ids"] == [basis, other]
     assert both["basis_clause_nos"] == ["2.3.A", "2.3.A"]
+
+
+def _by_text(text: str) -> bool:
+    return integration_responsibility([Requirement(clause_no="9", clause_text=text)]).required
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Description: Factory-assembled and tested, complying with the cited standard.",
+        "Indoor Unit Arrangement: Single assembly.",
+        "Supplier shall have unit responsibility for the complete substation.",
+        "Wiring shall be checked by the manufacturer of the completed line-up prior to shipment.",
+        "The reactor shall be provided with terminations to match the bus of the adjacent breaker section.",
+        "Matching harnesses shall be provided in the MV and LV equipment.",
+        "A transition section shall enclose the bus connections from the breaker to the transformer.",
+        "Perform factory tests on each unit substation.",
+    ],
+)
+def test_assembly_wording_in_the_clause_text_is_a_basis_without_a_model_mark(text):
+    """모델이 조립품 표시를 빠뜨려도 조항 원문의 조립품·접속면 문형으로 판별한다(실행마다 같다)."""
+    assert _by_text(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Control Wiring: Factory installed, complete with bundling, lacing, and protection.",
+        "Touchup Paint: Three containers of paint matching enclosure's exterior finish.",
+        "Repair damaged finish to match original finish. Vacuum interiors of the sections.",
+        "Verify that fuse ratings match Drawings.",
+        "The finish shall match the adjacent sections.",
+        "Obtain switchboards and components from single source from single manufacturer.",
+        "Tie Breaker rating: 4000 A, coordinate with plans as applicable.",
+        "Coil Assembly: the primary and secondary coil assemblies shall be epoxy-cast.",
+        "Field tests shall verify functioning as a complete unit.",
+        "Access to the transition compartment shall be by bolted steel plates.",
+        None,
+    ],
+)
+def test_single_equipment_or_finish_wording_is_not_an_assembly_basis(text):
+    """한 장비 안의 공장 결선, 마감 색 맞춤, 단일 공급원 구매 제한, 현장 시험은 조립품 근거가 아니다."""
+    assert not _by_text(text)

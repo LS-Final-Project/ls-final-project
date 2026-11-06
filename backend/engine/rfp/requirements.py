@@ -14,19 +14,22 @@
    겹치는지 본다. 빠진 문장이 있으면 그 문장만 모아 한 번 더 부른다(`gap_fill`). 긴 조항(14번 2.5 D는 한
    조항에 11문장)에서 모델이 문장을 묶거나 건너뛰는 것을 실행 운에 맡기지 않기 위해서다.
 
+5. 같은 조항 일반 의무 합치기(`merge_general`): 어휘 키 없는 같은 성격의 줄을 한 줄로 합친다. 인증은 합치지 않는다.
+
 명령문("Provide …", "Comply with …")도 요구다. 가격·표준 납기는 비교 대상이 아니라 뽑지 않는다.
 """
 
 import json
 import re
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from backend.engine.rfp.clauses import ClauseTree, is_korean_section
 from backend.engine.rfp.vocabulary import (
+    ATTRIBUTE_HINTS,
     ATTRIBUTE_KEYS,
     CONDITION_NAMES,
     EQUIPMENT_FAMILIES,
@@ -34,6 +37,7 @@ from backend.engine.rfp.vocabulary import (
     AttributeKeyOrOther,
     ConditionNameOrOther,
     FamilyOrOther,
+    form_axes,
     is_canonical,
 )
 from backend.shared.ai import Generation, Usage
@@ -47,7 +51,9 @@ from backend.shared.ai import Generation, Usage
 # v8(KAN-185): 저압 배전반·스위치기어 조립품 계열(LV_SWITCHGEAR). 차단기 자체는 LV_BREAKER다.
 # v9(KAN-184): 구조 문장을 form으로 뽑는 판본. 실측에서 form이 3개에서 90개로 늘어 쓰지 않았다.
 # v10(KAN-184): form을 장비 항목 자체의 형식 문장으로 좁히고 부품·재질·기능은 OTHER로 둔다.
-EXTRACTION_VERSION = "rfp-requirements-v10"
+# v11(KAN-188): 헷갈리기 쉬운 속성 키의 공학 의미(vocabulary.ATTRIBUTE_HINTS), 값이 없는 정격도 키를 단다,
+#   부품·보조 회로의 정격과 계통 조건(공칭 전압·상수·접지)은 장비 정격 키가 아니다, 형식 문장 안의 극수는 따로 낸다.
+EXTRACTION_VERSION = "rfp-requirements-v11"
 Operator = Literal["EQ", "GTE", "LTE", "RANGE", "TEXT"]
 StandardSystem = Literal["IEC", "IEEE", "UL", "NEMA", "NONE"]
 Necessity = Literal["MANDATORY", "PREFERRED", "CONDITION_BOUND", "UNDETERMINED"]
@@ -347,10 +353,19 @@ Return JSON matching the schema. Rules:
   {attribute_keys}. If the text is not clearly the same quantity, use "OTHER". Do not guess from a similar word
   (e.g. a momentary current is not a short-time withstand current; an enclosure paint color is OTHER).
   Keep attribute as the clause wording; attribute_key is only the link.
+  Meanings of keys that are easy to confuse:
+{attribute_hints}
+  Give the key of the quantity a requirement states even when its value is not given ("as shown on the
+  drawings", "as specified"); then value is null. Rating keys describe the equipment item itself: a rating of a
+  part, accessory or auxiliary circuit (control power, auxiliary contacts, spring-charging motor, wiring, fuses,
+  capacitors, resistors, surge arresters, instrument transformers) is "OTHER". The power system the equipment is
+  applied on (nominal system voltage, number of phases or wires, frequency, grounding) is not an equipment
+  rating: keep it in conditions of a rating stated with it, else use "OTHER".
   A sentence that states the type of the equipment item itself (its switching device, how the item is mounted or
   how it is insulated) gets one requirement with attribute_key form, separate from any measured values in the
-  same sentence. A part, accessory, material, fastener, interlock, indicator, wiring, access or function of the
-  equipment is not its type: use "OTHER".
+  same sentence; a pole count there also gets its own number_of_poles requirement. A part, accessory, material,
+  fastener, interlock, indicator, wiring, access, operating mechanism or function of the equipment is not its
+  type: use "OTHER".
 - equipment_family: the product family of the equipment, from: {families}; "OTHER" if none fits or you are not
   sure; null for a task or document requirement. Instrument transformers (voltage/potential or current
   transformers) feeding meters or relays are not TRANSFORMER: use OTHER. A low-voltage switchgear or
@@ -383,6 +398,10 @@ Section {section_no} {section_title}
 Clauses (JSON):
 {clauses}
 """
+# 키 설명은 본문에 미리 넣는다. 승격 검사의 지시문 지문(eval/promotion.py)이 설명 변경도 잡게 하려는 것이다.
+PROMPT = PROMPT.replace(
+    "{attribute_hints}", "\n".join(f"  - {k}: {v}." for k, v in ATTRIBUTE_HINTS.items())
+)
 
 
 def prompt(item: ExtractionInput) -> str:
@@ -551,6 +570,19 @@ NOT_STREAMLINED = re.compile(
 )
 
 
+def _switching_from_path(req: ExtractedRequirement, path: str) -> ExtractedRequirement:
+    """대상 장비 이름에 차단 방식이 없고 상위 조항 첫머리가 한 방식(MCCB·ACB·VCB 등)만 말하면 장비 이름 뒤에 붙인다.
+
+    "Molded-Case Circuit Breaker (MCCB)" 아래 "Electronic trip circuit breakers"의 하위 조항처럼 모델이 장비를
+    일반 이름으로 내면, 자사 비교가 다른 방식 차단기(ACB) 근거로 충족 처리할 수 있다(comparison._switching). 원문
+    상위 조항에 적힌 방식만 붙이고, 방식이 둘 이상이거나 부정어가 있으면 붙이지 않는다(vocabulary.form_axes).
+    """
+    if not req.equipment or "switching" in form_axes(req.equipment):
+        return req
+    kind = form_axes(path).get("switching")
+    return req.model_copy(update={"equipment": f"{req.equipment} ({kind})"}) if kind else req
+
+
 def _raised_necessity(req: ExtractedRequirement, path: str) -> ExtractedRequirement:
     """모델이 UNDETERMINED로 낸 요구를 의무 표현이 있으면 MANDATORY로 올린다. 다른 값은 그대로 둔다.
 
@@ -631,9 +663,9 @@ def validate_output(
         if reason is None:
             req, cleared = _grounded_designation(req, texts[req.clause_no])
             undesignated += cleared
-            kept.append(
-                _raised_necessity(_reviewed(req, index in distrusted), paths[req.clause_no])
-            )
+            path = paths[req.clause_no]
+            req = _switching_from_path(req, path)
+            kept.append(_raised_necessity(_reviewed(req, index in distrusted), path))
         else:
             rejected.append(
                 Rejected(clause_no=req.clause_no, attribute=req.attribute, reason=reason)
@@ -783,6 +815,132 @@ def halved(item: ExtractionInput) -> list[ExtractionInput]:
     ]
 
 
+def _span(text: str, quotes: list[str]) -> str | None:
+    """조항 현행 텍스트에서 인용들을 모두 덮는 연속 구간(원문 표기 그대로). 하나라도 못 찾으면 None."""
+    folded = text.replace("’", "'").replace("‘", "'")
+    starts, ends = [], []
+    for quote in quotes:
+        words = quote.replace("’", "'").replace("‘", "'").split()
+        found = (
+            re.search(r"\s+".join(map(re.escape, words)), folded, re.IGNORECASE) if words else None
+        )
+        if found is None:
+            return None
+        starts.append(found.start())
+        ends.append(found.end())
+    return text[min(starts) : max(ends)]
+
+
+def merge_general(
+    item: ExtractionInput, requirements: list[ExtractedRequirement]
+) -> list[ExtractedRequirement]:
+    """같은 조항의 일반 의무(어휘 키 없음) 요구를 한 줄로 합친다.
+
+    여러 문장 조항에서 모델이 문장마다 일반 의무 한 줄씩 내면 검토 화면에 같은 성격의 줄이 늘어난다. 종류·필수 여부·
+    대상·과업·연산자·단위·계열이 같고 지정품·조건·허용 오차가 없는 줄만 합치고, 값이 서로 다르면 합치지 않는다.
+    인증(COMPLIANCE)은 규격마다 따로 비교하므로 합치지 않는다. 합친 인용은 첫 인용부터 끝 인용까지의 원문 구간이다.
+    """
+    texts = {c.clause_no: _clause_text(c) for c in item.clauses}
+    groups: dict[tuple[object, ...], list[int]] = {}
+    for index, r in enumerate(requirements):
+        if (
+            r.kind == "COMPLIANCE"
+            or r.attribute_key != OTHER
+            or r.designated_model is not None
+            or r.conditions
+            or r.tolerance is not None
+        ):
+            continue
+        key = (r.clause_no, r.kind, r.necessity, r.equipment, r.task, r.operator, r.unit,
+               r.standard_system, r.equipment_family)  # fmt: skip
+        groups.setdefault(key, []).append(index)
+    merged: dict[int, ExtractedRequirement] = {}
+    dropped: set[int] = set()
+    for members in groups.values():
+        rows = [requirements[i] for i in members]
+        values = {r.value for r in rows if r.value is not None}
+        span = _span(texts.get(rows[0].clause_no, ""), [r.quote for r in rows])
+        attribute = " · ".join(dict.fromkeys(r.attribute for r in rows))
+        # 사람이 직접 추가하는 요구와 같은 길이 상한(인용 4000자, 속성 200자)을 넘기면 합치지 않는다.
+        if (
+            len(rows) < 2
+            or len(values) > 1
+            or span is None
+            or len(span) > 4000
+            or len(attribute) > 200
+        ):
+            continue
+        merged[members[0]] = rows[0].model_copy(
+            update={
+                "quote": span,
+                "attribute": attribute,
+                "value": next(iter(values), None),
+                "certification_listed": any(r.certification_listed for r in rows),
+                "assembly_clause": any(r.assembly_clause for r in rows),
+                "approval_procedure_missing": any(r.approval_procedure_missing for r in rows),
+                # 코드가 정한 검토 표시는 한 줄이라도 켜져 있으면 합친 줄에 남긴다(CODE_ONLY_FIELDS).
+                "needs_review": any(r.needs_review for r in rows),
+                "necessity_by_rule": any(r.necessity_by_rule for r in rows),
+            }
+        )
+        dropped.update(members[1:])
+    return [merged.get(i, r) for i, r in enumerate(requirements) if i not in dropped]
+
+
+# 차단기 규격이 정하는 차단 방식. UL 1066·ANSI C37.13은 저압 기중(전력) 차단기, UL 489는 배선용(MCCB)이다.
+# IEC 60947-2는 둘 다 덮어 방식을 말하지 않는다.
+BREAKER_STANDARDS = {
+    "ACB": re.compile(r"\bUL\s*1066\b|\bC37\.13\b", re.IGNORECASE),
+    "MCCB": re.compile(r"\bUL\s*489\b", re.IGNORECASE),
+}
+BREAKER_WORD = re.compile(r"breaker|차단기", re.IGNORECASE)
+
+
+def switching_from_standards(
+    item: ExtractionInput, requirements: list[ExtractedRequirement]
+) -> list[ExtractedRequirement]:
+    """같은 첫 단계 조항(예 3.05.J) 묶음의 인증 요구가 차단기 규격 하나만 말하면, 방식 없는 차단기 요구 장비에 붙인다.
+
+    "Circuit Breakers" 아래 정격 요구는 장비 이름에 방식이 없어 MCCB 정격으로 충족 처리될 수 있는데, 같은 묶음의
+    "Comply with UL 1066"이 저압 기중 차단기임을 말한다(comparison._switching). 규격이 둘 이상의 방식을 말하면 붙이지
+    않는다.
+    """
+    depth = item.section_no.count(".") + 2
+
+    def article(clause_no: str) -> str:
+        return ".".join(clause_no.split(".")[:depth])
+
+    kinds: dict[str, set[str]] = {}
+    for r in requirements:
+        if r.kind == "COMPLIANCE":
+            text = f"{r.value or ''} {r.quote}"
+            found = {kind for kind, pattern in BREAKER_STANDARDS.items() if pattern.search(text)}
+            kinds.setdefault(article(r.clause_no), set()).update(found)
+    out = []
+    for r in requirements:
+        named = kinds.get(article(r.clause_no), set())
+        if (
+            len(named) == 1
+            and r.equipment
+            and BREAKER_WORD.search(r.equipment)
+            and "switching" not in form_axes(r.equipment)
+        ):
+            r = r.model_copy(update={"equipment": f"{r.equipment} ({next(iter(named))})"})
+        out.append(r)
+    return out
+
+
+def _merged(item: ExtractionInput, result: SectionResult) -> SectionResult:
+    return replace(result, requirements=_finished(item, result.requirements))
+
+
+def _finished(
+    item: ExtractionInput, requirements: list[ExtractedRequirement]
+) -> list[ExtractedRequirement]:
+    """절 전체 요구에 마지막으로 적용하는 결정 규칙: 차단기 규격으로 방식 붙이기, 같은 조항 일반 의무 합치기."""
+    return merge_general(item, switching_from_standards(item, requirements))
+
+
 def extract_section(item: ExtractionInput, provider: Callable[[str], Generation]) -> SectionResult:
     """절 하나를 뽑는다. 긴 절은 `split_input`으로 나눠 부르고 결과를 합친다.
 
@@ -820,7 +978,7 @@ def extract_section(item: ExtractionInput, provider: Callable[[str], Generation]
         else:
             results.append(result)
     if len(results) == 1:
-        return results[0]
+        return _merged(item, results[0])
     failed = [r for r in results if r.outcome != "VALID"]
     # 전송 실패 부분은 응답이 없어 사용량을 알 수 없고, 잘린 부분은 든 비용을 더한다.
     for r in results:
@@ -830,7 +988,7 @@ def extract_section(item: ExtractionInput, provider: Callable[[str], Generation]
     return SectionResult(
         section_no=item.section_no,
         outcome=failed[0].outcome if failed else "VALID",
-        requirements=[req for r in valid for req in r.requirements],
+        requirements=_finished(item, [req for r in valid for req in r.requirements]),
         rejected=[rej for r in valid for rej in r.rejected],
         value_dropped=sum(r.value_dropped for r in valid),
         designated_dropped=sum(r.designated_dropped for r in valid),

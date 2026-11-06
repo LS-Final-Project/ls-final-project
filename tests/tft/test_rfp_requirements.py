@@ -24,13 +24,14 @@ from backend.engine.rfp.requirements import (
     designated_item,
     extract_section,
     halved,
+    merge_general,
     prompt,
     requirement_sentences,
     split_input,
     validate_output,
 )
 from backend.engine.rfp.scoring import GoldRequirement, score
-from backend.engine.rfp.vocabulary import ATTRIBUTE_KEYS
+from backend.engine.rfp.vocabulary import ATTRIBUTE_HINTS, ATTRIBUTE_KEYS
 from backend.shared.ai import Generation, Usage
 
 
@@ -194,7 +195,9 @@ def test_missing_requirement_sentences_get_one_gap_fill_call():
     # 보완 호출에는 빠진 문장만 들어간다.
     assert "output relays" in calls[1] and "BIL" not in calls[1]
     assert (result.covered_first, result.covered_final, result.sentences) == (3, 4, 4)
-    assert result.gap_fill_added == 1 and len(result.requirements) == 4
+    # 보완으로 더해진 2.5.D 일반 의무는 같은 조항 줄과 한 줄로 합쳐진다(merge_general).
+    assert result.gap_fill_added == 1 and len(result.requirements) == 3
+    assert result.requirements[-1].attribute == "coating · output relays"
     assert result.usage.input_tokens == 20
 
 
@@ -1065,7 +1068,7 @@ def construction_section(
 
 def test_the_prompt_asks_for_a_form_requirement_from_a_construction_sentence():
     text = prompt(construction_section())
-    assert EXTRACTION_VERSION == "rfp-requirements-v10"
+    assert EXTRACTION_VERSION == "rfp-requirements-v11"
     assert "the type of the equipment item itself" in text
     assert "attribute_key form, separate from any measured values" in text.replace("\n  ", " ")
     assert "how the equipment is built" not in text
@@ -1074,9 +1077,17 @@ def test_the_prompt_asks_for_a_form_requirement_from_a_construction_sentence():
 def test_the_prompt_keeps_parts_and_functions_out_of_form():
     text = prompt(construction_section()).replace("\n  ", " ")
     assert (
-        "A part, accessory, material, fastener, interlock, indicator, wiring, access or function "
-        'of the equipment is not its type: use "OTHER".'
+        "A part, accessory, material, fastener, interlock, indicator, wiring, access, operating mechanism or "
+        'function of the equipment is not its type: use "OTHER".'
     ) in text
+
+
+def test_the_prompt_explains_confusable_keys_from_the_vocabulary():
+    text = prompt(construction_section())
+    assert set(ATTRIBUTE_HINTS) <= ATTRIBUTE_KEYS
+    for key, hint in ATTRIBUTE_HINTS.items():
+        assert f"  - {key}: {hint}." in text
+    assert "{attribute_hints}" not in text
 
 
 def test_a_part_sentence_kept_as_other_is_not_compared_as_a_form():
@@ -1130,3 +1141,91 @@ def test_a_construction_sentence_keeps_a_form_requirement_beside_its_rating():
     fused = kept[0].model_copy(update={"value": "fused switch"})
     gap = compare_in_family(to_comparison(fused), "MV_EQUIP", load_own_products())
     assert (gap.status, gap.deficiency_cause) == ("SPEC_GAP", "FORM")
+
+
+def test_general_obligations_of_one_clause_merge_into_one_row_with_a_covering_quote():
+    """같은 조항의 일반 의무 줄은 한 줄로 합친다. 인증·어휘 키·값이 다른 줄은 그대로 둔다(KAN-188)."""
+    item = section()
+    rows = [
+        ExtractedRequirement.model_validate(r)
+        for r in [
+            req("2.5.D", "The controller shall be coated.", "coating", operator="TEXT"),
+            req(
+                "2.5.D",
+                "The unit shall provide Fans, Alarm, and Trip output relays.",
+                "relays",
+                operator="TEXT",
+            ),
+            req("2.5.K", "BIL: 95 kV.", "BIL", "95", "kV", attribute_key="bil"),
+        ]
+    ]
+    merged = merge_general(item, rows)
+    assert [r.clause_no for r in merged] == ["2.5.D", "2.5.K"]
+    assert merged[0].quote == (
+        "The controller shall be coated. The unit shall provide Fans, Alarm, and Trip output relays."
+    )
+    assert merged[0].attribute == "coating · relays" and merged[1] == rows[2]
+    # 값이 서로 다르거나 필수 여부가 다르면 합치지 않는다.
+    differ = [rows[0], rows[1].model_copy(update={"necessity": "PREFERRED"})]
+    assert merge_general(item, differ) == differ
+    # 뒤 줄만 검토 표시·규칙 필수가 켜져 있어도 합친 줄에 남는다(PR #656 리뷰).
+    flagged = merge_general(
+        item,
+        [rows[0], rows[1].model_copy(update={"needs_review": True, "necessity_by_rule": True})],
+    )
+    assert len(flagged) == 1 and flagged[0].needs_review and flagged[0].necessity_by_rule
+    valued = [
+        rows[0].model_copy(update={"value": "coated"}),
+        rows[1].model_copy(update={"value": "Fans"}),
+    ]
+    assert merge_general(item, valued) == valued
+
+
+def test_breaker_kind_named_only_in_the_parent_heading_is_added_to_the_equipment():
+    """상위 조항이 MCCB라고만 말하면 하위 요구 장비에 붙여 ACB 근거로 충족 처리하지 않게 한다(KAN-188)."""
+    from backend.engine.rfp.requirements import _switching_from_path
+    from backend.engine.rfp.vocabulary import form_axes
+
+    row = ExtractedRequirement.model_validate(
+        req(
+            "2.3.A.3.a", "Instantaneous trip.", "trip", equipment="Electronic trip circuit breakers"
+        )
+    )
+    added = _switching_from_path(row, "Molded-Case Circuit Breaker (MCCB): Comply with UL 489")
+    assert added.equipment == "Electronic trip circuit breakers (MCCB)"
+    assert form_axes(added.equipment)["switching"] == "MCCB"
+    # 방식이 둘이거나 장비 이름에 이미 있거나 상위에 없으면 그대로 둔다.
+    assert _switching_from_path(row, "Main ACB and feeder MCCB") == row
+    assert _switching_from_path(row, "Switchboard") == row
+    acb = row.model_copy(update={"equipment": "air circuit breaker"})
+    assert _switching_from_path(acb, "Molded-Case Circuit Breaker (MCCB)") == acb
+
+
+def test_breaker_standard_in_the_same_article_names_the_breaker_kind():
+    """같은 첫 단계 조항의 UL 1066은 저압 기중 차단기다. 방식 없는 차단기 정격 요구에 붙인다(KAN-188)."""
+    from backend.engine.rfp.requirements import switching_from_standards
+
+    item = section()  # 절 2.5 → 첫 단계 조항은 2.5.X
+    rows = [
+        ExtractedRequirement.model_validate(r)
+        for r in [
+            req(
+                "2.5.D.2", "Breakers shall be 600 volt", "voltage", "600", "V", equipment="breaker"
+            ),
+            req(
+                "2.5.D.6",
+                "meeting UL 1066",
+                "standard",
+                "UL 1066",
+                kind="COMPLIANCE",
+                equipment="Breakers",
+            ),
+            req("2.5.K", "BIL: 95 kV", "BIL", "95", "kV", equipment="breaker"),
+        ]
+    ]
+    out = switching_from_standards(item, rows)
+    assert out[0].equipment == "breaker (ACB)" and out[1].equipment == "Breakers (ACB)"
+    # 다른 첫 단계 조항(2.5.K)에는 붙이지 않는다. 규격이 두 방식을 말하면 아무 데도 붙이지 않는다.
+    assert out[2] == rows[2]
+    both = rows[:2] + [rows[1].model_copy(update={"value": "UL 489", "quote": "UL 489"})]
+    assert switching_from_standards(item, both) == both

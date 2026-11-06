@@ -282,11 +282,13 @@ def test_a_requirement_without_a_candidate_family_is_not_graded(family):
 
 
 def test_integration_is_decided_from_the_extracted_requirements():
-    """조립품 조항이 있으면 통합 책임이 필요하다."""
+    """조립품 조항이 있으면 통합 책임이 필요하다. 표시가 없어도 조항 원문이 조립품 문형이면 근거다."""
     plain = requirement("SPEC", "rating", "rated_power")
     marked = plain.model_copy(update={"assembly_clause": True})
-    assert not integration_of([plain]).required
-    assert integration_of([plain, marked]).required
+    assert not integration_of([plain], {}).required
+    assert integration_of([plain, marked], {}).required
+    texts = {plain.clause_no: "Switchgear shall be factory assembled and tested as one unit."}
+    assert integration_of([plain], texts).basis_clause_nos == [plain.clause_no]
 
 
 def test_the_original_attribute_reaches_the_reason_inputs():

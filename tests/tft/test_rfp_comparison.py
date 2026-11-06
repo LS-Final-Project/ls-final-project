@@ -1045,6 +1045,13 @@ def test_si_prefix_units_are_converted_and_thousands_commas_are_read():
     assert grading.unit_factor("V", "kV") == 1000 and grading.unit_factor("kV", "kA") is None
 
 
+def test_upper_case_k_reads_as_kilo():
+    """원문의 '150 KV'는 kV다. 대문자 K 때문에 비교를 버려 협력사 제외가 검토로 떨어지면 안 된다."""
+    assert grading.unit_factor("KV", "kV") == 1 and grading.unit_factor("kA", "KA") == 1
+    assert grading.unit_factor("KVA", "MVA") == 1000 and grading.unit_factor("V", "KV") == 1000
+    assert grading.unit_factor("mV", "MV") is None and grading._unit_key("K") == "K"
+
+
 @pytest.mark.parametrize(("korean", "english"), [("초", "s"), ("분", "min"), ("시간", "h")])
 def test_korean_time_units_compare_with_their_english_unit(korean, english):
     """같은 값의 '3 초'와 '3 s'는 조건 차이가 아니다. 다른 값은 그대로 차이로 남는다."""

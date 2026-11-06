@@ -864,11 +864,14 @@ GRADED_STATUSES = frozenset({"SPEC_GAP", "INSUFFICIENT_EVIDENCE"})
 DOCUMENT_NUMBER = re.compile(r"\bRFP-(\d+)\b")
 
 
-def integration_of(items: Iterable[ExtractedRequirement]) -> integration.IntegrationResponsibility:
+def integration_of(
+    items: Iterable[ExtractedRequirement], clause_texts: Mapping[str, str]
+) -> integration.IntegrationResponsibility:
     """추출 요구로 통합 책임 필요 여부를 정한다.
 
     Args:
         items: 이번 처리의 추출 요구.
+        clause_texts: 조항 번호별 현행 원문(원문 문형 규칙에 쓴다).
 
     Returns:
         integration.IntegrationResponsibility: 필요 여부와 근거 조항.
@@ -876,7 +879,10 @@ def integration_of(items: Iterable[ExtractedRequirement]) -> integration.Integra
     return integration.integration_responsibility(
         [
             integration.Requirement(
-                clause_no=r.clause_no, task=r.task, assembly_clause=r.assembly_clause
+                clause_no=r.clause_no,
+                task=r.task,
+                assembly_clause=r.assembly_clause,
+                clause_text=clause_texts.get(r.clause_no),
             )
             for r in items
         ]
@@ -1083,6 +1089,7 @@ async def regrade_stored(
                     clause_no=r.get("clause_no") or "",
                     task=r["task"],
                     assembly_clause=r["assembly_clause"],
+                    clause_text=r.get("clause_text"),
                 )
                 for r in rows
             ]
