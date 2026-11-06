@@ -211,7 +211,7 @@ function BoxView() {
       {notice && <div className={notice.kind === 'error' ? 'note err' : 'note'} role={notice.kind === 'error' ? 'alert' : 'status'}>{notice.text}</div>}
       <section className="pane bx-review" aria-label="연결 필요">
         <div className="ph"><h2>연결이 필요한 고객 답장</h2><span className={all.length ? 'cnt hot' : 'cnt'}>{all.length}</span>
-          <div className="r"><span className="meta bx-scope" role="note">연결이 필요한 고객 답장만 보입니다. 새 문의·RFP 메일은 업무 홈에서 확인 후 등록합니다.</span></div>
+          <div className="r"><span className="meta bx-scope" role="note">연결이 필요한 고객 답장만 보입니다. 새 RFP 메일은 RFP 업무 홈에서 확인 후 등록하고, 새 문의는 문의 조회로 들어옵니다.</span></div>
         </div>
       {list.isFetching && !list.data && <Loading />}
       {!list.isFetching && list.isError && <ErrorState error={list.error} onRetry={fetchAgain} />}
