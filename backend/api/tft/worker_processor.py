@@ -109,7 +109,7 @@ class ProcessorSettings(BaseSettings):
     reply_read_model: str = Field(default="gemini-3.6-flash", pattern=r"^[a-zA-Z0-9._-]+$")
     reply_read_max_output_tokens: int = Field(default=2048, ge=256, le=65536)
     # KAN-188 번호 빈자리만 모델 경계로 나누기(structure_repair). 기본 켬(2026-11-06 측정: 재현율 +약 10건).
-    # 추출과 같은 공급자·모델·출력 상한·시간 제한·thinking 수준을 쓴다. 끄면 이전 처리 결과와 같다.
+    # 추출과 같은 공급자·모델·출력 상한·시간 제한·thinking 수준을 쓴다. 끄면 모델 보정 호출만 빠진다(결정 파서 규칙은 그대로).
     structure_repair_enabled: bool = True
 
 
