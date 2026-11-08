@@ -295,22 +295,38 @@ def job_worker(state, rec, jobs, budget: dict[str, Any], mode: str, stop: float,
                 record["admit_s"] = time.perf_counter() - started
                 accepted.raise_for_status()
                 job = accepted.json()["data"]
+            except Exception as error:  # noqa: BLE001 - 접수 실패는 집계하고, 처리하지 않은 프로젝트·문의는 되돌린다.
+                record["result"] = (
+                    f"ADMIT_{getattr(getattr(error, 'response', None), 'status_code', type(error).__name__)}"
+                )
+                record["seconds"] = time.perf_counter() - started
+                rec.add("jobs", record)
                 with rec.lock:
-                    jobs.append({"id": job["job_id"], "by": user["id"]})
-                status, first_running = job["status"], None
-                deadline = time.monotonic() + 1800
-                while status not in TERMINAL and time.monotonic() < deadline:
-                    time.sleep(2)
+                    budget["left"] += 1
+                    budget["projects" if kind == "rfp" else "tickets"].append(
+                        project if kind == "rfp" else path.split("/")[5]
+                    )
+                # 사람이 다시 누르기까지의 간격. 바로 다시 보내면 부하 도구가 실패를 부풀린다.
+                time.sleep(5)
+                continue
+            with rec.lock:
+                jobs.append({"id": job["job_id"], "by": user["id"]})
+            status, first_running = job["status"], None
+            deadline = time.monotonic() + 1800
+            while status not in TERMINAL and time.monotonic() < deadline:
+                time.sleep(2)
+                try:
                     status = client.get(
                         f"/api/v1/platform/jobs/{job['job_id']}", headers=headers(user)
                     ).json()["data"]["status"]
-                    if status == "RUNNING" and first_running is None:
-                        first_running = time.perf_counter() - started
-                record["result"] = status
-                # 접수 → 처리 시작(Scheduler 대기 + Job 기동)과 전체 시간을 따로 남긴다.
-                record["wait_s"] = first_running
-            except Exception as error:  # noqa: BLE001 - 부하 중 실패는 집계한다.
-                record["result"] = getattr(error, "code", type(error).__name__)
+                except Exception:  # noqa: BLE001 - 상태 조회 실패(429·502)는 다음 조회에서 다시 본다.
+                    record["status_errors"] = record.get("status_errors", 0) + 1
+                    continue
+                if status == "RUNNING" and first_running is None:
+                    first_running = time.perf_counter() - started
+            record["result"] = status
+            # 접수 → 처리 시작(Scheduler 대기 + Job 기동)과 전체 시간을 따로 남긴다.
+            record["wait_s"] = first_running
             record["seconds"] = time.perf_counter() - started
             rec.add("jobs", record)
 

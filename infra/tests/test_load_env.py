@@ -96,6 +96,11 @@ class LoadEnvTest(unittest.TestCase):
             self.assertNotIn(e.url(name, False) + '"', text)
         self.assertNotIn(':team4-sql"', text)
 
+    def test_concurrency_override_touches_only_web_and_platform(self):
+        for name, expected in (("platform", 80), ("web", 80), ("cs", 20)):
+            out = e.service_spec(service(name, []), name, concurrency=80)
+            self.assertEqual(out["spec"]["template"]["spec"]["containerConcurrency"], expected)
+
     def test_worker_job_mode_sets_the_rfp_model(self):
         spec = {
             "apiVersion": "run.googleapis.com/v1",

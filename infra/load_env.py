@@ -62,7 +62,15 @@ OFF = {
     "tft": {},
 }
 # 대충 고른 값이 아니라 운영 설정을 그대로 쓰고 이 줄만 바꾼다. 서비스 설정의 실행 상태 칸은 뺀다.
-DROP_METADATA = ("uid", "resourceVersion", "generation", "creationTimestamp", "selfLink")
+# namespace(프로젝트 번호)를 넘기면 gcloud가 Resource Manager API로 번호를 풀려고 한다(이 프로젝트에서 꺼져 있음). --project로 정한다.
+DROP_METADATA = (
+    "uid",
+    "resourceVersion",
+    "generation",
+    "creationTimestamp",
+    "selfLink",
+    "namespace",
+)
 DROP_ANNOTATIONS = re.compile(
     r"^(serving\.knative\.dev/(creator|lastModifier)|run\.googleapis\.com/(client-name|client-version|operation-id|urls|build-.*))$"
 )
@@ -114,8 +122,13 @@ def _metadata(metadata: dict[str, Any], name: str) -> dict[str, Any]:
     return out
 
 
-def service_spec(spec: dict[str, Any], service: str) -> dict[str, Any]:
-    """운영 서비스 설정(gcloud run services describe --format=json) → 측정용 설정(services replace 입력)."""
+def service_spec(
+    spec: dict[str, Any], service: str, concurrency: int | None = None
+) -> dict[str, Any]:
+    """운영 서비스 설정(gcloud run services describe --format=json) → 측정용 설정(services replace 입력).
+
+    concurrency: 웹·플랫폼의 인스턴스당 동시 요청을 바꿔 잴 때(운영 20). 실시간 연결(SSE)이 칸을 오래 잡는 두 서비스만 바꾼다.
+    """
     out = {"apiVersion": spec["apiVersion"], "kind": spec["kind"]}
     out["metadata"] = _metadata(spec["metadata"], f"team4-{service}{SUFFIX}")
     template = json.loads(json.dumps(spec["spec"]["template"]))
@@ -129,6 +142,8 @@ def service_spec(spec: dict[str, Any], service: str) -> dict[str, Any]:
                 "MICROSOFT_AUTH_REDIRECT_URI": url("web", True) + "/api/v1/platform/auth/callback",
             }
         _env(container, overrides)
+    if concurrency and service in ("web", "platform"):
+        template["spec"]["containerConcurrency"] = concurrency
     out["spec"] = {"template": template, "traffic": [{"latestRevision": True, "percent": 100}]}
     return out
 
@@ -227,7 +242,7 @@ def write_spec(spec: dict[str, Any]) -> str:
     return path
 
 
-def deploy_commands(mode: str, account: str) -> list[list[str]]:
+def deploy_commands(mode: str, account: str, concurrency: int | None = None) -> list[list[str]]:
     """서비스·Job 복사본, IAM, 버킷·Secret 권한, 멈춘 Scheduler."""
     commands = [copy_policy("bucket", BUCKET, BUCKET_LOAD, account)]
     for name in DB_SECRETS:
@@ -252,6 +267,7 @@ def deploy_commands(mode: str, account: str) -> list[list[str]]:
                 ["run", "services", "describe", f"team4-{service}", f"--region={REGION}"], account
             ),
             service,
+            concurrency,
         )
         commands.append(
             gcloud(["run", "services", "replace", write_spec(spec), f"--region={REGION}"], account)
@@ -318,6 +334,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("step", choices=("infra", "deploy", "start", "stop", "teardown"))
     parser.add_argument("--mode", choices=("a", "b"), help="deploy: a=RFP 가짜 모델, b=실제 Gemini")
+    parser.add_argument(
+        "--concurrency", type=int, help="deploy: 웹·플랫폼 인스턴스당 동시 요청(운영 20)"
+    )
     parser.add_argument("--apply", action="store_true", help="실행. 없으면 명령만 출력")
     parser.add_argument("--account", default=os.environ.get("TEAM4_GCLOUD_ACCOUNT", ACCOUNT))
     args = parser.parse_args(argv)
@@ -326,7 +345,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.step == "infra":
         commands = infra_commands(args.account)
     elif args.step == "deploy":
-        commands = deploy_commands(args.mode, args.account)
+        commands = deploy_commands(args.mode, args.account, args.concurrency)
     elif args.step in ("start", "stop"):
         verb = "resume" if args.step == "start" else "pause"
         commands = [
