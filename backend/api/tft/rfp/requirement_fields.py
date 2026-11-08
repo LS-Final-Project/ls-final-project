@@ -22,6 +22,7 @@ Row = dict[str, Any]
 # 대표 후보: 충족 → 다름 → 비교 불가 → 자료 없음, 같으면 제품 코드 순. 자사 값이 없는 후보는 고르지 않는다.
 RANK = {"MEETS": 0, "DIFFERS": 1, "NOT_COMPARABLE": 2, "NO_DATA": 3}
 # 자사 변압기 제품 코드 → 절연 형식(건식·유입). 제품 마스터는 배포 파일이라 한 번 읽는다.
+# ponytail: 제품 목록 화면(KAN-246)에서 더한 변압기는 여기 없어 '형식 미확인' 메모만 빠진다. 필요하면 DB 판본으로 읽는다.
 INSULATION = {
     p.product_code: kind
     for p in comparison.load_own_products()

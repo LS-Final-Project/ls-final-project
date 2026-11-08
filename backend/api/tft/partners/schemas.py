@@ -11,6 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from backend.engine.rfp.vocabulary import AttributeKey
 
 Scope = Literal["SUPPLY", "ASSEMBLY", "INSTALL", "TEST", "CALC", "TRAINING"]
+# synthetic: 시드 파일(profiles.json), registered: 제품 목록 화면에서 사용자가 입력한 판본(KAN-246).
+ProfileSource = Literal["synthetic", "registered"]
 # 속성 어휘는 엔진 쪽 단일 원본(KAN-185)이다. 추출 요구의 attribute_key와 같은 목록이다.
 Attribute = AttributeKey
 
@@ -34,10 +36,14 @@ class IntegratorCapable(Strict):
     warranty: bool | None
 
 
-class Condition(Strict):
+class SpecCondition(Strict):
     name: str
     value: str
     unit: str | None = None
+
+
+# OpenAPI 모델 이름이 rfp.schemas.Condition·comparison.Certification과 겹치지 않게 클래스 이름을 따로 둔다(KAN-246).
+Condition = SpecCondition
 
 
 class SpecFact(Strict):
@@ -52,7 +58,7 @@ class SpecFact(Strict):
     section: str
 
 
-class Certification(Strict):
+class PartnerCertification(Strict):
     """인증은 spec_facts가 아니라 이 배열로 판정한다. as_of는 정보용이다."""
 
     standard: str
@@ -61,6 +67,9 @@ class Certification(Strict):
     as_of: date
     valid_until: date | None
     evidence_id: str
+
+
+Certification = PartnerCertification
 
 
 class LeadTime(Strict):
@@ -82,9 +91,10 @@ class PartnerProfile(Strict):
     candidate_code: str = Field(pattern=r"^[A-Z]-[A-Z]$")
     display_name: str
     manufacturer_name: str
-    profile_source: Literal["synthetic"]
+    profile_source: ProfileSource
     profile_version: int = Field(ge=1)
-    data_origin: Literal["synthetic"]
+    # 등록 판본은 사용자가 입력한 실제 자료(real)다. DB 제약이 출처와 짝을 맞춘다.
+    data_origin: Literal["synthetic", "real"]
     derivation_kind: Literal["PROVIDED"]
     known_at: date
     product_family: str

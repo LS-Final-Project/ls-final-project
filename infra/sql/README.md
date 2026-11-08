@@ -139,6 +139,7 @@ T13을 재적용해도 허용집합을 과거로 되돌리지 않는다. 정렬�
 | T32 | `tft/20261124_KAN-228_bulk_and_sends.sql` | T7·T30 | tft_migrator | 가능 | 열 `tft.projects.submission_due_at`, to_regclass('tft.question_sends') | 미적용 |
 | T33 | `tft/20261125_KAN-224_reply_value_reads.sql` | T14·T32 | tft_migrator | 가능 | to_regclass('tft.reply_value_reads') | 미적용 |
 | T34 | `tft/20261126_KAN-232_regrade.sql` | T14·T26·T33 | postgres(SET ROLE 없음) | 가능 | `has_column_privilege('tft_worker','tft.requirements','latest_version','UPDATE') AND has_table_privilege('tft_worker','tft.requirement_recomparisons','INSERT')` | 미적용 |
+| T35 | `tft/20261127_KAN-246_rfp_catalog.sql` | T14·T34 | tft_migrator | 가능 | to_regclass('tft.own_products') AND to_regclass('tft.catalog_edits') | 미적용 |
 | P1 | `platform/20261022_KAN-78_identity.sql` | 001 | platform_migrator | 가능 | to_regclass('identity.users') | 미확인 |
 | P2 | `platform/20261023_KAN-77_oauth_authorizations.sql` | P1 | platform_migrator | 가능 | to_regclass('identity.oauth_authorizations') | 미확인 |
 | P3 | `platform/20261023_KAN-77_sessions.sql` | P1 | platform_migrator | 가능 | to_regclass('identity.sessions') | 미확인 |
@@ -495,6 +496,13 @@ TFT `20261125_KAN-224_reply_value_reads.sql`은 `20261124_KAN-228_bulk_and_sends
 `reply_value_reads`(tft_app·tft_worker SELECT·INSERT) 하나를 더하고, 플랫폼은 작업 CHECK에 `rfp.reply_read` 조합을 더한다.
 둘 다 다시 적용해도 깨지지 않는다. `20261104_KAN-199_tft_worker.sql` 재적용도 표가 있으면 같은 worker 권한을 복구한다.
 플랫폼 CHECK를 다시 정의하는 이전 파일(20261109·20261118)을 나중에 다시 적용하면 이 조합이 빠지므로 이 파일을 그 뒤에 다시 적용한다.
+
+## KAN-246 제품 목록
+
+TFT `20261127_KAN-246_rfp_catalog.sql`은 `20261126_KAN-232_regrade.sql` 뒤에 적용한다. 화면에서 고친 자사 제품 판본
+`tft.own_products`와 수정 기록 `tft.catalog_edits`를 만들고(앱은 SELECT·INSERT만), `tft.partner_profiles`의 출처 제약을
+시드(synthetic/synthetic)와 화면 등록(registered/real) 두 짝으로 넓힌다. tft_worker는 `tft.own_products`를 읽는다.
+다시 적용해도 깨지지 않는다. `20261104_KAN-199_tft_worker.sql` 재적용도 같은 권한을 복구한다.
 
 ## KAN-232 다시 채점의 자사 비교
 

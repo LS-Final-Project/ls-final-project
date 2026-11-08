@@ -34,6 +34,7 @@ const MENU: Group[] = [
       { label: '업무 홈', to: '/tft', end: true },
       { label: 'RFP 검토', to: '/tft/projects', end: true, inProject: '', also: /\/(requirements\/|table(?:\/approvals)?$|supplement$|settings$)/ },
       { label: '초안 및 검토 이력', inProject: 'draft' },
+      { label: '제품 목록', to: '/tft/catalog' },
     ],
   },
   { key: 'stats', label: '통계/보고서', roles: ['manager'], leaves: [{ label: '업무 통계', to: '/cs/admin', end: true }, { label: '업무 배정', to: '/cs/admin/assign' }] },
@@ -56,6 +57,7 @@ function tabOf(pathname: string) {
   if (pathname === '/mail/sent') return { kind: 'mail-sent', name: '발송 상태' };
   if (pathname.startsWith('/cs/improvements')) return { kind: 'improvements', name: '개선요청' };
   if (pathname === '/account') return { kind: 'account', name: '내 정보' };
+  if (pathname === '/tft/catalog') return { kind: 'catalog', name: '제품 목록' };
   if (pathname.endsWith('/draft')) return { kind: 'draft', name: '초안 및 검토 이력' };
   if (pathname.endsWith('/supplement')) return { kind: 'intake', name: 'RFP 검토' };
   if (pathname.endsWith('/table/approvals')) return { kind: 'approvals', name: '승인 대기' };

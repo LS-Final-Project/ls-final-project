@@ -10,7 +10,7 @@ from psycopg.types.json import Jsonb
 from pydantic import ValidationError
 
 from backend.api.tft.projects.access import can_propose_change
-from backend.api.tft.rfp import commands, comparison, repository
+from backend.api.tft.rfp import catalog, commands, comparison, repository
 from backend.api.tft.rfp import schemas as s
 from backend.api.tft.rfp.routes_questions import proposal_out, visible_project
 from backend.api.tft.rfp.routes_read import comparison_of, latest_visible_requirement
@@ -108,7 +108,7 @@ async def recompare(
                     "요구 종류와 인증 등록 여부가 저장되지 않았습니다. 원문과 추출 정보를 확인한 뒤 다시 비교하세요.",
                 )
             outcome = await stored_outcome(
-                conn, project["id"], requirement, item, comparison.load_own_products()
+                conn, project["id"], requirement, item, await catalog.own_products(conn)
             )
             proposed = {
                 **current,

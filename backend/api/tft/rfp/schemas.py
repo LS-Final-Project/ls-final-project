@@ -15,7 +15,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from backend.api.tft.partners.grading import Grade
-from backend.api.tft.partners.schemas import Attribute, LeadTime, Scope
+from backend.api.tft.partners.schemas import Attribute, LeadTime, ProfileSource, Scope
 from backend.api.tft.rfp.integration import FallbackPath
 from backend.engine.documents.diagrams import DiagramGraph
 from backend.engine.rfp.vocabulary import AttributeKeyOrOther, FamilyOrOther
@@ -770,7 +770,7 @@ class CandidateGrade(Model):
 class PartnerCandidate(Model):
     candidate_code: str
     display_name: str
-    profile_source: Literal["synthetic"]
+    profile_source: ProfileSource
     profile_version: int = Field(ge=1)
     scope: list[Scope]
     spec_facts_attributes: list[Attribute]

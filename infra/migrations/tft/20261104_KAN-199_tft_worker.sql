@@ -65,6 +65,10 @@ BEGIN
     IF to_regclass('tft.context_versions') IS NOT NULL THEN
         EXECUTE 'GRANT SELECT,INSERT ON tft.context_versions TO tft_worker';
     END IF;
+    -- KAN-246: 비교가 화면에서 고친 자사 제품 판본을 읽는다.
+    IF to_regclass('tft.own_products') IS NOT NULL THEN
+        EXECUTE 'GRANT SELECT ON tft.own_products TO tft_worker';
+    END IF;
     IF to_regclass('tft.requirement_recomparisons') IS NOT NULL THEN
         EXECUTE 'GRANT SELECT ON tft.requirement_recomparisons TO tft_worker';
         -- KAN-232: 다시 채점이 비교 사본을 남긴다.

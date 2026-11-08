@@ -20,7 +20,15 @@ export const OWNER_LABEL: Record<string, string> = {
 export const MATCH_LABEL: Record<string, string> = {
   MEETS: '충족', DIFFERS: '다름', NOT_COMPARABLE: '비교 불가', NO_DATA: '자료 없음',
 };
-export const LIFECYCLE_LABEL: Record<string, string> = { ACTIVE: '현행', PHASE_OUT: '단종 예정', DISCONTINUED: '단종' };
+export const LIFECYCLE_LABEL: Record<string, string> = { ACTIVE: '현행', MATURE: '공급 확인 필요', PHASE_OUT: '단종 예정', DISCONTINUED: '단종' };
+// 제품 계열(vocabulary.EquipmentFamily). 협력사 product_family는 표시 문구라 그대로 쓴다.
+export const FAMILY_LABEL: Record<string, string> = {
+  LV_BREAKER: '저압 차단기', LV_SWITCHGEAR: '저압 배전반', MV_EQUIP: '중압 기기', TRANSFORMER: '변압기', DRIVE: '인버터',
+  CONTROL: '제어 기기', PLC: 'PLC', HMI: 'HMI', METER: '계량기', ESS: 'ESS', PV: '태양광', UPS: 'UPS',
+};
+export const SCOPE_LABEL: Record<string, string> = { SUPPLY: '공급', ASSEMBLY: '조립', INSTALL: '설치', TEST: '시험', CALC: '계산', TRAINING: '교육' };
+export const CONFIRMATION_LABEL: Record<string, string> = { UNCONFIRMED: '미확인', CONTACT_PLANNED: '확인 예정', CONFIRMED: '확인됨' };
+export const CERT_KIND_LABEL: Record<string, string> = { LISTED: '등록(Listed)', TEST_REPORT: '시험 성적서', MARK: '인증 표시' };
 export const PROPOSAL_STATUS_LABEL: Record<string, string> = { PENDING: '승인 대기', APPROVED: '승인', REJECTED: '기각' };
 export const ORIGIN_LABEL: Record<string, string> = { web: '화면 수정', customer_reply: '고객 회신', pdf_annot: '메모 PDF' };
 export const OPERATOR_LABEL: Record<string, string> = { EQ: '', GTE: '이상', LTE: '이하', RANGE: '범위', TEXT: '' };
