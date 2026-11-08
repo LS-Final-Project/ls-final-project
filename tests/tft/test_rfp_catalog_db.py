@@ -9,14 +9,15 @@ import psycopg
 import pytest
 from fastapi.testclient import TestClient
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
 from backend.api.tft.main import create_app
 from backend.api.tft.partners.loader import load_document_pools, load_profiles, profile_row
-from backend.api.tft.rfp import catalog, comparison
+from backend.api.tft.rfp import catalog, comparison, repository
 from backend.api.tft.worker_processor import outside_pool
 from backend.shared.access import Principal, principal_header
 from backend.shared.settings import Settings
-from tests.tft.test_rfp_http_base_db import admin, app_dsn  # noqa: F401
+from tests.tft.test_rfp_http_base_db import admin, app_dsn, chain  # noqa: F401
 
 SALES = Principal(user_id=uuid4(), roles=frozenset({"sales"}))
 CS = Principal(user_id=uuid4(), roles=frozenset({"cs_agent"}))
@@ -218,3 +219,62 @@ def test_options_follow_the_vocabulary(client):
     assert "rated_current" in data["attributes"]
     assert "몰드 변압기" in data["partner_families"]
     assert data["lifecycle_statuses"] == ["ACTIVE", "MATURE", "DISCONTINUED"]
+
+
+def test_editing_a_partner_retires_its_stored_grades_until_regrading(
+    client, seeded, admin, chain, app_dsn
+):
+    """협력사를 고치면 이전 판본 등급은 기록으로 남고 현행 등급(LATEST_GRADES)에서 빠진다."""
+    assert (
+        call(
+            client,
+            "PUT",
+            "/partners/R-C",
+            body=partner_body(
+                products=[{"product_code": "T-TR3", "model": "TR-3", "scope": ["SUPPLY"]}],
+                spec_facts=[],
+            ),
+        ).status_code
+        == 200
+    )
+    with psycopg.connect(admin) as conn:
+        conn.execute(
+            "INSERT INTO tft.partner_grades (id, project_id, candidate_code, profile_version, requirement_id, "
+            "requirement_version, grade, reasons, exclusion_reasons, mandatory_check, data_origin, derivation_kind, known_at) "
+            "VALUES (%s,%s,'R-C',1,%s,1,'REVIEW',%s,%s,%s,'synthetic','DERIVED',now())",
+            (
+                uuid4(),
+                chain["project"],
+                chain["requirement"],
+                Jsonb(["사유"]),
+                Jsonb([]),
+                Jsonb({"passed": [], "failed": [], "unknown": []}),
+            ),
+        )
+
+    def current():
+        async def read():
+            async with await psycopg.AsyncConnection.connect(app_dsn, row_factory=dict_row) as conn:
+                return {
+                    g["candidate_code"]
+                    for g in await repository.project_grades(conn, chain["project"])
+                }
+
+        return asyncio.run(read())
+
+    assert "R-C" in current()
+    body = partner_body(
+        expected_version=1,
+        products=[{"product_code": "T-TR3", "model": "TR-3", "scope": ["SUPPLY"]}],
+        spec_facts=[],
+    )
+    assert call(client, "PUT", "/partners/R-C", body=body).status_code == 200
+    assert "R-C" not in current()
+    with psycopg.connect(admin) as conn:
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM tft.partner_grades WHERE candidate_code='R-C' AND project_id=%s",
+                (chain["project"],),
+            ).fetchone()[0]
+            == 1
+        )

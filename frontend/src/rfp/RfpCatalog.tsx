@@ -84,7 +84,7 @@ export default function RfpCatalog() {
     <KvTitle path="제안 지원" title="제품 목록" code="TF0201">
       <button type="button" className="kb primary" disabled={!opts} onClick={() => setEditing({ kind: tab })}>{tab === 'own' ? '자사 제품 등록' : '협력사 등록'}</button>
     </KvTitle>
-    <KvNext label="안내">자사 비교와 협력사 채점이 이 목록을 씁니다. 고친 내용은 다음 분석·다시 비교부터 반영되고, 이미 저장된 판정은 바뀌지 않습니다.</KvNext>
+    <KvNext label="안내">자사 비교와 협력사 채점이 이 목록을 씁니다. 자사 제품을 고치면 저장된 비교 판정은 그대로이고 다음 분석·다시 비교부터 반영됩니다. 협력사를 고치면 그 협력사의 기존 등급은 지난 판본 기준이라 후보 화면에서 빠지고, 다음 분석·다시 채점 때 새 판본으로 다시 매깁니다.</KvNext>
     <div className="ws-tabs rfp-catalog-tabs" role="tablist" aria-label="제품 목록">
       <button role="tab" aria-selected={tab === 'own'} className={tab === 'own' ? 'on' : ''} onClick={() => switchTab('own')}>자사 제품 <span className="muted">{ownRows.length}</span></button>
       <button role="tab" aria-selected={tab === 'partner'} className={tab === 'partner' ? 'on' : ''} onClick={() => switchTab('partner')}>협력사 <span className="muted">{partnerRows.length}</span></button>
@@ -313,7 +313,7 @@ function PartnerForm({ options, partner, taken, onClose, onSaved }: { options: C
   const { mutation, reload } = useSave(() => savePartner(code, body), ['catalog-partners'], () => { onSaved(code); onClose(); });
   return <KvModal title={p ? `협력사 수정 · ${p.candidate_code} ${p.display_name}` : '협력사 등록'} onClose={onClose} className="rfp-dialog rfp-catalog-dialog" keepOnBackdrop>
     <form onSubmit={e => { e.preventDefault(); if (!problem) mutation.mutate(); }}>
-      <p className="rfp-dialog-lead">{p ? `저장하면 ${p.profile_version + 1}판이 됩니다. 이전 판본으로 매긴 협력사 등급은 그대로 남고, 다음 분석·다시 채점부터 새 판본을 씁니다.` : '등록한 협력사는 다음 분석·다시 채점부터 모든 문서의 후보가 됩니다. 제품 계열이 맞는 요구만 채점합니다.'}</p>
+      <p className="rfp-dialog-lead">{p ? `저장하면 ${p.profile_version + 1}판이 됩니다. 이전 판본으로 매긴 등급은 기록으로 남지만 현행 후보 화면에서는 빠지고, 다음 분석·다시 채점 때 새 판본으로 다시 매깁니다. 그 등급에 기댄 보완 선택은 재검토 대상이 됩니다.` : '등록한 협력사는 다음 분석·다시 채점부터 모든 문서의 후보가 됩니다. 제품 계열이 맞는 요구만 채점합니다.'}</p>
       <div className="kv-form">
         <KvFormRow columns={3}>
           <Field label="코드">{p ? <span className="ro">{p.candidate_code}</span> : <input aria-label="협력사 코드" maxLength={3} value={code} onChange={e => setCode(e.target.value.toUpperCase())} />}</Field>

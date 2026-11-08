@@ -304,6 +304,8 @@ async def save_partner(
 ) -> Partner:
     """협력사 새 판본(등록·수정 모두). 수정해도 이전 판본과 그 판본으로 매긴 등급은 남는다."""
     async with conn.transaction():
+        # 협력사 저장을 한 줄로 세운다. 제품 코드 중복 검사(아래 taken)가 동시 저장 둘을 함께 통과시키지 않게 한다.
+        await conn.execute("SELECT pg_advisory_xact_lock(hashtext('tft.partner_profiles'))")
         current = await _current_version(
             conn,
             "SELECT max(profile_version) AS v FROM tft.partner_profiles WHERE candidate_code = %s",
