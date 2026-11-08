@@ -8,7 +8,7 @@ import DeptResultReview from '../components/DeptResultReview';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ApiError, getApiMode, request } from '../api/client';
 import { getTicket, getTicketAnalysis, getTicketAudit, getTicketSummary, getTicketTranslation, getTicketUnits, type TicketListResponse } from '../api/cs';
-import { closeTicket, confirmReturn, correctAnalysis, createTicketSummary, createTicketTranslation, getTicketWorkflow, INVALID_TRANSITION_TEXT, isInvalidOwner, isInvalidTransition, isSendPending, isResolutionExists, isResultVersionConflict, isVersionConflict, reassignOwner, recallTransfer, registerResolutionCase, reviewDeptResult, saveUnitLink, startReview, transferTicket, type DeptCode, type UnitLinkBody, type WorkflowRecord, refreshCustomerSend, retryCustomerSend, sendCustomerMessage } from '../api/cs-workflow';
+import { closeTicket, confirmReturn, correctAnalysis, createTicketSummary, createTicketTranslation, getTicketWorkflow, INVALID_TRANSITION_TEXT, isInvalidOwner, isInvalidTransition, isSendPending, isResolutionExists, isResultVersionConflict, isVersionConflict, reassignOwner, recallTransfer, registerResolutionCase, reviewDeptResult, suggestFault, saveUnitLink, startReview, transferTicket, type DeptCode, type UnitLinkBody, type WorkflowRecord, refreshCustomerSend, retryCustomerSend, sendCustomerMessage } from '../api/cs-workflow';
 import { listCsAssignees, me } from '../api/platform';
 import { listMailboxes } from '../api/mailbox';
 import { ErrorState, Loading } from '../components/states';
@@ -714,7 +714,7 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
         onSubmit={form => void run(form.decision === 'ACCEPT' ? '부서 답변을 확인했습니다.' : '같은 부서에 다시 요청했습니다.', signal => reviewDeptResult(ticketId, pendingResult.id, { ...form, version }, signal))} />
     </KvModal>}
     {dialog === 'resolution' && data && <KvModal title={`해결 기록 남기기, ${code}`} onClose={() => !busy && setDialog(null)}>
-      <ResolutionCaseForm workflow={wf} busy={busy} onCancel={() => setDialog(null)} prefill={resolutionPrefill} faults={{ items: faultList.data?.data.items, pending: faultList.isLoading, failed: faultList.isError }}
+      <ResolutionCaseForm workflow={wf} busy={busy} onCancel={() => setDialog(null)} prefill={resolutionPrefill} suggest={canWrite ? signal => suggestFault(ticketId, signal) : undefined} faults={{ items: faultList.data?.data.items, pending: faultList.isLoading, failed: faultList.isError }}
         onSubmit={form => void run('해결 기록을 남겼습니다.', signal => registerResolutionCase(ticketId, { ...form, version }, signal))} />
     </KvModal>}
     {dialog === 'correct' && data && analysisData && <KvModal title={`분류 정정, ${code}`} onClose={() => setDialog(null)}>

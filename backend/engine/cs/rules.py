@@ -252,6 +252,12 @@ def decide_priority(category: str, urgency: str) -> PriorityDecision:
     return PriorityDecision(dict(_PRIORITY_RULES)[rule], rule)
 
 
+@cache
+def product_names() -> dict[str, str]:
+    """product_code → product_name from the provided product master."""
+    return {r["product_code"]: r["product_name"] for r in _read("product_master.csv")}
+
+
 def product_family(product_code: str) -> str:
     family = load_policy().families.get(product_code)
     if family is None:

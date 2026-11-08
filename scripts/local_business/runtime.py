@@ -200,6 +200,10 @@ def app_for(service: str, state: Path):
             return await call_next(request)
     elif service == "cs":
         from backend.api.cs.analysis.jobs import CsAnalysisSettings, configure_analysis_jobs
+        from backend.api.cs.faults.suggestion import (
+            CsFaultSuggestionSettings,
+            configure_fault_suggestion,
+        )
         from backend.api.cs.improvements.ai_draft import (
             CsImprovementDraftSettings,
             configure_improvement_draft,
@@ -247,6 +251,11 @@ def app_for(service: str, state: Path):
             app,
             CsReplyAnalysisSettings(_env_file=None, enabled=True),
             provider=bridge_provider(state, "/reply-analysis"),
+        )
+        configure_fault_suggestion(
+            app,
+            CsFaultSuggestionSettings(_env_file=None, enabled=True),
+            provider=bridge_provider(state, "/fault-suggestion"),
         )
         configure_analysis_jobs(
             app,

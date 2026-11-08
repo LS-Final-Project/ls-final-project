@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
-import { request } from '../api/client';
-import type { ResolutionBody, WorkflowRecord } from '../api/cs-workflow';
+import { ApiError, request } from '../api/client';
+import type { FaultSuggestion, ResolutionBody, WorkflowRecord } from '../api/cs-workflow';
+import { ElloMark, ElloWorking } from './Ello';
 import { CAUSE_LABEL, DEPT_CODES, RESPONSIBILITY_LABEL, deptName, formatStamp } from '../ls-shell/cs-labels';
 
 export type ResolutionForm = Omit<ResolutionBody, 'version'>;
@@ -12,11 +13,13 @@ export type ResolutionPrefill = { symptom?: string; action?: string; dept?: stri
 const FAULT_ID = /^FLT-\d{3}$/;
 
 // 해결 기록 입력(종결 뒤 문의당 한 건). 고장 코드는 사람이 확인한 값을 직접 적는다. 업무 상태의 반품 확정에서 복사하지 않는다.
-export default function ResolutionCaseForm({ workflow, busy, onSubmit, onCancel, prefill, faults }: {
+export default function ResolutionCaseForm({ workflow, busy, onSubmit, onCancel, prefill, faults, suggest }: {
   workflow?: WorkflowRecord;
   // 이 문의 제품의 고장 목록. 없으면(undefined) 예전처럼 코드를 직접 적는다.
   faults?: { items?: FaultEntry[]; pending?: boolean; failed?: boolean };
   prefill?: ResolutionPrefill;
+  // 같은 고장 AI 추천(KAN-245). 없으면 단추를 보이지 않는다.
+  suggest?: (signal: AbortSignal) => Promise<{ data: FaultSuggestion }>;
   busy: boolean;
   onSubmit: (form: ResolutionForm) => void;
   onCancel: () => void;
@@ -54,6 +57,29 @@ export default function ResolutionCaseForm({ workflow, busy, onSubmit, onCancel,
     if (!fwFixed.trim() && item.fw_fix_version) { setFwFixed(item.fw_fix_version); filled.push('fwFixed'); }
     setCatalogFilled(filled);
   };
+  const [advice, setAdvice] = useState<{ state: 'idle' | 'busy' } | { state: 'failed'; off: boolean } | { state: 'done'; data: FaultSuggestion }>({ state: 'idle' });
+  const askAi = () => {
+    if (!suggest || advice.state === 'busy') return;
+    setAdvice({ state: 'busy' });
+    suggest(new AbortController().signal).then(result => setAdvice({ state: 'done', data: result.data }), error => setAdvice({ state: 'failed', off: error instanceof ApiError && error.status === 404 }));
+  };
+  const takeAdvice = (id: string) => {
+    setManualFault(!faultList.some(item => item.fault_id === id));
+    setFault(id);
+    setCatalogFilled([]);
+  };
+  const adviceBox = advice.state === 'busy' ? <div className="fault-ai" aria-busy="true"><ElloWorking />같은 제품의 해결 기록과 이 문의 원문을 비교하는 중…</div>
+    : advice.state === 'failed' ? <div className="fault-ai"><small className="unc">{advice.off ? 'AI 고장 추천이 이 배포에서 꺼져 있습니다.' : 'AI 추천을 받지 못했습니다.'} 목록에서 직접 고르세요.</small></div>
+    : advice.state === 'done' ? <div className="fault-ai" aria-label="AI 고장 추천">
+      <div className="h"><span className="ai"><ElloMark />AI 추천</span><small className="meta"> 같은 제품 고장 {advice.data.compared_faults}종 · 해결 기록 {advice.data.compared_cases}건과 비교 · 확정은 담당자</small></div>
+      {advice.data.decision === 'EXISTING' && advice.data.fault_id
+        ? <div><b>{advice.data.fault_id}</b>{advice.data.fault_symptom ? ` · ${advice.data.fault_symptom}` : ''} <small className="meta">(이미 해결 기록 {advice.data.matched_cases}건)</small>
+          {fault.trim() !== advice.data.fault_id && <button type="button" className="kb sm" style={{ marginLeft: 6 }} onClick={() => takeAdvice(advice.data.fault_id!)}>이 고장으로 고르기</button>}</div>
+        : advice.data.decision === 'NEW' ? <div><b>새 고장일 수 있습니다.</b> 알려진 고장과 증상이 다릅니다. 목록에 없으면 코드를 직접 적으세요.</div>
+        : <div><b>판단 보류</b> · 원문에 증상이 없거나 여러 고장과 구별되지 않습니다. 직접 고르세요.</div>}
+      {advice.data.evidence_quote && <div className="meta">근거 “{advice.data.evidence_quote}”</div>}
+      <div className="meta">{advice.data.reason}</div>
+    </div> : null;
   const fromCatalog = (key: string) => catalogFilled.includes(key) ? <small className="filled">고장 목록 값 · 이 문의에 맞는지 확인</small> : null;
   const from = (key: string) => prefill?.sources[key] ? <small className="filled">자동 채움 · {prefill.sources[key]}</small> : null;
 
@@ -80,6 +106,8 @@ export default function ResolutionCaseForm({ workflow, busy, onSubmit, onCancel,
         </select>
         : <input type="text" aria-label="고장 코드" placeholder="FLT-012" maxLength={7} value={fault} onChange={event => setFault(event.target.value)} />}
       {faultList.length > 0 && manualFault && <button type="button" className="kb" style={{ marginTop: 4, height: 22 }} onClick={() => { setManualFault(false); setFault(''); }}>목록에서 고르기</button>}
+      {suggest && <button type="button" className="kb3 sm" style={{ marginTop: 4 }} disabled={busy || advice.state === 'busy'} title="모델을 한 번 호출합니다(비용). 추천만 하고 저장하지 않습니다" onClick={askAi}><ElloMark />AI로 같은 고장 찾기</button>}
+      {adviceBox}
       {faults?.pending && <small className="unc"> 고장 목록을 읽는 중</small>}
       {faults?.failed && <small className="unc"> 고장 목록을 읽지 못했습니다. 코드를 직접 적으세요(FLT-000)</small>}
       {faults?.items && faultList.length === 0 && <small className="unc"> 이 제품은 고장 목록에 없습니다. 코드를 직접 적으세요</small>}
