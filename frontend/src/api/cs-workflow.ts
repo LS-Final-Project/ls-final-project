@@ -75,6 +75,10 @@ export const createTicketSummary = (ticketId: string, signal: AbortSignal) => po
 export const createTicketTranslation = (ticketId: string, signal: AbortSignal) => postTo(`${ticketBase(ticketId)}/translation`, {}, signal, 'POST', ['cs_agent', 'dept_staff']);
 // 고객 회신 하나를 AI로 해석한다(요청한 정보에 답했는지, 남은 질문). 같은 회신·입력이면 저장본(200), 없으면 모델 한 번(201). C/S 담당자만.
 // 판정이 아니고 아무것도 바꾸지 않는다. 답한 정보 반영은 사람이 분류 정정(provided_info)으로 한다.
+// 해결 기록의 고장 코드를 고르기 전에, 이 문의가 같은 제품의 어느 알려진 고장과 같은지 AI가 추천한다(KAN-245). 저장하지 않고 부를 때마다 모델을 1~2회 부른다.
+// 추천일 뿐이다. 고장 코드는 담당자가 고르고 해결 기록 저장으로 확정한다. 꺼진 배포에서는 404.
+export type FaultSuggestion = paths['/api/v1/cs/tickets/{ticket_id}/fault-suggestion']['post']['responses'][200]['content']['application/json']['data'];
+export const suggestFault = async (ticketId: string, signal: AbortSignal) => (await postTo(`${ticketBase(ticketId)}/fault-suggestion`, {}, signal)) as unknown as { data: FaultSuggestion };
 export const createReplyAnalysis = (ticketId: string, messageId: string | null, signal: AbortSignal) => postTo(`${ticketBase(ticketId)}/reply-analysis`, messageId ? { message_id: messageId } : {}, signal);
 
 // 담당자가 AI 분류를 정정한다. 바꾼 칸만 보내고 사유가 필수다. 읽은 분석 판본(version)과 기준 분석 실행(analysis_id)을 함께 보낸다. 업무 상태 판본은 바뀌지 않는다.

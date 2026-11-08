@@ -1,6 +1,8 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import ResolutionCaseForm from './ResolutionCaseForm';
+import ResolutionCaseForm, { type FaultEntry } from './ResolutionCaseForm';
+import { ApiError } from '../api/client';
+import type { FaultSuggestion } from '../api/cs-workflow';
 
 afterEach(cleanup);
 const flow = { dept_results: [
@@ -77,4 +79,43 @@ test('고장 목록이 있어도 목록에 없는 새 고장 코드는 직접 �
   expect(input.value).toBe('FLT-990');
   fireEvent.click(screen.getByRole('button', { name: '목록에서 고르기' }));
   expect((screen.getByLabelText('고장 코드') as HTMLSelectElement).tagName).toBe('SELECT');
+});
+
+// 같은 고장 AI 추천(KAN-245)
+const entry = (fault_id: string, symptom: string): FaultEntry => ({ fault_id, symptom, error_code: null, root_cause: 'r', diagnosis: 'd', action: 'a', needs_onsite: false, needs_rma: false, fw_fix_version: null, replacement_part: null });
+const faults = { items: [entry('FLT-065', 'Buchholz alarm'), entry('FLT-067', 'Oil leakage at gasket')] };
+const advice = (extra: Partial<FaultSuggestion>): { data: FaultSuggestion } => ({ data: { ticket_id: 't', decision: 'EXISTING', fault_id: 'FLT-067', fault_symptom: 'Oil leakage at gasket', matched_cases: 13, evidence_quote: 'oil is leaking', reason: '같은 누유 증상', compared_faults: 2, compared_cases: 15, prompt_version: 'fault-match-v2', model: 'gemini-3.6-flash', provenance: 'ai_draft', ...extra } });
+const aiForm = (suggest?: () => Promise<{ data: FaultSuggestion }>) => render(<ResolutionCaseForm busy={false} onSubmit={() => {}} onCancel={() => {}} faults={faults} suggest={suggest} />);
+
+test('AI 추천을 받아 담당자가 눌러야 고장 코드가 골라진다', async () => {
+  const suggest = vi.fn(() => Promise.resolve(advice({})));
+  aiForm(suggest);
+  fireEvent.click(screen.getByRole('button', { name: /AI로 같은 고장 찾기/ }));
+  expect(await screen.findByText('FLT-067')).toBeTruthy();
+  expect(screen.getByText(/oil is leaking/)).toBeTruthy();
+  // 추천만으로는 고르지 않는다.
+  expect((screen.getByLabelText('고장 코드') as HTMLSelectElement).value).toBe('');
+  fireEvent.click(screen.getByRole('button', { name: '이 고장으로 고르기' }));
+  expect((screen.getByLabelText('고장 코드') as HTMLSelectElement).value).toBe('FLT-067');
+  expect(suggest).toHaveBeenCalledTimes(1);
+});
+
+test('판단 보류와 꺼진 배포는 직접 고르라고 안내한다', async () => {
+  aiForm(() => Promise.resolve(advice({ decision: 'UNSURE', fault_id: null, fault_symptom: null, matched_cases: 0 })));
+  fireEvent.click(screen.getByRole('button', { name: /AI로 같은 고장 찾기/ }));
+  expect(await screen.findByText('판단 보류')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: '이 고장으로 고르기' })).toBeNull();
+  cleanup();
+  aiForm(() => Promise.reject(new ApiError(404, 'not found')));
+  fireEvent.click(screen.getByRole('button', { name: /AI로 같은 고장 찾기/ }));
+  expect(await screen.findByText(/이 배포에서 꺼져 있습니다/)).toBeTruthy();
+  cleanup();
+  aiForm(() => Promise.reject(new ApiError(403, 'forbidden')));
+  fireEvent.click(screen.getByRole('button', { name: /AI로 같은 고장 찾기/ }));
+  expect(await screen.findByText(/C\/S 담당자만/)).toBeTruthy();
+});
+
+test('추천 기능을 넘기지 않으면 단추가 없다', () => {
+  aiForm();
+  expect(screen.queryByRole('button', { name: /AI로 같은 고장 찾기/ })).toBeNull();
 });
