@@ -26,7 +26,8 @@ export const listPartners = () => request<Envelope<Partner[]>>('/api/v1/tft/cata
 export const savePartner = (code: string, body: PartnerInput) =>
   request<Envelope<Partner>>(`/api/v1/tft/catalog/partners/${encodeURIComponent(code)}`, put(body));
 
-// 사양 조건을 한 줄 글로: "voltage=415 V; current_type=AC". 마지막 낱말이 단위다(값에 띄어쓰기가 없을 때).
+// 사양 조건을 한 줄 글로: "voltage=415 V; current_type=AC". 읽을 때는 숫자 값 뒤의 짧은 마지막 낱말만 단위로 본다
+// ("insulation=Class F"는 값 'Class F'). 화면은 조건 칸을 고친 줄만 이 글을 다시 읽는다.
 export const conditionsText = (conditions: SpecCondition[] | null | undefined) =>
   (conditions ?? []).map(c => `${c.name}=${c.value}${c.unit ? ` ${c.unit}` : ''}`).join('; ');
 export function parseConditions(text: string): SpecCondition[] | null {
@@ -35,7 +36,8 @@ export function parseConditions(text: string): SpecCondition[] | null {
   return parts.map(part => {
     const [name, ...rest] = part.split('=');
     const words = rest.join('=').trim().split(/\s+/);
-    const unit = words.length > 1 ? words.pop() : undefined;
+    const last = words.at(-1) ?? '';
+    const unit = words.length > 1 && /\d/.test(words.slice(0, -1).join(' ')) && /^[A-Za-z°µΩ%/·]{1,6}\d?$/.test(last) ? words.pop() : undefined;
     return { name: name.trim(), value: words.join(' '), ...(unit ? { unit } : {}) };
   });
 }

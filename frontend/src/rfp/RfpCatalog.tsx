@@ -3,7 +3,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { getApiMode } from '../api/client';
 import {
   catalogOptions, conditionsText, listOwnProducts, listPartners, nextPartnerCode, parseConditions, saveOwnProduct, savePartner,
-  type CatalogOptions, type OwnProduct, type OwnProductInput, type Partner, type PartnerInput, type SpecFact,
+  type CatalogOptions, type OwnProduct, type OwnProductInput, type Partner, type PartnerInput, type SpecCondition, type SpecFact,
 } from '../api/catalog';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ErrorState, Loading } from '../components/states';
@@ -160,14 +160,16 @@ function PartnerDetail({ partner, onEdit, canEdit }: { partner: Partner; onEdit:
 }
 
 // --- 입력 ---------------------------------------------------------------------------------------
-type FactRow = { product_code: string; attribute: string; value: string; unit: string; conditions: string; evidence_id: string; section: string };
+// original·shown: 불러온 조건과 그 글. 조건 칸을 고치지 않은 줄은 원래 조건 객체를 그대로 보낸다(글 왕복이 값을 바꾸지 않게).
+type FactRow = { product_code: string; attribute: string; value: string; unit: string; conditions: string; evidence_id: string; section: string; original?: SpecCondition[] | null; shown?: string };
 const factRow = (f?: SpecFact): FactRow => ({
   product_code: f?.product_code ?? '', attribute: f?.attribute ?? '', value: f?.value ?? '', unit: f?.unit ?? '',
   conditions: conditionsText(f?.conditions), evidence_id: f?.evidence_id ?? '', section: f?.section ?? '',
+  original: f?.conditions, shown: conditionsText(f?.conditions),
 });
 const factBody = (f: FactRow) => ({
   attribute: f.attribute as SpecFact['attribute'], value: f.value.trim(), unit: f.unit.trim() || null,
-  conditions: parseConditions(f.conditions), evidence_id: f.evidence_id.trim() || '제품 목록 등록', section: f.section.trim(),
+  conditions: f.shown !== undefined && f.conditions === f.shown ? f.original ?? null : parseConditions(f.conditions), evidence_id: f.evidence_id.trim() || '제품 목록 등록', section: f.section.trim(),
 });
 const factProblem = (rows: FactRow[], withProduct: boolean) => rows.some(f => !f.attribute || !f.value.trim() || (withProduct && !f.product_code))
   ? `사양 줄마다 ${withProduct ? '제품 코드, ' : ''}사양, 값을 넣으세요. 쓰지 않는 줄은 지우세요.` : '';

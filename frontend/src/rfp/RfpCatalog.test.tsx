@@ -52,6 +52,8 @@ test('conditions round-trip as one line and partner codes skip taken ones', () =
   expect(conditionsText(conditions)).toBe('voltage=415 V; current_type=AC');
   expect(parseConditions('voltage=415 V; current_type=AC')).toEqual(conditions);
   expect(parseConditions('  ')).toBeNull();
+  // 숫자가 아닌 값의 마지막 낱말은 단위로 떼지 않는다.
+  expect(parseConditions('insulation=Class F')).toEqual([{ name: 'insulation', value: 'Class F' }]);
   expect(nextPartnerCode(['R-A', 'R-B'])).toBe('R-C');
 });
 
@@ -105,4 +107,19 @@ test('editing a partner shows the server conflict in the dialog', async () => {
   expect(within(dialog).getByText(/3판이 됩니다/)).toBeTruthy();
   fireEvent.click(within(dialog).getByRole('button', { name: '수정 저장' }));
   expect((await within(dialog).findByRole('alert')).textContent).toContain('다른 협력사가 이미 쓰는 제품 코드');
+});
+
+test('saving an untouched product sends its stored conditions unchanged', async () => {
+  const calls = live();
+  renderApp('/tft/catalog');
+  const grid = await screen.findByRole('table', { name: '자사 제품' });
+  fireEvent.click(await within(grid).findByRole('button', { name: 'MCCB-1' }));
+  const edit = await screen.findByRole('button', { name: '수정' }) as HTMLButtonElement;
+  await waitFor(() => expect(edit.disabled).toBe(false));
+  fireEvent.click(edit);
+  const dialog = await screen.findByRole('dialog', { name: /자사 제품 수정/ });
+  fireEvent.click(within(dialog).getByRole('button', { name: '수정 저장' }));
+  await waitFor(() => expect(calls.some(c => c.init?.method === 'PUT')).toBe(true));
+  const sent = JSON.parse(String(calls.find(c => c.init?.method === 'PUT')?.init?.body));
+  expect(sent.spec_facts[0].conditions).toEqual([{ name: 'voltage', value: '415', unit: 'V' }]);
 });

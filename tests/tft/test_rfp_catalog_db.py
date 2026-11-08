@@ -31,9 +31,17 @@ def client(app_dsn):
     )
 
 
+def _clean(conn):
+    """이 파일이 만든 등록 협력사(R-?)·자사 판본(T-?)을 지운다. 공유 DB의 다른 시험은 시드 프로필만 본다."""
+    conn.execute("DELETE FROM tft.partner_grades WHERE candidate_code LIKE 'R-%'")
+    conn.execute("DELETE FROM tft.partner_profiles WHERE candidate_code LIKE 'R-%'")
+    conn.execute("DELETE FROM tft.catalog_edits WHERE code LIKE 'R-%' OR code LIKE 'T-%'")
+    conn.execute("DELETE FROM tft.own_products WHERE product_code LIKE 'T-%'")
+
+
 @pytest.fixture
 def seeded(admin):
-    """시드 협력사 P-A를 넣고, 이 파일이 쓰는 등록 코드(R-?)의 이전 실행 흔적을 지운다."""
+    """시드 협력사 P-A를 넣고, 시험 앞뒤로 이 파일이 만든 행을 지운다."""
     profile = next(p for p in load_profiles() if p.candidate_code == "P-A")
     row = profile_row(profile)
     with psycopg.connect(admin) as conn:
@@ -42,10 +50,10 @@ def seeded(admin):
             "ON CONFLICT DO NOTHING",
             list(row.values()),
         )
-        conn.execute("DELETE FROM tft.partner_profiles WHERE candidate_code LIKE 'R-%'")
-        conn.execute("DELETE FROM tft.catalog_edits WHERE code LIKE 'R-%' OR code LIKE 'T-%'")
-        conn.execute("DELETE FROM tft.own_products WHERE product_code LIKE 'T-%'")
-    return profile
+        _clean(conn)
+    yield profile
+    with psycopg.connect(admin) as conn:
+        _clean(conn)
 
 
 def call(client, method, path, who=SALES, body=None):
