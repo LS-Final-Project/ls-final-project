@@ -79,12 +79,14 @@ export default function RfpCatalog() {
   const current = tab === 'own' ? own : partners;
   const families = tab === 'own' ? options.data?.data.own_families ?? [] : options.data?.data.partner_families ?? [];
   const opts = options.data?.data;
+  // 등록·수정은 관리자만 한다(KAN-247, 서버도 403). 다른 역할에는 단추를 보이지 않는다.
+  const writer = access.user.data?.data.roles.includes('manager') === true;
 
   return <main className="rfp-ui rfp-catalog">
     <KvTitle path="제안 지원" title="제품 목록" code="TF0201">
-      <button type="button" className="kb primary" disabled={!opts} onClick={() => setEditing({ kind: tab })}>{tab === 'own' ? '자사 제품 등록' : '협력사 등록'}</button>
+      {writer && <button type="button" className="kb primary" disabled={!opts} onClick={() => setEditing({ kind: tab })}>{tab === 'own' ? '자사 제품 등록' : '협력사 등록'}</button>}
     </KvTitle>
-    <KvNext label="안내">자사 비교와 협력사 채점이 이 목록을 씁니다. 자사 제품을 고치면 저장된 비교 판정은 그대로이고 다음 분석·다시 비교부터 반영됩니다. 협력사를 고치면 그 협력사의 기존 등급은 지난 판본 기준이라 후보 화면에서 빠지고, 다음 분석·다시 채점 때 새 판본으로 다시 매깁니다.</KvNext>
+    <KvNext label="안내">자사 비교와 협력사 채점이 이 목록을 씁니다. 자사 제품을 고치면 저장된 비교 판정은 그대로이고 다음 분석·다시 비교부터 반영됩니다. 협력사를 고치면 그 협력사의 기존 등급은 지난 판본 기준이라 후보 화면에서 빠지고, 다음 분석·다시 채점 때 새 판본으로 다시 매깁니다.{writer ? '' : ' 등록·수정은 관리자만 할 수 있습니다.'}</KvNext>
     <div className="ws-tabs rfp-catalog-tabs" role="tablist" aria-label="제품 목록">
       <button role="tab" aria-selected={tab === 'own'} className={tab === 'own' ? 'on' : ''} onClick={() => switchTab('own')}>자사 제품 <span className="muted">{ownRows.length}</span></button>
       <button role="tab" aria-selected={tab === 'partner'} className={tab === 'partner' ? 'on' : ''} onClick={() => switchTab('partner')}>협력사 <span className="muted">{partnerRows.length}</span></button>
@@ -104,8 +106,8 @@ export default function RfpCatalog() {
         ? <KvGrid label="자사 제품" columns={ownColumns} rows={ownShown} rowKey={p => p.product_code} selectedKey={picked} onRow={p => setPicked(p.product_code)} scroll fallback={own.isPending ? <Loading /> : '조건에 맞는 제품이 없습니다.'} />
         : <KvGrid label="협력사" columns={partnerColumns} rows={partnerShown} rowKey={p => p.profile.candidate_code} selectedKey={picked} onRow={p => setPicked(p.profile.candidate_code)} scroll fallback={partners.isPending ? <Loading /> : '조건에 맞는 협력사가 없습니다.'} />}
     <KvFoot count={`${tab === 'own' ? ownShown.length : partnerShown.length}건`} />
-    {ownPicked && <OwnDetail product={ownPicked} onEdit={() => setEditing({ kind: 'own', code: ownPicked.product_code })} canEdit={!!opts} />}
-    {partnerPicked && <PartnerDetail partner={partnerPicked} onEdit={() => setEditing({ kind: 'partner', code: partnerPicked.profile.candidate_code })} canEdit={!!opts} />}
+    {ownPicked && <OwnDetail product={ownPicked} onEdit={writer ? () => setEditing({ kind: 'own', code: ownPicked.product_code }) : undefined} canEdit={!!opts} />}
+    {partnerPicked && <PartnerDetail partner={partnerPicked} onEdit={writer ? () => setEditing({ kind: 'partner', code: partnerPicked.profile.candidate_code }) : undefined} canEdit={!!opts} />}
     {editing && opts && (editing.kind === 'own'
       ? <OwnForm options={opts} product={ownRows.find(p => p.product_code === editing.code)} taken={ownRows.map(p => p.product_code)} onClose={() => setEditing(undefined)} onSaved={code => { setTab('own'); setPicked(code); }} />
       : <PartnerForm options={opts} partner={partnerRows.find(p => p.profile.candidate_code === editing.code)} taken={partnerRows.map(p => p.profile.candidate_code)} onClose={() => setEditing(undefined)} onSaved={code => { setTab('partner'); setPicked(code); }} />)}
@@ -123,19 +125,19 @@ function FactTable({ facts, withProduct = false }: { facts: SpecFact[]; withProd
   return <KvGrid label="사양" columns={columns} rows={facts.map((f, i) => ({ ...f, i }))} rowKey={f => String(f.i)} fallback="등록된 사양이 없습니다. 사양이 없으면 비교에서 '자료 없음'이 됩니다." />;
 }
 
-function OwnDetail({ product, onEdit, canEdit }: { product: OwnProduct; onEdit: () => void; canEdit: boolean }) {
+function OwnDetail({ product, onEdit, canEdit }: { product: OwnProduct; onEdit?: () => void; canEdit: boolean }) {
   return <KvBox title={`${product.product_code} 상세`} note={product.source === 'FILE' ? '기본 자료(제품 마스터)' : `화면 수정 ${product.version}판`}>
-    <div className="rfp-catalog-detail-head"><button type="button" className="kb" disabled={!canEdit} onClick={onEdit}>수정</button></div>
+    {onEdit && <div className="rfp-catalog-detail-head"><button type="button" className="kb" disabled={!canEdit} onClick={onEdit}>수정</button></div>}
     <KvRibbon cells={[['계열', label(FAMILY_LABEL, product.family)], ['상태', label(LIFECYCLE_LABEL, product.lifecycle_status)], ['적용 규격', product.standards.join(', ') || '─'], ['인증', product.certifications.map(c => `${c.standard}(${label(CERT_KIND_LABEL, c.kind)}${c.variant ? `, ${c.variant}` : ''})`).join(', ') || '─']]} />
     <FactTable facts={product.spec_facts} />
   </KvBox>;
 }
 
-function PartnerDetail({ partner, onEdit, canEdit }: { partner: Partner; onEdit: () => void; canEdit: boolean }) {
+function PartnerDetail({ partner, onEdit, canEdit }: { partner: Partner; onEdit?: () => void; canEdit: boolean }) {
   const p = partner.profile;
   const reviewer = useNames([p.confirmation.reviewer])(p.confirmation.reviewer) || p.confirmation.reviewer;
   return <KvBox title={`${p.candidate_code} ${p.display_name} 상세`} note={`${p.profile_source === 'registered' ? '화면 등록' : '기본 자료(합성)'} ${p.profile_version}판`}>
-    <div className="rfp-catalog-detail-head"><button type="button" className="kb" disabled={!canEdit} onClick={onEdit}>수정</button></div>
+    {onEdit && <div className="rfp-catalog-detail-head"><button type="button" className="kb" disabled={!canEdit} onClick={onEdit}>수정</button></div>}
     <KvRibbon cells={[
       ['제조사', p.manufacturer_name], ['제품 계열', p.product_family], ['공급 지역', p.supply_regions.join(', ')],
       ['납기', p.lead_time ? `${p.lead_time.value}주${p.lead_time.ex_works ? '(공장 출하)' : ''}` : '─'],

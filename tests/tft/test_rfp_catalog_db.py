@@ -20,6 +20,8 @@ from backend.shared.settings import Settings
 from tests.tft.test_rfp_http_base_db import admin, app_dsn, chain  # noqa: F401
 
 SALES = Principal(user_id=uuid4(), roles=frozenset({"sales"}))
+MANAGER = Principal(user_id=uuid4(), roles=frozenset({"manager"}))
+TECH = Principal(user_id=uuid4(), roles=frozenset({"dept_staff"}), dept="TS_TRF")
 CS = Principal(user_id=uuid4(), roles=frozenset({"cs_agent"}))
 FACT = {"attribute": "rated_current", "value": "630", "unit": "A"}
 
@@ -56,7 +58,7 @@ def seeded(admin):
         _clean(conn)
 
 
-def call(client, method, path, who=SALES, body=None):
+def call(client, method, path, who=MANAGER, body=None):
     return client.request(
         method, "/api/v1/tft/catalog" + path, json=body, headers=principal_header(who)
     )
@@ -122,7 +124,7 @@ def test_own_products_list_file_rows_then_stack_versions(client, seeded, app_dsn
     assert (data["version"], data["source"], data["edited_by"]) == (
         1,
         "REGISTERED",
-        str(SALES.user_id),
+        str(MANAGER.user_id),
     )
     assert data["spec_facts"][0]["product_code"] == code
     assert own_now(app_dsn)[-1].product_code == code
@@ -178,7 +180,7 @@ def test_partners_register_and_edit_as_new_versions(client, seeded):
         p["profile"]["candidate_code"]: p for p in call(client, "GET", "/partners").json()["data"]
     }
     assert listed["R-A"]["profile"]["display_name"] == "이름 바꿈"
-    assert listed["R-A"]["edited_by"] == str(SALES.user_id)
+    assert listed["R-A"]["edited_by"] == str(MANAGER.user_id)
     assert listed["P-A"]["profile"]["profile_source"] == "synthetic"
 
     # 시드 협력사 수정도 새 판본(registered)으로 쌓고 시드 판본은 그대로 둔다.
@@ -286,3 +288,14 @@ def test_editing_a_partner_retires_its_stored_grades_until_regrading(
             ).fetchone()[0]
             == 1
         )
+
+
+def test_only_managers_write_the_catalog(client, seeded):
+    """KAN-247: 제안 지원 역할은 모두 읽고, 등록·수정은 manager만 한다."""
+    for who in (SALES, TECH):
+        assert call(client, "GET", "/own-products", who=who).status_code == 200
+        assert call(client, "GET", "/partners", who=who).status_code == 200
+        own = call(client, "PUT", f"/own-products/T-{uuid4().hex[:6]}", who=who, body=own_body())
+        assert own.status_code == 403
+        assert own.json()["error"]["code"] == "TFT_CATALOG_WRITE_FORBIDDEN"
+        assert call(client, "PUT", "/partners/R-D", who=who, body=partner_body()).status_code == 403

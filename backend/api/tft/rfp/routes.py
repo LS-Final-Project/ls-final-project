@@ -1058,8 +1058,8 @@ async def list_equipment(
 
 
 # --- 제품 목록(KAN-246) -------------------------------------------------------------------
-# 회사 공통 자료라 프로젝트 범위가 없다. 제안 지원 역할(sales·manager·dept_staff) 모두 읽고 고칠 수 있고,
-# 고친 사람은 tft.catalog_edits에 남는다. 저장은 PUT + expected_version(낙관적 잠금)이라 같은 요청을
+# 회사 공통 자료라 프로젝트 범위가 없다. 제안 지원 역할(sales·manager·dept_staff) 모두 읽고, 고치는 일은
+# manager만 한다(KAN-247, 한 사람의 수정이 모든 프로젝트의 다음 비교·채점에 쓰인다). 고친 사람은 tft.catalog_edits에 남는다. 저장은 PUT + expected_version(낙관적 잠금)이라 같은 요청을
 # 다시 보내면 409로 끝나 두 번 쌓이지 않는다.
 C = "/catalog"
 
