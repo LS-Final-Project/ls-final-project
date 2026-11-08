@@ -211,13 +211,16 @@ class Requirement(Strict):
     origin: Origin | None = None
 
 
-class Certification(Strict):
+class OwnCertification(Strict):
     standard: str
     # MARK: 제품 마스터에 인증 이름만 있고 등록·시험 구분이 없음(UL·CE·KC 등). 충족을 확정하지 않는다(기획서 2.3).
     kind: Literal["LISTED", "TEST_REPORT", "MARK"]
     evidence_id: str
     # 인증이 변형 모델(예: -U)에만 있으면 기본 모델의 인증으로 넓히지 않는다(기획서 4.2).
     variant: str | None = None
+
+
+Certification = OwnCertification  # OpenAPI 이름이 협력사 인증과 겹치지 않게(KAN-246)
 
 
 class Product(Strict):

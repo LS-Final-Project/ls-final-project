@@ -15,7 +15,7 @@ import { formatDateTime, Origin } from '../components/tft';
 import type { RequirementFilters } from '../api/rfp';
 import './RfpSupplement.css';
 import IntegrationPanel from './IntegrationPanel';
-import { ATTRIBUTE_LABEL, requirementNo, BLOCKED_LABEL, PATH_LABEL as PATH, RND_CHECK_LABEL, STATUS_LABEL, NECESSITY_LABEL, label } from './labels';
+import { ATTRIBUTE_LABEL, requirementNo, BLOCKED_LABEL, PATH_LABEL as PATH, RND_CHECK_LABEL, STATUS_LABEL, NECESSITY_LABEL, SCOPE_LABEL, CONFIRMATION_LABEL, label } from './labels';
 import { KvBox, KvField, KvGrid, KvNext, KvTitle, KvSplit, KvCond, KvCondRow, KvCondField, type KvColumn } from '../ls-shell/kv';
 
 const CAUSE: Record<string, string> = { RATING: '정격', CERTIFICATION: '인증', FORM: '구조·형식', TASK: '수행 작업', DESIGNATED_MODEL: '지정 모델', COMMERCIAL: '거래 조건', CORE_EQUIPMENT_MISSING: '핵심 장비 없음' };
@@ -205,8 +205,8 @@ export function SelectionEditor({ options, candidates, canSelect, onSaveReady, o
 }
 
 const GRADE: Record<string, string> = { MANDATORY_CONFIRMED: '필수 기술조건 확인', REVIEW: '검토', REFERENCE_ONLY: '확인용', EXCLUDED: '제외' };
-const SCOPE: Record<string, string> = { SUPPLY: '공급', ASSEMBLY: '조립', INSTALL: '설치', TEST: '시험', CALC: '계산', TRAINING: '교육' };
-const CONFIRMATION: Record<string, string> = { UNCONFIRMED: '미확인', CONTACT_PLANNED: '확인 예정', CONFIRMED: '확인됨' };
+const SCOPE = SCOPE_LABEL;
+const CONFIRMATION = CONFIRMATION_LABEL;
 const checkLabel = (value: string) => {
   if (value === "extraction_semantics") return "추출 의미 미보존";
   const responsibility: Record<string, string> = { assembly: '조립 책임', supply: '공급 책임', install: '설치 책임', test: '시험 책임', calc: '계산 책임', training: '교육 책임', integration: '통합 책임', warranty: '보증 책임' };

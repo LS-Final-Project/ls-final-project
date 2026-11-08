@@ -13,7 +13,7 @@ from uuid import UUID, uuid4
 from fastapi import Request
 from psycopg import AsyncConnection
 
-from backend.api.tft.rfp import commands, comparison, repository, supplement
+from backend.api.tft.rfp import catalog, commands, comparison, repository, supplement
 from backend.api.tft.rfp import schemas as s
 from backend.api.tft.rfp.decisions import check_role, record, replay
 from backend.api.tft.rfp.routes_questions import visible_project
@@ -158,7 +158,7 @@ async def add(
                     ),
                 ),
                 item.equipment_family,
-                comparison.load_own_products(),
+                await catalog.own_products(conn),
             ),
         )
         cursor = await conn.execute(

@@ -9,11 +9,12 @@
 from typing import Annotated, Any, NoReturn
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Query, Request, Response
+from fastapi import APIRouter, Depends, Header, Path, Query, Request, Response
 
 from backend.api.tft.projects.access import require_project_list
 from backend.api.tft.rfp import (
     analysis,
+    catalog,
     context_routes,
     history,
     jobs,
@@ -28,6 +29,7 @@ from backend.api.tft.rfp import (
 from backend.api.tft.rfp import schemas as s
 from backend.api.tft.rfp.context_schemas import ContextCorrection, ContextResponse
 from backend.shared.access import Principal, current_principal
+from backend.shared.database import connection
 from backend.shared.errors import ApplicationError
 from backend.shared.logs import bind_path_ids
 from backend.shared.models import ErrorResponse, ResponseMeta, SuccessResponse
@@ -1053,3 +1055,76 @@ async def list_equipment(
     from backend.api.tft.rfp.requirement_fields import list_equipment as equipment
 
     return respond(request, await equipment(request, user, project_id))
+
+
+# --- 제품 목록(KAN-246) -------------------------------------------------------------------
+# 회사 공통 자료라 프로젝트 범위가 없다. 제안 지원 역할(sales·manager·dept_staff) 모두 읽고 고칠 수 있고,
+# 고친 사람은 tft.catalog_edits에 남는다. 저장은 PUT + expected_version(낙관적 잠금)이라 같은 요청을
+# 다시 보내면 409로 끝나 두 번 쌓이지 않는다.
+C = "/catalog"
+
+
+@router.get(
+    C + "/options",
+    response_model=SuccessResponse[catalog.Options],
+    operation_id="tft_catalog_options",
+)
+async def catalog_options(request: Request, user: User) -> SuccessResponse[catalog.Options]:
+    """등록 화면 선택지(속성·계열·범위·인증 종류)."""
+    return respond(request, catalog.options())
+
+
+@router.get(
+    C + "/own-products",
+    response_model=SuccessResponse[list[catalog.OwnProduct]],
+    operation_id="tft_list_own_products",
+)
+async def list_own_products(
+    request: Request, user: User
+) -> SuccessResponse[list[catalog.OwnProduct]]:
+    """자사 제품 목록(기본 파일 + 화면 판본, 단종 포함)."""
+    async with connection(request.app.state.settings) as conn:
+        return respond(request, await catalog.list_own(conn))
+
+
+@router.put(
+    C + "/own-products/{product_code}",
+    response_model=SuccessResponse[catalog.OwnProduct],
+    operation_id="tft_save_own_product",
+)
+async def save_own_product(
+    product_code: Annotated[str, Path(pattern=catalog.CODE)],
+    payload: catalog.OwnProductInput,
+    request: Request,
+    user: User,
+) -> SuccessResponse[catalog.OwnProduct]:
+    """자사 제품 등록·수정. 새 판본을 쌓고 다음 비교부터 쓴다(이미 저장된 비교는 그대로)."""
+    async with connection(request.app.state.settings) as conn:
+        return respond(request, await catalog.save_own(conn, user, product_code, payload))
+
+
+@router.get(
+    C + "/partners",
+    response_model=SuccessResponse[list[catalog.Partner]],
+    operation_id="tft_list_partners",
+)
+async def list_partners(request: Request, user: User) -> SuccessResponse[list[catalog.Partner]]:
+    """협력사 목록(후보마다 최신 판본)."""
+    async with connection(request.app.state.settings) as conn:
+        return respond(request, await catalog.list_partners(conn))
+
+
+@router.put(
+    C + "/partners/{candidate_code}",
+    response_model=SuccessResponse[catalog.Partner],
+    operation_id="tft_save_partner",
+)
+async def save_partner(
+    candidate_code: Annotated[str, Path(pattern=catalog.PARTNER_CODE)],
+    payload: catalog.PartnerInput,
+    request: Request,
+    user: User,
+) -> SuccessResponse[catalog.Partner]:
+    """협력사 등록·수정. 새 판본을 쌓고, 다음 처리·다시 채점부터 쓴다."""
+    async with connection(request.app.state.settings) as conn:
+        return respond(request, await catalog.save_partner(conn, user, candidate_code, payload))
