@@ -306,7 +306,7 @@ uv run --frozen --python 3.12 python -m scripts.local_business mail-demo-receive
   --from buyer@customer.example.invalid --reply --body "Photos and the serial number are attached."
 ```
 
-3. 새 문의 메일은 메일함 또는 업무 홈에서 확인 뒤 문의로 등록한다(고객 연락처에 그 주소가 있으면 고객 후보로 보인다, `infra/sql/register_customer_contact.sql`).
+3. 화면에는 메일을 문의로 등록하는 경로가 없다(#657, 기획상 문의는 앞단 접수 시스템에서 들어와 문의 조회에서 처음 본다). 시연에서 받은 새 문의 메일을 문의로 만들려면 그 메일 ID로 `POST /api/v1/platform/mail/messages/{message_id}/register-ticket`(KAN-110)을 그 메일함 주인인 C/S 담당자 세션으로 부른다(고객 연락처에 그 주소가 있어야 고객이 연결된다, `infra/sql/register_customer_contact.sql`). 메일함 화면은 연결이 필요한 고객 답장만 보인다.
 4. 문의 처리에서 정보 요청이나 답변을 승인해 보내면 시연 보낸편지함에 들어가고 다음 정리 주기에 보낸편지함 확인이 된다.
 5. `--reply`로 넣은 회신은 답장 헤더로 그 문의에 자동 연결되고, 문의가 검토중으로 다시 열린다. 회신 반영 분석은 모델이 켜져 있을 때 버튼으로 돈다.
 

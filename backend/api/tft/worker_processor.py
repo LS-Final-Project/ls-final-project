@@ -338,7 +338,8 @@ def make_processor(
         store: 원문 저장소. 없으면 원문이 필요한 작업은 실패한다.
         products: 자사 제품(기본은 own_spec_facts 전체).
         today: 인증 유효기한 기준일.
-        structure_provider: 번호 빈자리 보정 호출. None이면 부르지 않는다(기본).
+        structure_provider: 번호 빈자리 보정 호출. None이면 부르지 않는다. 운영 worker는
+            `TFT_STRUCTURE_REPAIR_ENABLED`(기본 켬)로 만든다.
 
     Returns:
         Processor: `processor(job, emit)`.

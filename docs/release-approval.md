@@ -146,6 +146,7 @@
 | `CS_REPLY_ANALYSIS_ENABLED` | team4-cs | 수동 | **[비용]** 고객 회신 반영 분석(`contracts/cs/reply-analysis.md`). C31 적용 뒤. 켜면 담당자가 회신 분석 버튼을 누를 때마다 모델 1회(자동 실행 없음, 같은 입력이면 재사용). 실제 모델 확인(사용자 승인) 전에는 꺼 둔다 |
 | `CS_IMPROVEMENT_DRAFT_ENABLED` | team4-cs | 수동 | **[비용]** 개선요청 AI 작성 초안(`contracts/cs/improvements.md` AI 작성 초안). C27 적용 뒤. 켜면 담당자가 만들 때마다 모델 1회. 실제 모델 확인(사용자 승인) 전에는 꺼 둔다 |
 | `CS_FAULT_SUGGESTION_ENABLED` | team4-cs | 수동 | **[비용]** 해결 사례 등록 때 같은 고장 AI 추천(`contracts/cs/fault-suggestion.md`, KAN-245). 마이그레이션 없음. 켜면 담당자가 추천 단추를 누를 때마다 모델 1회(규칙 밖 응답이면 1회 더). 저장·자동 실행 없음 |
+| `TFT_EXTRACTION_THINKING_LEVEL`, `TFT_EXTRACTION_CONCURRENCY`, `TFT_STRUCTURE_REPAIR_ENABLED` | tft-worker Job | `deploy_workers.py`(Job 환경) 또는 기본값 | **[비용·품질]** RFP 요구 추출(KAN-188 #655). 기본 `LOW`·`6`·켬. 공식 정답셋 재측정(참고값)에서 재현율 66.8→82.5%, 문서당 시간·비용 약 절반, 필수 제약 위반 0(`artifacts/rfp-timing-20261106/report.md`). 구조 보정은 번호 빈자리마다 모델 호출이 늘 수 있다(문서당 최대 20회). 되돌리기: `TFT_EXTRACTION_THINKING_LEVEL`을 비우면 모델 기본, `TFT_STRUCTURE_REPAIR_ENABLED=false`면 보정 호출만 빠지고 결정 파서 규칙은 그대로, 동시 수는 `1`~`6` |
 | `NOTIFICATION_PUSH_ENABLED` | 플랫폼 | `infra/setup_notification_push.sh` | 브라우저 알림(선택) |
 | `CS_VECTOR_SEARCH_ENABLED=true`, `CS_EMBEDDING_MODEL=gemini-embedding-2`, `CS_EMBEDDING_QUERY_TASK_TYPE=RETRIEVAL_DOCUMENT` | team4-cs·cs-worker Job | 수동 | D의 임베딩 적재 뒤. 실패하면 FTS로 넘어가고 로그에 `CS_VECTOR_SEARCH_FAILED`가 남는지 본다 |
 
