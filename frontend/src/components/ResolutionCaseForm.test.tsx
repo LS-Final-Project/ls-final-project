@@ -109,6 +109,10 @@ test('판단 보류와 꺼진 배포는 직접 고르라고 안내한다', async
   aiForm(() => Promise.reject(new ApiError(404, 'not found')));
   fireEvent.click(screen.getByRole('button', { name: /AI로 같은 고장 찾기/ }));
   expect(await screen.findByText(/이 배포에서 꺼져 있습니다/)).toBeTruthy();
+  cleanup();
+  aiForm(() => Promise.reject(new ApiError(403, 'forbidden')));
+  fireEvent.click(screen.getByRole('button', { name: /AI로 같은 고장 찾기/ }));
+  expect(await screen.findByText(/C\/S 담당자만/)).toBeTruthy();
 });
 
 test('추천 기능을 넘기지 않으면 단추가 없다', () => {

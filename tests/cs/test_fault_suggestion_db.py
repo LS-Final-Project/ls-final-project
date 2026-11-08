@@ -96,35 +96,43 @@ def add_case(admin, tag, fault, body, *, origin="synthetic", product=PRODUCT, at
     return ticket_id
 
 
-def clean(admin):
-    """같은 제품의 이전 시험 기록을 지운다(묶음 순서가 시험마다 같게)."""
-    admin.execute(
-        "DELETE FROM cs.resolution_cases WHERE product_code = %s AND source_instance LIKE 'kan245-%%'",
-        (PRODUCT,),
-    )
-    admin.execute(
-        "DELETE FROM cs.tickets WHERE product_code = %s AND source_instance LIKE 'kan245-%%'",
-        (PRODUCT,),
-    )
-
-
 def path(ticket_id):
     return f"/api/v1/cs/tickets/{ticket_id}/fault-suggestion"
 
 
 def seeded(admin):
-    clean(admin)
+    """시험마다 새 제품 코드를 써서 다른 시험(같은 DB)의 해결 기록과 섞이지 않게 한다."""
     tag = uuid4().hex[:8]
+    product = f"KAN245-{tag}"
     day = timedelta(days=1)
-    add_case(admin, tag, "FLT-067", "Oil leaking from the gasket.", at=START)
-    add_case(admin, tag, "FLT-067", "Gasket oil leak again.", at=START + day)
-    add_case(admin, tag, "FLT-067", "Third gasket leak.", at=START + 2 * day)
-    add_case(admin, tag, "FLT-065", "Buchholz alarm A.BH1 after filling.", at=START + 3 * day)
+    add_case(admin, tag, "FLT-067", "Oil leaking from the gasket.", product=product, at=START)
+    add_case(admin, tag, "FLT-067", "Gasket oil leak again.", product=product, at=START + day)
+    add_case(admin, tag, "FLT-067", "Third gasket leak.", product=product, at=START + 2 * day)
+    add_case(
+        admin,
+        tag,
+        "FLT-065",
+        "Buchholz alarm A.BH1 after filling.",
+        product=product,
+        at=START + 3 * day,
+    )
     # 다른 출처와 다른 제품의 기록은 비교에 들어가지 않는다.
-    add_case(admin, tag, "FLT-066", "Real-origin Buchholz trip.", origin="real", at=START)
-    add_case(admin, tag, "FLT-001", "Other product.", product="MCCB-ABS-103c", at=START)
+    add_case(
+        admin,
+        tag,
+        "FLT-066",
+        "Real-origin Buchholz trip.",
+        origin="real",
+        product=product,
+        at=START,
+    )
+    add_case(admin, tag, "FLT-001", "Other product.", product=f"{product}-X", at=START)
     target = add_ticket(
-        admin, tag, "Our transformer oil is leaking. Mail me at buyer@example.com.", at=START
+        admin,
+        tag,
+        "Our transformer oil is leaking. Mail me at buyer@example.com.",
+        product=product,
+        at=START,
     )
     return target
 
@@ -157,8 +165,8 @@ def test_new_and_unsure_carry_no_fault(client, model, admin):
 
 
 def test_with_no_known_fault_of_the_product_the_model_is_not_called(client, model, admin):
-    clean(admin)
-    target = add_ticket(admin, uuid4().hex[:8], "Transformer noise.")
+    tag = uuid4().hex[:8]
+    target = add_ticket(admin, tag, "Transformer noise.", product=f"KAN245-{tag}")
     data = client.post(path(target)).json()["data"]
     assert (data["decision"], data["fault_id"], data["model"]) == ("NEW", None, None)
     assert data["compared_faults"] == 0 and model.prompts == []

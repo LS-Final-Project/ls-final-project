@@ -137,14 +137,21 @@ def text_of(row: dict[str, Any]) -> str:
 
 
 async def history(conn: Any, ticket: dict[str, Any]) -> list[dict[str, Any]]:
-    """같은 제품·같은 출처에서 이미 알려진 다른 문의의 해결 기록과 그 문의 원문, 적재 시각 순."""
+    """같은 제품·같은 출처에서 이미 알려진 다른 문의의 해결 기록 중 고장 묶음마다 처음 알려진 예시 몇 건과 묶음 기록 수.
+
+    묶음 순서는 처음 알려진 순이다. 원문은 예시로 쓰는 행만 읽는다.
+    """
     cursor = await conn.execute(
-        "SELECT rc.fault_id, t.channel, t.body_language, t.subject, t.body "
+        "SELECT fault_id, cases, channel, body_language, subject, body FROM ("
+        "SELECT rc.fault_id, t.channel, t.body_language, t.subject, t.body, "
+        "row_number() OVER w AS rn, count(*) OVER (PARTITION BY rc.fault_id) AS cases, "
+        "first_value(rc.known_at) OVER w AS first_at, first_value(rc.id) OVER w AS first_id "
         "FROM cs.resolution_cases rc JOIN cs.tickets t ON t.id = rc.ticket_id "
         "WHERE rc.product_code = %s AND rc.data_origin = %s AND rc.ticket_id <> %s "
         "AND rc.known_at <= now() AND rc.fault_id ~ '^FLT-[0-9]{3}$' "
-        "ORDER BY rc.known_at, rc.id",
-        (ticket["product_code"], ticket["data_origin"], ticket["id"]),
+        "WINDOW w AS (PARTITION BY rc.fault_id ORDER BY rc.known_at, rc.id)"
+        ") x WHERE rn <= %s ORDER BY first_at, first_id, rn",
+        (ticket["product_code"], ticket["data_origin"], ticket["id"], MAX_EXAMPLES_PER_GROUP),
     )
     return await cursor.fetchall()
 
@@ -156,12 +163,12 @@ def match_input(ticket: dict[str, Any], rows: list[dict[str, Any]]) -> tuple[Mat
         members.setdefault(row["fault_id"], []).append(row)
     refs = {f"G{i}": fault for i, fault in enumerate(members, 1)}
     groups = [
-        GroupView(ref=ref, examples=[text_of(r) for r in members[fault][:MAX_EXAMPLES_PER_GROUP]])
+        GroupView(ref=ref, examples=[text_of(r) for r in members[fault]])
         for ref, fault in refs.items()
     ]
     name = product_names().get(ticket["product_code"], ticket["product_code"])
     payload = MatchInput(product_name=name, query=text_of(ticket), groups=groups)
-    return payload, {ref: (fault, len(members[fault])) for ref, fault in refs.items()}
+    return payload, {ref: (fault, members[fault][0]["cases"]) for ref, fault in refs.items()}
 
 
 @router.post(
@@ -192,7 +199,7 @@ async def suggest_fault(
     base = {
         "ticket_id": ticket_id,
         "compared_faults": len(refs),
-        "compared_cases": len(rows),
+        "compared_cases": sum(count for _, count in refs.values()),
         "prompt_version": PROMPT_VERSION,
     }
     if not refs:

@@ -57,11 +57,11 @@ export default function ResolutionCaseForm({ workflow, busy, onSubmit, onCancel,
     if (!fwFixed.trim() && item.fw_fix_version) { setFwFixed(item.fw_fix_version); filled.push('fwFixed'); }
     setCatalogFilled(filled);
   };
-  const [advice, setAdvice] = useState<{ state: 'idle' | 'busy' } | { state: 'failed'; off: boolean } | { state: 'done'; data: FaultSuggestion }>({ state: 'idle' });
+  const [advice, setAdvice] = useState<{ state: 'idle' | 'busy' } | { state: 'failed'; status?: number } | { state: 'done'; data: FaultSuggestion }>({ state: 'idle' });
   const askAi = () => {
     if (!suggest || advice.state === 'busy') return;
     setAdvice({ state: 'busy' });
-    suggest(new AbortController().signal).then(result => setAdvice({ state: 'done', data: result.data }), error => setAdvice({ state: 'failed', off: error instanceof ApiError && error.status === 404 }));
+    suggest(new AbortController().signal).then(result => setAdvice({ state: 'done', data: result.data }), error => setAdvice({ state: 'failed', status: error instanceof ApiError ? error.status : undefined }));
   };
   const takeAdvice = (id: string) => {
     setManualFault(!faultList.some(item => item.fault_id === id));
@@ -69,7 +69,7 @@ export default function ResolutionCaseForm({ workflow, busy, onSubmit, onCancel,
     setCatalogFilled([]);
   };
   const adviceBox = advice.state === 'busy' ? <div className="fault-ai" aria-busy="true"><ElloWorking />같은 제품의 해결 기록과 이 문의 원문을 비교하는 중…</div>
-    : advice.state === 'failed' ? <div className="fault-ai"><small className="unc">{advice.off ? 'AI 고장 추천이 이 배포에서 꺼져 있습니다.' : 'AI 추천을 받지 못했습니다.'} 목록에서 직접 고르세요.</small></div>
+    : advice.state === 'failed' ? <div className="fault-ai"><small className="unc">{advice.status === 404 ? 'AI 고장 추천이 이 배포에서 꺼져 있습니다.' : advice.status === 403 ? 'AI 고장 추천은 C/S 담당자만 쓸 수 있습니다.' : 'AI 추천을 받지 못했습니다.'} 목록에서 직접 고르세요.</small></div>
     : advice.state === 'done' ? <div className="fault-ai" aria-label="AI 고장 추천">
       <div className="h"><span className="ai"><ElloMark />AI 추천</span><small className="meta"> 같은 제품 고장 {advice.data.compared_faults}종 · 해결 기록 {advice.data.compared_cases}건과 비교 · 확정은 담당자</small></div>
       {advice.data.decision === 'EXISTING' && advice.data.fault_id
