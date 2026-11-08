@@ -284,6 +284,34 @@ uv run --frozen --python 3.12 python -m scripts.local_business restart --namespa
 
 `mail-off`는 `mail.json`을 지운다. 암호화 키도 함께 사라지므로 다시 켜면 사서함을 새로 연결해야 한다. 다음 start/restart에서 API 컨테이너의 바깥 연결도 끊긴다. Microsoft 쪽 동의를 거두려면 [계정의 앱 권한](https://account.live.com/consent/Manage)에서 해당 앱을 제거한다.
 
+## 로컬 시연 메일함 (Microsoft 없이)
+
+실제 Outlook 없이 메일함 화면과 C/S 업무 흐름을 같이 시연할 때 쓴다. `mail-on --demo`는 사서함 동의를 로컬 합성 화면으로, Microsoft Graph를 namespace 안의 JSON 메일함(`files/.mail-demo.json`)으로 바꾼다. 그 사이의 수집·분류·회신 연결·문의 접수·발송 의도·보낸편지함 확인은 실제 메일과 같은 제품 코드가 돈다. 메일은 이 PC 밖으로 나가지 않고, 발송 허용 목록 기본값은 예약 시험 도메인 `@customer.example.invalid`다(정확한 도메인만 맞춘다). 고객 메일은 그 도메인 주소로 넣는다. 시연 메일과 주소는 합성값이다.
+
+```bash
+uv run --frozen --python 3.12 python -m scripts.local_business mail-on --namespace "$NS" --demo --receive --send
+uv run --frozen --python 3.12 python -m scripts.local_business restart --namespace "$NS"
+```
+
+1. C/S 담당자로 로그인하고 메일 계정 화면에서 사서함을 연결한다. 합성 화면의 "시연 사서함 연결"을 누르면 시연 메일함(`cs-desk@example.invalid`)이 연결된다.
+2. 고객 메일을 넣는다. 다음 수집 주기(기본 60초) 뒤 메일함에 보인다.
+
+```bash
+# 새 문의 메일
+uv run --frozen --python 3.12 python -m scripts.local_business mail-demo-receive --namespace "$NS" \
+  --from buyer@customer.example.invalid --subject "Gasket oil leak on TRF-OIL-1000" \
+  --body "Oil leaks from the gasket after delivery. Site is down."
+# 담당자가 그 주소로 보낸 마지막 답변에 대한 회신(In-Reply-To·같은 대화)
+uv run --frozen --python 3.12 python -m scripts.local_business mail-demo-receive --namespace "$NS" \
+  --from buyer@customer.example.invalid --reply --body "Photos and the serial number are attached."
+```
+
+3. 화면에는 메일을 문의로 등록하는 경로가 없다(#657, 기획상 문의는 앞단 접수 시스템에서 들어와 문의 조회에서 처음 본다). 시연에서 받은 새 문의 메일을 문의로 만들려면 그 메일 ID로 `POST /api/v1/platform/mail/messages/{message_id}/register-ticket`(KAN-110)을 그 메일함 주인인 C/S 담당자 세션으로 부른다(고객 연락처에 그 주소가 있어야 고객이 연결된다, `infra/sql/register_customer_contact.sql`). 메일함 화면은 연결이 필요한 고객 답장만 보인다.
+4. 문의 처리에서 정보 요청이나 답변을 승인해 보내면 시연 보낸편지함에 들어가고 다음 정리 주기에 보낸편지함 확인이 된다.
+5. `--reply`로 넣은 회신은 답장 헤더로 그 문의에 자동 연결되고, 문의가 검토중으로 다시 열린다. 회신 반영 분석은 모델이 켜져 있을 때 버튼으로 돈다.
+
+끄기는 실제 메일과 같다(`mail-off` 뒤 `restart`). 시연 메일함 파일은 지우지 않는다. 같은 namespace에서 실제 메일과 시연 메일을 섞지 않는다.
+
 ## 로컬에서 OS 알림(웹 푸시) 시험하기
 
 기본값은 켜짐이다(로컬만). `start`가 namespace의 `artifacts/local-business/$NS/auth/push.json`(0600, git 제외)에 시험용 VAPID 키 쌍을 한 번 만들고, 플랫폼이 구독·공개 키 경로를 연다. 운영의 Cloud Scheduler·Cloud Run Job 대신 플랫폼 프로세스 안의 루프가 5초마다 같은 `push_worker`를 돈다. 브라우저 푸시 서비스(FCM)로 나가야 하므로 API 묶음에 바깥 인터넷 연결이 붙는다(메일 모드와 같은 연결). 운영 경로와 Secret Manager 키 방식은 그대로다.

@@ -11,9 +11,9 @@ test('entrypoint requires explicit local and rejects even empty Cloud Run marker
     assert.throws(() => requireLocalEnvironment(env), /LOCAL_WEB_FORBIDDEN_ENVIRONMENT/);
   }
 });
-function request(url, method = 'GET', host = 'localhost:38443') {
+function request(url, method = 'GET', host = 'localhost:38443', options = {}) {
   const result = { status: null, body: '', delegated: false };
-  localHandler(settings, () => { result.delegated = true; })(
+  localHandler(settings, () => { result.delegated = true; }, options)(
     { url, method, headers: { host } },
     { writeHead: (status, headers) => Object.assign(result, { status, headers }),
       end: body => { result.body = body ?? ''; } },
@@ -49,4 +49,17 @@ test('settings cannot point relay to external hosts or overlapping ports', () =>
   assert.equal(validateSettings(settings), settings);
   assert.throws(() => validateSettings({ ...settings, web_origin: 'https://external.invalid' }));
   assert.throws(() => validateSettings({ ...settings, ports: { ...settings.ports, platform: 38443 } }));
+});
+
+test('demo mailbox consent page exists only in demo mail mode and posts to the product callback', () => {
+  const url = `/local/mailbox-authorize?state=${'b'.repeat(43)}`;
+  assert.equal(request(url).status, 400);
+  const page = request(url, 'GET', 'localhost:38443', { mailboxDemo: true });
+  assert.equal(page.status, 200);
+  assert.match(page.body, /실제 Microsoft 사서함이 아닙니다/);
+  assert.match(page.body, /action="\/api\/v1\/platform\/auth\/mailbox\/callback"/);
+  for (const bad of [`/local/mailbox-authorize?state=%22%3E`, `${url}&state=c`]) {
+    assert.equal(request(bad, 'GET', 'localhost:38443', { mailboxDemo: true }).status, 400);
+  }
+  assert.equal(request(url, 'POST', 'localhost:38443', { mailboxDemo: true }).status, 400);
 });

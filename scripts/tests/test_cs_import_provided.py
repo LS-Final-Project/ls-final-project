@@ -179,7 +179,7 @@ def refresh(args):
 class FakeConnection:
     def __init__(self):
         self.rows = {"tickets": [], "resolution_cases": []}
-        self.source_records, self.accounts = 0, 10
+        self.source_records, self.accounts = 0, 11
         self.queries = []
         self.force_case_error = False
         self.identity = {

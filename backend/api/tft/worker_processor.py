@@ -55,6 +55,7 @@ from backend.api.tft.rfp.storage import (
 )
 from backend.engine.documents import vision
 from backend.engine.documents.router import extract
+from backend.engine.rfp import structure_repair
 from backend.engine.rfp.clauses import ClauseTree, build_clause_tree, is_korean_section
 from backend.engine.rfp.context_graph import ContextProvider, Stage, create_gemini_context_provider
 from backend.engine.rfp.context_graph import fake_provider as fake_context_provider
@@ -90,7 +91,12 @@ class ProcessorSettings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(env_prefix="TFT_", env_file=".env", extra="ignore")
-    extraction_concurrency: int = Field(default=3, ge=1, le=3)
+    extraction_concurrency: int = Field(default=6, ge=1, le=6)
+    # 요구 추출(구조 보정 포함) 호출의 thinking 수준. None이면 모델 기본(설정을 보내지 않음).
+    # 기본 LOW: 공식 정답셋 재측정(참고값)에서 시간·비용이 절반이고 필수 제약 위반 0이었다(2026-11-06 rfp-timing 보고서).
+    extraction_thinking_level: Literal["LOW", "MEDIUM", "HIGH"] | None = "LOW"
+    # 맥락 정리(설비 묶기·연결) 호출의 thinking 수준. None이면 모델 기본. LOW는 묶음이 거의 안 돼(D22 묶음 183→904) 쓰지 않는다.
+    context_thinking_level: Literal["LOW", "MEDIUM", "HIGH"] | None = None
     extraction_provider: Literal["gemini", "fake"] = "gemini"
     extraction_model: str = Field(default="gemini-3.6-flash", pattern=r"^[a-zA-Z0-9._-]+$")
     extraction_max_output_tokens: int = Field(default=16384, ge=1, le=65536)
@@ -102,6 +108,9 @@ class ProcessorSettings(BaseSettings):
     # KAN-224 회신 값 AI 읽기(rfp.reply_read). 공급자는 추출 공급자(fake·gemini)를 따른다.
     reply_read_model: str = Field(default="gemini-3.6-flash", pattern=r"^[a-zA-Z0-9._-]+$")
     reply_read_max_output_tokens: int = Field(default=2048, ge=256, le=65536)
+    # KAN-188 번호 빈자리만 모델 경계로 나누기(structure_repair). 기본 켬(2026-11-06 측정: 재현율 +약 10건).
+    # 추출과 같은 공급자·모델·출력 상한·시간 제한·thinking 수준을 쓴다. 끄면 모델 보정 호출만 빠진다(결정 파서 규칙은 그대로).
+    structure_repair_enabled: bool = True
 
 
 def fake_provider(_prompt: str) -> Generation:
@@ -134,11 +143,12 @@ def extraction_settings(config: ProcessorSettings) -> AISettings:
     )
 
 
-def gemini_provider(ai: AISettings) -> Provider:
+def gemini_provider(ai: AISettings, thinking_level: str | None = None) -> Provider:
     """Gemini 구조화 출력 호출(평가 스크립트와 같은 방식).
 
     Args:
         ai: 추출 호출 설정(extraction_settings).
+        thinking_level: thinking 수준(TFT_EXTRACTION_THINKING_LEVEL). None이면 보내지 않는다.
 
     Returns:
         Provider: 지시문 → Generation.
@@ -146,7 +156,11 @@ def gemini_provider(ai: AISettings) -> Provider:
     from backend.shared.ai import create_client, generate
 
     client = create_client(ai)
-    return lambda text: generate(client, ai, text, response_schema=ResponseSchema)
+    if thinking_level is None:
+        return lambda text: generate(client, ai, text, response_schema=ResponseSchema)
+    return lambda text: generate(
+        client, ai, text, response_schema=ResponseSchema, thinking_level=thinking_level
+    )
 
 
 def rewrite_provider(config: ProcessorSettings) -> Provider:
@@ -204,6 +218,53 @@ def reply_provider(config: ProcessorSettings) -> Provider:
     return provide
 
 
+def structure_provider(config: ProcessorSettings) -> Provider | None:
+    """구조 보정 공급자. 꺼져 있으면 None이고, 실제로 부를 때만 클라이언트를 만든다."""
+    if not config.structure_repair_enabled:
+        return None
+    if config.extraction_provider == "fake":
+        return structure_repair.fake_provider
+    ai = extraction_settings(config)
+    client = None
+
+    def provide(text: str) -> Generation:
+        nonlocal client
+        from backend.shared.ai import create_client, generate
+
+        if client is None:
+            client = create_client(ai)
+        return generate(
+            client,
+            ai,
+            text,
+            response_schema=structure_repair.RepairOutput,
+            thinking_level=config.extraction_thinking_level,
+        )
+
+    return provide
+
+
+def repair_structure(
+    tree: ClauseTree, provider: Provider | None, emit: Emit, document_version_id: str
+) -> tuple[ClauseTree, bool]:
+    """번호 빈자리만 모델 경계로 나눈다(문서마다 한 번, 추출 전). 모델이 나눈 조항이 있으면 검토가 필요하다.
+
+    호출 앞뒤로 진행을 남겨 lease·소유권을 확인한다(이미지 전사와 같다). 공급자·lease 예외는 그대로 올라간다.
+    """
+    if provider is None:
+        return tree, False
+
+    def tracked(prompt: str) -> Generation:
+        emit({"step": "parse", "document_version_id": document_version_id})
+        try:
+            return provider(prompt)
+        finally:
+            emit({"step": "parse", "document_version_id": document_version_id})
+
+    result = structure_repair.repair_tree(tree, tracked)
+    return result.tree, bool(result.applied)
+
+
 def build(settings: Settings) -> Processor:
     """worker가 부르는 등록 지점.
 
@@ -221,7 +282,7 @@ def build(settings: Settings) -> Processor:
         ai = extraction_settings(config)
         # 잘못된 조합이면 모델을 부르기 전에 멈춘다(worker는 처리 함수 load 실패로 작업을 FAILED로 남긴다).
         check_lease(ai, TftWorkerSettings().lease_seconds)
-        provider = gemini_provider(ai)
+        provider = gemini_provider(ai, config.extraction_thinking_level)
     context_provider: ContextProvider | None = fake_context_provider
     if config.extraction_provider == "gemini":
         # SDK creation is lazy; exports and previously completed jobs do not create a model client.
@@ -230,7 +291,9 @@ def build(settings: Settings) -> Processor:
         async def organize(stage: Stage, payload: dict[str, Any]) -> ContextProposal:
             nonlocal context_client
             if context_client is None:
-                context_client = create_gemini_context_provider(extraction_settings(config))
+                context_client = create_gemini_context_provider(
+                    extraction_settings(config), config.context_thinking_level
+                )
             return await context_client(stage, payload)
 
         context_provider = organize
@@ -241,6 +304,7 @@ def build(settings: Settings) -> Processor:
         draft_provider=rewrite_provider(config),
         rewrite_model=config.draft_rewrite_model,
         reply_provider=reply_provider(config),
+        structure_provider=structure_provider(config),
         extraction_concurrency=config.extraction_concurrency,
         context_provider=context_provider,
         image_provider=(
@@ -260,10 +324,11 @@ def make_processor(
     today: Callable[[], date] = date.today,
     draft_provider: Provider | None = None,
     rewrite_model: str = "gemini-3.6-flash",
-    extraction_concurrency: int = 3,
+    extraction_concurrency: int = 6,
     image_provider: Callable[[vision.ImageInput], Generation] | None = None,
     context_provider: ContextProvider | None = None,
     reply_provider: Provider | None = None,
+    structure_provider: Provider | None = None,
 ) -> Processor:
     """처리 함수를 만든다(검사는 추출 공급자·원문 폴더를 바꿔 끼운다).
 
@@ -273,6 +338,8 @@ def make_processor(
         store: 원문 저장소. 없으면 원문이 필요한 작업은 실패한다.
         products: 자사 제품(기본은 own_spec_facts 전체).
         today: 인증 유효기한 기준일.
+        structure_provider: 번호 빈자리 보정 호출. None이면 부르지 않는다. 운영 worker는
+            `TFT_STRUCTURE_REPAIR_ENABLED`(기본 켬)로 만든다.
 
     Returns:
         Processor: `processor(job, emit)`.
@@ -309,6 +376,7 @@ def make_processor(
                 today(),
                 extraction_concurrency,
                 image_provider,
+                structure_provider,
             )
         )
         if context_provider is not None:
@@ -704,14 +772,14 @@ def lease_keeping(
 
 
 def extract_sections(
-    inputs: Sequence[ExtractionInput], provider: Provider, emit: Emit, *, concurrency: int = 3
+    inputs: Sequence[ExtractionInput], provider: Provider, emit: Emit, *, concurrency: int = 6
 ) -> list[SectionResult]:
-    """At most three sections in flight; drain started calls before returning/raising.
+    """At most six sections in flight; drain started calls before returning/raising.
 
     Each section keeps its existing sequential splitting/coverage rules. Only the
     independent sections overlap. Storage order is input order, never completion order.
     """
-    if type(concurrency) is not int or not 1 <= concurrency <= 3:
+    if type(concurrency) is not int or not 1 <= concurrency <= 6:
         raise ValueError("INVALID_EXTRACTION_CONCURRENCY")
     lock = RLock()
 
@@ -797,11 +865,14 @@ GRADED_STATUSES = frozenset({"SPEC_GAP", "INSUFFICIENT_EVIDENCE"})
 DOCUMENT_NUMBER = re.compile(r"\bRFP-(\d+)\b")
 
 
-def integration_of(items: Iterable[ExtractedRequirement]) -> integration.IntegrationResponsibility:
+def integration_of(
+    items: Iterable[ExtractedRequirement], clause_texts: Mapping[str, str]
+) -> integration.IntegrationResponsibility:
     """추출 요구로 통합 책임 필요 여부를 정한다.
 
     Args:
         items: 이번 처리의 추출 요구.
+        clause_texts: 조항 번호별 현행 원문(원문 문형 규칙에 쓴다).
 
     Returns:
         integration.IntegrationResponsibility: 필요 여부와 근거 조항.
@@ -809,7 +880,10 @@ def integration_of(items: Iterable[ExtractedRequirement]) -> integration.Integra
     return integration.integration_responsibility(
         [
             integration.Requirement(
-                clause_no=r.clause_no, task=r.task, assembly_clause=r.assembly_clause
+                clause_no=r.clause_no,
+                task=r.task,
+                assembly_clause=r.assembly_clause,
+                clause_text=clause_texts.get(r.clause_no),
             )
             for r in items
         ]
@@ -1016,6 +1090,7 @@ async def regrade_stored(
                     clause_no=r.get("clause_no") or "",
                     task=r["task"],
                     assembly_clause=r["assembly_clause"],
+                    clause_text=r.get("clause_text"),
                 )
                 for r in rows
             ]
@@ -1218,8 +1293,9 @@ async def process(
     store: DocumentStore | None,
     products: Sequence[comparison.Product],
     today: date,
-    extraction_concurrency: int = 3,
+    extraction_concurrency: int = 6,
     image_provider: Callable[[vision.ImageInput], Generation] | None = None,
+    structure_provider: Provider | None = None,
 ) -> dict[str, Any]:
     """rfp.process 한 번(단계 7개).
 
@@ -1283,6 +1359,10 @@ async def process(
 
         prepared = []
         for document, tree, plan in planned:
+            tree, repaired = await asyncio.to_thread(
+                repair_structure, tree, structure_provider, emit, str(document["id"])
+            )
+            needs_review |= repaired
             observations = await asyncio.to_thread(
                 transcribe_image_plan, plan, image_provider, emit, str(document["id"])
             )

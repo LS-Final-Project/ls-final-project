@@ -38,8 +38,8 @@ test('오늘 할 일은 새 문의와 내 담당 진행 문의를 세고, 1순�
   const queue = [...document.querySelectorAll('.hm-queue a.hm-q')].map(a => a.getAttribute('href'));
   expect(queue).toEqual(['/cs/tickets/f', '/cs/tickets/b']);
   expect(screen.queryByText('ID-c')).toBeNull();
-  // 오늘 할 일 = 새 1 + 내 담당 2 + 내 개선요청 2(초안 검토 포함, 다른 사람 담당·완료는 빠짐)
-  expect(await screen.findByText('5건')).toBeTruthy();
+  // 인사말에는 건수를 두지 않는다(KAN-243).
+  expect(await screen.findByRole('heading', { name: '김상담님, 오늘도 차근차근 시작해 볼까요?' })).toBeTruthy();
   expect(screen.getByText('내 담당만 · 초안 검토 1건 포함')).toBeTruthy();
   expect(screen.getByText('검토 완료 기록')).toBeTruthy();
   expect(screen.getByText(/김상담님/)).toBeTruthy();
@@ -52,12 +52,11 @@ test('오늘 할 일은 새 문의와 내 담당 진행 문의를 세고, 1순�
   expect(urls.filter(url => url.includes('/improvement-requests'))).toEqual(['/api/v1/cs/improvement-requests?owner=u1']);
 });
 
-test('개선요청을 못 읽으면 오류를 보이고 합계에 +와 빠진 이유를 붙인다', async () => {
+test('개선요청을 못 읽으면 오류를 보이고 처리할 문의 건수에 +를 붙인다', async () => {
   vi.stubGlobal('fetch', serve({ 'RECEIVED|': [item('a', 'RECEIVED', 1)] }, 'error'));
   view();
-  expect(await screen.findByText('1+건')).toBeTruthy();
-  expect(screen.getByText('개선요청을 불러오지 못해 합계에서 빠졌습니다')).toBeTruthy();
-  expect(screen.getByText('불러오지 못함 · 합계에서 빠짐')).toBeTruthy();
+  expect(await screen.findByText('처리할 문의 1+건 중 1순위')).toBeTruthy();
+  expect(screen.getByText('불러오지 못함 · 새로고침하세요')).toBeTruthy();
   expect(screen.getByText('!')).toBeTruthy();
 });
 
@@ -76,4 +75,13 @@ test('개발 환경 화면이 남긴 문의 목록 캐시와 충돌하지 않는
   vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { data: { items: [item('a', 'RECEIVED', 10)], next_cursor: null } })));
   render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/cs']}><Routes><Route path="/cs" element={<CsHome />} /></Routes></MemoryRouter></QueryClientProvider>);
   expect((await screen.findByRole('link', { name: /문의 처리/ })).getAttribute('href')).toBe('/cs/tickets/a');
+});
+
+test('인사말 왼쪽에 역할별 엘로 프로필과 역할 배지를 보인다', async () => {
+  vi.stubGlobal('fetch', serve({}));
+  const { container } = view();
+  expect(await screen.findByText('C/S 담당자')).toBeTruthy();
+  const profile = container.querySelector('.hello .role-pf');
+  expect(profile?.getAttribute('data-role')).toBe('C/S 담당자');
+  expect(profile?.querySelector('img')?.getAttribute('src')).toContain('ello-cs-headset');
 });

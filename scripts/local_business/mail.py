@@ -63,7 +63,9 @@ def load(state: Path) -> dict | None:
     try:
         UUID(value["client_id"])
         valid = (
-            value["client_secret"].strip()
+            # Demo mode has no Microsoft app: a fixed placeholder id and secret.
+            (not value.get("demo") or value["client_id"] == DEMO_APP["client_id"])
+            and value["client_secret"].strip()
             and len(base64.b64decode(value["encryption_key"], validate=True)) == 32
             and (value.get("sync") or value.get("send"))
             and (not value.get("send") or value.get("allow"))
@@ -95,8 +97,19 @@ def client_app(secret_file: str | None, env: dict) -> dict:
     return {"client_id": client_id, "client_secret": source["client_secret"]}
 
 
+DEMO_APP = {"client_id": str(UUID(int=2)), "client_secret": "local-demo-not-an-external-secret"}
+DEMO_ALLOW = ["@customer.example.invalid"]  # reserved test domain for demo customers
+
+
 def write(
-    state: Path, *, app: dict, sync: bool, send: bool, allow: list[str], interval: int
+    state: Path,
+    *,
+    app: dict,
+    sync: bool,
+    send: bool,
+    allow: list[str],
+    interval: int,
+    demo: bool = False,
 ) -> dict:
     """Write state/auth/mail.json with 0600. Keeps the existing mailbox key so stored links still open."""
     if not (sync or send):
@@ -118,12 +131,19 @@ def write(
         "send": send,
         "allow": allow if send else [],
         "interval_seconds": interval,
+        "demo": demo,
     }
     temporary = path.with_name(f".{CONFIG}.tmp")
     fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as out:
         json.dump(value, out)
     temporary.replace(path)
+    # The web server only checks this marker to offer the synthetic mailbox consent page.
+    marker = state / "auth" / "mail-demo"
+    if demo:
+        marker.touch(mode=0o600, exist_ok=True)
+    else:
+        marker.unlink(missing_ok=True)
     return value
 
 
@@ -266,16 +286,34 @@ def configure_platform(
         ),
     )
     # Sign-in stays the synthetic local login; only the mailbox consent uses the real app.
-    app.state.mailbox_oauth = PersonalMicrosoftOAuth(
-        UUID(mail["client_id"]), SecretStr(mail["client_secret"]), redirect
-    )
+    demo = bool(mail.get("demo"))
+    if demo:
+        # Local demo: synthetic consent and a JSON Graph; nothing leaves the machine.
+        from scripts.local_business.demo_mail import (
+            DemoGraph,
+            DemoStore,
+            LocalDemoMailbox,
+            store_path,
+        )
+
+        app.state.mailbox_oauth = LocalDemoMailbox(web_origin)
+        demo_store = DemoStore(store_path(objects.parent))
+        demo_store.ensure()  # the CLI checks this file exists in state/files before writing
+    else:
+        app.state.mailbox_oauth = PersonalMicrosoftOAuth(
+            UUID(mail["client_id"]), SecretStr(mail["client_secret"]), redirect
+        )
     app.state.mailbox_tokens = MailboxTokenProvider(
         settings=app.state.settings,
         adapter=app.state.mailbox_oauth,
         cipher=app.state.mailbox_cipher,
     )
     transport = LocalMailTransport(
-        ports=ports, token=identity.token, objects=objects, allow=mail.get("allow", [])
+        ports=ports,
+        token=identity.token,
+        objects=objects,
+        allow=mail.get("allow", []),
+        real=DemoGraph(demo_store) if demo else None,
     )
 
     async def no_google_token() -> str:

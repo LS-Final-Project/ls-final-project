@@ -31,6 +31,7 @@ export const businessRoutes = [
   ['/api/v1/cs/tickets/{uuid}/analysis/corrections', ['POST'], []],
   ['/api/v1/cs/tickets/{uuid}/summary', ['GET', 'POST'], []],
   ['/api/v1/cs/tickets/{uuid}/translation', ['GET', 'POST'], []],
+  ['/api/v1/cs/tickets/{uuid}/fault-suggestion', ['POST'], []],
   ['/api/v1/cs/tickets/{uuid}/reply-analysis', ['GET', 'POST'], ['message_id']],
   ['/api/v1/cs/tickets/{uuid}/units', ['GET'], []],
   ['/api/v1/cs/tickets/{uuid}/unit-history', ['GET'], []],

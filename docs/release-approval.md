@@ -145,6 +145,8 @@
 | `CS_TRANSLATION_ENABLED` | team4-cs | 수동 | **[비용]** 문의 한국어 번역(`contracts/cs/translation.md`). C28 적용 뒤. 켜면 번역마다 모델 1회(본문 전체라 요약보다 출력 토큰이 많다). 실제 모델 확인(사용자 승인) 전에는 꺼 둔다 |
 | `CS_REPLY_ANALYSIS_ENABLED` | team4-cs | 수동 | **[비용]** 고객 회신 반영 분석(`contracts/cs/reply-analysis.md`). C31 적용 뒤. 켜면 담당자가 회신 분석 버튼을 누를 때마다 모델 1회(자동 실행 없음, 같은 입력이면 재사용). 실제 모델 확인(사용자 승인) 전에는 꺼 둔다 |
 | `CS_IMPROVEMENT_DRAFT_ENABLED` | team4-cs | 수동 | **[비용]** 개선요청 AI 작성 초안(`contracts/cs/improvements.md` AI 작성 초안). C27 적용 뒤. 켜면 담당자가 만들 때마다 모델 1회. 실제 모델 확인(사용자 승인) 전에는 꺼 둔다 |
+| `CS_FAULT_SUGGESTION_ENABLED` | team4-cs | 수동 | **[비용]** 해결 사례 등록 때 같은 고장 AI 추천(`contracts/cs/fault-suggestion.md`, KAN-245). 마이그레이션 없음. 켜면 담당자가 추천 단추를 누를 때마다 모델 1회(규칙 밖 응답이면 1회 더). 저장·자동 실행 없음 |
+| `TFT_EXTRACTION_THINKING_LEVEL`, `TFT_EXTRACTION_CONCURRENCY`, `TFT_STRUCTURE_REPAIR_ENABLED` | tft-worker Job | `deploy_workers.py`(Job 환경) 또는 기본값 | **[비용·품질]** RFP 요구 추출(KAN-188 #655). 기본 `LOW`·`6`·켬. 공식 정답셋 재측정(참고값)에서 재현율 66.8→82.5%, 문서당 시간·비용 약 절반, 필수 제약 위반 0(`artifacts/rfp-timing-20261106/report.md`). 구조 보정은 번호 빈자리마다 모델 호출이 늘 수 있다(문서당 최대 20회). 되돌리기: 생각 수준은 `MEDIUM`·`HIGH`로만 올릴 수 있다(빈 값은 설정 검증 오류로 worker가 시작하지 못하므로 넣지 않는다). 이전 동작(모델 기본 생각 수준)으로 돌리려면 직전 worker 이미지 digest를 다시 배포한다. `TFT_STRUCTURE_REPAIR_ENABLED=false`면 보정 호출만 빠지고 결정 파서 규칙은 그대로, 동시 수는 `1`~`6` |
 | `NOTIFICATION_PUSH_ENABLED` | 플랫폼 | `infra/setup_notification_push.sh` | 브라우저 알림(선택) |
 | `CS_VECTOR_SEARCH_ENABLED=true`, `CS_EMBEDDING_MODEL=gemini-embedding-2`, `CS_EMBEDDING_QUERY_TASK_TYPE=RETRIEVAL_DOCUMENT` | team4-cs·cs-worker Job | 수동 | D의 임베딩 적재 뒤. 실패하면 FTS로 넘어가고 로그에 `CS_VECTOR_SEARCH_FAILED`가 남는지 본다 |
 
@@ -200,7 +202,7 @@
 | `JOBS_SWEEP_ENABLED`, `EVALUATION_DISPATCH_ENABLED`, `EVALUATION_JOBS_ENABLED`, `CS_JOBS_ENABLED`, `CS_JOBS_PROCESSOR_CONNECTED`, `CS_WORKER_JOBS_ENABLED`, `TFT_JOBS_ENABLED`, `TFT_JOBS_PROCESSOR_CONNECTED`, `TFT_WORKER_JOBS_ENABLED`, `TFT_PROCESSING_ENABLED`, `CS_ANALYSIS_ENABLED` | false | `setup_worker_jobs.py enable`(2-F) |
 | `CS_WORKER_ENABLED`, `TFT_WORKER_ENABLED` | false | `deploy_workers.py`(Job 환경, 2-F) |
 | `CS_POLICY_DOCUMENTS_FILE` | 없음(운영 worker는 시작 실패) | `deploy_workers.py`(이미지 안 `eval/policy/cs_policy_documents.json`) |
-| `CS_VECTOR_SEARCH_ENABLED`, `CS_SUMMARY_ENABLED`, `CS_TRANSLATION_ENABLED` | false | 수동(2-G) |
+| `CS_VECTOR_SEARCH_ENABLED`, `CS_SUMMARY_ENABLED`, `CS_TRANSLATION_ENABLED`, `CS_FAULT_SUGGESTION_ENABLED` | false | 수동(2-G) |
 | `MICROSOFT_AUTH_ENABLED`, `MAILBOX_AUTH_ENABLED`, `MAIL_SYNC_ENABLED`, `MAIL_SEND_ENABLED`, `CS_MAIL_ENABLED`, `NOTIFICATION_PUSH_ENABLED`, `BUSINESS_RELAY_ENABLED` | false | 2-G 표(`MICROSOFT_AUTH`·`BUSINESS_RELAY`는 이미 켜짐) |
 | 웹: `BUSINESS_RELAY_ENABLED`, `EVALUATION_READ_RELAY_ENABLED`, `EVALUATION_CONTROL_RELAY_ENABLED`, `MAILBOX_AUTH_ENABLED` | false | team4-web 수동(2-G). `BUSINESS_RELAY`는 이미 켜짐 |
 

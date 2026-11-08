@@ -272,3 +272,15 @@ def test_operator_settlement_refuses_reserved_or_settled_charges(tmp_path):
         p.settle_unknown(charge, reason="r", operator="ops")
     with pytest.raises(Denied, match="LOCAL_CHARGE_NOT_FOUND"):
         p.settle_unknown("missing", reason="r", operator="ops")
+
+
+def test_an_inline_bridge_call_in_flight_does_not_halt_the_driver(tmp_path):
+    # C/S summary, translation, improvement draft and reply analysis call the model through the
+    # driver's bridge: a granted job with a reservation but no worker execution row.
+    p, token, job = permit(tmp_path)
+    charge = p.reserve(token, job, "configured-model")
+    p.check_ready(token)  # the dispatcher polls this while the call is in flight
+    with pytest.raises(Denied, match="LOCAL_COST_UNKNOWN_REVIEW_REQUIRED"):
+        p.grant(token, str(uuid4()))  # new work still waits for the reservation
+    p.settle(charge, actual_usd="0.01", usage={"input_tokens": 1, "output_tokens": 1})
+    p.check_ready(token)

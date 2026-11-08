@@ -6,6 +6,7 @@ import { listDeptRequests, type DeptCode, type TicketItem, type TransferStatus }
 import { me } from '../api/platform';
 import { ErrorState, Loading } from '../components/states';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
+import RoleHello from '../components/RoleHello';
 import { downloadCsv, useHotkey } from '../ls-shell/kv';
 import LogTable, { type LogColumn, type LogSort } from './LogTable';
 import './ticket-detail-v3.css';
@@ -106,6 +107,7 @@ function InboxView() {
     </div>
 
     <div className="body">
+      <RoleHello role="dept_staff" label={own && DEPT_LABEL[own] ? `${DEPT_LABEL[own]} 담당자` : undefined} name={identity.data?.data.display_name} headline="부서 검토할 문의를 확인하세요" />
       {mode === 'mock' && <div className="tier-note" role="status">모의 응답 모드 — 부서 목록 예시가 없어 비어 있습니다. 실제 API 모드에서 확인하세요.</div>}
       {identity.isPending && <Loading label="소속 부서 확인 중" />}
       {identity.isError && <ErrorState error={identity.error} onRetry={() => { void identity.refetch(); }} />}

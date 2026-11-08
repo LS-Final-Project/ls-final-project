@@ -8,7 +8,7 @@ import { getApiMode } from '../api/client';
 import { getTicketAnalysis, listTicketsBy, type TicketAnalysisResponse, type TicketListResponse } from '../api/cs';
 import { me } from '../api/platform';
 import { listMyImprovements } from '../api/cs-improvements';
-import { CsMailCandidates } from './CsMailCandidates';
+import RoleProfile, { roleArt } from '../components/RoleProfile';
 import '../pages/ticket-detail-v3.css';
 import './cs-home.css';
 
@@ -35,11 +35,11 @@ const REQUEST_PAGE = 200;
 export default function CsHome() {
   const access = useBusinessAccess('cs');
   if (!access.ready) return <BusinessGate access={access} title="업무 홈" />;
-  // 문의로 보이는 메일(KAN-237)은 메일함 주인인 C/S 담당자만 등록한다.
-  return <HomeView mail={access.user.data?.data.roles.includes('cs_agent') === true || !access.operational} />;
+  // 문의는 앞단 접수 시스템에서 문의 조회로 들어온다. 업무 홈에서 메일을 문의로 등록하지 않는다(KAN-242).
+  return <HomeView />;
 }
 
-function HomeView({ mail }: { mail: boolean }) {
+function HomeView() {
   const mode = getApiMode();
   const queryClient = useQueryClient();
   const identity = useQuery({ queryKey: ['cs-home', mode, 'me'], queryFn: me, retry: false, staleTime: 60_000 });
@@ -88,9 +88,11 @@ function HomeView({ mail }: { mail: boolean }) {
   // 초안(DRAFT)도 내가 검토 완료를 기록할 일이라 오늘 할 일에 센다.
   const reqDraft = reqTodo.filter(item => item.status === 'DRAFT').length;
   const name = identity.data?.data?.display_name;
+  const roles = identity.data?.data?.roles;
+  const roleLabel = roleArt(roles).label;
   const today = new Date().toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' });
-  const total = todo.length + reqTodo.length;
-  // 개선요청을 못 읽었으면 합계에서 그만큼 빠졌다는 것을 숨기지 않는다.
+  // 인사말에는 건수를 두지 않는다(업무 압박, KAN-243). 건수는 카드와 지금 할 일에 있다.
+  // 다음 쪽이 있거나 개선요청을 못 읽었으면 건수에 +를 붙인다.
   const totalMore = !!(fresh.data?.data.next_cursor || mine.data?.data.next_cursor) || reqMore || requests.isError;
   const failed = fresh.isError ? fresh.error : mine.isError ? mine.error : null;
 
@@ -120,7 +122,7 @@ function HomeView({ mail }: { mail: boolean }) {
 
     <div className="body">
       <div className="hello">
-        <div><small>{today}</small><h2>{name ? `${name}님, ` : ''}오늘 할 일 <b>{fresh.isPending || (myId && mine.isPending) ? '…' : `${total}${totalMore ? '+' : ''}건`}</b></h2>{requests.isError && <small className="req-miss" role="status">개선요청을 불러오지 못해 합계에서 빠졌습니다</small>}</div>
+        <div className="me"><RoleProfile roles={roles} /><div className="who">{roleLabel && <span className="role">{roleLabel}</span>}<small>{today}</small><h2>{name ? `${name}님, ` : ''}오늘도 차근차근 시작해 볼까요?</h2></div></div>
         {(overdue + dueToday + p1) > 0 && <div className="alerts" role="status">
           {overdue > 0 && <span className="al red"><i aria-hidden="true" />기한 넘긴 {overdue}건</span>}
           {dueToday > 0 && <span className="al amber"><i aria-hidden="true" />오늘 기한 {dueToday}건</span>}
@@ -153,11 +155,9 @@ function HomeView({ mail }: { mail: boolean }) {
         <Link className="card t-green" to="/cs/improvements">
           <div className="ct"><span className="ic" aria-hidden="true">{ICON.doc}</span><small>내 개선요청 할 일</small></div>
           <b>{num(!myId ? '-' : requests.isPending ? '…' : requests.isError ? '!' : countText(reqTodo.length, reqMore))}</b>
-          <div className="cf">{requests.isError ? <span className="pill bad">불러오지 못함 · 합계에서 빠짐</span> : <span className="pill">{`내 담당만 · 초안 검토 ${reqDraft}건 포함`}</span>}</div>
+          <div className="cf">{requests.isError ? <span className="pill bad">불러오지 못함 · 새로고침하세요</span> : <span className="pill">{`내 담당만 · 초안 검토 ${reqDraft}건 포함`}</span>}</div>
         </Link>
       </div>}
-
-      {!failed && <CsMailCandidates enabled={mail} products={[...new Set([...newItems, ...mineItems, ...waitItems].map(item => item.product_code))].sort()} />}
 
       {!failed && <div className="home-cols">
         <div className="pane focus-pane">

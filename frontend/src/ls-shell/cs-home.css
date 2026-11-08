@@ -1,9 +1,10 @@
 /* 업무 홈(CS0001): 출근해서 오늘 할 일을 한눈에. 문의 처리(td3)와 같은 제목 줄·상자·표를 쓴다. */
-.ls-root .kv .td3.home3 .hello{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;padding:4px 2px 0}
+.ls-root .kv .td3.home3 .hello{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:4px 2px 0}
 .ls-root .kv .td3.home3 .hello small{display:block;font-size:12.5px;color:#6b7385}
-.ls-root .kv .td3.home3 .hello h2{margin:2px 0 0;font-size:20px;font-weight:700;color:#1d2433}
-.ls-root .kv .td3.home3 .hello h2 b{color:var(--ls-red,#ED164B)}
-.ls-root .kv .td3.home3 .hello small.req-miss{color:#a3221a;margin-top:2px}
+.ls-root .kv .td3.home3 .hello .me{display:flex;align-items:center;gap:22px;min-width:0}
+.ls-root .kv .td3.home3 .hello .who{display:flex;flex-direction:column;gap:4px;min-width:0}
+.ls-root .kv .td3.home3 .hello .who .role{align-self:flex-start;font-size:12px;font-weight:600;color:#2f56c8;background:#edf2ff;border-radius:999px;padding:3px 10px;margin-left:-10px}
+.ls-root .kv .td3.home3 .hello h2{margin:2px 0 0;font-size:26px;font-weight:700;color:#1d2433}
 .ls-root .kv .td3.home3 .home-cols{display:grid;grid-template-columns:1.6fr 1fr;gap:10px;align-items:start}
 .ls-root .kv .td3.home3 .ph h2{margin:0;font-size:inherit;font-weight:700}
 .ls-root .kv .td3.home3 .ph .r{display:flex;align-items:center;gap:10px}

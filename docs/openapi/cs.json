@@ -4304,6 +4304,117 @@
         "title": "FaultList",
         "type": "object"
       },
+      "FaultSuggestion": {
+        "properties": {
+          "compared_cases": {
+            "description": "\ube44\uad50\uc5d0 \uc4f4 \uac19\uc740 \uc81c\ud488\uc758 \ud574\uacb0 \uae30\ub85d \uc218.",
+            "title": "Compared Cases",
+            "type": "integer"
+          },
+          "compared_faults": {
+            "description": "\ube44\uad50\ud55c \uac19\uc740 \uc81c\ud488\uc758 \uae30\uc874 \uace0\uc7a5 \ubb36\uc74c \uc218.",
+            "title": "Compared Faults",
+            "type": "integer"
+          },
+          "decision": {
+            "description": "EXISTING: \uae30\uc874 \uace0\uc7a5\uacfc \uac19\uc74c, NEW: \uc99d\uc0c1\uc774 \uc788\uace0 \uc5b4\ub290 \uae30\uc874 \uace0\uc7a5\uacfc\ub3c4 \ub2e4\ub984, UNSURE: \uc6d0\ubb38\uc5d0 \uc99d\uc0c1\uc774 \uc5c6\uac70\ub098 \uad6c\ubcc4\ud560 \uc218 \uc5c6\uc5b4 \uc0ac\ub78c\uc774 \ud310\ub2e8.",
+            "enum": [
+              "EXISTING",
+              "NEW",
+              "UNSURE"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "evidence_quote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\uc774 \ubb38\uc758 \uc6d0\ubb38\uc5d0\uc11c \ud310\ub2e8\uc5d0 \uc4f4 \uc9e7\uc740 \uad6c\uc808.",
+            "title": "Evidence Quote"
+          },
+          "fault_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "EXISTING\uc77c \ub54c \ucd94\ucc9c \uace0\uc7a5 ID. \uc0ac\ub78c\uc774 \ud655\uc815\ud55c\ub2e4.",
+            "title": "Fault Id"
+          },
+          "fault_symptom": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\ucd94\ucc9c \uace0\uc7a5\uc758 \uce74\ud0c8\ub85c\uadf8 \uc99d\uc0c1(\ucc38\uace0).",
+            "title": "Fault Symptom"
+          },
+          "matched_cases": {
+            "description": "\ucd94\ucc9c \uace0\uc7a5 \ubb36\uc74c\uc758 \uc774\ubbf8 \uc54c\ub824\uc9c4 \ud574\uacb0 \uae30\ub85d \uc218.",
+            "title": "Matched Cases",
+            "type": "integer"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\ubaa8\ub378\uc744 \ubd80\ub974\uc9c0 \uc54a\uc558\uc73c\uba74(\ube44\uad50\ud560 \ubb36\uc74c \uc5c6\uc74c) null.",
+            "title": "Model"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "provenance": {
+            "const": "ai_draft",
+            "default": "ai_draft",
+            "title": "Provenance",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "decision",
+          "fault_id",
+          "fault_symptom",
+          "matched_cases",
+          "evidence_quote",
+          "reason",
+          "compared_faults",
+          "compared_cases",
+          "prompt_version",
+          "model"
+        ],
+        "title": "FaultSuggestion",
+        "type": "object"
+      },
       "FieldView": {
         "properties": {
           "ai_value": {
@@ -9388,6 +9499,22 @@
           "meta"
         ],
         "title": "SuccessResponse[FaultList]",
+        "type": "object"
+      },
+      "SuccessResponse_FaultSuggestion_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/FaultSuggestion"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[FaultSuggestion]",
         "type": "object"
       },
       "SuccessResponse_HealthData_": {
@@ -17834,6 +17961,92 @@
         "tags": [
           "tickets"
         ],
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/tickets/{ticket_id}/fault-suggestion": {
+      "post": {
+        "description": "\uc774 \ubb38\uc758\uac00 \uac19\uc740 \uc81c\ud488\uc758 \uc5b4\ub290 \uae30\uc874 \uace0\uc7a5\uacfc \uac19\uc740\uc9c0 AI\uac00 \ucd94\ucc9c\ud55c\ub2e4. \uc800\uc7a5\ud558\uc9c0 \uc54a\ub294\ub2e4.",
+        "operationId": "cs_suggest_ticket_fault",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_FaultSuggestion_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "summary": "Suggest Fault",
+        "tags": [
+          "faults"
+        ],
+        "x-activation": "CS_FAULT_SUGGESTION_ENABLED",
         "x-implementation-status": "partial"
       }
     },

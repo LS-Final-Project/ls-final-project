@@ -4,13 +4,15 @@
 맡을 통합 책임자가 확인되기 전에는 유닛 공급 가능으로 표시하지 않는다. 시스템의 조립·시험·보증은 제안 주체
 (제조사)의 책임이다.
 
-- 판별(`required`): 요구 과업이 조립·공장 시험·연동·보증이거나, 사람이 조립품 공급 조항으로 표시한 요구(14번 2.3 A,
-  2.5 신호선 사전 결선, 2.9 B 공장 시험)가 하나라도 있으면 참이다. 서버 계산값이다.
+- 판별(`required`): 요구 과업이 조립·공장 시험·연동·보증이거나, 사람·추출이 조립품 공급 조항으로 표시한 요구(14번
+  2.3 A, 2.5 신호선 사전 결선, 2.9 B 공장 시험)가 하나라도 있으면 참이다. 표시는 모델 출력이라 실행마다 흔들리므로,
+  요구가 달린 조항 원문이 조립품 문형(`ASSEMBLY_TEXT`)이면 표시가 없어도 근거로 본다. 서버 계산값이다.
 - 확인 순서(미확보 시 처리 경로): ① 자사 통합(OWN) ② 유닛 전체를 공급·통합할 단일 협력사(SINGLE_PARTNER, 자사는
   기기 납품) ③ 공동 제안(JOINT) 또는 참여 보류. 책임자(`holder`)는 사람이 정한다(human_input).
 - 검토본 저장: 필요한데 `UNRESOLVED`면 422 `TFT_DRAFT_INCOMPLETE`(details.integration_responsibility=UNRESOLVED).
 """
 
+import re
 from collections.abc import Sequence
 from typing import Any, Literal
 from uuid import UUID
@@ -20,6 +22,31 @@ from pydantic import BaseModel, ConfigDict
 Holder = Literal["OWN", "SINGLE_PARTNER", "JOINT", "UNRESOLVED"]
 # 조립품 공급을 뜻하는 과업(명세 v1.3 §7).
 ASSEMBLY_TASKS = frozenset({"ASSEMBLY", "FACTORY_TEST", "INTERCONNECTION", "WARRANTY"})
+_IN = r"[^.;:]"  # 같은 문장·구 안에서만 잇는다.
+# 조항 원문에서 여러 장비를 한 조립품으로 공급·시험하거나 장비 사이 접속면을 맞추라는 문형. 결정적 규칙이다.
+# 한 장비 안의 공장 결선(Factory installed control wiring), 마감 색 맞춤, 단일 공급원 구매 제한은 넣지 않는다.
+ASSEMBLY_TEXT = re.compile(
+    "|".join(
+        f"(?:{p})"
+        for p in (
+            r"\bfactory[- ]assembled\b",
+            r"\bassembled and tested\b",
+            r"\bsingle assembly\b",
+            r"\bunit responsibility\b",
+            rf"\bcompleted\b{_IN}{{0,40}}\b(?:line-?up|assembly)\b",
+            # 다른 장비·구획과 모선·구획·결선을 맞춘다.
+            # 'section'만으로는 잡지 않는다('finish shall match the adjacent sections'는 마감 색 맞춤이다).
+            rf"\bmatch(?:es|ing)?\b{_IN}{{0,40}}\b(?:bus(?:es)?|compartments?|harness(?:es)?)\b",
+            # 장비 사이 전환 구획의 모선·접속.
+            rf"\btransition (?:sections?|compartments?)\b{_IN}{{0,80}}\b(?:bus|connections?)\b",
+            rf"\b(?:bus|connections?)\b{_IN}{{0,80}}\btransition (?:sections?|compartments?)\b",
+            # 유닛·조립품 단위 공장 시험.
+            rf"\bfactory\b{_IN}{{0,30}}\btests?\b{_IN}{{0,40}}"
+            r"\b(?:unit substations?|assembl(?:y|ies)|line-?ups?)\b",
+        )
+    ),
+    re.IGNORECASE,
+)
 CHECK_ITEM = "통합 책임자 확인(조립·공장 시험·연동·보증)"
 HOLDER_TEXT: dict[Holder, str] = {
     "OWN": "자사",
@@ -34,11 +61,15 @@ class Strict(BaseModel):
 
 
 class Requirement(Strict):
-    """통합 책임 판별에 쓰는 요구 칸. assembly_clause는 사람이 조립품 공급 조항으로 표시한 요구다."""
+    """통합 책임 판별에 쓰는 요구 칸. assembly_clause는 사람·추출이 조립품 공급 조항으로 표시한 요구다.
+
+    clause_text는 요구가 달린 조항의 현행 원문이다. 없으면 원문 규칙을 쓰지 않는다.
+    """
 
     clause_no: str
     task: str | None = None
     assembly_clause: bool = False
+    clause_text: str | None = None
 
 
 class StoredRequirement(Requirement):
@@ -78,8 +109,12 @@ FALLBACKS = (
 
 
 def _is_basis(requirement: Requirement) -> bool:
-    """요구가 조립품 공급의 근거인지(사람·추출이 표시한 조항이거나 조립품 과업)."""
-    return requirement.assembly_clause or requirement.task in ASSEMBLY_TASKS
+    """요구가 조립품 공급의 근거인지(표시한 조항, 조립품 과업, 조립품 문형의 조항 원문)."""
+    return (
+        requirement.assembly_clause
+        or requirement.task in ASSEMBLY_TASKS
+        or ASSEMBLY_TEXT.search(requirement.clause_text or "") is not None
+    )
 
 
 def integration_responsibility(

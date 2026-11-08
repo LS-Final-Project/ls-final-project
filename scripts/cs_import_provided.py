@@ -494,8 +494,10 @@ def apply_plan(conn, plan: Plan, target: Target):
             all(r["known_at"] <= row["now"] for r in plan.tickets + plan.cases),
             "IMPORT_FUTURE_KNOWN_AT",
         )
+        # 새 로컬 DB의 계정만 있어야 한다(infra/local/seed_demo.sql): 시연 로그인 5개(local-1~5) +
+        # 가정 상담원 6명(KAN-214). setup.py의 LOCAL_SETUP_UNEXPECTED_BUSINESS_DATA 기준과 같은 수다.
         require(
-            conn.execute("SELECT count(*) AS n FROM identity.users").fetchone()["n"] == 10,
+            conn.execute("SELECT count(*) AS n FROM identity.users").fetchone()["n"] == 11,
             "IMPORT_IDENTITY_BASELINE_INVALID",
         )
         conn.execute("SET LOCAL ROLE cs_migrator")

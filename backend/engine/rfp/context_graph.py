@@ -984,9 +984,13 @@ short source-grounded explanation. Do not infer absent tags/site, topology, perf
 class GeminiContextProvider:
     """Uses the normal shared SDK factory/generate boundary, including its accounting wrapper."""
 
-    def __init__(self, client: genai.Client, settings: ai.AISettings) -> None:
+    def __init__(
+        self, client: genai.Client, settings: ai.AISettings, thinking_level: str | None = None
+    ) -> None:
         _guard()
         self.client = client
+        # None이면 thinking 설정을 보내지 않는다(모델 기본). TFT_CONTEXT_THINKING_LEVEL.
+        self.thinking_level = thinking_level
         # Graph repair is bounded separately; transport retries cannot silently multiply calls here.
         self.settings = settings.model_copy(update={"gemini_transient_retries": 0})
         self.calls: list[ai.Generation] = []
@@ -1004,7 +1008,12 @@ class GeminiContextProvider:
             + json.dumps(payload, ensure_ascii=False)
         )
         generation = await asyncio.to_thread(
-            ai.generate, self.client, self.settings, prompt, response_schema=_ProviderSchema
+            ai.generate,
+            self.client,
+            self.settings,
+            prompt,
+            response_schema=_ProviderSchema,
+            thinking_level=self.thinking_level,
         )
         self.calls.append(generation)
         try:
@@ -1013,9 +1022,11 @@ class GeminiContextProvider:
             raise ContextOutputError("CONTEXT_PROVIDER_SCHEMA_INVALID") from error
 
 
-def create_gemini_context_provider(settings: ai.AISettings) -> GeminiContextProvider:
+def create_gemini_context_provider(
+    settings: ai.AISettings, thinking_level: str | None = None
+) -> GeminiContextProvider:
     _guard()
-    return GeminiContextProvider(ai.create_client(settings), settings)
+    return GeminiContextProvider(ai.create_client(settings), settings, thinking_level)
 
 
 def validate_result(

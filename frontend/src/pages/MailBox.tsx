@@ -5,7 +5,8 @@ import { ApiError, getApiMode } from '../api/client';
 import { dismissReply, getMailContent, getReplyCandidates, linkReply, listMailMessages, listReplyReviews, type InboxMessage, type ReplyReview, type ReviewCandidate } from '../api/mail';
 import { listTicketsBy, type TicketItem } from '../api/cs';
 import { ErrorState, Loading } from '../components/states';
-import { KvGrid, KvModal, useHotkey, type KvColumn } from '../ls-shell/kv';
+import { KvModal, useHotkey } from '../ls-shell/kv';
+import LogTable, { type LogColumn } from './LogTable';
 import { STATE_LABEL, formatStamp } from '../ls-shell/cs-labels';
 import MailGate from './MailGate';
 import './ticket-detail-v3.css';
@@ -44,6 +45,8 @@ const numberOf = (t: { external_id: string | null; id: string }) => t.external_i
 const TYPE_LABEL: Record<NonNullable<InboxMessage['mail_type']>, string> = {
   NEW_RFP: 'RFP로 보임', CS: '문의로 보임', CANDIDATE_REPLY: '회신으로 보임', EXISTING_CHANGE: '변경 요청으로 보임', OTHER: '업무 아님',
 };
+const INBOX_ICON = <svg viewBox="0 0 20 20"><path d="M3 11l2-6h10l2 6v4H3v-4zm0 0h4l1 2h4l1-2h4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+const LINK_ICON = <svg viewBox="0 0 20 20"><path d="M8.5 11.5a3 3 0 0 0 4.2 0l2.6-2.6a3 3 0 0 0-4.2-4.2l-1 1m-.6 4.6a3 3 0 0 0-4.2 0l-2.6 2.6a3 3 0 0 0 4.2 4.2l1-1" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 const stop = (event: MouseEvent) => event.stopPropagation();
 // 연결 > 열린 회신 검토 > 최신 분류 > 미연결 순으로 하나만 보인다.
 function linkState(m: InboxMessage) {
@@ -60,19 +63,20 @@ function Inbox() {
   const list = useQuery({ queryKey: ['mail-messages', mode], queryFn: ({ signal }) => listMailMessages(signal), retry: false, staleTime: 0 });
   const [open, setOpen] = useState<InboxMessage | null>(null);
   const items = list.data ?? [];
-  const columns: KvColumn<InboxMessage>[] = [
+  const columns: LogColumn<InboxMessage>[] = [
     { key: 'received', header: '받은 시각', width: 130, className: 'c', cell: row => formatStamp(row.received_at) },
-    { key: 'from', header: '보낸 사람', width: 220, cell: row => row.from_address ?? '보낸 사람 미확인' },
+    { key: 'from', header: '보낸 사람', width: 220, className: 'who', cell: row => row.from_address ?? '보낸 사람 미확인' },
     { key: 'subject', header: '제목', className: 't', cell: row => <>{row.subject || '(제목 없음)'}{row.has_attachments && <span className="chip">첨부</span>}</> },
     { key: 'link', header: '연결 상태', width: 150, cell: linkState },
-    { key: 'act', header: '', width: 70, className: 'c', cell: row => <button className="kb3" onClick={event => { stop(event); setOpen(row); }}>본문</button> },
+    { key: 'act', header: '', width: 70, className: 'c', cell: row => <button className="kb3 sm" onClick={event => { stop(event); setOpen(row); }}>본문</button> },
   ];
-  return <div className="pane" aria-label="받은 메일 전체" style={{ marginBottom: 12 }}>
-    <div className="ph"><h2>받은 메일 {items.length}통</h2><div className="r"><span className="meta">최근 100통 · 행을 누르면 본문</span></div></div>
-    {list.isPending ? <Loading /> : list.isError ? <p className="meta" role="status" style={{ padding: 12 }}>받은 메일 목록을 읽지 못했습니다. 조회로 다시 읽으세요.</p>
-      : <KvGrid label="받은 메일 전체" columns={columns} rows={items} rowKey={row => row.message_id} onRow={setOpen} scroll fallback="받은 메일이 없습니다." />}
+  return <section className="pane bx-inbox" aria-label="받은 메일 전체">
+    <div className="ph"><h2>받은 메일</h2><span className="cnt">{items.length}</span><div className="r"><span className="meta">최근 100통 · 행을 누르면 본문</span></div></div>
+    {list.isPending ? <Loading /> : list.isError ? <div className="ml-empty sm" role="status"><b>받은 메일 목록을 읽지 못했습니다.</b><small>조회로 다시 읽으세요.</small></div>
+      : <LogTable label="받은 메일 전체" columns={columns} rows={items} rowKey={row => row.message_id} onRow={setOpen}
+        fallback={<div className="ml-empty"><span className="ic" aria-hidden="true">{INBOX_ICON}</span><b>받은 메일이 없습니다.</b></div>} />}
     {open && <Body item={open} onClose={() => setOpen(null)} />}
-  </div>;
+  </section>;
 }
 
 function Body({ item, onClose }: { item: InboxMessage; onClose: () => void }) {
@@ -187,7 +191,7 @@ function BoxView() {
     return `${c.owner_service === 'cs' ? 'C/S 문의' : '플랫폼 업무'} ${(id ?? c.business_ref).slice(0, 8)}`;
   };
 
-  return <main className="td3 bx3">
+  return <main className="td3 bx3 ml3">
     <div className="title">
       <span className="path">메일 ›</span><h1>메일함</h1><code className="kv-code">MB0100</code>
       <span className="bx-lead">받은 메일과 연결 상태를 보고, 시스템이 문의에 붙이지 못한 고객 답장을 어느 문의에 넣을지 정합니다.</span>
@@ -204,17 +208,20 @@ function BoxView() {
     <div className="body">
       {mode === 'mock' && <div className="tier-note" role="status">모의 응답 모드 — 합성 예시이며 실제 메일이 아닙니다.</div>}
       <Inbox />
-      <p className="meta bx-scope" role="note">아래는 연결이 필요한 고객 답장만 보입니다. 새 문의·RFP 메일은 업무 홈에서 확인 후 등록합니다.</p>
       {notice && <div className={notice.kind === 'error' ? 'note err' : 'note'} role={notice.kind === 'error' ? 'alert' : 'status'}>{notice.text}</div>}
+      <section className="pane bx-review" aria-label="연결 필요">
+        <div className="ph"><h2>연결이 필요한 고객 답장</h2><span className={all.length ? 'cnt hot' : 'cnt'}>{all.length}</span>
+          <div className="r"><span className="meta bx-scope" role="note">연결이 필요한 고객 답장만 보입니다. 새 RFP 메일은 RFP 업무 홈에서 확인 후 등록하고, 새 문의는 문의 조회로 들어옵니다.</span></div>
+        </div>
       {list.isFetching && !list.data && <Loading />}
       {!list.isFetching && list.isError && <ErrorState error={list.error} onRetry={fetchAgain} />}
-      {list.isSuccess && <div className="bx-wrap">
+      {list.isSuccess && all.length === 0 && <div className="ml-empty"><span className="ic ok" aria-hidden="true">{LINK_ICON}</span><b>연결할 고객 답장이 없습니다.</b></div>}
+      {list.isSuccess && all.length > 0 && <div className="bx-wrap">
         <section className="bx-list" aria-label="받은 메일">
           <div className="bx-pills" role="tablist" aria-label="메일 거르기">
             {FILTERS.map(([key, label]) => <button key={key} role="tab" aria-selected={filter === key} className={filter === key ? 'on' : undefined} onClick={() => setFilter(key)}>
               {label} <b>{all.filter(r => match(r, key)).length}</b></button>)}
           </div>
-          <div className="bx-sub"><span>연결 필요</span><b>{all.length}</b></div>
           <ul>
             {rows.length === 0 && <li className="none">{all.length === 0 ? '연결할 고객 답장이 없습니다.' : '조건에 맞는 메일이 없습니다.'}</li>}
             {rows.map(r => <li key={r.message_id}><button className={r.message_id === selected?.message_id ? 'row on' : 'row'} onClick={() => open(r.message_id)}>
@@ -302,6 +309,7 @@ function BoxView() {
           </div>
         </section> : <section className="bx-detail empty"><p>{all.length === 0 ? '연결할 고객 답장이 없습니다.' : '왼쪽에서 메일을 고르세요.'}</p></section>}
       </div>}
+      </section>
     </div>
   </main>;
 }

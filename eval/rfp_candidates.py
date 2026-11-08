@@ -227,7 +227,7 @@ def run_document(
         for index, (r, o) in enumerate(zip(extracted, outcomes, strict=True))
         if o.status in GRADED_STATUSES and (g := to_grading(UUID(int=index + 1), r)) is not None
     ]
-    responsibility = integration_of(extracted)
+    responsibility = integration_of(extracted, {c.clause_no: c.text for c in tree.clauses})
     # 운영 처리 함수와 같게 통합 책임은 추출 결과로 정한다(정답 맥락의 값을 쓰면 추출 누락이 가려진다).
     context = gold.context.model_copy(update={"requires_integrator": responsibility.required})
     pool = load_document_pools().get(str(gold.document_number))
