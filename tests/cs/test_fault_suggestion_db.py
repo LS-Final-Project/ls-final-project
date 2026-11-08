@@ -1,6 +1,6 @@
 """같은 고장 AI 추천 API(KAN-245) — 실제 PostgreSQL, 가짜 모델(모델 호출 없음).
 
-이 문의를 같은 제품·같은 출처의 알려진 해결 기록 묶음과 비교한다. 고장 ID·해결 기록 문장은 모델에 가지 않고,
+이 문의를 같은 제품의 알려진(출처 무관) 해결 기록 묶음과 비교한다. 고장 ID·해결 기록 문장은 모델에 가지 않고,
 가린 참조(G1..)를 고장 ID로 되돌려 준다. 비교할 묶음이 없으면 모델을 부르지 않는다. cs_agent만 쓴다.
 """
 
@@ -116,7 +116,7 @@ def seeded(admin):
         product=product,
         at=START + 3 * day,
     )
-    # 다른 출처와 다른 제품의 기록은 비교에 들어가지 않는다.
+    # 다른 출처(real)의 기록도 비교에 들어간다(화면 등록 문의도 제공 이력과 비교). 다른 제품은 빠진다.
     add_case(
         admin,
         tag,
@@ -124,7 +124,7 @@ def seeded(admin):
         "Real-origin Buchholz trip.",
         origin="real",
         product=product,
-        at=START,
+        at=START + 4 * day,
     )
     add_case(admin, tag, "FLT-001", "Other product.", product=f"{product}-X", at=START)
     target = add_ticket(
@@ -145,15 +145,16 @@ def test_an_agent_gets_the_existing_fault_back_from_the_hidden_reference(client,
     data = response.json()["data"]
     assert (data["decision"], data["fault_id"], data["matched_cases"]) == ("EXISTING", "FLT-067", 3)
     assert data["fault_symptom"] == "Oil leakage at gasket"
-    assert (data["compared_faults"], data["compared_cases"]) == (2, 4)
+    assert (data["compared_faults"], data["compared_cases"]) == (3, 5)
     assert data["evidence_quote"] == "oil is leaking" and data["provenance"] == "ai_draft"
     assert data["model"] == "gemini-3.6-flash" and data["prompt_version"] == "fault-match-v2"
     [prompt] = model.prompts
-    for hidden in ("FLT-", "SECRET-", "buyer@example.com", "Real-origin", "Other product"):
+    assert "Real-origin Buchholz trip." in prompt and '"ref": "G3"' in prompt
+    for hidden in ("FLT-", "SECRET-", "buyer@example.com", "Other product"):
         assert hidden not in prompt
     # 묶음마다 이전 문의 예시는 2건까지(세 번째 누유 문의는 빠진다).
     assert "Oil leaking from the gasket." in prompt and "Third gasket leak." not in prompt
-    assert '"ref": "G2"' in prompt and '"ref": "G3"' not in prompt
+    assert '"ref": "G4"' not in prompt
 
 
 def test_new_and_unsure_carry_no_fault(client, model, admin):

@@ -1,13 +1,15 @@
 """해결 사례 등록 때 같은 고장 AI 추천(KAN-245). 기본 비활성.
 
 - `POST /api/v1/cs/tickets/{id}/fault-suggestion`: cs_agent가 해결 사례의 고장 ID를 고르기 전에 부른다. 이 문의
-  원문을 같은 제품·같은 출처의 이미 알려진 해결 기록 묶음(고장 ID별, 묶음마다 이전 문의 원문 예시 2건)과 비교해
+  원문을 같은 제품의 이미 알려진 해결 기록 묶음(고장 ID별, 묶음마다 이전 문의 원문 예시 2건)과 비교해
   기존 고장 하나 / 새 고장 / 판단 보류를 고른다. 판단 규칙·프롬프트는 KAN-204에서 평가한
   `backend/engine/cs/fault_matching.py`(fault-match-v2)를 그대로 쓴다.
 - `CS_FAULT_SUGGESTION_ENABLED`가 꺼져 있으면 404다. 켜면 C/S 서비스가 모델을 직접 부른다(비용, 호출마다 1~2회).
 
 추천은 AI 작성물(`ai_draft`)이며 저장하지 않는다. 고장 ID는 사람이 해결 사례 등록(`POST …/resolution-case`)으로
-확정하고, 반복 판정(90일·3곳)은 그 확정값으로 규칙이 한다. 모델에는 고장 ID·해결 기록 문장을 넣지 않는다.
+확정하고, 반복 판정(90일·3곳)은 그 확정값으로 규칙이 출처별로 한다. 추천은 읽기 보조라 출처(synthetic·demo·real)를
+가리지 않고 같은 제품의 모든 알려진 기록과 비교한다(화면 등록 문의는 demo·real이고 과거 기록은 synthetic이다).
+모델에는 고장 ID·해결 기록 문장을 넣지 않는다.
 """
 
 import asyncio
@@ -137,7 +139,7 @@ def text_of(row: dict[str, Any]) -> str:
 
 
 async def history(conn: Any, ticket: dict[str, Any]) -> list[dict[str, Any]]:
-    """같은 제품·같은 출처에서 이미 알려진 다른 문의의 해결 기록 중 고장 묶음마다 처음 알려진 예시 몇 건과 묶음 기록 수.
+    """같은 제품에서 이미 알려진 다른 문의의 해결 기록 중 고장 묶음마다 처음 알려진 예시 몇 건과 묶음 기록 수.
 
     묶음 순서는 처음 알려진 순이다. 원문은 예시로 쓰는 행만 읽는다.
     """
@@ -147,11 +149,11 @@ async def history(conn: Any, ticket: dict[str, Any]) -> list[dict[str, Any]]:
         "row_number() OVER w AS rn, count(*) OVER (PARTITION BY rc.fault_id) AS cases, "
         "first_value(rc.known_at) OVER w AS first_at, first_value(rc.id) OVER w AS first_id "
         "FROM cs.resolution_cases rc JOIN cs.tickets t ON t.id = rc.ticket_id "
-        "WHERE rc.product_code = %s AND rc.data_origin = %s AND rc.ticket_id <> %s "
+        "WHERE rc.product_code = %s AND rc.ticket_id <> %s "
         "AND rc.known_at <= now() AND rc.fault_id ~ '^FLT-[0-9]{3}$' "
         "WINDOW w AS (PARTITION BY rc.fault_id ORDER BY rc.known_at, rc.id)"
         ") x WHERE rn <= %s ORDER BY first_at, first_id, rn",
-        (ticket["product_code"], ticket["data_origin"], ticket["id"], MAX_EXAMPLES_PER_GROUP),
+        (ticket["product_code"], ticket["id"], MAX_EXAMPLES_PER_GROUP),
     )
     return await cursor.fetchall()
 
