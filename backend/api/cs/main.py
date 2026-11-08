@@ -2,6 +2,7 @@ from fastapi import FastAPI
 
 from backend.api.common.application import create_application
 from backend.api.cs.analysis.jobs import CsAnalysisSettings, configure_analysis_jobs
+from backend.api.cs.faults.suggestion import CsFaultSuggestionSettings, configure_fault_suggestion
 from backend.api.cs.improvements.ai_draft import (
     CsImprovementDraftSettings,
     configure_improvement_draft,
@@ -44,6 +45,7 @@ def create_app(
     configure_analysis_jobs(app, CsAnalysisSettings())
     configure_summary(app, CsSummarySettings())
     configure_translation(app, CsTranslationSettings())
+    configure_fault_suggestion(app, CsFaultSuggestionSettings())
     configure_reply_analysis(app, CsReplyAnalysisSettings())
     configure_improvement_draft(app, CsImprovementDraftSettings())
     app.include_router(router)

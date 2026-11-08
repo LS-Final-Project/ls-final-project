@@ -1,7 +1,8 @@
 """Local-only synchronous summary bridge; model keys never enter an API container.
 
 The same bridge also serves the improvement-request AI draft (KAN-115), the ticket Korean
-translation and the customer reply analysis (KAN-230) on their own paths with their own prompt
+translation, the customer reply analysis (KAN-230) and the same-fault suggestion (KAN-245) on
+their own paths with their own prompt
 check and output schema; all share the driver's lock, limits and usage accounting.
 
 Only the explicit CS driver serves this authenticated Docker-internal endpoint. Calls
@@ -23,6 +24,9 @@ import httpx
 from pydantic import SecretStr
 
 from backend.engine.cs.classification import ClassificationInput
+from backend.engine.cs.fault_matching import PROMPT as FAULT_INSTRUCTION
+from backend.engine.cs.fault_matching import MatchInput, MatchOutput
+from backend.engine.cs.fault_matching import build_prompt as render_fault_prompt
 from backend.engine.cs.improvement_drafting import ImprovementDraft, ImprovementDraftInput
 from backend.engine.cs.improvement_drafting import instruction as draft_instruction
 from backend.engine.cs.improvement_drafting import render_prompt as render_draft_prompt
@@ -60,8 +64,8 @@ def unavailable():
 def bridge_provider(state: Path, endpoint: str = "/summary"):
     """Read the current driver capability per call; cached summaries need no driver.
 
-    endpoint is "/summary", "/improvement-draft" (KAN-115), "/translation" or "/reply-analysis"
-    (KAN-230).
+    endpoint is "/summary", "/improvement-draft" (KAN-115), "/translation", "/reply-analysis"
+    (KAN-230) or "/fault-suggestion" (KAN-245).
     """
 
     def provide(prompt):
@@ -154,6 +158,13 @@ def metered_reply_provider(permit, token, control, model):
     )
 
 
+def metered_fault_provider(permit, token, control, model):
+    """The same-fault suggestion (KAN-245): its schema and the route's output limit."""
+    return metered_provider(
+        permit, token, control, model, response_schema=MatchOutput, max_output_tokens=1024
+    )
+
+
 def checked_prompt(path, prompt):
     """Accept only the exact prompt the C/S route renders for that path; else ValueError."""
     if path == "/summary":
@@ -180,6 +191,11 @@ def checked_prompt(path, prompt):
             raise ValueError
         reply = ReplyInterpretationInput.model_validate_json(prompt[len(prefix) :])
         rendered = render_reply_prompt(reply)
+    elif path == "/fault-suggestion":
+        head, sep, body = prompt.partition("\n\n입력:\n")
+        if not sep or not head.startswith(FAULT_INSTRUCTION):
+            raise ValueError
+        rendered = render_fault_prompt(MatchInput.model_validate_json(body))
     else:
         raise ValueError
     if rendered != prompt:
@@ -200,6 +216,7 @@ class SummaryBridge:
         draft_factory=metered_draft_provider,
         translation_factory=metered_translation_provider,
         reply_factory=metered_reply_provider,
+        fault_factory=metered_fault_provider,
     ):
         from scripts.local_business.runtime import local_only
 
@@ -241,6 +258,7 @@ class SummaryBridge:
                         "/improvement-draft": draft_factory,
                         "/translation": translation_factory,
                         "/reply-analysis": reply_factory,
+                        "/fault-suggestion": fault_factory,
                     }[self.path]
                     result = make(permit, token, control, model)(prompt)
                     usage = asdict(result.usage)

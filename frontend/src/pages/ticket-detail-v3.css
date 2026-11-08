@@ -238,6 +238,9 @@
 .ls-root .kv .td3 .fault-ref .tags{display:flex;flex-wrap:wrap;gap:4px;margin:2px 0 4px}
 .ls-root .kv .td3 .fault-ref .tags span{font-size:11px;padding:1px 6px;background:#fff;border:1px solid #d9dde4;color:#3a4558}
 .ls-root .kv .td3 .fault-ref .kb{align-self:flex-start;height:24px;font-size:12px}
+.ls-root .kv .td3 .fault-ai{margin-top:6px;padding:8px 10px;background:#fbf7f7;border:1px solid #ecdcdc;font-size:12px;line-height:1.55;color:#2d3546;display:flex;flex-direction:column;gap:3px}
+.ls-root .kv .td3 .fault-ai .h{display:flex;align-items:center;gap:6px}
+.ls-root .kv .td3 .fault-ai b{font-weight:600}
 /* 초안 비교 창: 회신 상자와 같은 모양(행 카드·칩·상자). 구조와 문구는 그대로 */
 .ls-root .kv .td3 .kv-modal:has(.draft-dlg){width:680px}
 .ls-root .kv .td3 .draft-dlg>.kv-sub:first-child{padding:6px 10px;background:#f6f7f9;border:1px solid #e6e9ee;color:#5b6475}

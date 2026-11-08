@@ -826,3 +826,62 @@ def test_the_local_runtime_turns_the_reply_analysis_on_through_the_bridge(tmp_pa
     app = runtime.app_for("cs", state)
     assert app.state.reply_analysis_provider is not None
     assert "/reply-analysis" in endpoints
+
+
+def fault_prompt():
+    """같은 고장 추천 경로가 받는 정확한 프롬프트(C/S 경로가 만드는 것과 같다, KAN-245)."""
+    from backend.engine.cs.fault_matching import GroupView, MatchInput, build_prompt
+
+    return build_prompt(
+        MatchInput(
+            product_name="Oil transformer",
+            query="Oil is leaking." + "x" * 2000,
+            groups=[GroupView(ref="G1", examples=["Gasket leak."])],
+        )
+    )
+
+
+def test_the_fault_suggestion_path_takes_only_its_own_prompt_and_factory(ledger, tmp_path, prompt):
+    """/fault-suggestion은 추천 프롬프트만 받고(잘린 원문을 다시 그려도 같다) 추천 공급자로 부른다."""
+    permit, token = ledger
+    used = []
+
+    def fault_factory(*args):
+        used.append("fault")
+        return fake_factory(*args)
+
+    bridge = summary.SummaryBridge(
+        permit,
+        token,
+        tmp_path,
+        "fake-model",
+        threading.Lock(),
+        address=("127.0.0.1", 0),
+        factory=fake_factory,
+        draft_factory=lambda *args: pytest.fail("draft factory must not run"),
+        fault_factory=fault_factory,
+    )
+    url = f"http://127.0.0.1:{bridge.server.server_port}"
+    headers = {"Authorization": "Bearer " + bridge.capability}
+    try:
+        for path, body in (
+            ("/fault-suggestion", prompt),
+            ("/fault-suggestion", translation_prompt()),
+            ("/fault-suggestion", fault_prompt() + " "),
+            ("/summary", fault_prompt()),
+            ("/translation", fault_prompt()),
+        ):
+            response = httpx.post(
+                url + path, headers=headers, json={"prompt": body}, trust_env=False
+            )
+            assert response.status_code == 400, path
+        assert used == []
+        made = httpx.post(
+            url + "/fault-suggestion",
+            headers=headers,
+            json={"prompt": fault_prompt()},
+            trust_env=False,
+        )
+        assert made.status_code == 200 and used == ["fault"]
+    finally:
+        bridge.close()
