@@ -28,13 +28,13 @@ const partner = {
   edited_at: null, edited_by: null,
 };
 
-function live() {
+function live(roles = ['manager']) {
   setApiMode('live');
   const calls: { url: string; init?: RequestInit }[] = [];
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     calls.push({ url, init });
-    if (url.endsWith('/platform/me')) return new Response(JSON.stringify({ data: { id: U, tid: U, oid: U, display_name: '담당자', email: 'test@example.invalid', roles: ['sales'], dept: null } }), { status: 200, headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'session-test' } });
+    if (url.endsWith('/platform/me')) return new Response(JSON.stringify({ data: { id: U, tid: U, oid: U, display_name: '담당자', email: 'test@example.invalid', roles, dept: null } }), { status: 200, headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'session-test' } });
     if (url.endsWith('/catalog/options')) return response(OPTIONS);
     if (url.endsWith('/catalog/own-products')) return response([own('MCCB-1'), own('ACB-2', { version: 2, source: 'REGISTERED', lifecycle_status: 'DISCONTINUED', edited_at: '2026-11-08T03:00:00Z', edited_by: U })]);
     if (url.endsWith('/catalog/partners')) return response([partner]);
@@ -122,4 +122,15 @@ test('saving an untouched product sends its stored conditions unchanged', async 
   await waitFor(() => expect(calls.some(c => c.init?.method === 'PUT')).toBe(true));
   const sent = JSON.parse(String(calls.find(c => c.init?.method === 'PUT')?.init?.body));
   expect(sent.spec_facts[0].conditions).toEqual([{ name: 'voltage', value: '415', unit: 'V' }]);
+});
+
+test('non-managers see the catalog without register or edit buttons', async () => {
+  live(['sales']);
+  renderApp('/tft/catalog');
+  const grid = await screen.findByRole('table', { name: '자사 제품' });
+  fireEvent.click(await within(grid).findByRole('button', { name: 'MCCB-1' }));
+  expect(await screen.findByRole('table', { name: '사양' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: '자사 제품 등록' })).toBeNull();
+  expect(screen.queryByRole('button', { name: '수정' })).toBeNull();
+  expect(screen.getByText(/등록·수정은 관리자만 할 수 있습니다/)).toBeTruthy();
 });

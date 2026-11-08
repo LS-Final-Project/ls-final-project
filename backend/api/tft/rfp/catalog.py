@@ -248,10 +248,19 @@ async def _record(
     )
 
 
+def require_writer(principal: Principal) -> None:
+    """제품 목록 등록·수정은 manager만 한다(KAN-247). 조회는 제안 지원 역할 모두다."""
+    if not principal.has("manager"):
+        raise ApplicationError(
+            403, "TFT_CATALOG_WRITE_FORBIDDEN", "제품 목록은 관리자만 등록하거나 고칠 수 있습니다."
+        )
+
+
 async def save_own(
     conn: AsyncConnection[Row], principal: Principal, code: str, payload: OwnProductInput
 ) -> OwnProduct:
     """자사 제품 새 판본. 파일 제품을 고치면 판본 1부터 쌓는다."""
+    require_writer(principal)
     async with conn.transaction():
         current = await _current_version(
             conn, "SELECT max(version) AS v FROM tft.own_products WHERE product_code = %s", code
@@ -303,6 +312,7 @@ async def save_partner(
     conn: AsyncConnection[Row], principal: Principal, code: str, payload: PartnerInput
 ) -> Partner:
     """협력사 새 판본(등록·수정 모두). 수정해도 이전 판본과 그 판본으로 매긴 등급은 남는다."""
+    require_writer(principal)
     async with conn.transaction():
         # 협력사 저장을 한 줄로 세운다. 제품 코드 중복 검사(아래 taken)가 동시 저장 둘을 함께 통과시키지 않게 한다.
         await conn.execute("SELECT pg_advisory_xact_lock(hashtext('tft.partner_profiles'))")
