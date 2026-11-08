@@ -23,6 +23,7 @@ import RfpList from './rfp/RfpList';
 import RfpRequirement from './rfp/RfpRequirement';
 import RfpReviewRedirect from './rfp/RfpReviewRedirect';
 import RfpApprovals from './rfp/RfpApprovals';
+import RfpCatalog from './rfp/RfpCatalog';
 import RfpDraft from './rfp/RfpDraft';
 import RfpWorkspace from './rfp/RfpWorkspace';
 
@@ -55,6 +56,7 @@ export default function App() {
       <Route path="cs/tickets/:ticketId" element={<TicketDetail />} />
       <Route path="tft" element={<RfpHome />} />
       <Route path="tft/projects" element={<RfpList />} />
+      <Route path="tft/catalog" element={<RfpCatalog />} />
       {/* 예전 대응표 북마크는 통합 작업 공간으로 보낸다(KAN-222). 승인·초안·요구 상세는 아직 작업 공간에 없는 기능이 있어 그대로 둔다. */}
       <Route path="tft/projects/:projectId/supplement" element={<RfpReviewRedirect />} />
       <Route path="tft/projects/:projectId/table" element={<RfpReviewRedirect />} />

@@ -22,7 +22,7 @@
 | 제공 해결사례 | 같은 묶음 `resolution_cases.csv` | 해결 후 근거이며 최초 문의와 분리한다. `known_at` 확인이 필요하다. 업무 검색 저장소로 넣는 기존 CSV importer는 확인되지 않았다. |
 | 검색 문서 | 같은 묶음 `docs/` 및 `docs/doc_index.csv` | 기존 문서 적재 CLI가 지원하는 MD/DOCX/PDF 입력. 문서 ID·판본·출처 연결을 위해 실제 doc_index를 함께 지정한다. |
 | 자사 23종 원천 | 같은 묶음 `ref/product_master.csv`, `ref/product_spec_facts.csv` | 제공된 교육용 합성 데이터시트이며 실제 제품 성능 자료가 아니다. 원천 대조/재생성용이다. |
-| 자사 23종 파생값 | `backend/api/tft/rfp/own_spec_facts.json` | 코드에 포함된 `DERIVED` 파일을 비교 구현이 사용한다. DB 선적재 CLI가 아니라 파일 기반 입력이다. 손으로 수정하지 않는다. |
+| 자사 23종 파생값 | `backend/api/tft/rfp/own_spec_facts.json` | 코드에 포함된 `DERIVED` 파일을 비교 구현이 사용한다. DB 선적재 CLI가 아니라 파일 기반 입력이다. 손으로 수정하지 않는다. 화면(제품 목록)에서 고친 판본은 `tft.own_products`에 따로 쌓여 파일 위에 덮어 쓴다(KAN-246). |
 | 가상 협력사 | `backend/api/tft/partners/profiles.json` | 제공 원자료에 협력사는 없다. 팀이 만든 `profile_source=synthetic` 후보 사실이며 별도 DB 적재가 필요하다. 등급·선택 결과는 실행 시 계산한다. |
 | RFP 문서 | 각자 기존에 받은 승인된 문서 파일 | UI 업로드 후 추출·조항·요구·비교 등 실제 처리 결과를 생성한다. 원문 14번 문서의 내용은 이 조사에서 열람하지 않았다. |
 | 개발 분리본 | 관리자가 인수한 train/valid와 manifest | 개발 실험 시에만 사용한다. 통합 문의를 대신 승인하지 않는다. 평가 gold·시험 자료는 이 PC 준비 조사/안내에서 열람하지 않는다. |

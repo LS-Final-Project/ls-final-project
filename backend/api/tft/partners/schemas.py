@@ -36,10 +36,14 @@ class IntegratorCapable(Strict):
     warranty: bool | None
 
 
-class Condition(Strict):
+class SpecCondition(Strict):
     name: str
     value: str
     unit: str | None = None
+
+
+# OpenAPI 모델 이름이 rfp.schemas.Condition·comparison.Certification과 겹치지 않게 클래스 이름을 따로 둔다(KAN-246).
+Condition = SpecCondition
 
 
 class SpecFact(Strict):
@@ -54,7 +58,7 @@ class SpecFact(Strict):
     section: str
 
 
-class Certification(Strict):
+class PartnerCertification(Strict):
     """인증은 spec_facts가 아니라 이 배열로 판정한다. as_of는 정보용이다."""
 
     standard: str
@@ -63,6 +67,9 @@ class Certification(Strict):
     as_of: date
     valid_until: date | None
     evidence_id: str
+
+
+Certification = PartnerCertification
 
 
 class LeadTime(Strict):

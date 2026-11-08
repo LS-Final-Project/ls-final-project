@@ -166,7 +166,7 @@
           },
           "our_conditions": {
             "items": {
-              "$ref": "#/components/schemas/backend__api__tft__rfp__schemas__Condition"
+              "$ref": "#/components/schemas/Condition"
             },
             "title": "Our Conditions",
             "type": "array"
@@ -878,6 +878,37 @@
           "limits"
         ],
         "title": "ComparisonEvidence",
+        "type": "object"
+      },
+      "Condition": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "value",
+          "unit"
+        ],
+        "title": "Condition",
         "type": "object"
       },
       "Confirmation": {
@@ -3348,7 +3379,7 @@
             "anyOf": [
               {
                 "items": {
-                  "$ref": "#/components/schemas/backend__api__tft__partners__schemas__Condition"
+                  "$ref": "#/components/schemas/SpecCondition"
                 },
                 "type": "array"
               },
@@ -4212,7 +4243,7 @@
           },
           "conditions": {
             "items": {
-              "$ref": "#/components/schemas/backend__api__tft__rfp__schemas__Condition"
+              "$ref": "#/components/schemas/Condition"
             },
             "maxItems": 10,
             "title": "Conditions",
@@ -4447,12 +4478,52 @@
         "title": "Options",
         "type": "object"
       },
+      "OwnCertification": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence_id": {
+            "title": "Evidence Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "LISTED",
+              "TEST_REPORT",
+              "MARK"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "standard": {
+            "title": "Standard",
+            "type": "string"
+          },
+          "variant": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variant"
+          }
+        },
+        "required": [
+          "standard",
+          "kind",
+          "evidence_id"
+        ],
+        "title": "OwnCertification",
+        "type": "object"
+      },
       "OwnProduct": {
         "additionalProperties": false,
         "properties": {
           "certifications": {
             "items": {
-              "$ref": "#/components/schemas/backend__api__tft__rfp__comparison__Certification"
+              "$ref": "#/components/schemas/OwnCertification"
             },
             "title": "Certifications",
             "type": "array"
@@ -4547,7 +4618,7 @@
         "properties": {
           "certifications": {
             "items": {
-              "$ref": "#/components/schemas/backend__api__tft__rfp__comparison__Certification"
+              "$ref": "#/components/schemas/OwnCertification"
             },
             "maxItems": 50,
             "title": "Certifications",
@@ -4618,7 +4689,7 @@
         "properties": {
           "conditions": {
             "items": {
-              "$ref": "#/components/schemas/backend__api__tft__rfp__schemas__Condition"
+              "$ref": "#/components/schemas/Condition"
             },
             "title": "Conditions",
             "type": "array"
@@ -4944,12 +5015,69 @@
         "title": "PartnerCandidateList",
         "type": "object"
       },
+      "PartnerCertification": {
+        "additionalProperties": false,
+        "description": "\uc778\uc99d\uc740 spec_facts\uac00 \uc544\ub2c8\ub77c \uc774 \ubc30\uc5f4\ub85c \ud310\uc815\ud55c\ub2e4. as_of\ub294 \uc815\ubcf4\uc6a9\uc774\ub2e4.",
+        "properties": {
+          "applicable_models": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Applicable Models",
+            "type": "array"
+          },
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "evidence_id": {
+            "title": "Evidence Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "LISTED",
+              "TEST_REPORT"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "standard": {
+            "title": "Standard",
+            "type": "string"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid Until"
+          }
+        },
+        "required": [
+          "standard",
+          "applicable_models",
+          "kind",
+          "as_of",
+          "valid_until",
+          "evidence_id"
+        ],
+        "title": "PartnerCertification",
+        "type": "object"
+      },
       "PartnerInput": {
         "additionalProperties": false,
         "properties": {
           "certifications": {
             "items": {
-              "$ref": "#/components/schemas/backend__api__tft__partners__schemas__Certification"
+              "$ref": "#/components/schemas/PartnerCertification"
             },
             "maxItems": 50,
             "title": "Certifications",
@@ -5094,7 +5222,7 @@
           },
           "certifications": {
             "items": {
-              "$ref": "#/components/schemas/backend__api__tft__partners__schemas__Certification"
+              "$ref": "#/components/schemas/PartnerCertification"
             },
             "title": "Certifications",
             "type": "array"
@@ -6595,7 +6723,7 @@
             "anyOf": [
               {
                 "items": {
-                  "$ref": "#/components/schemas/backend__api__tft__rfp__schemas__Condition"
+                  "$ref": "#/components/schemas/Condition"
                 },
                 "type": "array"
               },
@@ -7692,7 +7820,7 @@
           },
           "conditions": {
             "items": {
-              "$ref": "#/components/schemas/backend__api__tft__rfp__schemas__Condition"
+              "$ref": "#/components/schemas/Condition"
             },
             "title": "Conditions",
             "type": "array"
@@ -8207,7 +8335,7 @@
           },
           "conditions": {
             "items": {
-              "$ref": "#/components/schemas/backend__api__tft__rfp__schemas__Condition"
+              "$ref": "#/components/schemas/Condition"
             },
             "title": "Conditions",
             "type": "array"
@@ -9605,6 +9733,36 @@
         "title": "SourceReference",
         "type": "object"
       },
+      "SpecCondition": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "value"
+        ],
+        "title": "SpecCondition",
+        "type": "object"
+      },
       "SpecFact": {
         "additionalProperties": false,
         "description": "product_spec_facts\uc640 \uac19\uc740 \uc5f4. \uac12\uc740 \ubb38\uc790\uc5f4\uc774\uace0 \ub2e8\uc704\ub294 unit\uc5d0 \ub530\ub85c \ub454\ub2e4.",
@@ -9649,7 +9807,7 @@
             "anyOf": [
               {
                 "items": {
-                  "$ref": "#/components/schemas/backend__api__tft__partners__schemas__Condition"
+                  "$ref": "#/components/schemas/SpecCondition"
                 },
                 "type": "array"
               },
@@ -11036,164 +11194,6 @@
           "drawing"
         ],
         "title": "ValueConflict",
-        "type": "object"
-      },
-      "backend__api__tft__partners__schemas__Certification": {
-        "additionalProperties": false,
-        "description": "\uc778\uc99d\uc740 spec_facts\uac00 \uc544\ub2c8\ub77c \uc774 \ubc30\uc5f4\ub85c \ud310\uc815\ud55c\ub2e4. as_of\ub294 \uc815\ubcf4\uc6a9\uc774\ub2e4.",
-        "properties": {
-          "applicable_models": {
-            "items": {
-              "type": "string"
-            },
-            "minItems": 1,
-            "title": "Applicable Models",
-            "type": "array"
-          },
-          "as_of": {
-            "format": "date",
-            "title": "As Of",
-            "type": "string"
-          },
-          "evidence_id": {
-            "title": "Evidence Id",
-            "type": "string"
-          },
-          "kind": {
-            "enum": [
-              "LISTED",
-              "TEST_REPORT"
-            ],
-            "title": "Kind",
-            "type": "string"
-          },
-          "standard": {
-            "title": "Standard",
-            "type": "string"
-          },
-          "valid_until": {
-            "anyOf": [
-              {
-                "format": "date",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Valid Until"
-          }
-        },
-        "required": [
-          "standard",
-          "applicable_models",
-          "kind",
-          "as_of",
-          "valid_until",
-          "evidence_id"
-        ],
-        "title": "Certification",
-        "type": "object"
-      },
-      "backend__api__tft__partners__schemas__Condition": {
-        "additionalProperties": false,
-        "properties": {
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "unit": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Unit"
-          },
-          "value": {
-            "title": "Value",
-            "type": "string"
-          }
-        },
-        "required": [
-          "name",
-          "value"
-        ],
-        "title": "Condition",
-        "type": "object"
-      },
-      "backend__api__tft__rfp__comparison__Certification": {
-        "additionalProperties": false,
-        "properties": {
-          "evidence_id": {
-            "title": "Evidence Id",
-            "type": "string"
-          },
-          "kind": {
-            "enum": [
-              "LISTED",
-              "TEST_REPORT",
-              "MARK"
-            ],
-            "title": "Kind",
-            "type": "string"
-          },
-          "standard": {
-            "title": "Standard",
-            "type": "string"
-          },
-          "variant": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Variant"
-          }
-        },
-        "required": [
-          "standard",
-          "kind",
-          "evidence_id"
-        ],
-        "title": "Certification",
-        "type": "object"
-      },
-      "backend__api__tft__rfp__schemas__Condition": {
-        "additionalProperties": false,
-        "properties": {
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "unit": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Unit"
-          },
-          "value": {
-            "title": "Value",
-            "type": "string"
-          }
-        },
-        "required": [
-          "name",
-          "value",
-          "unit"
-        ],
-        "title": "Condition",
         "type": "object"
       }
     }

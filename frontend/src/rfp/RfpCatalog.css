@@ -1,0 +1,23 @@
+/* 제품 목록(KAN-246). 탭은 RfpWorkspace.css의 ws-tabs, 대화상자는 GroupActions.css의 rfp-dialog를 쓴다. */
+.ls-root .kv .rfp-catalog-tabs{margin:12px 14px 0}
+.ls-root .kv .rfp-catalog .kv-cond{margin-top:0}
+.ls-root .kv .rfp-catalog-link{border:0;background:none;padding:0;font:inherit;color:var(--erp-accent,#24518a);cursor:pointer;text-align:left}
+.ls-root .kv .rfp-catalog-link:hover{text-decoration:underline}
+.ls-root .kv .rfp-catalog .kv-box{margin:10px 14px 14px}
+.ls-root .kv .rfp-catalog .kv-box .kv-tablewrap{margin:8px 0 0}
+.ls-root .kv .rfp-catalog-detail-head{display:flex;justify-content:flex-end;margin:0 0 8px}
+.ls-root .kv .rfp-catalog-note{margin:8px 0 0;white-space:pre-wrap;color:#4b5563}
+.ls-root .kv .kv-modal.rfp-catalog-dialog{width:min(1040px,calc(100vw - 32px))}
+.ls-root .kv .rfp-catalog-dialog .kv-form{margin:0 0 10px}
+.ls-root .kv .rfp-catalog-dialog .kv-form .row{grid-auto-rows:minmax(30px,auto)}
+.ls-root .kv .rfp-catalog-dialog .kv-form textarea{flex:1;min-width:0;margin:4px 0;font:inherit;font-size:12px;border:1px solid var(--erp-line);border-radius:2px;padding:4px 6px;resize:vertical}
+.ls-root .kv .rfp-catalog-rows{margin:0 0 12px;padding:0;border:0;min-width:0}
+.ls-root .kv .rfp-catalog-rows legend{padding:0;margin:0 0 6px;font-weight:500;color:#1f2a37}
+.ls-root .kv .rfp-catalog-rows legend small{margin-left:8px;font-weight:300;color:var(--erp-muted)}
+.ls-root .kv .rfp-catalog-rows table{width:100%;margin:0 0 6px;table-layout:fixed}
+.ls-root .kv .rfp-catalog-rows td{padding:3px 4px}
+.ls-root .kv .rfp-catalog-rows :is(input,select){width:100%;height:24px;padding:0 6px;border:1px solid var(--erp-line);border-radius:2px;background:#fff;font:inherit;font-size:12px;min-width:0}
+.ls-root .kv .rfp-catalog-rows input[type=checkbox],.ls-root .kv .rfp-catalog-check input[type=checkbox]{width:14px;height:14px;min-height:0;flex:0 0 14px;margin:0}
+.ls-root .kv .rfp-catalog-check{display:inline-flex;align-items:center;gap:4px;white-space:nowrap;border:0!important;min-height:0!important}
+.ls-root .kv .rfp-catalog-scopes{display:flex;flex-wrap:wrap;gap:4px 10px}
+.ls-root .kv .rfp-catalog-problem{margin:0 0 6px;color:var(--ls-red,#c8102e)}
