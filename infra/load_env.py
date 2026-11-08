@@ -178,7 +178,7 @@ def infra_commands(account: str) -> list[list[str]]:
         f"--edition={settings.get('edition', 'ENTERPRISE').lower()}",
         f"--storage-size={settings.get('dataDiskSizeGb', '10')}",
         "--no-backup",
-        f"--labels={LABEL}",
+        # 정식 sql instances create는 --labels를 받지 않는다(beta만). 이름(-load)으로 구분한다.
     ]
     return [
         gcloud(create, account),
