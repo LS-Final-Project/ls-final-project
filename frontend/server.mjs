@@ -126,6 +126,11 @@ export const businessRoutes = [
   ['/api/v1/tft/projects/{uuid}/proposals', ['GET', 'POST'], ['status', 'origin', 'requirement_id']],
   ['/api/v1/tft/proposals/{uuid}/approve', ['POST'], []],
   ['/api/v1/tft/proposals/{uuid}/reject', ['POST'], []],
+  ['/api/v1/tft/catalog/options', ['GET'], []],
+  ['/api/v1/tft/catalog/own-products', ['GET'], []],
+  ['/api/v1/tft/catalog/own-products/{product}', ['PUT'], []],
+  ['/api/v1/tft/catalog/partners', ['GET'], []],
+  ['/api/v1/tft/catalog/partners/{partner}', ['PUT'], []],
 ];
 // 플랫폼이 직접 인가하는 내 수신함/구독과 이름 묶음 조회만 중계한다. 업무 서비스 중계 표에 섞지 않는다.
 const userIds = /^[0-9a-fA-F-]{36}(,[0-9a-fA-F-]{36}){0,99}$/;
@@ -160,7 +165,7 @@ const mailRoutes = [
   [/^\/api\/v1\/platform\/mail\/messages\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/content$/, ['GET'], []],
 ];
 // 디코드한 경로에서 검사한다. customer·evidence는 이 문자만, 첫 글자는 영숫자로 허용해 ?·#·/와 .·.. 세그먼트가 upstream URL을 바꾸지 못하게 한다.
-export const placeholders = { '{uuid}': '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '{customer}': '[A-Za-z0-9][A-Za-z0-9._-]{0,63}', '{evidence}': '[A-Za-z0-9][A-Za-z0-9._-]{0,63}', '{dept}': '[A-Z][A-Z0-9_]{0,63}' };
+export const placeholders = { '{uuid}': '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '{customer}': '[A-Za-z0-9][A-Za-z0-9._-]{0,63}', '{evidence}': '[A-Za-z0-9][A-Za-z0-9._-]{0,63}', '{dept}': '[A-Z][A-Z0-9_]{0,63}', '{product}': '[A-Za-z0-9][A-Za-z0-9._-]{0,63}', '{partner}': '[A-Z]-[A-Z]' };
 // 파일이 지나가는 두 경로만 1 MiB·JSON 규칙의 예외다. backend/api/platform/relay.py의 FILE_LIMIT·FILE_TYPES와 같아야 한다.
 const fileLimit = 26 * 1024 * 1024;
 const fileTypes = new Set(['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);
@@ -169,7 +174,7 @@ const downloadPath = new RegExp(`^(?:/api/v1/tft/documents/${placeholders['{uuid
 const mailAttachmentPath = new RegExp(`^/api/v1/platform/mail/messages/${placeholders['{uuid}']}/attachments/${placeholders['{uuid}']}$`);
 const diagramTypes = new Set(['application/pdf', 'image/png', 'image/jpeg', 'image/webp']);
 const diagramPath = new RegExp(`^/api/v1/tft/documents/${placeholders['{uuid}']}/diagrams/OCR-(?:DOCX-\\d{4,}|PDF-P\\d{4,})/image$`);
-const compiledRoutes = businessRoutes.map(([template, methods, query]) => [new RegExp(`^${template.split(/(\{uuid\}|\{customer\}|\{evidence\}|\{dept\})/).map(part => placeholders[part] ?? part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('')}$`), methods, query]);
+const compiledRoutes = businessRoutes.map(([template, methods, query]) => [new RegExp(`^${template.split(/(\{uuid\}|\{customer\}|\{evidence\}|\{dept\}|\{product\}|\{partner\})/).map(part => placeholders[part] ?? part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('')}$`), methods, query]);
 
 /**
  * 허용표에서 경로와 정확히 일치하는 업무 API의 메서드·query 키를 찾는다.

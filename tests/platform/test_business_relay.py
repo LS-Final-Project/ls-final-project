@@ -606,6 +606,8 @@ def test_platform_business_relay_table_matches_shared_fixture():
     assert CUSTOMER_ID == relay.CUSTOMER_PATH == RELAY_ROUTES["customer_pattern"]
     assert EVIDENCE_ID == relay.EVIDENCE_PATH == RELAY_ROUTES["evidence_pattern"]
     assert relay.DEPT_PATH == RELAY_ROUTES["dept_pattern"]
+    assert relay.PRODUCT_PATH == RELAY_ROUTES["product_pattern"]
+    assert relay._PLACEHOLDERS["{partner}"] == RELAY_ROUTES["partner_pattern"]
 
 
 def test_every_route_placeholder_is_compiled_not_matched_literally():

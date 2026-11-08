@@ -166,7 +166,7 @@
           },
           "our_conditions": {
             "items": {
-              "$ref": "#/components/schemas/Condition"
+              "$ref": "#/components/schemas/backend__api__tft__rfp__schemas__Condition"
             },
             "title": "Our Conditions",
             "type": "array"
@@ -880,35 +880,43 @@
         "title": "ComparisonEvidence",
         "type": "object"
       },
-      "Condition": {
+      "Confirmation": {
         "additionalProperties": false,
+        "description": "\uc5c5\uccb4 \ud655\uc778 \uc0c1\ud0dc. \uae30\uc220 \uadfc\uac70\uc640 \ubcc4\uac1c\uc774\uba70 \uc2dc\uc5f0\uc5d0\uc11c\ub294 UNCONFIRMED\ub85c \ub454\ub2e4.",
         "properties": {
-          "name": {
-            "title": "Name",
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
             "type": "string"
           },
-          "unit": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Unit"
+          "follow_up_questions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Follow Up Questions",
+            "type": "array"
           },
-          "value": {
-            "title": "Value",
+          "reviewer": {
+            "title": "Reviewer",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "UNCONFIRMED",
+              "CONTACT_PLANNED",
+              "CONFIRMED"
+            ],
+            "title": "Status",
             "type": "string"
           }
         },
         "required": [
-          "name",
-          "value",
-          "unit"
+          "status",
+          "as_of",
+          "reviewer",
+          "follow_up_questions"
         ],
-        "title": "Condition",
+        "title": "Confirmation",
         "type": "object"
       },
       "ConflictValue": {
@@ -3296,6 +3304,99 @@
         "title": "ExportRequest",
         "type": "object"
       },
+      "FactInput": {
+        "additionalProperties": false,
+        "description": "\uc0ac\uc591 \ud55c \uc904. \uc81c\ud488 \ucf54\ub4dc\ub294 \uacbd\ub85c\u00b7\uc0c1\uc704 \uc81c\ud488\uc5d0\uc11c \ucc44\uc6b4\ub2e4.",
+        "properties": {
+          "attribute": {
+            "enum": [
+              "form",
+              "rated_max_voltage",
+              "bil",
+              "short_time_withstand_current",
+              "rated_current",
+              "arc_resistant",
+              "internal_arc_classification",
+              "secondary_voltage",
+              "primary_voltage",
+              "rated_power",
+              "insulation_class",
+              "impedance",
+              "tap",
+              "forced_air_capacity_increase",
+              "protection_functions",
+              "arc_flash_reduction",
+              "winding_material",
+              "winding_temperature_sensor",
+              "communication_interface",
+              "warranty_months",
+              "rated_operational_voltage",
+              "busbar_rated_current",
+              "power_frequency_withstand",
+              "breaking_capacity_icu",
+              "breaking_capacity_ics",
+              "rated_short_circuit_breaking_current",
+              "frame_size",
+              "number_of_poles",
+              "vector_group",
+              "protection_degree"
+            ],
+            "title": "Attribute",
+            "type": "string"
+          },
+          "conditions": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/backend__api__tft__partners__schemas__Condition"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conditions"
+          },
+          "evidence_id": {
+            "default": "\uc81c\ud488 \ubaa9\ub85d \ub4f1\ub85d",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Evidence Id",
+            "type": "string"
+          },
+          "section": {
+            "default": "",
+            "maxLength": 64,
+            "title": "Section",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "attribute",
+          "value"
+        ],
+        "title": "FactInput",
+        "type": "object"
+      },
       "FallbackPath": {
         "additionalProperties": false,
         "properties": {
@@ -3652,6 +3753,64 @@
           "holder"
         ],
         "title": "IntegrationUpdate",
+        "type": "object"
+      },
+      "IntegratorCapable": {
+        "additionalProperties": false,
+        "description": "\uc870\ub9bd\ud488 \uacf5\uae09 \uc694\uad6c\uc5d0\uc11c \ud544\uc218\ub85c \ubcf4\ub294 \ud1b5\ud569 \ucc45\uc784 \ud56d\ubaa9. null\uc740 \ubbf8\ud655\uc778\uc774\ub2e4.",
+        "properties": {
+          "assembly": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assembly"
+          },
+          "integration": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Integration"
+          },
+          "test": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Test"
+          },
+          "warranty": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warranty"
+          }
+        },
+        "required": [
+          "assembly",
+          "test",
+          "integration",
+          "warranty"
+        ],
+        "title": "IntegratorCapable",
         "type": "object"
       },
       "InternalAssumption": {
@@ -4053,7 +4212,7 @@
           },
           "conditions": {
             "items": {
-              "$ref": "#/components/schemas/Condition"
+              "$ref": "#/components/schemas/backend__api__tft__rfp__schemas__Condition"
             },
             "maxItems": 10,
             "title": "Conditions",
@@ -4214,13 +4373,252 @@
         "title": "OptionGate",
         "type": "object"
       },
+      "Options": {
+        "additionalProperties": false,
+        "description": "\ub4f1\ub85d \ud654\uba74\uc758 \uc120\ud0dd\uc9c0. \uc5b4\ud718 \uc6d0\ubcf8(vocabulary\u00b7partners.schemas)\uc5d0\uc11c \ub9cc\ub4e0\ub2e4.",
+        "properties": {
+          "attributes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Attributes",
+            "type": "array"
+          },
+          "condition_names": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Condition Names",
+            "type": "array"
+          },
+          "lifecycle_statuses": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Lifecycle Statuses",
+            "type": "array"
+          },
+          "own_certification_kinds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Own Certification Kinds",
+            "type": "array"
+          },
+          "own_families": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Own Families",
+            "type": "array"
+          },
+          "partner_certification_kinds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Partner Certification Kinds",
+            "type": "array"
+          },
+          "partner_families": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Partner Families",
+            "type": "array"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Scopes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "attributes",
+          "own_families",
+          "partner_families",
+          "lifecycle_statuses",
+          "scopes",
+          "own_certification_kinds",
+          "partner_certification_kinds",
+          "condition_names"
+        ],
+        "title": "Options",
+        "type": "object"
+      },
+      "OwnProduct": {
+        "additionalProperties": false,
+        "properties": {
+          "certifications": {
+            "items": {
+              "$ref": "#/components/schemas/backend__api__tft__rfp__comparison__Certification"
+            },
+            "title": "Certifications",
+            "type": "array"
+          },
+          "edited_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edited At"
+          },
+          "edited_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edited By"
+          },
+          "family": {
+            "title": "Family",
+            "type": "string"
+          },
+          "lifecycle_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lifecycle Status"
+          },
+          "product_code": {
+            "title": "Product Code",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "FILE",
+              "REGISTERED"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "spec_facts": {
+            "items": {
+              "$ref": "#/components/schemas/SpecFact"
+            },
+            "title": "Spec Facts",
+            "type": "array"
+          },
+          "standards": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Standards",
+            "type": "array"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "product_code",
+          "version",
+          "source",
+          "family",
+          "lifecycle_status",
+          "standards",
+          "certifications",
+          "spec_facts",
+          "edited_at",
+          "edited_by"
+        ],
+        "title": "OwnProduct",
+        "type": "object"
+      },
+      "OwnProductInput": {
+        "additionalProperties": false,
+        "properties": {
+          "certifications": {
+            "items": {
+              "$ref": "#/components/schemas/backend__api__tft__rfp__comparison__Certification"
+            },
+            "maxItems": 50,
+            "title": "Certifications",
+            "type": "array"
+          },
+          "expected_version": {
+            "minimum": 0.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "family": {
+            "enum": [
+              "CONTROL",
+              "DRIVE",
+              "ESS",
+              "HMI",
+              "LV_BREAKER",
+              "LV_SWITCHGEAR",
+              "METER",
+              "MV_EQUIP",
+              "PLC",
+              "PV",
+              "TRANSFORMER",
+              "UPS"
+            ],
+            "title": "Family",
+            "type": "string"
+          },
+          "lifecycle_status": {
+            "enum": [
+              "ACTIVE",
+              "MATURE",
+              "DISCONTINUED"
+            ],
+            "title": "Lifecycle Status",
+            "type": "string"
+          },
+          "spec_facts": {
+            "items": {
+              "$ref": "#/components/schemas/FactInput"
+            },
+            "maxItems": 100,
+            "title": "Spec Facts",
+            "type": "array"
+          },
+          "standards": {
+            "items": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Standards",
+            "type": "array"
+          }
+        },
+        "required": [
+          "expected_version",
+          "family",
+          "lifecycle_status"
+        ],
+        "title": "OwnProductInput",
+        "type": "object"
+      },
       "OwnValue": {
         "additionalProperties": false,
         "description": "\uc790\uc0ac \ubcf4\uc99d\uac12(KAN-227). \uc800\uc7a5\ub41c \ube44\uad50\uc758 \ub300\ud45c \ud6c4\ubcf4\uc5d0\uc11c \uc77d\ub294\ub2e4(\ucda9\uc871 \u2192 \ub2e4\ub984 \u2192 \ube44\uad50 \ubd88\uac00 \u2192 \uc790\ub8cc \uc5c6\uc74c).",
         "properties": {
           "conditions": {
             "items": {
-              "$ref": "#/components/schemas/Condition"
+              "$ref": "#/components/schemas/backend__api__tft__rfp__schemas__Condition"
             },
             "title": "Conditions",
             "type": "array"
@@ -4286,6 +4684,45 @@
           "result"
         ],
         "title": "OwnValue",
+        "type": "object"
+      },
+      "Partner": {
+        "additionalProperties": false,
+        "properties": {
+          "edited_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edited At"
+          },
+          "edited_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edited By"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/PartnerProfile"
+          }
+        },
+        "required": [
+          "profile",
+          "edited_at",
+          "edited_by"
+        ],
+        "title": "Partner",
         "type": "object"
       },
       "PartnerCandidate": {
@@ -4375,7 +4812,10 @@
             "type": "string"
           },
           "profile_source": {
-            "const": "synthetic",
+            "enum": [
+              "synthetic",
+              "registered"
+            ],
             "title": "Profile Source",
             "type": "string"
           },
@@ -4504,6 +4944,297 @@
         "title": "PartnerCandidateList",
         "type": "object"
       },
+      "PartnerInput": {
+        "additionalProperties": false,
+        "properties": {
+          "certifications": {
+            "items": {
+              "$ref": "#/components/schemas/backend__api__tft__partners__schemas__Certification"
+            },
+            "maxItems": 50,
+            "title": "Certifications",
+            "type": "array"
+          },
+          "confirmation_status": {
+            "default": "UNCONFIRMED",
+            "enum": [
+              "UNCONFIRMED",
+              "CONTACT_PLANNED",
+              "CONFIRMED"
+            ],
+            "title": "Confirmation Status",
+            "type": "string"
+          },
+          "display_name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "expected_version": {
+            "minimum": 0.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "follow_up_questions": {
+            "items": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Follow Up Questions",
+            "type": "array"
+          },
+          "integrator_capable": {
+            "$ref": "#/components/schemas/IntegratorCapable"
+          },
+          "lead_time": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LeadTime"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "manufacturer_name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Manufacturer Name",
+            "type": "string"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "product_family": {
+            "title": "Product Family",
+            "type": "string"
+          },
+          "products": {
+            "items": {
+              "$ref": "#/components/schemas/Product"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Products",
+            "type": "array"
+          },
+          "similar_tasks": {
+            "items": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Similar Tasks",
+            "type": "array"
+          },
+          "spec_facts": {
+            "items": {
+              "$ref": "#/components/schemas/SpecFact"
+            },
+            "maxItems": 200,
+            "title": "Spec Facts",
+            "type": "array"
+          },
+          "supply_regions": {
+            "items": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Supply Regions",
+            "type": "array"
+          },
+          "warranty": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warranty"
+          }
+        },
+        "required": [
+          "expected_version",
+          "display_name",
+          "manufacturer_name",
+          "product_family",
+          "products",
+          "integrator_capable",
+          "supply_regions"
+        ],
+        "title": "PartnerInput",
+        "type": "object"
+      },
+      "PartnerProfile": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_code": {
+            "pattern": "^[A-Z]-[A-Z]$",
+            "title": "Candidate Code",
+            "type": "string"
+          },
+          "certifications": {
+            "items": {
+              "$ref": "#/components/schemas/backend__api__tft__partners__schemas__Certification"
+            },
+            "title": "Certifications",
+            "type": "array"
+          },
+          "confirmation": {
+            "$ref": "#/components/schemas/Confirmation"
+          },
+          "data_origin": {
+            "enum": [
+              "synthetic",
+              "real"
+            ],
+            "title": "Data Origin",
+            "type": "string"
+          },
+          "derivation_kind": {
+            "const": "PROVIDED",
+            "title": "Derivation Kind",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "integrator_capable": {
+            "$ref": "#/components/schemas/IntegratorCapable"
+          },
+          "known_at": {
+            "format": "date",
+            "title": "Known At",
+            "type": "string"
+          },
+          "lead_time": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LeadTime"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "manufacturer_name": {
+            "title": "Manufacturer Name",
+            "type": "string"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "product_family": {
+            "title": "Product Family",
+            "type": "string"
+          },
+          "products": {
+            "items": {
+              "$ref": "#/components/schemas/Product"
+            },
+            "minItems": 1,
+            "title": "Products",
+            "type": "array"
+          },
+          "profile_source": {
+            "enum": [
+              "synthetic",
+              "registered"
+            ],
+            "title": "Profile Source",
+            "type": "string"
+          },
+          "profile_version": {
+            "minimum": 1.0,
+            "title": "Profile Version",
+            "type": "integer"
+          },
+          "similar_tasks": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Similar Tasks",
+            "type": "array"
+          },
+          "spec_facts": {
+            "items": {
+              "$ref": "#/components/schemas/SpecFact"
+            },
+            "title": "Spec Facts",
+            "type": "array"
+          },
+          "supply_regions": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Supply Regions",
+            "type": "array"
+          },
+          "warranty": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warranty"
+          }
+        },
+        "required": [
+          "candidate_code",
+          "display_name",
+          "manufacturer_name",
+          "profile_source",
+          "profile_version",
+          "data_origin",
+          "derivation_kind",
+          "known_at",
+          "product_family",
+          "products",
+          "integrator_capable",
+          "spec_facts",
+          "certifications",
+          "similar_tasks",
+          "supply_regions",
+          "lead_time",
+          "warranty",
+          "confirmation",
+          "notes"
+        ],
+        "title": "PartnerProfile",
+        "type": "object"
+      },
       "PendingByOrigin": {
         "additionalProperties": false,
         "properties": {
@@ -4596,6 +5327,42 @@
           }
         },
         "title": "ProcessRequest",
+        "type": "object"
+      },
+      "Product": {
+        "additionalProperties": false,
+        "properties": {
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "product_code": {
+            "title": "Product Code",
+            "type": "string"
+          },
+          "scope": {
+            "items": {
+              "enum": [
+                "SUPPLY",
+                "ASSEMBLY",
+                "INSTALL",
+                "TEST",
+                "CALC",
+                "TRAINING"
+              ],
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Scope",
+            "type": "array"
+          }
+        },
+        "required": [
+          "product_code",
+          "model",
+          "scope"
+        ],
+        "title": "Product",
         "type": "object"
       },
       "ProjectCreate": {
@@ -5828,7 +6595,7 @@
             "anyOf": [
               {
                 "items": {
-                  "$ref": "#/components/schemas/Condition"
+                  "$ref": "#/components/schemas/backend__api__tft__rfp__schemas__Condition"
                 },
                 "type": "array"
               },
@@ -6925,7 +7692,7 @@
           },
           "conditions": {
             "items": {
-              "$ref": "#/components/schemas/Condition"
+              "$ref": "#/components/schemas/backend__api__tft__rfp__schemas__Condition"
             },
             "title": "Conditions",
             "type": "array"
@@ -7440,7 +8207,7 @@
           },
           "conditions": {
             "items": {
-              "$ref": "#/components/schemas/Condition"
+              "$ref": "#/components/schemas/backend__api__tft__rfp__schemas__Condition"
             },
             "title": "Conditions",
             "type": "array"
@@ -8838,6 +9605,100 @@
         "title": "SourceReference",
         "type": "object"
       },
+      "SpecFact": {
+        "additionalProperties": false,
+        "description": "product_spec_facts\uc640 \uac19\uc740 \uc5f4. \uac12\uc740 \ubb38\uc790\uc5f4\uc774\uace0 \ub2e8\uc704\ub294 unit\uc5d0 \ub530\ub85c \ub454\ub2e4.",
+        "properties": {
+          "attribute": {
+            "enum": [
+              "form",
+              "rated_max_voltage",
+              "bil",
+              "short_time_withstand_current",
+              "rated_current",
+              "arc_resistant",
+              "internal_arc_classification",
+              "secondary_voltage",
+              "primary_voltage",
+              "rated_power",
+              "insulation_class",
+              "impedance",
+              "tap",
+              "forced_air_capacity_increase",
+              "protection_functions",
+              "arc_flash_reduction",
+              "winding_material",
+              "winding_temperature_sensor",
+              "communication_interface",
+              "warranty_months",
+              "rated_operational_voltage",
+              "busbar_rated_current",
+              "power_frequency_withstand",
+              "breaking_capacity_icu",
+              "breaking_capacity_ics",
+              "rated_short_circuit_breaking_current",
+              "frame_size",
+              "number_of_poles",
+              "vector_group",
+              "protection_degree"
+            ],
+            "title": "Attribute",
+            "type": "string"
+          },
+          "conditions": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/backend__api__tft__partners__schemas__Condition"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conditions"
+          },
+          "evidence_id": {
+            "title": "Evidence Id",
+            "type": "string"
+          },
+          "product_code": {
+            "title": "Product Code",
+            "type": "string"
+          },
+          "section": {
+            "title": "Section",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "product_code",
+          "attribute",
+          "value",
+          "unit",
+          "conditions",
+          "evidence_id",
+          "section"
+        ],
+        "title": "SpecFact",
+        "type": "object"
+      },
       "SuccessResponse_AnalysisOverview_": {
         "properties": {
           "data": {
@@ -9110,6 +9971,38 @@
         "title": "SuccessResponse[JobAccepted]",
         "type": "object"
       },
+      "SuccessResponse_Options_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Options"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[Options]",
+        "type": "object"
+      },
+      "SuccessResponse_OwnProduct_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/OwnProduct"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[OwnProduct]",
+        "type": "object"
+      },
       "SuccessResponse_PartnerCandidateList_": {
         "properties": {
           "data": {
@@ -9124,6 +10017,22 @@
           "meta"
         ],
         "title": "SuccessResponse[PartnerCandidateList]",
+        "type": "object"
+      },
+      "SuccessResponse_Partner_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Partner"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[Partner]",
         "type": "object"
       },
       "SuccessResponse_ProjectDetail_": {
@@ -9428,6 +10337,46 @@
           "meta"
         ],
         "title": "SuccessResponse[SupplementSelected]",
+        "type": "object"
+      },
+      "SuccessResponse_list_OwnProduct__": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/OwnProduct"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[list[OwnProduct]]",
+        "type": "object"
+      },
+      "SuccessResponse_list_Partner__": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Partner"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[list[Partner]]",
         "type": "object"
       },
       "SupplementBatchAllowed": {
@@ -10088,6 +11037,164 @@
         ],
         "title": "ValueConflict",
         "type": "object"
+      },
+      "backend__api__tft__partners__schemas__Certification": {
+        "additionalProperties": false,
+        "description": "\uc778\uc99d\uc740 spec_facts\uac00 \uc544\ub2c8\ub77c \uc774 \ubc30\uc5f4\ub85c \ud310\uc815\ud55c\ub2e4. as_of\ub294 \uc815\ubcf4\uc6a9\uc774\ub2e4.",
+        "properties": {
+          "applicable_models": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Applicable Models",
+            "type": "array"
+          },
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "evidence_id": {
+            "title": "Evidence Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "LISTED",
+              "TEST_REPORT"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "standard": {
+            "title": "Standard",
+            "type": "string"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid Until"
+          }
+        },
+        "required": [
+          "standard",
+          "applicable_models",
+          "kind",
+          "as_of",
+          "valid_until",
+          "evidence_id"
+        ],
+        "title": "Certification",
+        "type": "object"
+      },
+      "backend__api__tft__partners__schemas__Condition": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "value"
+        ],
+        "title": "Condition",
+        "type": "object"
+      },
+      "backend__api__tft__rfp__comparison__Certification": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence_id": {
+            "title": "Evidence Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "LISTED",
+              "TEST_REPORT",
+              "MARK"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "standard": {
+            "title": "Standard",
+            "type": "string"
+          },
+          "variant": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variant"
+          }
+        },
+        "required": [
+          "standard",
+          "kind",
+          "evidence_id"
+        ],
+        "title": "Certification",
+        "type": "object"
+      },
+      "backend__api__tft__rfp__schemas__Condition": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "value",
+          "unit"
+        ],
+        "title": "Condition",
+        "type": "object"
       }
     }
   },
@@ -10098,6 +11205,460 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/tft/catalog/options": {
+      "get": {
+        "description": "\ub4f1\ub85d \ud654\uba74 \uc120\ud0dd\uc9c0(\uc18d\uc131\u00b7\uacc4\uc5f4\u00b7\ubc94\uc704\u00b7\uc778\uc99d \uc885\ub958).",
+        "operationId": "tft_catalog_options",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Options_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Catalog Options",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
+    "/api/v1/tft/catalog/own-products": {
+      "get": {
+        "description": "\uc790\uc0ac \uc81c\ud488 \ubaa9\ub85d(\uae30\ubcf8 \ud30c\uc77c + \ud654\uba74 \ud310\ubcf8, \ub2e8\uc885 \ud3ec\ud568).",
+        "operationId": "tft_list_own_products",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_list_OwnProduct__"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "List Own Products",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
+    "/api/v1/tft/catalog/own-products/{product_code}": {
+      "put": {
+        "description": "\uc790\uc0ac \uc81c\ud488 \ub4f1\ub85d\u00b7\uc218\uc815. \uc0c8 \ud310\ubcf8\uc744 \uc313\uace0 \ub2e4\uc74c \ube44\uad50\ubd80\ud130 \uc4f4\ub2e4(\uc774\ubbf8 \uc800\uc7a5\ub41c \ube44\uad50\ub294 \uadf8\ub300\ub85c).",
+        "operationId": "tft_save_own_product",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "product_code",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+              "title": "Product Code",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OwnProductInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_OwnProduct_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Save Own Product",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
+    "/api/v1/tft/catalog/partners": {
+      "get": {
+        "description": "\ud611\ub825\uc0ac \ubaa9\ub85d(\ud6c4\ubcf4\ub9c8\ub2e4 \ucd5c\uc2e0 \ud310\ubcf8).",
+        "operationId": "tft_list_partners",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_list_Partner__"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "List Partners",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
+    "/api/v1/tft/catalog/partners/{candidate_code}": {
+      "put": {
+        "description": "\ud611\ub825\uc0ac \ub4f1\ub85d\u00b7\uc218\uc815. \uc0c8 \ud310\ubcf8\uc744 \uc313\uace0, \ub2e4\uc74c \ucc98\ub9ac\u00b7\ub2e4\uc2dc \ucc44\uc810\ubd80\ud130 \uc4f4\ub2e4.",
+        "operationId": "tft_save_partner",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "candidate_code",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Z]-[A-Z]$",
+              "title": "Candidate Code",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartnerInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Partner_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found or outside the project scope"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "TFT_VERSION_CONFLICT and similar"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Declared in KAN-182, not implemented yet"
+          }
+        },
+        "summary": "Save Partner",
+        "tags": [
+          "rfp"
+        ]
+      }
+    },
     "/api/v1/tft/documents/{document_id}": {
       "get": {
         "description": "8. \ucd5c\uc2e0 \ud310\ubcf8\u00b7\ud3b8\uc9d1 \ud754\uc801 \uc9c0\uc6d0 \uc5ec\ubd80\u00b7\uc870\ud56d \uc218\u00b7\uc0ad\uc81c \uac12 \uc218.",

@@ -20,6 +20,7 @@ from backend.shared.service_auth import CALLER_HEADER, metadata_token
 
 REQUEST_LIMIT = 1024 * 1024
 RESPONSE_LIMIT = 8 * 1024 * 1024
+PRODUCT_PATH = r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}"
 UUID_PATH = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 # 파일이 지나가는 두 경로만 위 한도와 JSON 규칙의 예외다. 인증·CSRF·Origin 검사는 같다.
 # 웹 frontend/server.mjs의 uploadPath·downloadPath와 같아야 한다.
@@ -209,12 +210,20 @@ BUSINESS_ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     ("/api/v1/tft/proposals/{uuid}/approve", ("POST",), ()),
     ("/api/v1/tft/proposals/{uuid}/reject", ("POST",), ()),
+    # KAN-246 제품 목록. 코드 형식은 backend/api/tft/rfp/catalog.py와 같다.
+    ("/api/v1/tft/catalog/options", ("GET",), ()),
+    ("/api/v1/tft/catalog/own-products", ("GET",), ()),
+    ("/api/v1/tft/catalog/own-products/{product}", ("PUT",), ()),
+    ("/api/v1/tft/catalog/partners", ("GET",), ()),
+    ("/api/v1/tft/catalog/partners/{partner}", ("PUT",), ()),
 )
 _PLACEHOLDERS = {
     "{uuid}": UUID_PATH,
     "{customer}": CUSTOMER_PATH,
     "{evidence}": EVIDENCE_PATH,
     "{dept}": DEPT_PATH,
+    "{product}": PRODUCT_PATH,
+    "{partner}": r"[A-Z]-[A-Z]",
 }
 # 분리 정규식은 _PLACEHOLDERS 키에서 만든다. 손으로 쓴 목록에 {dept}가 빠져 부서 경로 5개가 늘 404였다(KAN-116).
 _SPLIT = re.compile("(" + "|".join(re.escape(key) for key in _PLACEHOLDERS) + ")")
@@ -378,7 +387,7 @@ def configure_relay(app: FastAPI) -> None:
     "/api/v1/cs/{path:path}", methods=["GET", "POST", "PATCH", "PUT"], include_in_schema=False
 )
 @router.api_route(
-    "/api/v1/tft/{path:path}", methods=["GET", "POST", "PATCH"], include_in_schema=False
+    "/api/v1/tft/{path:path}", methods=["GET", "POST", "PATCH", "PUT"], include_in_schema=False
 )
 async def relay(request: Request, path: str) -> Response:
     """운영 세션에서 만든 사용자 정보와 플랫폼 토큰만 고정 업무 서비스로 전달한다.

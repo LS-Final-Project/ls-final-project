@@ -35,6 +35,7 @@ from backend.api.tft.partners import grading
 from backend.api.tft.partners.loader import PROFILE_FAMILIES, load_document_pools
 from backend.api.tft.partners.schemas import Condition, PartnerProfile
 from backend.api.tft.rfp import (
+    catalog,
     comparison,
     diagram_artifacts,
     diagram_repository,
@@ -343,7 +344,8 @@ def make_processor(
     Returns:
         Processor: `processor(job, emit)`.
     """
-    own = list(products) if products is not None else comparison.load_own_products()
+    # 주입하지 않으면 작업마다 DB에서 읽는다(제품 목록 화면 판본이 다음 작업부터 반영, KAN-246).
+    own = list(products) if products is not None else None
 
     def processor(job: TftJob, emit: Emit) -> dict[str, Any] | None:
         from backend.api.tft.rfp.context_worker import process_context
@@ -911,6 +913,13 @@ def candidate_pool(titles: Iterable[str]) -> frozenset[str] | None:
     return frozenset(picked) if known else None
 
 
+def outside_pool(code: str, pool: frozenset[str] | None) -> bool:
+    """후보가 문서 풀 밖인가. 어느 풀에도 없는 후보(제품 목록 화면 등록, KAN-246)는 모든 문서에서 채점한다."""
+    if pool is None or code in pool:
+        return False
+    return any(code in codes for codes in load_document_pools().values())
+
+
 def grading_groups(
     targets: Sequence[tuple[grading.Requirement, str | None]],
     profiles: Sequence[PartnerProfile],
@@ -931,7 +940,7 @@ def grading_groups(
     """
     groups = []
     for profile in profiles:
-        if pool is not None and profile.candidate_code not in pool:
+        if outside_pool(profile.candidate_code, pool):
             continue
         families = PROFILE_FAMILIES.get(profile.product_family, frozenset())
         mine = [g for g, wanted in targets if wanted in families]
@@ -1022,7 +1031,7 @@ async def recompare_stored(
 
     skipped = set(skip)
     human = await repository.human_owned_requirements(conn, project_id)
-    products = comparison.load_own_products()
+    products = await catalog.own_products(conn)
     changed = 0
     for row in await repository.stored_grading_requirements(conn, project_id):
         if row["requirement_id"] in skipped:
@@ -1139,7 +1148,7 @@ async def regrade_stored(
                 data_origin=row["data_origin"],
             )
     for profile in profiles:
-        if pool is not None and profile.candidate_code not in pool:
+        if outside_pool(profile.candidate_code, pool):
             continue
         for row in legacy:
             if row["equipment_family"] not in PROFILE_FAMILIES.get(
@@ -1290,7 +1299,7 @@ async def process(
     emit: Emit,
     provider: Provider,
     store: DocumentStore | None,
-    products: Sequence[comparison.Product],
+    products: Sequence[comparison.Product] | None,
     today: date,
     extraction_concurrency: int = 6,
     image_provider: Callable[[vision.ImageInput], Generation] | None = None,
@@ -1304,7 +1313,7 @@ async def process(
         emit: 단계 보고(소유권·취소 검사).
         provider: 추출 모델 호출.
         store: 원문 저장소.
-        products: 자사 제품.
+        products: 자사 제품. None이면 DB(catalog.own_products)에서 읽는다.
         today: 인증 유효기한 기준일.
 
     Returns:
@@ -1315,6 +1324,8 @@ async def process(
     async with await psycopg.AsyncConnection.connect(
         dsn, row_factory=dict_row, autocommit=True
     ) as conn:
+        if products is None:
+            products = await catalog.own_products(conn)
         documents = [
             d
             for d in pick_documents(

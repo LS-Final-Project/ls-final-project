@@ -670,6 +670,8 @@ test('web business relay table matches the shared fixture exactly', () => {
   assert.equal(placeholders['{customer}'], relayRoutes.customer_pattern);
   assert.equal(placeholders['{evidence}'], relayRoutes.evidence_pattern);
   assert.equal(placeholders['{dept}'], relayRoutes.dept_pattern);
+  assert.equal(placeholders['{product}'], relayRoutes.product_pattern);
+  assert.equal(placeholders['{partner}'], relayRoutes.partner_pattern);
 });
 
 test('every route placeholder has a pattern so none is matched literally (KAN-116 {dept})', () => {
