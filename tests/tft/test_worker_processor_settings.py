@@ -145,8 +145,8 @@ def test_reply_provider_uses_the_metered_client_factory_lazily(monkeypatch):
     assert (seen["settings"].gemini_model, seen["settings"].gemini_transient_retries) == ("m-1", 0)
 
 
-def test_structure_repair_is_off_by_default_and_uses_the_extraction_settings_when_on(monkeypatch):
-    """KAN-188 구조 보정은 기본 끔(None)이다. 켜면 추출과 같은 모델 설정·RepairOutput 스키마로 부르고 지연 생성한다."""
+def test_structure_repair_is_on_by_default_and_uses_the_extraction_settings(monkeypatch):
+    """KAN-188 구조 보정은 기본 켬이다(끄면 공급자 None). 추출과 같은 모델 설정·RepairOutput 스키마로 부르고 지연 생성한다."""
     from backend.engine.rfp import structure_repair
 
     # 기본은 켬이다. 끄면 공급자가 없어 처리 결과가 이전과 같다.
