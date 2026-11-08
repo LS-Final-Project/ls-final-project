@@ -913,11 +913,16 @@ def candidate_pool(titles: Iterable[str]) -> frozenset[str] | None:
     return frozenset(picked) if known else None
 
 
-def outside_pool(code: str, pool: frozenset[str] | None) -> bool:
-    """후보가 문서 풀 밖인가. 어느 풀에도 없는 후보(제품 목록 화면 등록, KAN-246)는 모든 문서에서 채점한다."""
-    if pool is None or code in pool:
+def outside_pool(profile: PartnerProfile, pool: frozenset[str] | None) -> bool:
+    """후보가 문서 풀 밖인가. 화면에서 새로 등록해 어느 풀에도 없는 협력사(KAN-246)만 모든 문서에서 채점한다.
+
+    시드 프로필과, 풀에 있는 시드 협력사를 화면에서 고친 판본은 원래 풀을 따른다.
+    """
+    if pool is None or profile.candidate_code in pool:
         return False
-    return any(code in codes for codes in load_document_pools().values())
+    if profile.profile_source != "registered":
+        return True
+    return any(profile.candidate_code in codes for codes in load_document_pools().values())
 
 
 def grading_groups(
@@ -940,7 +945,7 @@ def grading_groups(
     """
     groups = []
     for profile in profiles:
-        if outside_pool(profile.candidate_code, pool):
+        if outside_pool(profile, pool):
             continue
         families = PROFILE_FAMILIES.get(profile.product_family, frozenset())
         mine = [g for g, wanted in targets if wanted in families]
@@ -1148,7 +1153,7 @@ async def regrade_stored(
                 data_origin=row["data_origin"],
             )
     for profile in profiles:
-        if outside_pool(profile.candidate_code, pool):
+        if outside_pool(profile, pool):
             continue
         for row in legacy:
             if row["equipment_family"] not in PROFILE_FAMILIES.get(

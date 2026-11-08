@@ -197,12 +197,20 @@ def test_partner_input_is_checked(client, seeded):
     assert call(client, "GET", "/partners", who=CS).status_code == 403
 
 
-def test_registered_partners_skip_document_pools():
+def test_registered_partners_skip_document_pools(seeded):
     pooled = sorted({c for pool in load_document_pools().values() for c in pool})
     other = next(c for c in pooled if c != pooled[0])
-    assert outside_pool(other, frozenset({pooled[0]}))
-    assert not outside_pool("Z-Z", frozenset({pooled[0]}))  # 어느 풀에도 없는 등록 협력사
-    assert not outside_pool(other, None)
+    pool = frozenset({pooled[0]})
+    seed = seeded.model_copy(update={"candidate_code": other})
+    assert outside_pool(seed, pool)
+    # 풀에 있는 시드 협력사는 화면에서 고쳐도 원래 풀을 따른다.
+    assert outside_pool(seed.model_copy(update={"profile_source": "registered"}), pool)
+    # 시드 프로필은 풀에 없으면 채점하지 않고(P-Z), 새로 등록한 협력사만 모든 문서에서 채점한다.
+    assert outside_pool(seed.model_copy(update={"candidate_code": "Z-Z"}), pool)
+    assert not outside_pool(
+        seed.model_copy(update={"candidate_code": "Z-Z", "profile_source": "registered"}), pool
+    )
+    assert not outside_pool(seed, None)
 
 
 def test_options_follow_the_vocabulary(client):
