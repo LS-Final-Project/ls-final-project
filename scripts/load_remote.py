@@ -188,7 +188,10 @@ async def one_action(
     if "{project}" in path:
         if not state.get("projects"):
             return
-        path = path.replace("{project}", rng.choice(state["projects"])["id"])
+        project = rng.choice(state["projects"])
+        path = path.replace("{project}", project["id"])
+        # RFP 프로젝트는 담당 영업만 본다(남의 프로젝트는 404). 화면을 여는 사람은 그 담당자다.
+        user = next(u for u in state["users"] if u["id"] == project["owner"])
     extra = {"Idempotency-Key": f"load-{uuid4()}"} if write else {}
     started = time.perf_counter()
     try:
