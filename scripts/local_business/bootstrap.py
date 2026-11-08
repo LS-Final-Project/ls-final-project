@@ -318,8 +318,10 @@ def load_partners(state, config, inputs):
         state / "logs/bootstrap-partners-check.log",
     )
     summary = json.loads(output.decode().splitlines()[-1])
+    # The seed file is the source of truth (14 profiles since #618); a fixed count went stale.
+    expected = len(json.loads((ROOT / "backend/api/tft/partners/profiles.json").read_text()))
     require(
-        summary.get("SAME") == 12 and summary.get("MISSING") == summary.get("DIFFERENT") == 0,
+        summary.get("SAME") == expected and summary.get("MISSING") == summary.get("DIFFERENT") == 0,
         "PARTNER_CHECK_FAILED",
     )
 
