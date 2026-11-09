@@ -8795,6 +8795,11 @@
             "title": "Project Id",
             "type": "string"
           },
+          "review_pending": {
+            "default": 0,
+            "title": "Review Pending",
+            "type": "integer"
+          },
           "review_version": {
             "title": "Review Version",
             "type": "integer"
@@ -8885,6 +8890,11 @@
             ],
             "title": "Output Status",
             "type": "string"
+          },
+          "review_pending": {
+            "default": 0,
+            "title": "Review Pending",
+            "type": "integer"
           },
           "review_version": {
             "title": "Review Version",

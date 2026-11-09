@@ -66,19 +66,20 @@ def clause_key(clause: str) -> tuple[tuple[int, int | str], ...]:
 
 
 def gate_text(found: s.DecisionGate) -> str:
+    """머리 줄의 초안·확정(KAN-253). 남은 것이 없을 때만 확정이다. 책임자 확인 대기는 저장 조건이 아니다."""
+    pending = f"책임자 확인 {found.review_pending}건 대기" if found.review_pending else ""
     left = [
-        (name, n)
+        f"{name} {n}"
         for name, n in (
             ("판정 안 된 요구", found.undecided),
             ("편차표 누락", found.deviation_missing),
             ("회신 대기 질의", found.open_queries),
-            ("책임자 확인 대기", found.review_pending),
         )
         if n
     ]
-    if not left:
-        return "저장 조건 충족"
-    return "저장 조건 미충족: " + ", ".join(f"{name} {n}" for name, n in left)
+    if left:
+        return f"초안 (저장 조건 미충족: {', '.join(left + [pending] if pending else left)})"
+    return f"초안 ({pending})" if pending else "확정"
 
 
 _OCR = re.compile(r"^OCR-(DOCX-|PDF-P)(\d+)(?:\.|$)")

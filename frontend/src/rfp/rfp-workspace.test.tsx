@@ -394,6 +394,28 @@ describe('출력 탭 서버 출력 (KAN-221)', () => {
     expect(body.version).toBe(6);
   });
 
+  it('책임자 확인이 남아도 검토본을 저장할 수 있고 초안이 된다고 알린다 (KAN-253)', async () => {
+    server({ reviews: [{ review_version: 2, review_pending: 1 }] as never });
+    const waiting = { ...project, decision_gate: { undecided: 0, deviation_missing: 0, open_queries: 0, review_pending: 2 } } as ProjectDetail;
+    renderAt('/tft/projects/p1', 'tft/projects/:projectId', <Decide project={waiting} documents={[]} rows={MOCK_WORKSPACE_REQUIREMENTS} role="sales" actorId="sales" />);
+    fireEvent.click(screen.getByRole('tab', { name: /출력/ }));
+    expect((screen.getByRole('button', { name: '검토본 저장' }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByText(/책임자 확인 2건이 남아 있어 지금 저장하면 초안입니다/)).toBeTruthy();
+    expect(await screen.findByText('최신 검토본 2판: 초안 (책임자 확인 1건 대기)')).toBeTruthy();
+  });
+
+  it('담당 sales가 책임자도 맡으면 결정하고 확인·재검토 요청도 한다 (KAN-253)', () => {
+    server();
+    const own = { ...project, responsible_user_id: 'sales', decision_gate: { undecided: 0, deviation_missing: 0, open_queries: 0, review_pending: 1, self_review: true } } as ProjectDetail;
+    const rows = [{ ...MOCK_WORKSPACE_REQUIREMENTS[0], decision: { needed: true, decided: true, reviewed: false, decision_id: 'd1', summary: '충족으로 확정', excluded: false } } as never, ...MOCK_WORKSPACE_REQUIREMENTS.slice(1)];
+    renderAt('/tft/projects/p1', 'tft/projects/:projectId', <Decide project={own} documents={[]} rows={rows} role={viewerRole('sales', own)} actorId="sales" />);
+    fireEvent.click(screen.getByRole('tab', { name: /출력/ }));
+    expect(screen.getByRole('button', { name: '검토본 저장' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '모두 확인' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '재검토 요청' })).toBeTruthy();
+    expect(screen.getByText(/1건, 본인 결정/)).toBeTruthy();
+  });
+
   it('검토본이 없으면 버튼을 끄고 먼저 저장하라고 알린다', async () => {
     server({ reviews: [] });
     openOutput();

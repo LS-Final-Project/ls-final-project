@@ -480,7 +480,8 @@ it('검토 이력과 내보내기 표를 보이고 완료 파일만 내려받는
   const objectUrl = vi.fn(() => 'blob:test');
   vi.stubGlobal('URL', class extends URL { static createObjectURL = objectUrl; static revokeObjectURL = vi.fn(); });
   const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-  const reviews = [{ review_version: 2, draft_version: 7, note: '승인 4건 반영', output_status: 'REVIEW_DRAFT', judgement_status: 'OWNER_CONFIRMED', saved_by: USER, saved_by_name: '이준호', saved_at: '2026-10-28T00:49:00Z' }];
+  const reviews = [{ review_version: 2, draft_version: 7, note: '승인 4건 반영', output_status: 'REVIEW_DRAFT', judgement_status: 'OWNER_CONFIRMED', saved_by: USER, saved_by_name: '이준호', saved_at: '2026-10-28T00:49:00Z' },
+    { review_version: 1, draft_version: 6, note: '확인 전 저장', output_status: 'REVIEW_DRAFT', judgement_status: 'OWNER_CONFIRMED', saved_by: USER, saved_by_name: '이준호', saved_at: '2026-10-28T00:30:00Z', review_pending: 2 }];
   const exportsList = [
     { export_id: 'e2', review_version: 2, format: 'DOCX', status: 'QUEUED', requested_by: USER, requested_by_name: null, requested_at: '2026-10-28T00:50:00Z', finished_at: null, file_name: null },
     { export_id: EXPORT, review_version: 2, format: 'DOCX', status: 'SUCCEEDED', requested_by: USER, requested_by_name: null, requested_at: '2026-10-28T00:40:00Z', finished_at: '2026-10-28T00:41:00Z', file_name: 'P26-0007_검토본_2판.docx' },
@@ -490,7 +491,10 @@ it('검토 이력과 내보내기 표를 보이고 완료 파일만 내려받는
   renderApp(`/tft/projects/${P}/draft`);
   const history = await screen.findByRole('table', { name: '검토 이력' });
   const row = (await within(history).findByText('승인 4건 반영')).closest('tr')!;
-  expect(within(row).getAllByRole('cell').map(cell => cell.textContent)).toEqual(['2판', expect.stringMatching(/^2026-10-2[78] \d\d:\d\d, 이준호$/), '승인 4건 반영', '검토본 작성', '담당자 확인', 'DOCX']);
+  expect(within(row).getAllByRole('cell').map(cell => cell.textContent)).toEqual(['2판', expect.stringMatching(/^2026-10-2[78] \d\d:\d\d, 이준호$/), '승인 4건 반영', '검토본 작성', '담당자 확인', '확정', 'DOCX']);
+  // KAN-253: 판본마다 저장 때 구분을 보인다. 확인이 남은 채 저장한 판본은 초안이다.
+  const draftRow = within(history).getByText('확인 전 저장').closest('tr')!;
+  expect(within(draftRow).getByText('초안 (책임자 확인 2건 대기)')).toBeTruthy();
   const exportsTable = screen.getByRole('table', { name: '내보내기' });
   const queued = within(exportsTable).getByText('완료 기록 없음').closest('tr')!;
   expect(within(queued).queryByRole('button')).toBeNull();
