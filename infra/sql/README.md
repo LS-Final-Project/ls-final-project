@@ -105,6 +105,7 @@ T13을 재적용해도 허용집합을 과거로 되돌리지 않는다. 정렬�
 | C31 | `cs/20261113_KAN-230_reply_analyses.sql` | C1·C30(헤더) | cs_migrator | 가능 | to_regclass('cs.ticket_reply_analyses') | 미확인 |
 | C32 | `cs/20261114_KAN-234_ticket_no_match.sql` | C29(헤더) | cs_migrator | 가능 | pg_get_constraintdef로 `ticket_assignments_reason_code_check`에 'NO_MATCH' 포함 | 미적용 |
 | C33 | `cs/20261115_KAN-235_customer_contacts.sql` | C1(헤더) | cs_migrator | 가능 | to_regclass('cs.customer_contacts') | 미적용 |
+| C34 | `cs/20261116_KAN-251_reply_draft_assists.sql` | C1·C4(헤더) | cs_migrator | 가능 | to_regclass('cs.reply_draft_assists') | 미적용 |
 | T1 | `tft/20261023_KAN-119_projects.sql` | 001 | tft_migrator | 가능 | to_regclass('tft.organizations') | 미확인 |
 | T2 | `tft/20261023_KAN-122_staffing_requests.sql` | T1(헤더) | tft_migrator | 가능 | to_regclass('tft.staffing_request_revisions') | 미확인 |
 | T3 | `tft/20261025_KAN-123_competency_rechecks.sql` | T1 | postgres(SET ROLE 없음) | 가능 | to_regclass('tft.competency_checks_recommendation_competency_time') | 미확인 |

@@ -3394,6 +3394,22 @@
         "title": "DeptActionRequest",
         "type": "object"
       },
+      "DeptDraftRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "dept_result_id": {
+            "description": "\ud655\uc778 \uc644\ub8cc(ACCEPTED)\ud55c \uc774 \ubb38\uc758\uc758 \ubd80\uc11c \ub2f5\ubcc0.",
+            "format": "uuid",
+            "title": "Dept Result Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dept_result_id"
+        ],
+        "title": "DeptDraftRequest",
+        "type": "object"
+      },
       "DeptReply": {
         "properties": {
           "dept_code": {
@@ -5620,6 +5636,51 @@
         "title": "JudgementWrite",
         "type": "object"
       },
+      "KoreanEditRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "edited_ko": {
+            "description": "\ub2f4\ub2f9\uc790\uac00 \uace0\uce5c \ud55c\uad6d\uc5b4.",
+            "maxLength": 8000,
+            "minLength": 1,
+            "pattern": "\\S",
+            "title": "Edited Ko",
+            "type": "string"
+          },
+          "text": {
+            "description": "\ud55c\uad6d\uc5b4\ub85c \uc62e\uae34 \uc6d0\ub798 \uace0\uac1d \uc5b8\uc5b4 \ucd08\uc548(`\u2026/korean`\uc5d0 \ubcf4\ub0b8 \uae00\uacfc \uac19\uc544\uc57c \ud55c\ub2e4).",
+            "maxLength": 8000,
+            "minLength": 1,
+            "pattern": "\\S",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "edited_ko"
+        ],
+        "title": "KoreanEditRequest",
+        "type": "object"
+      },
+      "KoreanRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "description": "\ud68c\uc2e0 \uc0c1\uc790\uc758 \uace0\uac1d \uc5b8\uc5b4 \ucd08\uc548(AI \uc120\ud0dd\uc9c0\u00b7\ubd80\uc11c \ub2f5\ubcc0 \uae30\ubc18 \ucd08\uc548\u00b7\uc9c1\uc811 \uc4f4 \uae00).",
+            "maxLength": 8000,
+            "minLength": 1,
+            "pattern": "\\S",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "KoreanRequest",
+        "type": "object"
+      },
       "MailOrigin": {
         "properties": {
           "mailbox_id": {
@@ -6863,6 +6924,97 @@
           }
         },
         "title": "ReplyAnalysisRequest",
+        "type": "object"
+      },
+      "ReplyAssist": {
+        "properties": {
+          "commitment_warning": {
+            "description": "FROM_KO\uc5d0\uc11c \ub2f4\ub2f9\uc790\uac00 \ud55c\uad6d\uc5b4\uc5d0 \uc4f4 \uc2b9\uc778\u00b7\ud655\uc815 \uc57d\uc18d\uc774 \uace0\uac1d \uc5b8\uc5b4 \uae00\uc5d0\ub3c4 \uc788\ub2e4. \ud655\uc815\ud55c \ub0b4\uc6a9\uc778\uc9c0 \ubcf4\ub0b4\uae30 \uc804\uc5d0 \ud655\uc778\ud55c\ub2e4.",
+            "title": "Commitment Warning",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "dept_result_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DEPT_DRAFT\uc758 \uadfc\uac70 \ubd80\uc11c \ub2f5\ubcc0. \ub098\uba38\uc9c0\ub294 null.",
+            "title": "Dept Result Id"
+          },
+          "kind": {
+            "description": "DEPT_DRAFT: \ubd80\uc11c \ub2f5\ubcc0 \uae30\ubc18 \uace0\uac1d \uc5b8\uc5b4 \ucd08\uc548, TO_KO: \ucd08\uc548\uc758 \ud55c\uad6d\uc5b4 \ubc88\uc5ed, FROM_KO: \ud55c\uad6d\uc5b4 \uc218\uc815\uc744 \ubc18\uc601\ud55c \uace0\uac1d \uc5b8\uc5b4 \ucd08\uc548.",
+            "enum": [
+              "DEPT_DRAFT",
+              "TO_KO",
+              "FROM_KO"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "provenance": {
+            "const": "ai_draft",
+            "default": "ai_draft",
+            "title": "Provenance",
+            "type": "string"
+          },
+          "requested_model": {
+            "title": "Requested Model",
+            "type": "string"
+          },
+          "reused": {
+            "description": "True\uba74 \uac19\uc740 \uc785\ub825\uc758 \uc800\uc7a5\ubcf8\uc774\ub2e4(\ubaa8\ub378 \ud638\ucd9c \uc5c6\uc74c).",
+            "title": "Reused",
+            "type": "boolean"
+          },
+          "text": {
+            "description": "AI\uac00 \uc4f4 \uae00. \ub2f4\ub2f9\uc790\uac00 \ud655\uc778\u00b7\uc218\uc815\ud55c \ub4a4 \ubcf4\ub0b8\ub2e4. \ubcf4\ub0b4\uc9c0 \uc54a\uc558\ub2e4.",
+            "title": "Text",
+            "type": "string"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "title": "Ticket Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "kind",
+          "text",
+          "dept_result_id",
+          "commitment_warning",
+          "reused",
+          "created_at",
+          "requested_model",
+          "model_version",
+          "prompt_version"
+        ],
+        "title": "ReplyAssist",
         "type": "object"
       },
       "ReplyInterpretation": {
@@ -9613,6 +9765,22 @@
         "title": "SuccessResponse[ReadinessData]",
         "type": "object"
       },
+      "SuccessResponse_ReplyAssist_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ReplyAssist"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[ReplyAssist]",
+        "type": "object"
+      },
       "SuccessResponse_RequestApplyResponse_": {
         "properties": {
           "data": {
@@ -9851,6 +10019,29 @@
           "meta"
         ],
         "title": "SuccessResponse[TicketUnit]",
+        "type": "object"
+      },
+      "SuccessResponse_Union_ReplyAssist__NoneType__": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReplyAssist"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SuccessResponse[Union[ReplyAssist, NoneType]]",
         "type": "object"
       },
       "SuccessResponse_UnitHistory_": {
@@ -18281,6 +18472,388 @@
           "reply-analysis"
         ],
         "x-activation": "CS_REPLY_ANALYSIS_ENABLED",
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/tickets/{ticket_id}/reply-draft/dept-answer": {
+      "get": {
+        "description": "\uadf8 \ubd80\uc11c \ub2f5\ubcc0\uc73c\ub85c \uc800\uc7a5\ub41c \uac00\uc7a5 \ucd5c\uadfc \ucd08\uc548(\uc5c6\uc73c\uba74 null). \ubaa8\ub378\uc744 \ubd80\ub974\uc9c0 \uc54a\ub294\ub2e4.",
+        "operationId": "cs_get_dept_reply_draft",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "dept_result_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dept Result Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Union_ReplyAssist__NoneType__"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "summary": "Saved Dept Reply Draft",
+        "tags": [
+          "reply-draft"
+        ],
+        "x-activation": "CS_DEPT_REPLY_DRAFT_ENABLED",
+        "x-implementation-status": "partial"
+      },
+      "post": {
+        "description": "\ud655\uc778 \uc644\ub8cc\ud55c \ubd80\uc11c \ub2f5\ubcc0\uc73c\ub85c \uace0\uac1d \uc5b8\uc5b4 \ud68c\uc2e0 \ucd08\uc548\uc744 \ub9cc\ub4e0\ub2e4. \ubcf4\ub0b4\uc9c0 \uc54a\ub294\ub2e4.",
+        "operationId": "cs_create_dept_reply_draft",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeptDraftRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ReplyAssist_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "summary": "Dept Reply Draft",
+        "tags": [
+          "reply-draft"
+        ],
+        "x-activation": "CS_DEPT_REPLY_DRAFT_ENABLED",
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/tickets/{ticket_id}/reply-draft/korean": {
+      "post": {
+        "description": "\ud68c\uc2e0 \ucd08\uc548\uc744 \ud55c\uad6d\uc5b4\ub85c \uc62e\uae34\ub2e4. \uc774\ubbf8 \ud55c\uad6d\uc5b4\uba74 \ubaa8\ub378\uc744 \ubd80\ub974\uc9c0 \uc54a\uace0 422.",
+        "operationId": "cs_translate_reply_draft",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KoreanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ReplyAssist_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "summary": "Translate Draft",
+        "tags": [
+          "reply-draft"
+        ],
+        "x-activation": "CS_REPLY_TRANSLATION_ENABLED",
+        "x-implementation-status": "partial"
+      }
+    },
+    "/api/v1/cs/tickets/{ticket_id}/reply-draft/korean-edit": {
+      "post": {
+        "description": "\uace0\uce5c \ud55c\uad6d\uc5b4\ub97c \uc6d0\ub798 \ucd08\uc548\uc5d0 \ubc18\uc601\ud55c \uace0\uac1d \uc5b8\uc5b4 \uae00\uc744 \ub9cc\ub4e0\ub2e4. \ud68c\uc2e0 \uc0c1\uc790\uc5d0 \ub123\ub294 \uac83\uc740 \ub2f4\ub2f9\uc790\ub2e4.",
+        "operationId": "cs_apply_korean_reply_edit",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KoreanEditRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ReplyAssist_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "summary": "Apply Korean Edit",
+        "tags": [
+          "reply-draft"
+        ],
+        "x-activation": "CS_REPLY_TRANSLATION_ENABLED",
         "x-implementation-status": "partial"
       }
     },

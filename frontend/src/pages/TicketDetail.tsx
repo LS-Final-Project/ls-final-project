@@ -8,7 +8,7 @@ import DeptResultReview from '../components/DeptResultReview';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ApiError, getApiMode, request } from '../api/client';
 import { getTicket, getTicketAnalysis, getTicketAudit, getTicketSummary, getTicketTranslation, getTicketUnits, type TicketListResponse } from '../api/cs';
-import { closeTicket, confirmReturn, correctAnalysis, createTicketSummary, createTicketTranslation, getTicketWorkflow, INVALID_TRANSITION_TEXT, isInvalidOwner, isInvalidTransition, isSendPending, isResolutionExists, isResultVersionConflict, isVersionConflict, reassignOwner, recallTransfer, registerResolutionCase, reviewDeptResult, suggestFault, saveUnitLink, startReview, transferTicket, type DeptCode, type UnitLinkBody, type WorkflowRecord, refreshCustomerSend, retryCustomerSend, sendCustomerMessage } from '../api/cs-workflow';
+import { closeTicket, confirmReturn, correctAnalysis, createTicketSummary, createTicketTranslation, getTicketWorkflow, INVALID_TRANSITION_TEXT, isInvalidOwner, isInvalidTransition, isSendPending, isResolutionExists, isResultVersionConflict, isVersionConflict, reassignOwner, recallTransfer, registerResolutionCase, reviewDeptResult, suggestFault, saveUnitLink, startReview, transferTicket, type DeptCode, type UnitLinkBody, type WorkflowRecord, refreshCustomerSend, retryCustomerSend, sendCustomerMessage, createDeptReplyDraft, getDeptReplyDraft, translateReplyDraft, applyKoreanEdit } from '../api/cs-workflow';
 import { listCsAssignees, me } from '../api/platform';
 import { listMailboxes } from '../api/mailbox';
 import { ErrorState, Loading } from '../components/states';
@@ -16,6 +16,7 @@ import CustomerThread, { isUnsettledSend, latestUnansweredReply } from '../compo
 import AiDraftDialog, { OPTION_LABEL, optionsOf, pickDraft, textOf, type SendOptions } from '../components/AiDraftDialog';
 import AnalysisCorrection from '../components/AnalysisCorrection';
 import ReplyAnalysisCard from '../components/ReplyAnalysisCard';
+import { DeptReplyDraft, DraftKorean } from '../components/ReplyDraftAssist';
 import { KvGrid, KvModal, useHotkey, type KvColumn } from '../ls-shell/kv';
 import { CATEGORY_LABEL, CHANNEL_LABEL, LANGUAGE_LABEL, RETURN_STATED_LABEL, STATE_LABEL, assignmentText, formatStamp, infoName } from '../ls-shell/cs-labels';
 import './ticket-detail-v3.css';
@@ -100,6 +101,8 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
   const [action, setAction] = useState<'info' | 'answer' | 'transfer' | undefined>(undefined);
   // 회신 상자 안에서 고쳐 쓰고(edit) 보내기 확인(step)까지 한다. 고객 메일이라 승인 체크는 꼭 거친다.
   const [edited, setEdited] = useState<string | null>(null);
+  // 회신 상자에 넣은 AI 보조 글과 그 출처(KAN-251). 회신 상자의 글이 같을 때만 출처를 표시한다.
+  const [placed, setPlaced] = useState<{ from: 'dept' | 'korean'; text: string } | null>(null);
   // 비교 창에서 고른 초안 버전. 없으면 다음 행동에 맞는 기본 버전(정보 요청=정보 먼저, 답변=자세하게).
   const [boxPick, setBoxPick] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -263,6 +266,8 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
   const bodyText = edited ?? (chosen ? textOf(chosen) : '');
   // 팀 결정(11/3): 메일 문의만 시스템에서 메일로 보낸다. 다른 채널은 초안을 복사해 그 채널로 직접 응대한다.
   const isMail = ticket.data?.data?.channel === 'EMAIL';
+  // 고객 언어가 한국어면 초안 번역이 필요 없다(KAN-251).
+  const koreanCustomer = (ticket.data?.data?.body_language ?? '').split('-')[0] === 'ko';
   const channelName = ticket.data?.data ? CHANNEL_LABEL[ticket.data.data.channel] : '';
   const [copied, setCopied] = [copyNote, setCopyNote];
   const copyBody = async () => {
@@ -605,7 +610,9 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
                 {acceptedResult.reply_content
                   ? <div className="dept-reply"><span>부서가 제안한 고객 문안</span>{acceptedResult.reply_content}
                     <button className="kb3 sm" onClick={() => { setEdited(acceptedResult.reply_content ?? ''); setEditing(false); }}>이 문안 쓰기</button></div>
-                  : <div className="meta">부서가 고객 문안은 주지 않았습니다. 아래 초안을 부서 답변에 맞게 고쳐 쓰세요.</div>}
+                  : <div className="meta">부서가 고객 문안은 주지 않았습니다. 아래 초안을 부서 답변에 맞게 고쳐 쓰거나 AI 초안을 만드세요.</div>}
+                {canWrite && <DeptReplyDraft key={acceptedResult.id} create={signal => createDeptReplyDraft(ticketId, acceptedResult.id, signal)} load={signal => getDeptReplyDraft(ticketId, acceptedResult.id, signal)} inUse={placed?.from === 'dept' && edited === placed.text}
+                  onUse={text => { setBoxPick('OWN'); setEdited(text); setPlaced({ from: 'dept', text }); setEditing(false); resetSend(); setCopyNote(''); setNotice({ kind: 'ok', text: '부서 답변 기반 AI 초안을 회신 상자에 넣었습니다. 읽고 고친 뒤 보내세요.' }); }} />}
               </div>}
               {act === 'info' && <div className="need">
                 <div className="meta">요청할 정보 <small>{info ? `필요 ${info.required.length} · 받음 ${info.provided.length} · 이미 물음 ${asked.length}` : '분석 전'}</small></div>
@@ -626,19 +633,22 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
                   <div className="xfer-note">요청 사유는 다음 창에서 적습니다. 부서가 답하면 "부서 답변 확인"이 나타납니다.</div>
                 </div>
                 : <div className="draft">
-                  <div className="meta">초안{chosen ? ` · ${OPTION_LABEL[chosen.label] ?? chosen.label}` : edited !== null ? ' · 직접 쓰기' : ''} <small>고객 언어: {LANG_LABEL[data.body_language] ?? data.body_language}{draftRun ? ` · AI ${hm(draftRun.created_at)}` : ''}</small></div>
+                  <div className="meta">초안{edited !== null && edited === placed?.text ? (placed.from === 'dept' ? ' · 부서 답변 기반 AI 초안' : ' · 한국어 수정 반영') : chosen ? ` · ${OPTION_LABEL[chosen.label] ?? chosen.label}` : edited !== null ? ' · 직접 쓰기' : ''} <small>고객 언어: {LANG_LABEL[data.body_language] ?? data.body_language}{draftRun ? ` · AI ${hm(draftRun.created_at)}` : ''}</small></div>
                   {staleDraft && <div className="stale">이 초안은 분류 정정 <b>전에</b> 만들어졌습니다. 묻는 정보가 지금 분류와 다를 수 있으니 "AI 분석 실행"으로 새로 만드세요.</div>}
                   {waitingDraft && !editing
                     ? <div className="prev sk-lines" aria-busy="true"><span><ElloWorking />{classArrived ? '분류를 바탕으로 초안을 쓰는 중…' : '분류가 끝나면 초안을 씁니다'}</span><i /><i /><i /></div>
                     : editing
                     ? <textarea className="edit-body" aria-label="보낼 내용" rows={7} value={bodyText} onChange={event => { setEdited(event.target.value); setApproved(false); }} />
-                    : edited !== null ? <div className="prev">{edited}<div className="meta" style={{ marginTop: 4 }}>담당자가 고친 내용</div></div>
+                    : edited !== null ? <div className="prev own">{edited}<div className="meta" style={{ marginTop: 4 }}>{edited === placed?.text ? (placed.from === 'dept' ? '부서 답변 기반 AI 초안 · 읽고 고친 뒤 보내세요' : '한국어 수정을 반영한 글 · 보내기 전에 확인하세요') : '담당자가 고친 내용'}</div></div>
                     : !chosen
                     ? <div className="meta">{draftRun ? 'AI 초안을 쓸 수 없습니다. "수정"에서 직접 쓸 수 있습니다.' : '아직 AI 초안이 없습니다. 분석을 실행하면 만들어집니다.'}</div>
                     : <div className="prev">{chosen.sentences.map((item, index) => { const verdict = verdictOf(index); return <span key={index} className="sent">{item.text}{' '}
                       <span className={`tag ${item.kind.toLowerCase()}`}>{item.kind === 'EVIDENCE' ? `근거 ${item.evidence_chunk_ids.length}` : item.kind === 'CONDITION' ? '조건' : '확인할 수 없음'}</span>
                       {verdict && verdict !== 'SUPPORTED' && <span className="tag warn" title={verdict}>검증 필요</span>}{' '}</span>; })}</div>}
                   {chosen && <div className="meta">근거 {new Set(chosen.sentences.flatMap(item => item.evidence_chunk_ids)).size}개 · 문서 이름은 아직 응답에 없음</div>}
+                  {canWrite && !waitingDraft && !koreanCustomer && bodyText.trim() !== '' && <DraftKorean key={ticketId} text={bodyText} language={LANG_LABEL[data.body_language] ?? data.body_language}
+                    translate={(text, signal) => translateReplyDraft(ticketId, text, signal)} apply={(text, editedKo, signal) => applyKoreanEdit(ticketId, text, editedKo, signal)}
+                    onAccept={text => { setEdited(text); setPlaced({ from: 'korean', text }); setEditing(false); resetSend(); setCopyNote(''); setNotice({ kind: 'ok', text: '한국어 수정을 반영한 초안을 회신 상자에 넣었습니다. 보내기 전에 다시 확인하세요.' }); }} />}
                 </div>}
 
               <div className="warn-note">RMA·방문 일정·보증 승인은 초안에 넣지 않고 담당자가 확정합니다</div>

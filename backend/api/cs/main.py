@@ -11,6 +11,11 @@ from backend.api.cs.reply_analysis.routes import (
     CsReplyAnalysisSettings,
     configure_reply_analysis,
 )
+from backend.api.cs.reply_assist.routes import (
+    CsDeptReplyDraftSettings,
+    CsReplyTranslationSettings,
+    configure_reply_assist,
+)
 from backend.api.cs.routes import router
 from backend.api.cs.summary.routes import CsSummarySettings, configure_summary
 from backend.api.cs.translation.routes import CsTranslationSettings, configure_translation
@@ -48,5 +53,6 @@ def create_app(
     configure_fault_suggestion(app, CsFaultSuggestionSettings())
     configure_reply_analysis(app, CsReplyAnalysisSettings())
     configure_improvement_draft(app, CsImprovementDraftSettings())
+    configure_reply_assist(app, CsDeptReplyDraftSettings(), CsReplyTranslationSettings())
     app.include_router(router)
     return app

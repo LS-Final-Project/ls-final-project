@@ -213,6 +213,11 @@ def app_for(service: str, state: Path):
             CsReplyAnalysisSettings,
             configure_reply_analysis,
         )
+        from backend.api.cs.reply_assist.routes import (
+            CsDeptReplyDraftSettings,
+            CsReplyTranslationSettings,
+            configure_reply_assist,
+        )
         from backend.api.cs.summary.routes import CsSummarySettings, configure_summary
         from backend.api.cs.translation.routes import (
             CsTranslationSettings,
@@ -256,6 +261,13 @@ def app_for(service: str, state: Path):
             app,
             CsFaultSuggestionSettings(_env_file=None, enabled=True),
             provider=bridge_provider(state, "/fault-suggestion"),
+        )
+        configure_reply_assist(
+            app,
+            CsDeptReplyDraftSettings(_env_file=None, enabled=True),
+            CsReplyTranslationSettings(_env_file=None, enabled=True),
+            dept_provider=bridge_provider(state, "/reply-draft-dept"),
+            translation_provider=bridge_provider(state, "/reply-draft-translation"),
         )
         configure_analysis_jobs(
             app,
