@@ -989,3 +989,21 @@ def test_diagram_binary_is_limited_to_exact_diagram_route(monkeypatch, mime):
     if mime.startswith("image/"):
         with pytest.raises(HTTPException):
             relay.forward("GET", "https://tft.example.invalid" + FILE_URL, {}, b"")
+
+
+def test_relay_forwards_on_its_own_threads(system):
+    """KAN-252: 중계 전송은 전용 스레드에서 돈다. 기본 스레드 풀을 쓰면 접수 몇 건이 풀을 다 잡아
+    tft·cs가 부른 platform 내부 접수(호출자 검증 스레드 필요)와 서로 기다리며 20초 동안 멈췄다.
+    """
+    import threading
+
+    app = system["client"].app
+    original, names = app.state.business_forwarder, []
+
+    def spy(*args):
+        names.append(threading.current_thread().name)
+        return original(*args)
+
+    app.state.business_forwarder = spy
+    system["client"].get("/api/v1/cs/tickets")
+    assert names and all(name.startswith("relay-forward") for name in names)

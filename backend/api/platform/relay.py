@@ -4,6 +4,8 @@ import asyncio
 import hmac
 import re
 from collections.abc import Awaitable, Callable
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from urllib.parse import urlencode, urlsplit
 
 import requests
@@ -25,6 +27,11 @@ UUID_PATH = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-
 # 파일이 지나가는 두 경로만 위 한도와 JSON 규칙의 예외다. 인증·CSRF·Origin 검사는 같다.
 # 웹 frontend/server.mjs의 uploadPath·downloadPath와 같아야 한다.
 FILE_LIMIT = 26 * 1024 * 1024
+# KAN-252: 중계 전송(동기 HTTP, 상류 응답까지 최대 20초)은 전용 스레드에서 돈다. 기본 스레드 풀(CPU 1개면 약 5개)을
+# 쓰면 접수 몇 건이 풀을 다 잡고, 그 접수를 받은 tft·cs가 부른 platform 내부 접수는 호출자 검증 스레드를 못 얻어
+# 서로 기다리다 20초 뒤에야 풀렸다(KAN-155 실제 모델 3배 측정). 인스턴스 동시 요청(80)만큼 둔다.
+FORWARD_THREADS = 80
+_FORWARD = ThreadPoolExecutor(max_workers=FORWARD_THREADS, thread_name_prefix="relay-forward")
 FILE_TYPES = frozenset(
     (
         "application/pdf",
@@ -476,10 +483,13 @@ async def relay(request: Request, path: str) -> Response:
         # 경계값이 든 원래 형식을 그대로 넘긴다. 위에서 multipart/form-data임을 확인했다.
         outgoing["Content-Type"] = request.headers["Content-Type"] if upload else "application/json"
     query = "?" + urlencode(pairs) if pairs else ""
-    return await asyncio.to_thread(
-        request.app.state.business_forwarder,
-        request.method,
-        target + path + query,
-        outgoing,
-        body,
+    return await asyncio.get_running_loop().run_in_executor(
+        _FORWARD,
+        partial(
+            request.app.state.business_forwarder,
+            request.method,
+            target + path + query,
+            outgoing,
+            body,
+        ),
     )
