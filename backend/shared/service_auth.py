@@ -1,5 +1,7 @@
 """Cloud Run IAM 호출과 별개로 컨테이너에서 플랫폼 실행 계정을 확인한다."""
 
+import time
+
 import jwt
 import requests
 from fastapi import HTTPException
@@ -11,6 +13,10 @@ GOOGLE_JWKS = "https://www.googleapis.com/oauth2/v3/certs"
 METADATA_IDENTITY = (
     "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity"
 )
+# KAN-252: ID 토큰(1시간)을 audience별로 만료 5분 전까지 다시 쓴다. 요청마다 메타데이터를 부르면 막 뜬
+# 인스턴스에 요청이 몰릴 때 기본 스레드 풀(CPU 1개면 5개)이 이 호출로 차서 중계·내부 접수가 20초씩 밀렸다.
+REFRESH_BEFORE_SECONDS = 300
+_TOKENS: dict[str, tuple[str, float]] = {}
 
 
 class PlatformCaller:
@@ -79,6 +85,9 @@ def metadata_token(audience: str) -> str:
     Raises:
         HTTPException: 메타데이터 조회 실패 또는 사용할 수 없는 응답이면 503.
     """
+    cached = _TOKENS.get(audience)
+    if cached and cached[1] - REFRESH_BEFORE_SECONDS > time.time():
+        return cached[0]
     try:
         response = requests.get(
             METADATA_IDENTITY,
@@ -95,6 +104,12 @@ def metadata_token(audience: str) -> str:
             or any(c.isspace() for c in token)
         ):
             raise HTTPException(503)
-        return token
     except RequestException:
         raise HTTPException(503) from None
+    try:
+        # 서명은 받는 쪽이 검증한다. 여기서는 다시 쓸 기한만 읽는다. 읽지 못하면 다시 쓰지 않는다.
+        expires = float(jwt.decode(token, options={"verify_signature": False})["exp"])
+    except (jwt.PyJWTError, KeyError, TypeError, ValueError):
+        return token
+    _TOKENS[audience] = (token, expires)
+    return token

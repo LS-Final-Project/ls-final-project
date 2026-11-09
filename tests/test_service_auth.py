@@ -217,3 +217,24 @@ def test_cs_relay_requires_explicit_manual_data_origin():
         create_cs(Settings(_env_file=None, **RELAY))
     for origin in ("demo", "real"):
         create_cs(Settings(_env_file=None, **RELAY, cs_manual_data_origin=origin))
+
+
+def test_metadata_token_is_reused_until_shortly_before_expiry(monkeypatch):
+    """KAN-252: 같은 audience의 ID 토큰은 만료 5분 전까지 다시 쓴다(요청마다 메타데이터를 부르지 않는다)."""
+    from backend.shared import service_auth
+
+    now = [1_000_000.0]
+    monkeypatch.setattr(service_auth.time, "time", lambda: now[0])
+    monkeypatch.setattr(service_auth, "_TOKENS", {})
+    issued = []
+
+    def get(*_args, **_kwargs):
+        token = jwt.encode({"exp": int(now[0]) + 3600, "n": len(issued)}, "k", algorithm="HS256")
+        issued.append(token)
+        return Mock(status_code=200, text=token)
+
+    monkeypatch.setattr(requests, "get", get)
+    first = metadata_token(AUDIENCE)
+    assert metadata_token(AUDIENCE) == first and len(issued) == 1
+    now[0] += 3600 - 299  # 만료 5분 전 안쪽
+    assert metadata_token(AUDIENCE) != first and len(issued) == 2
