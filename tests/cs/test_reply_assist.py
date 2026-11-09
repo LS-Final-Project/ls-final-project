@@ -5,6 +5,7 @@ import json
 import pytest
 
 from backend.engine.cs.reply_assist import (
+    PROMPT_VERSIONS,
     DeptDraftInput,
     KoreanEditInput,
     KoreanInput,
@@ -42,6 +43,8 @@ def test_dept_input_masks_contacts_and_keeps_the_department_answer():
     assert payload.dept_answer == RESULT["result"] and payload.dept_reply is None
     prompt = render_prompt("DEPT_DRAFT", payload)
     assert "dept_answer" in prompt and "buyer@example.com" not in prompt
+    # v2: 부서 답변의 '고객'을 3인칭으로 옮기지 않고 고객에게 직접 말한다.
+    assert "2인칭" in prompt and PROMPT_VERSIONS["DEPT_DRAFT"] == "dept-draft-v2"
 
 
 def test_a_dept_draft_in_the_customer_language_with_department_facts_passes():

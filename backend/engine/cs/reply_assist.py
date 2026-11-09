@@ -38,7 +38,7 @@ from backend.engine.search.hybrid import BLOCKED_CODES, mentions_code
 Kind = Literal["DEPT_DRAFT", "TO_KO", "FROM_KO"]
 INPUT_VERSION = "cs-reply-assist-input-v1"
 PROMPT_VERSIONS: dict[Kind, str] = {
-    "DEPT_DRAFT": "dept-draft-v1",
+    "DEPT_DRAFT": "dept-draft-v2",
     "TO_KO": "draft-ko-v1",
     "FROM_KO": "draft-from-ko-v1",
 }
@@ -66,6 +66,9 @@ INSTRUCTIONS: dict[Kind, str] = {
         "있어도 확정형으로 쓰지 말고 담당자가 따로 안내한다고 쓴다.\n"
         + CONFIRMATION_RULE
         + "- 회신은 body_language(고객 언어)로 쓴다. 부서 답변이 한국어여도 회신은 고객 언어다.\n"
+        # v2: 실제 모델이 "고객이 원하면"을 "Si el cliente lo requiere"처럼 3인칭으로 옮겼다(로컬 실스택 확인).
+        + "- 회신은 고객에게 직접 말하는 글이다. 고객 언어의 2인칭 존댓말로 쓰고, 부서 답변이 고객을 3인칭으로 "
+        "가리킨 말('고객', 'the customer')은 고객을 직접 부르는 말로 바꾼다.\n"
         + _FACTS
         + "- 서명, 담당자 이름, 연락처는 쓰지 않는다.\n"
         + _OUTPUT

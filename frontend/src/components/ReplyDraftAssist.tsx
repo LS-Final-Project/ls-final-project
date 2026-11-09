@@ -17,7 +17,9 @@ function failure(error: unknown, name: string): Failure {
 const maskedNote = (text: string) => MASKED.test(text) && <div className="meta">가림 표시([…_PROVIDED])는 보내기 전에 실제 값으로 바꾸세요.</div>;
 
 /** 확인한 부서 답변 상자 안의 "부서 답변으로 AI 회신 초안". 결과를 보여 주고 "이 초안 쓰기"로만 회신 상자에 넣는다. */
-export function DeptReplyDraft({ create, load, onUse }: { create: Call; load?: (signal: AbortSignal) => Promise<{ data: ReplyAssist | null }>; onUse: (text: string) => void }) {
+export function DeptReplyDraft({ create, load, onUse, inUse = false }: { create: Call; load?: (signal: AbortSignal) => Promise<{ data: ReplyAssist | null }>; onUse: (text: string) => void; inUse?: boolean }) {
+  // 회신 상자가 이 초안을 그대로 들고 있으면 같은 글을 두 번 보이지 않게 한 줄로 접는다.
+  const [expanded, setExpanded] = useState(false);
   const [draft, setDraft] = useState<{ state: 'idle' | 'busy' } | Failure | { state: 'done'; data: ReplyAssist }>({ state: 'idle' });
   // 저장된 초안이 있으면 처음부터 보인다(모델 호출 없음). 꺼진 배포(404)면 단추를 미리 막는다. 그 밖의 읽기 실패는 단추를 그대로 둔다.
   useEffect(() => {
@@ -32,11 +34,16 @@ export function DeptReplyDraft({ create, load, onUse }: { create: Call; load?: (
     setDraft({ state: 'busy' });
     create(new AbortController().signal).then(result => setDraft({ state: 'done', data: result.data }), error => setDraft(failure(error, 'AI 회신 초안')));
   };
+  if (draft.state === 'done' && inUse && !expanded) return <div className="assist-row">
+    <span className="meta"><ElloMark size={14} />부서 답변 기반 AI 초안을 회신 상자에 넣었습니다</span>
+    <button className="kb3 sm ghost" aria-expanded={false} onClick={() => setExpanded(true)}>다시 보기</button>
+  </div>;
   if (draft.state === 'done') return <div className="dept-reply" aria-label="부서 답변 기반 AI 초안">
     <span><ElloMark size={14} />부서 답변 기반 AI 초안 <small className="meta">{draft.data.reused ? '저장본' : '방금 만듦'} · 확정 약속 없이 씀 · 보내기 전 확인</small></span>
     {draft.data.text}
     {maskedNote(draft.data.text)}
-    <button className="kb3 sm" onClick={() => onUse(draft.data.text)}>이 초안 쓰기</button>
+    {inUse ? <button className="kb3 sm ghost" aria-expanded={true} onClick={() => setExpanded(false)}>접기</button>
+      : <button className="kb3 sm" onClick={() => { setExpanded(false); onUse(draft.data.text); }}>이 초안 쓰기</button>}
   </div>;
   return <div className="assist-row">
     <button className="kb3 sm" disabled={draft.state === 'busy' || (draft.state === 'failed' && draft.off)} title="부서 답변만 근거로 고객 언어 초안을 씁니다. 모델을 한 번 호출합니다(비용). 같은 답변이면 저장본을 씁니다" onClick={make}><ElloMark />부서 답변으로 AI 회신 초안</button>
@@ -77,7 +84,8 @@ export function DraftKorean({ text, language, translate, apply, onAccept }: {
     setBack({ state: 'busy' });
     apply(ko.source, edit, new AbortController().signal).then(result => setBack({ state: 'done', data: result.data }), error => setBack(failure(error, '한국어 수정 반영')));
   };
-  const accept = (value: string) => { onAccept(value); setEdit(null); setBack({ state: 'idle' }); };
+  // 넣으면 번역 칸을 닫는다. 회신 상자의 글이 바뀌었으니 다시 열면 지금 글로 다시 번역한다(같은 글이면 저장본).
+  const accept = (value: string) => { onAccept(value); setEdit(null); setBack({ state: 'idle' }); setOpen(false); };
   const unchanged = ko.state === 'done' && edit !== null && edit.trim() === ko.text.trim();
 
   return <div className="draft-ko">

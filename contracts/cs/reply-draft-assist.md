@@ -28,7 +28,7 @@
 ## 입력
 
 - 문의는 분류·번역과 같은 허용 필드·마스킹(`build_input`)을 거친 `channel`·`body_language`·`subject`·`body`다. 부서 답변과 초안·한국어 글도 같은 연락처·시리얼 가림(`mask_contacts_and_serials`)을 거친다. 그래서 결과에 `[PERSONAL_PROVIDED]`·`[SERIAL_PROVIDED]`가 남을 수 있고, 화면이 보내기 전에 실제 값으로 바꾸라고 안내한다.
-- 입력 판본 `cs-reply-assist-input-v1`, 프롬프트 판본 `dept-draft-v1`·`draft-ko-v1`·`draft-from-ko-v1`(채택 전, prompt_registry 밖). 입력 SHA-256은 종류·입력 판본·마스킹한 입력 전체로 만든다.
+- 입력 판본 `cs-reply-assist-input-v1`, 프롬프트 판본 `dept-draft-v2`(v2: 고객을 2인칭으로 직접 부른다)·`draft-ko-v1`·`draft-from-ko-v1`(채택 전, prompt_registry 밖). 입력 SHA-256은 종류·입력 판본·마스킹한 입력 전체로 만든다.
 
 ## 출력 검사
 

@@ -34,6 +34,18 @@ test('저장된 초안이 있으면 처음부터 보이고, 없으면 단추만 
   await waitFor(() => expect(screen.getByRole('button', { name: /부서 답변으로 AI 회신 초안/ })).toBeTruthy());
 });
 
+test('회신 상자가 그 초안을 들고 있으면 한 줄로 접고 "다시 보기"로 펼친다', async () => {
+  const saved = vi.fn().mockResolvedValue(reply('DEPT_DRAFT', 'Long saved draft.', { reused: true }));
+  render(<DeptReplyDraft create={vi.fn()} load={saved} onUse={vi.fn()} inUse />);
+  expect(await screen.findByText('부서 답변 기반 AI 초안을 회신 상자에 넣었습니다')).toBeTruthy();
+  expect(screen.queryByText(/Long saved draft./)).toBeNull();
+  click('다시 보기');
+  expect(screen.getByText(/Long saved draft./)).toBeTruthy();
+  expect(screen.queryByRole('button', { name: '이 초안 쓰기' })).toBeNull();
+  click('접기');
+  expect(screen.queryByText(/Long saved draft./)).toBeNull();
+});
+
 test('꺼진 배포(404)는 꺼져 있다고 안내하고 단추를 막는다', async () => {
   render(<DeptReplyDraft create={vi.fn().mockRejectedValue(new ApiError(404, 'Not found'))} onUse={vi.fn()} />);
   click(/부서 답변으로 AI 회신 초안/);
@@ -65,8 +77,11 @@ test('번역을 고쳐 반영하면 검토 상자에 보이고, 넣기를 눌러
   expect((screen.getByLabelText('보낼 내용') as HTMLTextAreaElement).value).toBe('We will check E-204.');
   click('회신 상자에 넣기');
   expect((screen.getByLabelText('보낼 내용') as HTMLTextAreaElement).value).toBe('We will check E-204 within 3 days.');
-  // 넣은 뒤 회신 상자의 글이 바뀌었으니 번역은 오래된 것이다.
-  expect(screen.getByText(/번역 뒤에 바뀌었습니다/)).toBeTruthy();
+  // 넣으면 번역 칸을 닫고 오래된 번역 경고를 보이지 않는다. 다시 열면 지금 글로 다시 번역한다.
+  expect(screen.queryByLabelText('초안 한국어 번역')).toBeNull();
+  expect(screen.queryByText(/번역 뒤에 바뀌었습니다/)).toBeNull();
+  click('한국어로 보기');
+  await waitFor(() => expect(translate).toHaveBeenLastCalledWith('We will check E-204 within 3 days.', expect.anything()));
 });
 
 test('회신 상자의 글이 바뀌면 번역을 오래된 것으로 표시하고 다시 번역할 수 있다', async () => {
