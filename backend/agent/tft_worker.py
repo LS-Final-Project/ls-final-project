@@ -33,6 +33,7 @@ from backend.agent.job_runtime import (
 )
 from backend.agent.processor_registry import Processor, TftJob, load_processor
 from backend.shared.errors import ApplicationError
+from backend.shared.logs import configure_logging
 from backend.shared.settings import Settings
 
 __all__ = ["TftWorkerSettings", "execute_job", "main", "parse_job_id"]
@@ -192,6 +193,8 @@ def main() -> None:
     Returns:
         None: 성공·미인수·취소·소유권 상실은 정상 종료, 입력·권한·처리 실패는 비정상 종료다.
     """
+    # 모델 호출의 토큰 수(AI_USAGE)가 Cloud Logging에 남도록 서비스와 같은 JSON 로그를 쓴다.
+    configure_logging()
     try:
         job_id = parse_job_id(os.getenv("TFT_JOB_ID"))
         result = execute_job(Settings(), TftWorkerSettings(), job_id)
