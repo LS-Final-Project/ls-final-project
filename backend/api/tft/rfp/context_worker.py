@@ -9,12 +9,7 @@ from psycopg.rows import dict_row
 from backend.agent.processor_registry import Emit, TftJob
 from backend.api.tft.rfp import context_repository as db
 from backend.api.tft.rfp.jobs import context_input_version
-from backend.engine.rfp.context_graph import (
-    ContextProvider,
-    clause_titles,
-    heading_tags,
-    run_context,
-)
+from backend.engine.rfp.context_graph import ContextProvider, heading_tags, run_context
 from backend.shared.errors import ApplicationError
 from backend.shared.settings import Settings
 
@@ -79,7 +74,6 @@ async def process_context(
             diagram_source_ids=source.diagram_source_ids,
             progress=progress,
             headings=heading_tags(source.snapshot.get("clauses", [])),
-            titles=clause_titles(source.snapshot.get("clauses", [])),
         )
         progress("context_validate")
         async with conn.transaction():

@@ -343,9 +343,8 @@ def test_inventory_namespaced_same_tag_different_document_never_merges():
         for i in range(160)
     ]
     result = asyncio.run(graph.run_context(rows, provider))
-    equipment = [g for g in result.groups if g.kind == "EQUIPMENT"]
-    assert len(equipment) == 2
-    assert {g.entity_id.split(":")[0] for g in equipment} == {"b0", "b1"}
+    assert len(result.groups) == 2
+    assert {g.entity_id.split(":")[0] for g in result.groups} == {"b0", "b1"}
 
 
 def test_fake_provider_is_unclassified_explicit_offline_not_semantic_pass():
@@ -500,34 +499,16 @@ def test_max_length_provider_ids_are_remapped_with_parent_links_and_roundtrip_sa
 
     async def provider(stage, payload):
         if stage == "inventory":
-            refs = ["r1", "r2"]
             return ContextProposal(
-                groups=[
-                    group(parent, kind="SYSTEM", evidence_requirement_ids=refs),
-                    group(child, parent_id=parent, evidence_requirement_ids=refs),
-                ]
+                groups=[group(parent, kind="SYSTEM"), group(child, parent_id=parent)]
             )
-        if stage == "merge":
-            return ContextProposal()
-        # 하위 묶음에 요구 2개를 연결해 1개짜리 묶음 정리(KAN-255)에 걸리지 않게 한다.
-        target = next(g["entity_id"] for g in payload["groups"] if g["kind"] == "EQUIPMENT")
-        return ContextProposal(
-            assignments=[
-                assignment(
-                    r["requirement_id"],
-                    group_ids=[target],
-                    relations=[ContextRelation(group_id=target, relation="APPLIES_TO")],
-                )
-                for r in payload["requirements"]
-            ]
-        )
+        return ContextProposal(assignments=[assignment()])
 
-    result = asyncio.run(graph.run_context([requirement(), requirement("r2")], provider))
-    provided = [g for g in result.groups if not g.entity_id.startswith("article:")]
-    assert len(provided) == 2
+    result = asyncio.run(graph.run_context([requirement()], provider))
+    assert len(result.groups) == 2
     assert all(len(g.entity_id) <= 160 for g in result.groups)
-    roots = [g for g in provided if g.parent_id is None]
-    children = [g for g in provided if g.parent_id is not None]
+    roots = [g for g in result.groups if g.parent_id is None]
+    children = [g for g in result.groups if g.parent_id is not None]
     assert len(roots) == len(children) == 1
     assert children[0].parent_id == roots[0].entity_id
     assert ContextResult.model_validate_json(result.model_dump_json()) == result
@@ -733,61 +714,6 @@ def test_test_requirement_in_part3_links_to_part2_equipment_by_name():
     assert by_id["r3"].group_ids == []
 
 
-def test_unlinked_requirements_go_to_their_article_and_survive_revalidation():
-    rows = [
-        requirement("r1", clause_no="2.3.A", section_path=["PART 2", "2.3", "2.3.A"]),
-        requirement("r2", clause_no="2.3.B", section_path=["PART 2", "2.3", "2.3.B"]),
-        requirement("r3", clause_no="3.1", section_path=["PART 3", "3.1"]),
-        requirement("r4", section_path=[]),
-    ]
-    result = validate(rows, [], [assignment(r.requirement_id) for r in rows])
-    titled = graph.attach_to_articles(result, rows, {("d1", "2.3"): "MOLDED-CASE BREAKERS"})
-    names = {g.name: g.evidence_requirement_ids for g in titled.groups}
-    # 원문 제목이 없는 조는 요구 행의 설비 이름을 출처 표시와 함께 붙인다.
-    assert names == {"2.3 MOLDED-CASE BREAKERS": ["r1", "r2"], "3.1 (설비: Transformer)": ["r3"]}
-    assert all(g.kind == "COMMON" and g.needs_review for g in titled.groups)
-    by_id = {a.requirement_id: a for a in titled.assignments}
-    assert by_id["r4"].group_ids == []
-    assert by_id["r1"].primary_category == "QUALITY"
-    # 저장 직전 다시 검사(checked_result)해도 조 묶음과 연결이 그대로 남는다.
-    assert graph.validate_context(titled, rows).model_dump(exclude={"outcome", "issues"}) == (
-        titled.model_dump(exclude={"outcome", "issues"})
-    )
-
-
-def test_single_member_untagged_groups_fold_into_their_article():
-    rows = [
-        requirement("r1", clause_no="2.5.A", section_path=["PART 2", "2.5", "2.5.A"]),
-        requirement("r2", clause_no="2.5.B", section_path=["PART 2", "2.5", "2.5.B"]),
-        requirement("r3", clause_no="2.5.C", section_path=["PART 2", "2.5", "2.5.C"]),
-        requirement("r4", clause_no="2.6.A", section_path=["PART 2", "2.6", "2.6.A"]),
-    ]
-    link = lambda key, gid: assignment(  # noqa: E731
-        key, group_ids=[gid], relations=[ContextRelation(group_id=gid, relation="APPLIES_TO")]
-    )
-    result = ContextResult(
-        outcome="VALID",
-        groups=[
-            group("pair", evidence_requirement_ids=["r1"]),
-            group("lone", name="Trip Unit", evidence_requirement_ids=["r3"]),
-            group("tagged", tag="T1", evidence_requirement_ids=["r4"]),
-        ],
-        assignments=[
-            link("r1", "pair"),
-            link("r2", "pair"),
-            link("r3", "lone"),
-            link("r4", "tagged"),
-        ],
-    )
-    after = graph.attach_to_articles(result, rows, {("d1", "2.5"): "COMPONENTS"})
-    by_id = {a.requirement_id: a.group_ids for a in after.assignments}
-    names = {g.entity_id: g.name for g in after.groups}
-    # 2개 연결 묶음과 태그 묶음은 남고, 1개짜리 'Trip Unit'은 풀려서 소속 조 묶음으로 간다.
-    assert "lone" not in names and {"pair", "tagged"} <= names.keys()
-    assert by_id["r1"] == by_id["r2"] == ["pair"] and by_id["r4"] == ["tagged"]
-    assert names[by_id["r3"][0]] == "2.5 COMPONENTS"
-
-
 def test_tagged_group_keeps_same_part_scope_for_name_links():
     # 같은 이름의 태그 묶음은 다른 PART의 태그 없는 요구를 이름만으로 끌어가지 않는다(물리 식별은 태그로만).
     tagged = requirement("r1", section_path=["PART 2"], quote="Transformer tag: T-01")
@@ -803,9 +729,6 @@ def test_tagged_group_keeps_same_part_scope_for_name_links():
     )
     by_id = {a.requirement_id: a.group_ids for a in result.assignments}
     assert by_id == {"r1": ["g1"], "r2": [], "r3": ["g1"]}
-    index = graph._candidate_index(result.groups, {r.requirement_id: r for r in [tagged]})
-    assert ("equipment", "d1", "transformer") not in index
-    assert index[("equipment", "d1", "PART 2", "transformer")] == {"g1"}
 
 
 def test_parent_cycle_left_by_name_merge_is_cut_before_use():
@@ -892,78 +815,3 @@ def test_rejected_link_reason_is_named_in_the_issue():
         ["g1"],
         "묶음 연결 확인 필요: 'Meter'(설비·작업 이름 또는 절 범위 불일치)",
     )
-
-
-def test_model_merges_pass_only_deterministic_identity_checks():
-    from backend.engine.rfp.context_models import GroupMerge
-
-    rows = [requirement(f"r{i}", quote="GIS shall be rated.") for i in range(6)]
-    rows.append(requirement("r9", document_version_id="d2", quote="GIS shall be rated."))
-    source = {r.requirement_id: r for r in rows}
-    groups = [
-        group("gis", name="GIS", evidence_requirement_ids=["r0"]),
-        group("hv", name="HV Switchgear", evidence_requirement_ids=["r1"]),
-        group("t1", name="GIS", tag="T1", evidence_requirement_ids=["r2"]),
-        group("task", name="GIS", kind="TASK", evidence_requirement_ids=["r3"]),
-        group("other", name="GIS", evidence_requirement_ids=["r9"]),
-        group("chain", name="115kV GIS", evidence_requirement_ids=["r4"]),
-    ]
-    merges = [
-        GroupMerge(target_id="gis", member_ids=["hv", "t1", "task", "other", "missing"]),
-        GroupMerge(target_id="chain", member_ids=["gis"]),  # 이미 다른 제안의 대상이라 연쇄 금지
-    ]
-    kept, aliases, rejected = graph.apply_merges(groups, merges, source)
-    assert aliases == {"hv": "gis"}
-    assert rejected == 5
-    assert [g.entity_id for g in kept] == ["gis", "t1", "task", "other", "chain"]
-    assert kept[0].evidence_requirement_ids == ["r0", "r1"]
-
-
-def test_merge_stage_runs_between_inventory_and_link_with_its_own_prompt():
-    from backend.engine.rfp.context_models import GroupMerge
-
-    seen: dict[str, list] = {}
-
-    async def provider(stage, payload):
-        seen.setdefault(stage, []).append(payload)
-        if stage == "inventory":
-            refs = [r["requirement_id"] for r in payload["requirements"]]
-            name = "GIS" if refs[0] == "r0" else "HV Switchgear"
-            return ContextProposal(groups=[group(name, name=name, evidence_requirement_ids=refs)])
-        if stage == "merge":
-            ids = {g["name"]: g["entity_id"] for g in payload["groups"]}
-            return ContextProposal(
-                merges=[GroupMerge(target_id=ids["GIS"], member_ids=[ids["HV Switchgear"]])]
-            )
-        return ContextProposal(
-            assignments=[
-                assignment(
-                    r["requirement_id"],
-                    group_ids=[g["entity_id"] for g in payload["groups"]],
-                    relations=[
-                        ContextRelation(group_id=g["entity_id"], relation="APPLIES_TO")
-                        for g in payload["groups"]
-                    ],
-                )
-                for r in payload["requirements"]
-            ]
-        )
-
-    rows = [requirement(f"r{i}", equipment="GIS", quote="GIS shall be rated.") for i in range(80)]
-    rows += [
-        requirement(f"s{i}", equipment="HV Switchgear", quote="HV Switchgear shall be rated.")
-        for i in range(80)
-    ]
-    result = asyncio.run(graph.run_context(rows, provider))
-    assert len(seen["merge"]) == 1 and len(seen["merge"][0]["groups"]) == 2
-    assert all(len(p["groups"]) == 1 for p in seen["link"])  # link는 합친 묶음 하나만 본다
-    equipment = [g for g in result.groups if g.kind == "EQUIPMENT"]
-    assert [g.name for g in equipment] == ["GIS"]
-    assert all(a.group_ids == [equipment[0].entity_id] for a in result.assignments)
-
-
-def test_merge_stage_prompt_and_schema_leave_existing_stages_unchanged():
-    schema = graph._ProviderSchema.model_json_schema()
-    assert "merges" not in schema["properties"] and "GroupMerge" not in schema["$defs"]
-    assert "merges" in graph._MergeSchema.model_json_schema()["properties"]
-    assert graph.PROMPT_VERSION == "rfp-context-v2"
