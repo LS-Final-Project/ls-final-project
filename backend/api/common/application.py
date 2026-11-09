@@ -14,7 +14,6 @@ from starlette.responses import Response
 
 from backend import __version__
 from backend.api.common.readiness import readiness
-from backend.shared import database
 from backend.shared.errors import ApplicationError
 from backend.shared.logs import log_context, trace_id
 from backend.shared.models import (
@@ -77,11 +76,6 @@ def create_application(service: ServiceName, settings: Settings | None = None) -
     )
     app.state.settings = settings
     app.state.service = service
-
-    async def warm_database() -> None:
-        await database.warm(app.state.settings)
-
-    app.router.add_event_handler("startup", warm_database)
     app.state.platform_caller = None
     if settings.business_relay_enabled and service in {"cs", "tft"}:
         audience = settings.business_cs_url if service == "cs" else settings.business_tft_url
