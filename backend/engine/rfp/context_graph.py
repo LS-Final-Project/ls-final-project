@@ -720,9 +720,11 @@ def attach_to_articles(
     requirements: list[ContextRequirement],
     titles: dict[tuple[str, str], str],
 ) -> ContextResult:
-    """설비·작업 묶음에 끝까지 연결되지 않은 요구를 소속 조 묶음(COMMON)에 둔다(KAN-255).
+    """요구 1개 이하만 연결된 태그 없는 설비·작업 묶음을 풀고, 설비·작업 묶음이 없는 요구를 소속 조 묶음(COMMON)에 둔다(KAN-255).
 
-    요구 행·분류·검토 필요 표시는 바꾸지 않고 묶음 연결(APPLIES_TO)만 더한다. 조 번호를 알 수 없는 요구는 그대로 둔다.
+    1개짜리 묶음은 묶는 일을 하지 않고 목록만 길게 만든다. 설비 이름은 요구 행에 그대로 남는다. 태그가 있는 묶음과
+    하위 묶음이 있는 묶음은 물리 식별·구조 근거라 남긴다. 요구 행·분류·검토 필요 표시는 바꾸지 않고, 묶음 연결(APPLIES_TO)만
+    바꾼다. 조 번호를 알 수 없는 요구는 그대로 둔다.
 
     Args:
         result: 맥락 정리 결과.
@@ -730,32 +732,51 @@ def attach_to_articles(
         titles: (판본, 조항 번호) → 조항 제목.
 
     Returns:
-        ContextResult: 조 묶음이 더해진 결과.
+        ContextResult: 1개짜리 묶음을 풀고 조 묶음을 더한 결과.
     """
     rows = {r.requirement_id: r for r in requirements}
+    linked = Counter(gid for a in result.assignments for gid in a.group_ids)
+    parents = {g.parent_id for g in result.groups if g.parent_id}
+    weak = {
+        g.entity_id
+        for g in result.groups
+        if g.kind in ("EQUIPMENT", "TASK")
+        and not g.tag
+        and g.entity_id not in parents
+        and linked[g.entity_id] <= 1
+    }
+    assignments = [
+        a.model_copy(
+            update={
+                "group_ids": [i for i in a.group_ids if i not in weak],
+                "relations": [r for r in a.relations if r.group_id not in weak],
+            }
+        )
+        if weak & set(a.group_ids)
+        else a
+        for a in result.assignments
+    ]
     members: dict[tuple[str, str], list[str]] = {}
-    for assignment in result.assignments:
+    for assignment in assignments:
         row = rows.get(assignment.requirement_id)
         article = article_of(row) if row else None
         if row is not None and article and not assignment.group_ids:
             members.setdefault((row.document_version_id, article), []).append(row.requirement_id)
-    if not members:
-        return result
     ids = {
         key: "article:" + hashlib.sha256("\0".join(key).encode()).hexdigest()[:24]
         for key in members
     }
-    groups = [
+    owner = {ref: ids[key] for key, refs in members.items() for ref in refs}
+    articles = [
         ContextGroup(
             entity_id=ids[key],
-            name=_article_name(key[1], titles.get(key)),
+            name=_article_name(key[1], titles.get(key), [rows[r] for r in refs]),
             kind="COMMON",
             evidence_requirement_ids=refs,
             needs_review=True,
         )
         for key, refs in members.items()
     ]
-    owner = {ref: ids[key] for key, refs in members.items() for ref in refs}
     assignments = [
         a.model_copy(
             update={
@@ -767,18 +788,27 @@ def attach_to_articles(
         )
         if a.requirement_id in owner
         else a
-        for a in result.assignments
+        for a in assignments
     ]
-    return result.model_copy(
-        update={"groups": [*result.groups, *groups], "assignments": assignments}
-    )
+    groups = [g for g in result.groups if g.entity_id not in weak]
+    return result.model_copy(update={"groups": [*groups, *articles], "assignments": assignments})
 
 
-def _article_name(article: str, title: str | None) -> str:
+def _article_name(article: str, title: str | None, rows: list[ContextRequirement]) -> str:
+    """조 번호 + 원문 제목. 제목이 없으면(클렌징으로 지워진 `2.9` 등) 요구 절반 이상이 같은 설비일 때만 그 이름을 붙인다."""
     title = (title or "").strip()
     if title and title.casefold() not in article.casefold():
         return f"{article} {title}"
-    return article
+    if re.search(r"[^\d.\s]", article):
+        return article
+    names = Counter(entity_name(r.equipment) for r in rows if entity_name(r.equipment))
+    if not names:
+        return article
+    top, count = names.most_common(1)[0]
+    if count * 2 < len(rows):
+        return article
+    shown = next(r.equipment for r in rows if r.equipment and entity_name(r.equipment) == top)
+    return f"{article} (설비: {shown})"
 
 
 def build_input(row: ContextRequirement, *, inventory: bool = False) -> dict[str, Any]:

@@ -500,12 +500,27 @@ def test_max_length_provider_ids_are_remapped_with_parent_links_and_roundtrip_sa
 
     async def provider(stage, payload):
         if stage == "inventory":
+            refs = ["r1", "r2"]
             return ContextProposal(
-                groups=[group(parent, kind="SYSTEM"), group(child, parent_id=parent)]
+                groups=[
+                    group(parent, kind="SYSTEM", evidence_requirement_ids=refs),
+                    group(child, parent_id=parent, evidence_requirement_ids=refs),
+                ]
             )
-        return ContextProposal(assignments=[assignment()])
+        # 하위 묶음에 요구 2개를 연결해 1개짜리 묶음 정리(KAN-255)에 걸리지 않게 한다.
+        target = next(g["entity_id"] for g in payload["groups"] if g["kind"] == "EQUIPMENT")
+        return ContextProposal(
+            assignments=[
+                assignment(
+                    r["requirement_id"],
+                    group_ids=[target],
+                    relations=[ContextRelation(group_id=target, relation="APPLIES_TO")],
+                )
+                for r in payload["requirements"]
+            ]
+        )
 
-    result = asyncio.run(graph.run_context([requirement()], provider))
+    result = asyncio.run(graph.run_context([requirement(), requirement("r2")], provider))
     provided = [g for g in result.groups if not g.entity_id.startswith("article:")]
     assert len(provided) == 2
     assert all(len(g.entity_id) <= 160 for g in result.groups)
@@ -726,7 +741,8 @@ def test_unlinked_requirements_go_to_their_article_and_survive_revalidation():
     result = validate(rows, [], [assignment(r.requirement_id) for r in rows])
     titled = graph.attach_to_articles(result, rows, {("d1", "2.3"): "MOLDED-CASE BREAKERS"})
     names = {g.name: g.evidence_requirement_ids for g in titled.groups}
-    assert names == {"2.3 MOLDED-CASE BREAKERS": ["r1", "r2"], "3.1": ["r3"]}
+    # 원문 제목이 없는 조는 요구 행의 설비 이름을 출처 표시와 함께 붙인다.
+    assert names == {"2.3 MOLDED-CASE BREAKERS": ["r1", "r2"], "3.1 (설비: Transformer)": ["r3"]}
     assert all(g.kind == "COMMON" and g.needs_review for g in titled.groups)
     by_id = {a.requirement_id: a for a in titled.assignments}
     assert by_id["r4"].group_ids == []
@@ -735,3 +751,36 @@ def test_unlinked_requirements_go_to_their_article_and_survive_revalidation():
     assert graph.validate_context(titled, rows).model_dump(exclude={"outcome", "issues"}) == (
         titled.model_dump(exclude={"outcome", "issues"})
     )
+
+
+def test_single_member_untagged_groups_fold_into_their_article():
+    rows = [
+        requirement("r1", clause_no="2.5.A", section_path=["PART 2", "2.5", "2.5.A"]),
+        requirement("r2", clause_no="2.5.B", section_path=["PART 2", "2.5", "2.5.B"]),
+        requirement("r3", clause_no="2.5.C", section_path=["PART 2", "2.5", "2.5.C"]),
+        requirement("r4", clause_no="2.6.A", section_path=["PART 2", "2.6", "2.6.A"]),
+    ]
+    link = lambda key, gid: assignment(  # noqa: E731
+        key, group_ids=[gid], relations=[ContextRelation(group_id=gid, relation="APPLIES_TO")]
+    )
+    result = ContextResult(
+        outcome="VALID",
+        groups=[
+            group("pair", evidence_requirement_ids=["r1"]),
+            group("lone", name="Trip Unit", evidence_requirement_ids=["r3"]),
+            group("tagged", tag="T1", evidence_requirement_ids=["r4"]),
+        ],
+        assignments=[
+            link("r1", "pair"),
+            link("r2", "pair"),
+            link("r3", "lone"),
+            link("r4", "tagged"),
+        ],
+    )
+    after = graph.attach_to_articles(result, rows, {("d1", "2.5"): "COMPONENTS"})
+    by_id = {a.requirement_id: a.group_ids for a in after.assignments}
+    names = {g.entity_id: g.name for g in after.groups}
+    # 2개 연결 묶음과 태그 묶음은 남고, 1개짜리 'Trip Unit'은 풀려서 소속 조 묶음으로 간다.
+    assert "lone" not in names and {"pair", "tagged"} <= names.keys()
+    assert by_id["r1"] == by_id["r2"] == ["pair"] and by_id["r4"] == ["tagged"]
+    assert names[by_id["r3"][0]] == "2.5 COMPONENTS"
