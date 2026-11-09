@@ -36,6 +36,10 @@ PREFIX = "/internal/v1/platform/jobs"
 CLOUD_PLATFORM = "https://www.googleapis.com/auth/cloud-platform"
 # 호출 한 번에 보내는 최대 건수. 남은 건은 다음 주기가 보낸다.
 BATCH = 5
+# KAN-252: 접수 응답은 worker 실행 요청을 이만큼만 기다린다. tft·cs의 접수 호출 제한(20초)보다 훨씬 짧다.
+SOON_WAIT_SECONDS = 3.0
+# 응답 뒤에도 이어지는 전송 작업. 참조를 들고 있어야 끝나기 전에 GC되지 않는다.
+_SENDING: set[asyncio.Task[None]] = set()
 CLOSED = {"DISPATCH_DISABLED", "JOBS_TRANSPORT_DISABLED"}
 
 
@@ -202,8 +206,10 @@ async def sweep(app: FastAPI, limit: int) -> int:
 async def dispatch_soon(app: FastAPI) -> None:
     """접수 직후 한 건을 보낸다. 실패는 기록만 하고 Scheduler 주기에 맡긴다.
 
-    끊으면 장부가 SENDING에 남으므로 시간 제한을 두지 않는다. dispatch_one의 토큰·전송 제한이
-    tft·cs의 접수 호출 제한(20초)보다 짧다.
+    작업은 이미 커밋됐으므로 접수 응답은 전송을 SOON_WAIT_SECONDS까지만 기다린다. 늦으면 전송은 끊지 않고
+    응답 뒤에도 이어진다(끊으면 장부가 SENDING에 남는다). 그 사이 프로세스가 멈춰도 SENDING lease가 만료되면
+    다음 주기가 다시 보내고, worker 인수가 작업당 한 번이라 중복 실행은 없다. 전송을 기다리다 tft의 20초 제한을
+    넘기면 접수된 작업이 503으로 보였다(KAN-252).
 
     Args:
         app: 플랫폼 앱.
@@ -213,10 +219,17 @@ async def dispatch_soon(app: FastAPI) -> None:
     """
     if app.state.jobs_sweep_caller is None:
         return
-    try:
-        await sweep(app, 1)
-    except Exception as error:
-        LOGGER.warning("JOBS_DISPATCH_SOON_FAILED", extra={"error_type": type(error).__name__})
+
+    async def send() -> None:
+        try:
+            await sweep(app, 1)
+        except Exception as error:
+            LOGGER.warning("JOBS_DISPATCH_SOON_FAILED", extra={"error_type": type(error).__name__})
+
+    task = asyncio.create_task(send())
+    _SENDING.add(task)
+    task.add_done_callback(_SENDING.discard)
+    await asyncio.wait({task}, timeout=SOON_WAIT_SECONDS)
 
 
 async def verify_caller(request: Request) -> None:
