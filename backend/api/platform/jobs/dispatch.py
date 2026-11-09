@@ -151,6 +151,9 @@ async def claim_next(
             "AND o.next_attempt_at<=clock_timestamp()) "
             "OR (o.state IN ('CLAIMED','SENDING') AND o.lease_expires_at<=clock_timestamp())) "
             "AND j.kind = ANY(%s) "
+            # 끝난 작업의 남은 행을 집으면 begin_send가 막고 그 호출은 아무것도 못 보낸다(sweep이 멈춤).
+            # 앞에 쌓이면 뒤 작업이 JOB_NOT_STARTED로 닫혔다(KAN-155 부하 측정).
+            "AND j.status IN ('QUEUED','RUNNING') "
             "AND (%s::uuid IS NULL OR o.job_id=%s) "
             "ORDER BY o.created_at,o.job_id LIMIT 1 FOR UPDATE OF o SKIP LOCKED",
             (kinds, job_id, job_id),

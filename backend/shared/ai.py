@@ -1,6 +1,7 @@
 """Shared Gen AI client configuration; business prompts stay in their own modules."""
 
 import json
+import logging
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
@@ -37,6 +38,7 @@ class AISettings(BaseSettings):
 
 PRICES = Path(__file__).with_name("ai_prices.json")
 # 일시 오류 재시도 전 대기(초). n번째 재시도는 이 값의 2^(n-1)배를 기다린다.
+LOGGER = logging.getLogger(__name__)
 TRANSIENT_BACKOFF_SECONDS = 1.0
 MILLION = Decimal(1_000_000)
 
@@ -388,6 +390,17 @@ def generate(
         )
         if raw
         else Usage()
+    )
+    # 토큰 수만 남긴다(본문·지시문 없음). RFP 추출처럼 사용량을 저장하지 않는 호출의 비용을 로그로 센다.
+    LOGGER.info(
+        "AI_USAGE",
+        extra={
+            "model": settings.gemini_model,
+            "input_tokens": usage.input_tokens,
+            "output_tokens": usage.output_tokens,
+            "thought_tokens": usage.thought_tokens,
+            "cached_input_tokens": usage.cached_input_tokens,
+        },
     )
     return Generation(
         response.text or "",

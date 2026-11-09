@@ -573,3 +573,38 @@ def test_event_payload_refuses_bad_rfp_values(payload):
     """계약 표에 없는 step·음수·빠진·모르는 counts 키·UUID가 아닌 문서 판본은 거부한다."""
     with pytest.raises(ValueError):
         EventPayload.model_validate(payload)
+
+
+def test_finished_jobs_do_not_hold_the_dispatch_queue(
+    settings, jobs_database, tft_job, registered_user
+):
+    """KAN-155: 이미 끝난 작업의 남은 전송 행이 앞에 있어도 다음 대기 작업을 바로 집는다.
+
+    끝난 행을 집으면 begin_send가 BLOCKED로 막고 그 호출은 아무것도 보내지 못한다(sweep이 멈춤).
+    부하 측정에서 이 행이 쌓여 뒤 작업이 10분 넘게 대기하다 JOB_NOT_STARTED로 닫혔다.
+    """
+
+    async def admit():
+        async with connection(settings) as conn, conn.transaction():
+            request = TftJobRequest(
+                actor_id=registered_user[1],
+                kind="rfp.process",
+                project_id=uuid4(),
+                input_version="a" * 64,
+                idempotency_key=str(uuid4()),
+                request_hash="b" * 64,
+            )
+            return (await admit_tft_job(conn, request)).job_id
+
+    waiting = asyncio.run(admit())
+    try:
+        with psycopg.connect(jobs_database) as conn:
+            conn.execute("UPDATE runtime.jobs SET status='SUCCEEDED' WHERE id=%s", (tft_job,))
+        lease = asyncio.run(claim_next(settings, CLOSED, DISPATCH, None, tft_settings()))
+        assert lease is not None and lease.job_id == waiting
+        assert outbox(jobs_database, tft_job) == "PENDING"
+    finally:
+        with psycopg.connect(jobs_database) as conn:
+            for table in ("job_control", "dispatch_attempts", "dispatch_outbox", "job_events"):
+                conn.execute(f"DELETE FROM runtime.{table} WHERE job_id=%s", (waiting,))
+            conn.execute("DELETE FROM runtime.jobs WHERE id=%s", (waiting,))

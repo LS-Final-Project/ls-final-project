@@ -33,7 +33,21 @@ LINK_FIELDS = frozenset(
 # Context set for every request by the application middleware.
 REQUEST_FIELDS = frozenset({"service", "request_id", "trace_id"})
 # Per-line values a caller may pass with `extra=`. Anything else is dropped.
-EXTRA_FIELDS = frozenset({"method", "path", "status", "duration_ms", "error_type"})
+EXTRA_FIELDS = frozenset(
+    {
+        "method",
+        "path",
+        "status",
+        "duration_ms",
+        "error_type",
+        # AI_USAGE(backend.shared.ai.generate): 토큰 수만.
+        "model",
+        "input_tokens",
+        "output_tokens",
+        "thought_tokens",
+        "cached_input_tokens",
+    }
+)
 
 MAX_MESSAGE = 2000
 
