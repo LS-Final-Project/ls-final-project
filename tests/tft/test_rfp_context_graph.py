@@ -784,3 +784,50 @@ def test_single_member_untagged_groups_fold_into_their_article():
     assert "lone" not in names and {"pair", "tagged"} <= names.keys()
     assert by_id["r1"] == by_id["r2"] == ["pair"] and by_id["r4"] == ["tagged"]
     assert names[by_id["r3"][0]] == "2.5 COMPONENTS"
+
+
+def test_tagged_group_keeps_same_part_scope_for_name_links():
+    # 같은 이름의 태그 묶음은 다른 PART의 태그 없는 요구를 이름만으로 끌어가지 않는다(물리 식별은 태그로만).
+    tagged = requirement("r1", section_path=["PART 2"], quote="Transformer tag: T-01")
+    other_part = requirement("r2", section_path=["PART 3"], quote="Transformer tag: T-01 test")
+    same_part = requirement("r3", section_path=["PART 2"], quote="Transformer tag: T-01 rating")
+    link = lambda key: assignment(  # noqa: E731
+        key, group_ids=["g1"], relations=[ContextRelation(group_id="g1", relation="APPLIES_TO")]
+    )
+    result = validate(
+        [tagged, other_part, same_part],
+        [group(tag="T-01", evidence_requirement_ids=["r1"])],
+        [link("r1"), link("r2"), link("r3")],
+    )
+    by_id = {a.requirement_id: a.group_ids for a in result.assignments}
+    assert by_id == {"r1": ["g1"], "r2": [], "r3": ["g1"]}
+    index = graph._candidate_index(result.groups, {r.requirement_id: r for r in [tagged]})
+    assert ("equipment", "d1", "transformer") not in index
+    assert index[("equipment", "d1", "PART 2", "transformer")] == {"g1"}
+
+
+def test_parent_cycle_left_by_name_merge_is_cut_before_use():
+    # 이름 병합으로 A→B→A 순환이 남아도 validate_context가 부모를 끊는다.
+    rows = [requirement("r1"), requirement("r2")]
+    merged, aliases = graph.merge_by_name(
+        [
+            group("a", kind="SYSTEM", name="Transformer", parent_id="b2"),
+            group("b", name="Transformer", parent_id="a", evidence_requirement_ids=["r1"]),
+            group("b2", name="transformers", evidence_requirement_ids=["r2"], parent_id="a"),
+        ],
+        {r.requirement_id: r for r in rows},
+    )
+    assert aliases == {"b2": "b"}
+    merged = [
+        g.model_copy(update={"parent_id": aliases.get(g.parent_id, g.parent_id)}) for g in merged
+    ]
+    assert {g.entity_id: g.parent_id for g in merged} == {"a": "b", "b": "a"}
+    result = validate(rows, merged, [assignment("r1"), assignment("r2")])
+    parents = {g.entity_id: g.parent_id for g in result.groups}
+    for start in parents:  # 어느 묶음에서 올라가도 끝난다(순환 없음).
+        seen, at = set(), start
+        while at is not None:
+            assert at not in seen
+            seen.add(at)
+            at = parents.get(at)
+    assert any(i.code == "INVALID_PARENT" for i in result.issues)

@@ -124,11 +124,16 @@ def _related(
     if row.requirement_id in group.evidence_requirement_ids:
         return True
     # KAN-255: 같은 설비·작업은 같은 문서 안이면 절(PART)이 달라도 같은 대상이다(PART 3 시험 요구 → PART 2 설비).
-    # 이름은 entity_name으로만 맞추고 동의어·상위 개념으로 넓히지 않는다. 공통 묶음은 지금처럼 같은 절 범위만.
+    # 이름은 entity_name으로만 맞추고 동의어·상위 개념으로 넓히지 않는다. 공통 묶음과 태그 묶음(물리 식별)은 지금처럼
+    # 같은 절 범위만 본다: 같은 이름의 T-01·T-02 묶음이 다른 PART의 태그 없는 요구를 서로 끌어가지 않게.
     equipment, task = entity_name(row.equipment), entity_name(row.task)
-    if group.kind in ("EQUIPMENT", "TASK") and (
-        (equipment and equipment == entity_name(group.name))
-        or (task and task == entity_name(group.name))
+    if (
+        group.kind in ("EQUIPMENT", "TASK")
+        and not group.tag
+        and (
+            (equipment and equipment == entity_name(group.name))
+            or (task and task == entity_name(group.name))
+        )
     ):
         return any(
             ref in source and source[ref].document_version_id == row.document_version_id
@@ -138,6 +143,7 @@ def _related(
         ref in source
         and (
             source[ref].document_version_id == row.document_version_id
+            and (group.tag is None or _same_scope(row, source[ref]))
             and (
                 (equipment and equipment == entity_name(source[ref].equipment))
                 or (task and task == entity_name(source[ref].task))
@@ -153,11 +159,12 @@ def _scope_keys(row: ContextRequirement) -> list[tuple[str, ...]]:
     keys: list[tuple[str, ...]] = [("requirement", row.requirement_id)]
     if row.section_path:
         keys.append(("scope", row.document_version_id, row.section_path[0]))
-    # KAN-255: 설비·작업은 문서 전체에서 정규화 이름으로 찾는다(_related와 같은 기준).
-    if row.equipment and entity_name(row.equipment):
-        keys.append(("equipment", row.document_version_id, entity_name(row.equipment)))
-    if row.task and entity_name(row.task):
-        keys.append(("task", row.document_version_id, entity_name(row.task)))
+    # KAN-255: 설비·작업은 문서 전체 정규화 이름(태그 없는 묶음용)과 같은 절 안 이름(태그 묶음용)으로 찾는다.
+    for kind, name in (("equipment", entity_name(row.equipment)), ("task", entity_name(row.task))):
+        if name:
+            keys.append((kind, row.document_version_id, name))
+            if row.section_path:
+                keys.append((kind, row.document_version_id, row.section_path[0], name))
     return keys
 
 
@@ -170,9 +177,12 @@ def _candidate_index(
             for key in _scope_keys(source[ref]):
                 if key[0] == "scope" and group.kind != "COMMON":
                     continue
+                # 태그 묶음은 같은 절 안 이름(4칸 키)만, 태그 없는 묶음은 문서 전체 이름(3칸 키)만 쓴다(_related와 같은 기준).
+                if key[0] in ("equipment", "task") and (len(key) == 4) != bool(group.tag):
+                    continue
                 index.setdefault(key, set()).add(group.entity_id)
         # 묶음 이름 자체도 찾기 키다(근거 요구의 설비 칸이 비어 있어도 이름이 같은 요구를 붙인다).
-        if group.kind in ("EQUIPMENT", "TASK") and entity_name(group.name):
+        if group.kind in ("EQUIPMENT", "TASK") and not group.tag and entity_name(group.name):
             for doc in {source[r].document_version_id for r in group.evidence_requirement_ids}:
                 kind = "equipment" if group.kind == "EQUIPMENT" else "task"
                 index.setdefault((kind, doc, entity_name(group.name)), set()).add(group.entity_id)
