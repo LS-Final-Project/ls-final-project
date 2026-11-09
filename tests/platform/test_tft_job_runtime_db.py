@@ -608,3 +608,27 @@ def test_finished_jobs_do_not_hold_the_dispatch_queue(
             for table in ("job_control", "dispatch_attempts", "dispatch_outbox", "job_events"):
                 conn.execute(f"DELETE FROM runtime.{table} WHERE job_id=%s", (waiting,))
             conn.execute("DELETE FROM runtime.jobs WHERE id=%s", (waiting,))
+
+
+def test_admission_does_not_wait_long_for_a_slow_send(settings, monkeypatch):
+    """KAN-252: 전송이 늦어도 접수 응답은 짧게 기다리고, 전송은 끊지 않고 이어진다."""
+    app = create_app(settings)
+    app.state.jobs_sweep_caller = object()
+    finished = []
+
+    async def slow(target, limit):
+        await asyncio.sleep(0.5)
+        finished.append(limit)
+
+    monkeypatch.setattr(sweep_module, "sweep", slow)
+    monkeypatch.setattr(sweep_module, "SOON_WAIT_SECONDS", 0.05)
+
+    async def run():
+        started = asyncio.get_running_loop().time()
+        await sweep_module.dispatch_soon(app)
+        waited = asyncio.get_running_loop().time() - started
+        assert waited < 0.4 and finished == []
+        await asyncio.gather(*sweep_module._SENDING)
+        assert finished == [1]
+
+    asyncio.run(run())
