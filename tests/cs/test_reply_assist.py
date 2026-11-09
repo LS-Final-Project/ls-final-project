@@ -132,3 +132,24 @@ def test_mostly_korean_detects_a_korean_draft():
     assert mostly_korean("확인 후 회신드리겠습니다. E-204")
     assert not mostly_korean("We will check E-204 and reply.")
     assert not mostly_korean("12345")
+
+
+def test_length_cap_allows_a_longer_customer_language_reply_but_not_a_runaway_one():
+    # 한국어는 글자가 촘촘해 고객 언어 회신이 몇 배 길어진다(실제 모델 2026-11-09: 167자 → 약 600자, 3배 상한에 걸림).
+    answer = (
+        "펌웨어 4.2.1에서 E-204 오탐이 고쳐졌습니다. 2주 안에 배포 예정입니다. 배포 전에는 감도 설정을 한 단계 낮추면 "
+        "오탐이 줄어듭니다. 설정 방법은 사용 설명서 6장에 있습니다. 배포 일정이 바뀌면 다시 안내합니다."
+    )
+    payload = build_dept_draft_input(TICKET, {"result": answer, "reply_content": None})
+    polite = (
+        "Dear customer,\n\nThank you for contacting us about the E-204 trip on your breaker. Our engineering "
+        "team has reviewed the case and confirmed that firmware 4.2.1 fixes the false E-204 trip. The release is "
+        "planned within 2 weeks. Until then, lowering the sensitivity setting by one step should reduce the false "
+        "trips; the procedure is described in chapter 6 of the user manual. If the release schedule changes, we "
+        "will let you know.\n\nKind regards."
+    )
+    assert len(polite) > max(400, 3 * len(answer))
+    assert validate_output(out(polite), kind="DEPT_DRAFT", payload=payload) == polite
+    with pytest.raises(ReplyAssistError) as caught:
+        validate_output(out("Firmware 4.2.1. " * 200), kind="DEPT_DRAFT", payload=payload)
+    assert caught.value.code == "CS_REPLY_ASSIST_SCHEMA"

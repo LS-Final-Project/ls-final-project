@@ -44,7 +44,9 @@ PROMPT_VERSIONS: dict[Kind, str] = {
 }
 MAX_TEXT_CHARS = 8000
 MIN_LIMIT = 400
-RATIO = 3
+# 출력 길이 상한 = 기준 글 길이 × 배수. 한국어 → 다른 언어(부서 답변 초안, 한국어 수정 반영)는 글자 수가
+# 2~4배로 늘고 인사·맺음말이 붙으므로 넉넉히 둔다(2026-11-09 실제 모델: 한국어 167자 → 스페인어 약 600자).
+RATIO: dict[Kind, int] = {"DEPT_DRAFT": 8, "TO_KO": 3, "FROM_KO": 8}
 LETTER = re.compile(r"[^\W\d_]")
 _FACTS = (
     "- 숫자, 단위, 날짜, 모델명, 시리얼, 오류 코드, 펌웨어 판본은 입력 표기 그대로 쓰고 새로 만들거나 바꾸지 "
@@ -212,7 +214,7 @@ def validate_output(raw: str, *, kind: Kind, payload: Payload) -> str:
         raise ReplyAssistError("CS_REPLY_ASSIST_SCHEMA") from None
     text = text.strip()
     language, length_basis, source = _basis(payload)
-    if len(text) > min(MAX_TEXT_CHARS, max(MIN_LIMIT, RATIO * len(length_basis))):
+    if len(text) > min(MAX_TEXT_CHARS, max(MIN_LIMIT, RATIO[kind] * len(length_basis))):
         raise ReplyAssistError("CS_REPLY_ASSIST_SCHEMA")
     if bool(HANGUL.search(text)) != korean_language(language):
         raise ReplyAssistError("CS_REPLY_ASSIST_LANGUAGE")
