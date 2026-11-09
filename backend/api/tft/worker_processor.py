@@ -436,7 +436,8 @@ def sections_of(tree: ClauseTree) -> list[str]:
     leaves = {
         c.clause_no
         for c in tree.clauses
-        if is_korean_section(c)
+        # KAN-254: 소수 번호 문서의 하위 조항 없는 장(`1 Scope`의 본문)도 절이다.
+        if (is_korean_section(c) or ("DECIMAL_OUTLINE" in c.flags and c.parent_no is None))
         and c.clause_no not in groups
         and c.clause_no not in parents_with_children
         and (c.text.strip() or c.table_rows)

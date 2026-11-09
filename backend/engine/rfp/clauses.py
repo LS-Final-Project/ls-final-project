@@ -67,6 +67,7 @@
 import re
 from collections import Counter
 from dataclasses import dataclass, field
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -1402,6 +1403,10 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
     close()
     order = [b.block_id for b in blocks]
     boilerplate = sorted(noise, key=order.index)
+    if not clauses and not korean and part_no is None:
+        # KAN-254: PART·SECTION·한글 시작점이 하나도 없어 문서 전체가 머리말이 된 영문 문서만 소수 번호로 다시 읽는다.
+        # 기존 규칙으로 조항이 하나라도 나온 문서는 이 경로를 타지 않으므로 결과가 바뀌지 않는다.
+        clauses, preamble = _decimal_outline([b for b in blocks if b.block_id not in noise])
     return ClauseTree(
         sha256=document.sha256,
         edit_trace_support=document.edit_trace_support,
@@ -1412,6 +1417,171 @@ def build_clause_tree(document: ExtractedDocument) -> ClauseTree:
         excluded=[Excluded(block_id=b, text=texts[b], reason=noise[b]) for b in boilerplate],
         numbering_issues=issues + [gap.issue() for gap in detect_structure_gaps(clauses)],
     )
+
+
+# KAN-254 소수 번호 개요(EPC 사양서): `2 Definitions`·`4.1 Specifications`·`2. ENVIRONMENTAL CONDITIONS`.
+# 번호 끝 마침표 뒤에는 띄어쓰기가 없어도 된다(`5.2.2.3.공급 항목`, 한글 서식 EPC 사양서).
+DECIMAL_LABEL = re.compile(
+    r"(\d{1,2}(?:\.\d{1,3}){0,4})(?:\.[ \t\u00a0]*|[ \t\u00a0]+)(\S.*)", re.S
+)
+# 번호 바로 뒤가 단위면 값(`13.8 kV class`)이지 조항 번호가 아니다.
+DECIMAL_UNIT = re.compile(r"(?:k?V|kA|A|Hz|%|mm|m|°C|kVA|MVA|sec|s|min|kg|bar)\b", re.I)
+# 앞 형제보다 이만큼까지 큰 번호만 다음 형제로 본다(원문이 번호를 건너뛴 경우 포함).
+DECIMAL_GAP = 3
+DECIMAL_TITLE_MAX = 120
+
+
+def _decimal_toc(blocks: list[Block]) -> set[str]:
+    """본문 없이 장 번호(1, 2, 3 …)만 3개 이상 이어지고 그 뒤에 더 작은 장 번호가 다시 나오면 목차다."""
+    runs: list[tuple[list[str], int]] = []
+    run: list[str] = []
+    top = 0
+    numbered: list[tuple[int, int]] = []
+    for index, block in enumerate(blocks):
+        text = block.text.strip()
+        if not text:
+            continue
+        match = DECIMAL_LABEL.fullmatch(text) if block.kind == "PARAGRAPH" else None
+        if match:
+            numbered.append((index, int(match.group(1).split(".")[0])))
+        if match and "." not in match.group(1) and int(match.group(1)) == top + 1:
+            run.append(block.block_id)
+            top += 1
+            continue
+        if len(run) >= 3:
+            runs.append((run, index))
+        run, top = [], 0
+        if match and match.group(1) == "1":
+            run, top = [block.block_id], 1
+    if len(run) >= 3:
+        runs.append((run, len(blocks)))
+    toc: set[str] = set()
+    for ids, end in runs:
+        if any(at >= end and number < len(ids) for at, number in numbered):
+            toc.update(ids)
+    return toc
+
+
+def _decimal_outline(blocks: list[Block]) -> tuple[list[Clause], list[str]]:
+    """PART·SECTION·한글 시작점이 없는 영문 문서를 소수 번호(1 → 1.1 → 1.1.1)로 읽는다.
+
+    번호는 구조가 맞을 때만 조항이다: 상위 번호가 열려 있고 앞 형제보다 1~DECIMAL_GAP 크다. 표 칸의 번호는 조항으로
+    읽지 않고 바로 앞 조항의 표 행에 둔다(목차 표·사양 표). 본문 없이 번호만 이어지다 첫 번호가 다시 나오면 앞부분을
+    목차로 보고 버린다. 번호 없는 문단은 앞 조항 본문에 붙인다.
+
+    Args:
+        blocks: 반복 문구를 뺀 문서 블록(문서 순서).
+
+    Returns:
+        tuple[list[Clause], list[str]]: 조항과 첫 조항 앞 머리말 블록 ID.
+    """
+    clauses: list[dict[str, Any]] = []
+    preamble: list[str] = []
+    chain: list[str] = []
+    last: dict[str | None, int] = {}
+    row_key: tuple[int | None, int | None] | None = None
+
+    def plan(token: str, rest: str) -> list[str] | None:
+        """이 번호를 조항으로 열 때 함께 열 조항(빠진 상위 번호 포함)을 순서대로. 조항이 아니면 None."""
+        if DECIMAL_UNIT.match(rest):
+            return None
+        segments = token.split(".")
+        # 열린 조상 중 이 번호와 앞자리가 같은 가장 깊은 것. 그 아래 빠진 상위 번호는 형제 순서가 맞을 때만 채운다.
+        common = 0
+        while common < min(len(chain), len(segments) - 1) and chain[common] == ".".join(
+            segments[: common + 1]
+        ):
+            common += 1
+        opened: list[str] = []
+        for depth in range(common, len(segments)):
+            number = ".".join(segments[: depth + 1])
+            parent = ".".join(segments[:depth]) or None
+            implied_parent = depth > common
+            step = int(segments[depth]) - last.get(parent, 0)
+            # 빠진 상위 번호 아래 첫 번호는 앞 형제를 모르므로 순서만 본다.
+            if not (0 < step <= DECIMAL_GAP or (implied_parent and 0 < int(segments[depth]) <= 99)):
+                return None
+            opened.append(number)
+        return opened
+
+    def open_clause(token: str, title: str | None, text: str, block: Block, implied: bool) -> None:
+        segments = token.split(".")
+        parent = ".".join(segments[:-1]) or None
+        last[parent] = int(segments[-1])
+        del chain[len(segments) - 1 :]
+        chain.append(token)
+        clauses.append(
+            {
+                "token": token,
+                "parent": parent,
+                "depth": len(segments),
+                "title": title,
+                "text": text,
+                # 빠진 상위 번호도 원문 위치가 있어야 하므로 그 번호를 드러낸 문단을 가리킨다.
+                "block_ids": [block.block_id],
+                "rows": [],
+                "page": block.position.page,
+                "flags": ["DECIMAL_OUTLINE"] + (["IMPLIED_PARENT"] if implied else []),
+            }
+        )
+
+    toc = _decimal_toc(blocks)
+    for block in blocks:
+        text = block.text.strip()
+        if not text:
+            continue
+        if block.block_id in toc:
+            preamble.append(block.block_id)
+            continue
+        match = DECIMAL_LABEL.fullmatch(text) if block.kind == "PARAGRAPH" else None
+        if match and clauses and not any(c["text"] or c["rows"] for c in clauses):
+            # 목차: 본문 없이 번호만 이어지다 앞 번호보다 작은 장이 다시 나오면 앞부분을 버리고 본문부터 읽는다.
+            top = int(match.group(1).split(".")[0])
+            if top <= last.get(None, 0) and match.group(1) not in chain:
+                preamble += [i for c in clauses for i in c["block_ids"]]
+                clauses, chain, last = [], [], {}
+        opened = plan(*match.groups()) if match else None
+        if opened:
+            token, rest = match.groups()  # type: ignore[union-attr]
+            for number in opened[:-1]:
+                open_clause(number, None, "", block, True)
+            heading = len(rest) <= DECIMAL_TITLE_MAX and not rest.rstrip().endswith((".", ":", ";"))
+            title = rest.strip() if heading and token.count(".") <= 1 else None
+            open_clause(token, title, "" if title is not None else rest.strip(), block, False)
+            row_key = None
+            continue
+        if not clauses:
+            preamble.append(block.block_id)
+            continue
+        current = clauses[-1]
+        current["block_ids"].append(block.block_id)
+        if block.kind == "TABLE_CELL":
+            key = (block.position.table_index, block.position.row)
+            if key != row_key or not current["rows"]:
+                current["rows"].append([])
+                row_key = key
+            current["rows"][-1].append(text)
+        else:
+            current["text"] = (current["text"] + "\n" + text).strip()
+            row_key = None
+    out = [
+        Clause(
+            clause_no=c["token"],
+            label=c["token"],
+            depth=c["depth"],
+            parent_no=c["parent"],
+            ordinal=i,
+            title=c["title"],
+            text=c["text"],
+            deleted_values=[],
+            flags=c["flags"],
+            block_ids=c["block_ids"],
+            table_rows=c["rows"],
+            page=c["page"],
+        )
+        for i, c in enumerate(clauses)
+    ]
+    return out, preamble
 
 
 # 빠진 번호 앞쪽 몇 개까지만 묻힌 항목으로 본다. 더 멀면 다른 목록이거나 원문이 번호를 건너뛴 것이다.
