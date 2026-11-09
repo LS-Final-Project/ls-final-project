@@ -163,7 +163,10 @@ T17은 기존 표에 `draft_sentences.needs_rereview`(생성 당시 검토 표�
 - **27 POST review-versions**: 담당 sales·책임자, Idempotency-Key 필수. 최신 초안 version 일치,
   근거 누락/문장 재검토 0, 필수 요구 해결 또는 다음 행동(`next_owner_field` 또는 저장한 보완 선택, `unresolved`는 비어도 된다), 통합 책임 필요 시 확보,
   빈 초안 아님을 확인한다. 실패는 422 `TFT_DRAFT_INCOMPLETE`(대상 ID를 details에 표시), stale은 409.
-  그 뒤 결정 저장 조건(KAN-220 `decision_gate`)이 남으면 409 `TFT_DECISION_GATE_OPEN`(남은 항목별 건수, [RFP 데이터 구조](rfp-data.md)).
+  그 뒤 결정 저장 조건(KAN-220 `decision_gate`의 `undecided`·`deviation_missing`·`open_queries`)이 남으면 409 `TFT_DECISION_GATE_OPEN`(남은 항목별 건수, [RFP 데이터 구조](rfp-data.md)).
+  책임자 확인 대기(`review_pending`)는 막지 않는다(KAN-253). 응답·검토 이력(`ReviewVersionItem`)의 `review_pending`은 저장 때 남은
+  책임자 확인 수이고 0이면 **확정**, 있으면 **초안(책임자 확인 n건 대기)**이다. 판본 번호는 그대로 하나씩 오르며 확정 뒤에도 다시 초안일 수 있다.
+  새 열 없이 저장 감사 행(`rfp_audit_events` `review_version.create`의 `detail.to.review_pending`)에 남기고 이력이 읽는다. 그 전 저장은 확인 대기가 있으면 막혔으므로 0이다.
   성공 시 `REVIEW_DRAFT`가 되고 미해결 필수가 있으면 `CONDITION_CHECK`, 없으면 `OWNER_CONFIRMED`다.
   이는 담당자의 저장 행위이며 공급·수주 승인이 아니다. 같은 키 재전송은 원래 검토본을 반환한다.
 - **28 POST exports**: 담당 sales·책임자, Idempotency-Key 필수. 지정된 불변 review_version 예약과 플랫폼
@@ -195,7 +198,7 @@ XML escaping 및 `w:br`·`w:tab`으로 한글/특수문자/줄바꿈을 보존�
 
 같은 검토본에서 XLSX 한 파일(시트 넷)과 요약서 DOCX(기존 검토본 DOCX)를 따로 내보낸다(28에 `format` `XLSX`·`DOCX`). 생성은
 `backend/api/tft/rfp/bid_outputs.py` 한 곳이고 시트 칸은 작업 공간 출력 탭과 같다. 모든 시트의 1행은 머리 줄
-(접수 때 고정한 제목 | 검토본 n | 자료 구분 | 기준 시각 = 예약 시각 KST | 저장 조건), 2행은 칸 이름(고정·자동 필터), 3행부터 자료다.
+(접수 때 고정한 제목 | 검토본 n | 자료 구분 | 기준 시각 = 예약 시각 KST | 초안·확정), 2행은 칸 이름(고정·자동 필터), 3행부터 자료다.
 
 | 시트 | 행 | 칸 |
 |---|---|---|
@@ -210,7 +213,9 @@ XML escaping 및 `w:br`·`w:tab`으로 한글/특수문자/줄바꿈을 보존�
 - XLSX의 편차·질의·결정·판정은 **내보낼 때의 기록**이다(머리 줄 기준 시각). 요약서 DOCX는 위 불변 검토본 규칙 그대로
   고정한 판본만 싣는다(내보낼 때의 판정 집계를 넣으면 같은 검토본의 파일이 달라져 넣지 않았다).
 - XLSX 재시도: 저장 직후 DB 기록 전에 멈췄으면 이 내보내기로 이미 만든 파일을 그대로 쓴다(다시 만들면 결정이 바뀌어 달라질 수 있다).
-- 저장 조건이 남아 있어도 내보내기는 막지 않는다. 머리 줄에 "저장 조건 미충족: …"으로 남은 항목을 적는다.
+- 저장 조건이나 책임자 확인이 남아 있어도 내보내기는 막지 않는다. 머리 줄 끝은 남은 것이 없으면 "확정", 책임자 확인만 남으면
+  "초안 (책임자 확인 n건 대기)", 저장 조건도 남으면 "초안 (저장 조건 미충족: …)"이다(KAN-253). 이 값은 다른 칸처럼 **내보낼 때** 다시 센 값이라
+  초안으로 저장한 판본을 책임자 확인 뒤 내보내면 "확정"으로 나온다. 판본의 저장 때 구분은 검토 이력이 보인다(worker는 감사 행을 읽지 못한다).
   내보내는 파일은 언제나 검토본이며 확정·제출본이라는 표시는 없다(기존 고지 유지).
 - worker(tft_worker)는 `requirement_decisions`·`deviations`·`question_withdrawals`를 읽는다(마이그레이션 `20261123_KAN-221_xlsx_exports.sql`).
 - XLSX도 표준 라이브러리 ZIP/XML로 만든다. XML에 넣을 수 없는 글자는 지우지 않고 실패한다(`TFT_EXPORT_INVALID_CHARACTER`).

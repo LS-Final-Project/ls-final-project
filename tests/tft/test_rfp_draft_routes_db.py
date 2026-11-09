@@ -1097,7 +1097,9 @@ def test_review_and_export_history_newest_first(
         "saved_by",
         "saved_by_name",
         "saved_at",
+        "review_pending",
     }
+    assert reviews[0]["review_pending"] == 0  # 확인까지 마치고 저장했다(확정).
     assert reviews[0]["draft_version"] == 1 and reviews[0]["output_status"] == "REVIEW_DRAFT"
     assert reviews[0]["saved_by"] == str(SALES) and reviews[0]["saved_by_name"] is None
 
@@ -1139,8 +1141,10 @@ def test_review_and_export_history_newest_first(
     assert done["file_name"] == f"rfp-{ids[1]}.docx" and done["requested_by_name"] is None
 
 
-def test_review_save_is_refused_until_decisions_and_reviews_are_done(client, app_dsn, chain, admin):
-    """KAN-220 저장 조건은 화면만이 아니라 서버도 막는다(2026-11-05). 본인 결정 프로젝트도 확인을 건너뛰지 않는다."""
+def test_review_save_waits_for_decisions_but_not_for_the_responsible_review(
+    client, app_dsn, chain, admin
+):
+    """KAN-220 저장 조건은 서버도 막는다(2026-11-05). 책임자 확인 대기는 막지 않고 초안으로 저장한다(KAN-253)."""
     ready(app_dsn, admin, chain)
 
     def save(key):
@@ -1162,13 +1166,25 @@ def test_review_save_is_refused_until_decisions_and_reviews_are_done(client, app
     first = left(save("gate-open"))
     assert first.get("undecided") == 1 and "review_pending" not in first
     made = decide(OWNER, action="record_deviation", text="기준온도 120 °C 값만 보유")
-    assert left(save("gate-review")) == {"review_pending": 1}
-    # 담당 sales가 책임자도 맡으면 본인이 확인한다. 확인 전에는 여전히 막힌다.
+    draft = save("gate-draft")
+    assert draft.status_code == 201, draft.text
+    assert draft.json()["data"]["review_pending"] == 1
+    # 같은 키 재전송은 저장 때 수를 그대로 돌려준다.
+    assert save("gate-draft").json()["data"]["review_pending"] == 1
+    # 담당 sales가 책임자도 맡으면 본인이 확인한다. 확인한 뒤 저장하면 확정이다.
     with psycopg.connect(admin) as conn:
         conn.execute(
             "UPDATE tft.projects SET responsible_user_id=%s WHERE id=%s", (SALES, chain["project"])
         )
-    assert left(save("gate-self")) == {"review_pending": 1}
     decide(OWNER, action="review_confirm", decision_id=made["decision_id"])
     saved = save("gate-closed")
     assert saved.status_code == 201, saved.text
+    assert saved.json()["data"]["review_pending"] == 0
+    # 확정 뒤에 결정을 다시 하면 다음 판본은 다시 초안이다.
+    decide(OWNER, action="undo", decision_id=made["decision_id"])
+    decide(OWNER, action="record_deviation", text="기준온도 120 °C 값만 보유, 다시 기재")
+    again = save("gate-draft-again")
+    assert again.status_code == 201, again.text
+    # 이력은 판본마다 저장 때 수를 보인다(뒤 판본이 확정이어도 앞 판본은 초안으로 남는다).
+    items = call(client, "GET", chain, "/review-versions").json()["data"]["items"]
+    assert [(i["review_version"], i["review_pending"]) for i in items] == [(3, 1), (2, 0), (1, 1)]

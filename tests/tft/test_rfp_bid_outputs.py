@@ -29,7 +29,7 @@ def read_xlsx(data: bytes) -> dict[str, list[list[str]]]:
 
 def sample() -> out.Outputs:
     return out.Outputs(
-        meta="RFP-91 | 검토본 1 | 합성 자료 | 기준 2026-11-04 10:00 KST | 저장 조건 충족",
+        meta="RFP-91 | 검토본 1 | 합성 자료 | 기준 2026-11-04 10:00 KST | 확정",
         sheets=[
             out.Sheet(
                 "편차표", ("No", "편차 내용"), (6, 40), [[1, "75 °C 기준 임피던스\n성적서 확인"]]
@@ -46,7 +46,7 @@ def test_four_sheets_open_with_meta_headers_and_rows():
     sheets = read_xlsx(data)
     assert list(sheets) == ["편차표", "질의서", "현황표", "요구별"]
     for rows in sheets.values():
-        assert rows[0][0].endswith("저장 조건 충족")
+        assert rows[0][0].endswith("확정")
     assert sheets["편차표"][1] == ["No", "편차 내용"]
     assert sheets["편차표"][2] == ["1", "75 °C 기준 임피던스\n성적서 확인"]
     assert len(sheets["질의서"]) == 2  # 머리·칸 이름만
@@ -76,11 +76,13 @@ def test_clause_order_compares_numbers_as_numbers():
     ]
 
 
-def test_gate_text_names_only_what_blocks():
-    assert out.gate_text(s.DecisionGate()) == "저장 조건 충족"
+def test_gate_text_says_draft_or_final():
+    """KAN-253: 남은 것이 없으면 확정, 책임자 확인만 남으면 초안이다. 확인 대기는 저장 조건 미충족이 아니다."""
+    assert out.gate_text(s.DecisionGate()) == "확정"
+    assert out.gate_text(s.DecisionGate(review_pending=2)) == "초안 (책임자 확인 2건 대기)"
     assert (
         out.gate_text(s.DecisionGate(undecided=3, review_pending=2))
-        == "저장 조건 미충족: 판정 안 된 요구 3, 책임자 확인 대기 2"
+        == "초안 (저장 조건 미충족: 판정 안 된 요구 3, 책임자 확인 2건 대기)"
     )
 
 

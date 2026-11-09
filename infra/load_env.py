@@ -58,6 +58,8 @@ OFF = {
         "CS_MAIL_ENABLED": "false",
         "CS_SUMMARY_ENABLED": "false",
         "CS_FAULT_SUGGESTION_ENABLED": "false",
+        "CS_DEPT_REPLY_DRAFT_ENABLED": "false",
+        "CS_REPLY_TRANSLATION_ENABLED": "false",
     },
     "tft": {},
 }

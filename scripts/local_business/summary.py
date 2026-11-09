@@ -1,8 +1,9 @@
 """Local-only synchronous summary bridge; model keys never enter an API container.
 
 The same bridge also serves the improvement-request AI draft (KAN-115), the ticket Korean
-translation, the customer reply analysis (KAN-230) and the same-fault suggestion (KAN-245) on
-their own paths with their own prompt
+translation, the customer reply analysis (KAN-230), the same-fault suggestion (KAN-245) and
+the reply draft help (KAN-251: department-answer draft, draft Korean translation and Korean edit)
+on their own paths with their own prompt
 check and output schema; all share the driver's lock, limits and usage accounting.
 
 Only the explicit CS driver serves this authenticated Docker-internal endpoint. Calls
@@ -34,6 +35,14 @@ from backend.engine.cs.providers import GenerationKnobs, gemini_text_provider
 from backend.engine.cs.reply import ReplyInterpretation, ReplyInterpretationInput
 from backend.engine.cs.reply import instruction as reply_instruction
 from backend.engine.cs.reply import render_prompt as render_reply_prompt
+from backend.engine.cs.reply_assist import INSTRUCTIONS as ASSIST_INSTRUCTIONS
+from backend.engine.cs.reply_assist import (
+    DeptDraftInput,
+    KoreanEditInput,
+    KoreanInput,
+    TextOutput,
+)
+from backend.engine.cs.reply_assist import render_prompt as render_assist_prompt
 from backend.engine.cs.summary import INSTRUCTION, SummaryOutput, render_prompt
 from backend.engine.cs.translation import INSTRUCTION as TRANSLATION_INSTRUCTION
 from backend.engine.cs.translation import TranslationOutput
@@ -65,7 +74,8 @@ def bridge_provider(state: Path, endpoint: str = "/summary"):
     """Read the current driver capability per call; cached summaries need no driver.
 
     endpoint is "/summary", "/improvement-draft" (KAN-115), "/translation", "/reply-analysis"
-    (KAN-230) or "/fault-suggestion" (KAN-245).
+    (KAN-230), "/fault-suggestion" (KAN-245), "/reply-draft-dept" or "/reply-draft-translation"
+    (KAN-251).
     """
 
     def provide(prompt):
@@ -165,6 +175,21 @@ def metered_fault_provider(permit, token, control, model):
     )
 
 
+def metered_assist_provider(permit, token, control, model):
+    """The reply draft help (KAN-251, all three kinds): its schema and the route's output limit."""
+    return metered_provider(
+        permit, token, control, model, response_schema=TextOutput, max_output_tokens=8192
+    )
+
+
+# KAN-251: the department-answer draft has its own path; the Korean translation and the Korean
+# edit share one because the C/S route gives both to one provider (CS_REPLY_TRANSLATION_ENABLED).
+ASSIST_PATHS = {
+    "/reply-draft-dept": (("DEPT_DRAFT", DeptDraftInput),),
+    "/reply-draft-translation": (("TO_KO", KoreanInput), ("FROM_KO", KoreanEditInput)),
+}
+
+
 def checked_prompt(path, prompt):
     """Accept only the exact prompt the C/S route renders for that path; else ValueError."""
     if path == "/summary":
@@ -196,6 +221,16 @@ def checked_prompt(path, prompt):
         if not sep or not head.startswith(FAULT_INSTRUCTION):
             raise ValueError
         rendered = render_fault_prompt(MatchInput.model_validate_json(body))
+    elif path in ASSIST_PATHS:
+        for kind, model in ASSIST_PATHS[path]:
+            prefix = ASSIST_INSTRUCTIONS[kind] + "\n\n입력:\n"
+            if prompt.startswith(prefix):
+                rendered = render_assist_prompt(
+                    kind, model.model_validate_json(prompt[len(prefix) :])
+                )
+                break
+        else:
+            raise ValueError
     else:
         raise ValueError
     if rendered != prompt:
@@ -217,6 +252,7 @@ class SummaryBridge:
         translation_factory=metered_translation_provider,
         reply_factory=metered_reply_provider,
         fault_factory=metered_fault_provider,
+        assist_factory=metered_assist_provider,
     ):
         from scripts.local_business.runtime import local_only
 
@@ -259,6 +295,8 @@ class SummaryBridge:
                         "/translation": translation_factory,
                         "/reply-analysis": reply_factory,
                         "/fault-suggestion": fault_factory,
+                        "/reply-draft-dept": assist_factory,
+                        "/reply-draft-translation": assist_factory,
                     }[self.path]
                     result = make(permit, token, control, model)(prompt)
                     usage = asdict(result.usage)

@@ -8,7 +8,7 @@ import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ErrorState, Loading } from '../components/states';
 import { KvBox, KvCond, KvCondField, KvCondRow, KvField, KvGrid, KvNext, KvSplit, KvTitle, type KvColumn } from '../ls-shell/kv';
 
-import { DATA_ORIGIN_LABEL, JUDGEMENT_LABEL, OUTPUT_LABEL, label, shortDateTime, exportFileName } from './labels';
+import { DATA_ORIGIN_LABEL, JUDGEMENT_LABEL, OUTPUT_LABEL, label, shortDateTime, exportFileName, reviewLabel } from './labels';
 import './RfpDraft.css';
 import { useFitToViewport } from './useFitToViewport';
 
@@ -254,9 +254,10 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
   const numbersOf = (pick: (row: Sentence) => boolean) => (sentences ?? []).filter(pick).map(row => sentenceNumbers.get(row.sentence_id)!);
   const missingNumbers = numbersOf(row => row.evidence_missing);
   const rereviewNumbers = numbersOf(row => row.needs_rereview);
-  // 저장 조건은 서버 decision_gate(남은 결정·편차 미기재·회신 대기·확인 대기)와 같은 기준으로 센다. 근거만 세는 unresolved_mandatory_count는 결정과 어긋난다.
+  // 저장 조건은 서버 decision_gate(남은 결정·편차 미기재·회신 대기)와 같은 기준으로 센다. 근거만 세는 unresolved_mandatory_count는 결정과 어긋난다.
+  // 책임자 확인 대기는 저장 조건이 아니다. 남은 채 저장하면 초안이다(KAN-253).
   const gate = project.data?.decision_gate;
-  const gateParts = gate ? ([['결정', gate.undecided], ['편차 미기재', gate.deviation_missing], ['회신 대기', gate.open_queries], ['확인 대기', gate.review_pending]] as const).filter(([, n]) => n > 0) : [];
+  const gateParts = gate ? ([['결정', gate.undecided], ['편차 미기재', gate.deviation_missing], ['회신 대기', gate.open_queries]] as const).filter(([, n]) => n > 0) : [];
   const unresolved = gate ? gateParts.reduce((sum, [, n]) => sum + n, 0) : project.data?.unresolved_mandatory_count;
   const todo = [missingNumbers.length > 0 && `${sentenceList(missingNumbers)} 근거 추가`, rereviewNumbers.length > 0 && `${sentenceList(rereviewNumbers)} 재검토`].filter(Boolean).join(', ')
     || (unresolved ? 'RFP 검토에서 필수 요구 처리' : '검토본 저장');
@@ -280,6 +281,7 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
     { key: 'note', header: '메모', cell: row => row.note || '-' },
     { key: 'output', header: '진행', width: 60, cell: row => label(OUTPUT_LABEL, row.output_status) },
     { key: 'judgement', header: '판단', width: 64, cell: row => label(JUDGEMENT_LABEL, row.judgement_status) },
+    { key: 'kind', header: '구분', width: 120, cell: row => reviewLabel(row.review_pending) },
     { key: 'exports', header: '내보내기', width: 60, cell: row => [...new Set(exportRows.filter(item => item.review_version === row.review_version && item.status === 'SUCCEEDED').map(item => item.format))].join(', ') || '-' },
   ];
   const exportColumns: KvColumn<ExportRow>[] = [
@@ -380,7 +382,8 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
     </div></div><aside className="draft-actions" aria-label="검토본과 내보내기">
     <KvBox title="검토본 저장 조건">
       <dl className="draft-checks">
-        <div><dt>결정·편차·회신·책임자 확인</dt><dd className={unresolved ? 'draft-attention' : ''}>{unresolved === undefined ? '서버 확인' : unresolved > 0 ? <Link to={`/tft/projects/${projectId}`}>{gateParts.length ? gateParts.map(([k, n]) => `${k} ${n}`).join(', ') : `남은 일 ${unresolved}건`}</Link> : '남은 일 없음'}</dd></div>
+        <div><dt>결정·편차·회신</dt><dd className={unresolved ? 'draft-attention' : ''}>{unresolved === undefined ? '서버 확인' : unresolved > 0 ? <Link to={`/tft/projects/${projectId}`}>{gateParts.length ? gateParts.map(([k, n]) => `${k} ${n}`).join(', ') : `남은 일 ${unresolved}건`}</Link> : '남은 일 없음'}</dd></div>
+        {!!gate?.review_pending && <div><dt>책임자 확인</dt><dd>{gate.review_pending}건 대기, 지금 저장하면 초안</dd></div>}
         {project.data?.integration_responsibility?.required && project.data.integration_responsibility.holder === 'UNRESOLVED' && <div><dt>통합 책임</dt><dd className="draft-attention">미확보, <Link to={`/tft/projects/${projectId}/supplement`}>보완 화면에서 지정</Link></dd></div>}
         <div><dt>근거 없는 문장</dt><dd className={data?.evidence_missing_count ? 'draft-attention' : ''}>{data ? missingNumbers.length ? <button type="button" className="draft-more" onClick={() => { setSection('all'); setView('evidence'); }}>{sentenceList(missingNumbers)} 확인</button> : '0문장' : '조회 전'}</dd></div>
         <div><dt>재검토 필요 문장</dt><dd className={needsReview ? 'draft-attention' : ''}>{needsReview === undefined ? '조회 전' : rereviewNumbers.length ? <button type="button" className="draft-more" onClick={() => { setSection('all'); setView('review'); }}>{sentenceList(rereviewNumbers)} 확인</button> : '0문장'}</dd></div>
@@ -393,12 +396,12 @@ function DraftWorkspace({ projectId, user, notice, onSessionChanged }: { project
     <KvBox title="검토본 저장" note="전체 초안 기준">
       <label className="draft-input">검토 메모<textarea rows={2} maxLength={1000} value={note} disabled={busy || !!command} onChange={event => setNote(event.target.value)} /></label>
       <button className="kb primary" disabled={!writable || !data || !latest || !!editing} onClick={() => submit({ actorId: user.id, kind: 'review', key: crypto.randomUUID(), body: { version: data!.version, note: note || null } })}>검토본 저장</button>
-      {review && <div className="draft-receipt"><KvField label="저장한 검토본">{review.review_version}판 (초안 {review.draft_version}판)</KvField><KvField label="저장 일시">{shortDateTime(review.saved_at)}</KvField><KvField label="출력 상태">{label(OUTPUT_LABEL, review.output_status)} / {label(JUDGEMENT_LABEL, review.judgement_status)}</KvField></div>}
+      {review && <div className="draft-receipt"><KvField label="저장한 검토본">{review.review_version}판 (초안 {review.draft_version}판)</KvField><KvField label="저장 일시">{shortDateTime(review.saved_at)}</KvField><KvField label="출력 상태">{label(OUTPUT_LABEL, review.output_status)} / {label(JUDGEMENT_LABEL, review.judgement_status)}</KvField><KvField label="구분">{reviewLabel(review.review_pending)}</KvField></div>}
     </KvBox>
     <KvBox title={exports.data ? `내보내기 ${exports.data.length}건` : '내보내기'} note="저장한 검토본만">
       <label className="draft-input">내보낼 검토본<select value={selectedReview ? String(selectedReview.review_version) : ''} disabled={busy || !!command || !availableReviews.length || exportBusy} onChange={event => setReviewInput(event.target.value)}>
         {!selectedReview && <option value="">{reviews.isPending ? '검토 이력 불러오는 중' : '검토본을 선택하세요'}</option>}
-        {availableReviews.map(row => <option key={row.review_version} value={row.review_version}>{row.review_version}판 · {shortDateTime(row.saved_at)} · {row.note || '메모 없음'}</option>)}
+        {availableReviews.map(row => <option key={row.review_version} value={row.review_version}>{row.review_version}판 · {reviewLabel(row.review_pending)} · {shortDateTime(row.saved_at)} · {row.note || '메모 없음'}</option>)}
       </select></label>
       {selectedReview ? <p className="draft-help">초안 {selectedReview.draft_version}판을 저장한 검토본입니다. 이후 초안 수정은 이 파일에 포함되지 않습니다.</p> : !reviews.isPending && !reviews.isError && <p className="draft-help">위에서 검토본을 저장하면 내보낼 수 있습니다.</p>}
       {reviews.isError && <p className="draft-help">검토 이력을 불러오지 못했습니다.{review && ' 방금 저장한 검토본은 내보낼 수 있습니다.'} <button type="button" className="draft-more" disabled={reviews.isFetching} onClick={() => reviews.refetch()}>검토 이력 다시 조회</button></p>}

@@ -115,9 +115,15 @@ async def review_versions(
     """검토본 이력, 최신순. 저장은 언제나 REVIEW_DRAFT로 바꾸므로 그 값을 준다."""
     async with connection(request.app.state.settings) as conn:
         await visible(conn, principal, project_id)
+        # 저장 때 남은 책임자 확인 수는 저장 감사 행(detail.to.review_pending)에 있다(KAN-253, 새 열 없음).
+        # 그 전 저장은 확인 대기가 있으면 막혔으므로 없으면 0(확정)이다.
         cursor = await conn.execute(
-            "SELECT review_version,draft_version,note,judgement_status,saved_by,saved_at "
-            "FROM tft.review_versions WHERE project_id=%s ORDER BY review_version DESC",
+            "SELECT v.review_version,v.draft_version,v.note,v.judgement_status,v.saved_by,v.saved_at,"
+            "coalesce((SELECT (a.detail->'to'->>'review_pending')::int FROM tft.rfp_audit_events a "
+            "WHERE a.project_id=v.project_id AND a.entity='review_version' "
+            "AND a.action='review_version.create' AND a.entity_id=v.review_version::text LIMIT 1),0) "
+            "AS review_pending "
+            "FROM tft.review_versions v WHERE v.project_id=%s ORDER BY v.review_version DESC",
             (project_id,),
         )
         rows = await cursor.fetchall()
@@ -155,10 +161,11 @@ async def exports(request: Request, principal: Principal, project_id: UUID) -> s
     )
 
 
-GATE_FIELDS = ("undecided", "deviation_missing", "open_queries", "review_pending")
+# 책임자 확인 대기(review_pending)는 막지 않는다. 남은 채 저장하면 초안이다(KAN-253).
+GATE_FIELDS = ("undecided", "deviation_missing", "open_queries")
 
 
-async def gate_closed(conn: AsyncConnection[dict], project_id: UUID) -> None:
+async def gate_closed(conn: AsyncConnection[dict], project_id: UUID) -> s.DecisionGate:
     """저장 조건(KAN-220 decision_gate)이 남으면 409 TFT_DECISION_GATE_OPEN. 화면과 같은 규칙이다.
 
     결정은 요구 행을, 질문 확정·회신은 질문 행을 FOR UPDATE로 잠그므로 FOR SHARE로 그 쓰기를 기다리게 한 뒤 센다.
@@ -181,6 +188,7 @@ async def gate_closed(conn: AsyncConnection[dict], project_id: UUID) -> None:
             "Decisions remain before saving a review version.",
             details=[{"field": name, "reason": str(n)} for name, n in left],
         )
+    return found
 
 
 async def save_review(
@@ -252,7 +260,7 @@ async def save_review(
                         ),
                     ],
                 )
-            await gate_closed(conn, project_id)
+            found = await gate_closed(conn, project_id)
             cursor = await conn.execute(
                 "SELECT coalesce(max(review_version),0)+1 AS version FROM tft.review_versions WHERE project_id=%s",
                 (project_id,),
@@ -289,6 +297,7 @@ async def save_review(
                 judgement_status=judgement,
                 saved_by=principal.user_id,
                 saved_at=saved,
+                review_pending=found.review_pending,
             ).model_dump(mode="json")
 
         result = await commands.run_command(

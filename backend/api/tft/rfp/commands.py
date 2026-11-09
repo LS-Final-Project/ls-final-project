@@ -76,7 +76,8 @@ AUDIT_TARGETS: dict[str, tuple[str, str]] = {
     "draft.rewrite": ("job", "job_id"),
 }
 # 응답에서 감사 detail로 옮기는 칸(쓰기 뒤 상태). 응답 전체는 남기지 않는다.
-AUDIT_FIELDS = ("status", "version", "target", "target_dept", "path")
+# review_pending은 검토본 저장 때 남은 책임자 확인 수다. 검토 이력의 초안·확정 표시가 읽는다(KAN-253).
+AUDIT_FIELDS = ("status", "version", "target", "target_dept", "path", "review_pending")
 
 
 async def audit(

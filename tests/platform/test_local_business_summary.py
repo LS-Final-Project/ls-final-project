@@ -885,3 +885,107 @@ def test_the_fault_suggestion_path_takes_only_its_own_prompt_and_factory(ledger,
         assert made.status_code == 200 and used == ["fault"]
     finally:
         bridge.close()
+
+
+def assist_prompts():
+    """회신 초안 AI 보조(KAN-251) 세 종류의 정확한 프롬프트(C/S 경로가 만드는 것과 같다)."""
+    from backend.engine.cs.reply_assist import (
+        KoreanEditInput,
+        KoreanInput,
+        build_dept_draft_input,
+        render_prompt,
+    )
+
+    ticket = {"channel": "EMAIL", "body_language": "en", "subject": "Trip", "body": "It trips."}
+    dept = build_dept_draft_input(
+        ticket, {"result": "펌웨어 4.2.1로 고쳐집니다.", "reply_content": None}
+    )
+    ko = KoreanInput(language="en", text="Firmware 4.2.1 fixes it.")
+    edit = KoreanEditInput(
+        language="en",
+        original="Firmware 4.2.1 fixes it.",
+        original_ko="펌웨어 4.2.1로 고쳐집니다.",
+        edited_ko="펌웨어 4.2.1로 3일 안에 고쳐집니다.",
+    )
+    return (
+        render_prompt("DEPT_DRAFT", dept),
+        render_prompt("TO_KO", ko),
+        render_prompt("FROM_KO", edit),
+    )
+
+
+def test_the_reply_draft_paths_take_only_their_own_prompts_and_factory(ledger, tmp_path, prompt):
+    """부서 답변 초안은 /reply-draft-dept, 번역·한국어 수정 반영은 /reply-draft-translation만 받는다."""
+    permit, token = ledger
+    used = []
+
+    def assist_factory(*args):
+        used.append("assist")
+        return fake_factory(*args)
+
+    bridge = summary.SummaryBridge(
+        permit,
+        token,
+        tmp_path,
+        "fake-model",
+        threading.Lock(),
+        address=("127.0.0.1", 0),
+        factory=fake_factory,
+        assist_factory=assist_factory,
+    )
+    url = f"http://127.0.0.1:{bridge.server.server_port}"
+    headers = {"Authorization": "Bearer " + bridge.capability}
+    dept, ko, edit = assist_prompts()
+    try:
+        for path, body in (
+            ("/reply-draft-dept", ko),
+            ("/reply-draft-dept", prompt),
+            ("/reply-draft-dept", dept + " "),
+            ("/reply-draft-translation", dept),
+            ("/reply-draft-translation", translation_prompt()),
+            ("/translation", ko),
+            ("/summary", edit),
+        ):
+            response = httpx.post(
+                url + path, headers=headers, json={"prompt": body}, trust_env=False
+            )
+            assert response.status_code == 400, path
+        assert used == []
+        # 묶음 허용 호출이 2회라 번역(TO_KO)은 검사만 본다.
+        summary.checked_prompt("/reply-draft-translation", ko)
+        for path, body in (("/reply-draft-dept", dept), ("/reply-draft-translation", edit)):
+            made = httpx.post(url + path, headers=headers, json={"prompt": body}, trust_env=False)
+            assert made.status_code == 200, path
+        assert used == ["assist"] * 2
+        with permit.transaction() as db:
+            assert db.execute("SELECT count(*) FROM charges").fetchone()[0] == 2
+    finally:
+        bridge.close()
+
+
+def test_the_metered_assist_provider_uses_its_schema_and_limit(monkeypatch):
+    from backend.engine.cs.reply_assist import TextOutput
+
+    seen = {}
+    monkeypatch.setattr(summary, "metered_provider", lambda *a, **kw: seen.update(kw))
+    summary.metered_assist_provider(None, "t", Path("/unused"), "fake-model")
+    assert seen == {"response_schema": TextOutput, "max_output_tokens": 8192}
+
+
+def test_the_local_runtime_turns_the_reply_draft_help_on_through_the_bridge(tmp_path, monkeypatch):
+    """로컬 runner는 회신 초안 AI 보조 둘 다 켜고 공급자로 각 bridge 경로를 둔다(모델 키 없음)."""
+    from scripts.local_business import runtime
+    from tests.platform.test_local_business_integration import local_state
+
+    endpoints = []
+    original = summary.bridge_provider
+
+    def recording(state, endpoint="/summary"):
+        endpoints.append(endpoint)
+        return original(state, endpoint)
+
+    monkeypatch.setattr(summary, "bridge_provider", recording)
+    state = local_state.__wrapped__(tmp_path, monkeypatch)
+    app = runtime.app_for("cs", state)
+    assert set(app.state.reply_assist) == {"dept", "translation"}
+    assert {"/reply-draft-dept", "/reply-draft-translation"} <= set(endpoints)
