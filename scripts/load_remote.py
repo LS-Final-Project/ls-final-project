@@ -304,11 +304,14 @@ def job_worker(state, rec, jobs, budget: dict[str, Any], mode: str, stop: float,
                 )
                 record["seconds"] = time.perf_counter() - started
                 rec.add("jobs", record)
+                status = getattr(getattr(error, "response", None), "status_code", None)
                 with rec.lock:
                     budget["left"] += 1
-                    budget["projects" if kind == "rfp" else "tickets"].append(
-                        project if kind == "rfp" else path.split("/")[5]
-                    )
+                    # 409·422는 이미 접수됐거나(처리 중·처리 끝) 다시 할 수 없는 대상이라 되돌리지 않는다.
+                    if status not in (409, 422):
+                        budget["projects" if kind == "rfp" else "tickets"].append(
+                            project if kind == "rfp" else path.split("/")[5]
+                        )
                 # 사람이 다시 누르기까지의 간격. 바로 다시 보내면 부하 도구가 실패를 부풀린다.
                 time.sleep(5)
                 continue
