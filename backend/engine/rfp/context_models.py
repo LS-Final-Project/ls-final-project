@@ -125,8 +125,17 @@ class ContextResult(Strict):
     value_conflicts: list[ValueConflict] = Field(default_factory=list)
 
 
+class GroupMerge(Strict):
+    """모델이 같은 대상이라고 본 묶음(KAN-255 merge 단계). target_id 묶음 이름을 남기고 member_ids를 흡수한다."""
+
+    target_id: str
+    member_ids: list[str] = Field(min_length=1)
+    reason: str = ""
+
+
 class ContextProposal(Strict):
     """Provider boundary. Runtime validation applies even with a lighter provider schema."""
 
     groups: list[ContextGroup] = Field(default_factory=list, max_length=4000)
     assignments: list[ContextAssignment] = Field(default_factory=list, max_length=4000)
+    merges: list[GroupMerge] = Field(default_factory=list, max_length=4000)

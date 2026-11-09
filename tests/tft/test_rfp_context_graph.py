@@ -507,6 +507,8 @@ def test_max_length_provider_ids_are_remapped_with_parent_links_and_roundtrip_sa
                     group(child, parent_id=parent, evidence_requirement_ids=refs),
                 ]
             )
+        if stage == "merge":
+            return ContextProposal()
         # 하위 묶음에 요구 2개를 연결해 1개짜리 묶음 정리(KAN-255)에 걸리지 않게 한다.
         target = next(g["entity_id"] for g in payload["groups"] if g["kind"] == "EQUIPMENT")
         return ContextProposal(
@@ -890,3 +892,78 @@ def test_rejected_link_reason_is_named_in_the_issue():
         ["g1"],
         "묶음 연결 확인 필요: 'Meter'(설비·작업 이름 또는 절 범위 불일치)",
     )
+
+
+def test_model_merges_pass_only_deterministic_identity_checks():
+    from backend.engine.rfp.context_models import GroupMerge
+
+    rows = [requirement(f"r{i}", quote="GIS shall be rated.") for i in range(6)]
+    rows.append(requirement("r9", document_version_id="d2", quote="GIS shall be rated."))
+    source = {r.requirement_id: r for r in rows}
+    groups = [
+        group("gis", name="GIS", evidence_requirement_ids=["r0"]),
+        group("hv", name="HV Switchgear", evidence_requirement_ids=["r1"]),
+        group("t1", name="GIS", tag="T1", evidence_requirement_ids=["r2"]),
+        group("task", name="GIS", kind="TASK", evidence_requirement_ids=["r3"]),
+        group("other", name="GIS", evidence_requirement_ids=["r9"]),
+        group("chain", name="115kV GIS", evidence_requirement_ids=["r4"]),
+    ]
+    merges = [
+        GroupMerge(target_id="gis", member_ids=["hv", "t1", "task", "other", "missing"]),
+        GroupMerge(target_id="chain", member_ids=["gis"]),  # 이미 다른 제안의 대상이라 연쇄 금지
+    ]
+    kept, aliases, rejected = graph.apply_merges(groups, merges, source)
+    assert aliases == {"hv": "gis"}
+    assert rejected == 5
+    assert [g.entity_id for g in kept] == ["gis", "t1", "task", "other", "chain"]
+    assert kept[0].evidence_requirement_ids == ["r0", "r1"]
+
+
+def test_merge_stage_runs_between_inventory_and_link_with_its_own_prompt():
+    from backend.engine.rfp.context_models import GroupMerge
+
+    seen: dict[str, list] = {}
+
+    async def provider(stage, payload):
+        seen.setdefault(stage, []).append(payload)
+        if stage == "inventory":
+            refs = [r["requirement_id"] for r in payload["requirements"]]
+            name = "GIS" if refs[0] == "r0" else "HV Switchgear"
+            return ContextProposal(groups=[group(name, name=name, evidence_requirement_ids=refs)])
+        if stage == "merge":
+            ids = {g["name"]: g["entity_id"] for g in payload["groups"]}
+            return ContextProposal(
+                merges=[GroupMerge(target_id=ids["GIS"], member_ids=[ids["HV Switchgear"]])]
+            )
+        return ContextProposal(
+            assignments=[
+                assignment(
+                    r["requirement_id"],
+                    group_ids=[g["entity_id"] for g in payload["groups"]],
+                    relations=[
+                        ContextRelation(group_id=g["entity_id"], relation="APPLIES_TO")
+                        for g in payload["groups"]
+                    ],
+                )
+                for r in payload["requirements"]
+            ]
+        )
+
+    rows = [requirement(f"r{i}", equipment="GIS", quote="GIS shall be rated.") for i in range(80)]
+    rows += [
+        requirement(f"s{i}", equipment="HV Switchgear", quote="HV Switchgear shall be rated.")
+        for i in range(80)
+    ]
+    result = asyncio.run(graph.run_context(rows, provider))
+    assert len(seen["merge"]) == 1 and len(seen["merge"][0]["groups"]) == 2
+    assert all(len(p["groups"]) == 1 for p in seen["link"])  # link는 합친 묶음 하나만 본다
+    equipment = [g for g in result.groups if g.kind == "EQUIPMENT"]
+    assert [g.name for g in equipment] == ["GIS"]
+    assert all(a.group_ids == [equipment[0].entity_id] for a in result.assignments)
+
+
+def test_merge_stage_prompt_and_schema_leave_existing_stages_unchanged():
+    schema = graph._ProviderSchema.model_json_schema()
+    assert "merges" not in schema["properties"] and "GroupMerge" not in schema["$defs"]
+    assert "merges" in graph._MergeSchema.model_json_schema()["properties"]
+    assert graph.PROMPT_VERSION == "rfp-context-v2"
