@@ -969,3 +969,57 @@ def test_table_rows_with_several_numbers_a_held_number_and_a_leaked_page_header(
     assert clauses["2.6.D.5"].text.endswith("Main Circuit Breaker")
     assert clauses["2.6.D.6.h"].text == "Auxiliary Contacts: Two SPDT switches."
     assert not [i for i in tree.numbering_issues if i.kind in ("GAP", "DUPLICATE")]
+
+
+def test_decimal_outline_document_without_part_or_section():
+    """KAN-254: PART·SECTION·한글 시작점이 없는 EPC 사양서는 소수 번호로 읽는다. 목차는 버리고, 빠진 상위 번호는
+    순서가 맞을 때만 채우며, 번호 뒤가 단위인 값과 순서가 맞지 않는 번호는 앞 조항 본문에 둔다."""
+    tree = tree_of(
+        p("Specification for Electrical Testing"),
+        p("1. GENERAL"),
+        p("2. ENVIRONMENTAL CONDITIONS"),
+        p("3. SCOPE OF SUPPLY"),
+        p("1 Scope"),
+        p("This specification covers field testing."),
+        p("2 References"),
+        p("2.1 IEEE 400 Guide for field testing."),
+        cell(0, 0, 0, "Item"),
+        cell(0, 0, 1, "Value"),
+        p("13.8 kV class cables shall be tested."),
+        p("3.2.1 Cables shall be tested per NETA."),
+        p("7.1 This number is out of order."),
+        p("3.3.공급 항목은 아래와 같다."),
+    )
+    rows = {c.clause_no: c for c in tree.clauses}
+    assert list(rows) == ["1", "2", "2.1", "3", "3.2", "3.2.1", "3.3"]
+    assert (
+        rows["1"].title == "Scope" and rows["1"].text == "This specification covers field testing."
+    )
+    assert rows["2.1"].table_rows == [["Item", "Value"]]
+    assert "13.8 kV class" in rows["2.1"].text
+    assert "IMPLIED_PARENT" in rows["3"].flags and "IMPLIED_PARENT" in rows["3.2"].flags
+    assert "7.1 This number is out of order." in rows["3.2.1"].text
+    assert rows["3.3"].text == "공급 항목은 아래와 같다."
+    assert all("DECIMAL_OUTLINE" in c.flags for c in tree.clauses)
+    # 목차 세 줄은 머리말이다.
+    assert len(tree.preamble_block_ids) == 4
+
+
+def test_decimal_outline_is_not_used_when_part_numbering_exists():
+    """기존 PART 문서는 소수 번호 경로를 타지 않는다."""
+    tree = tree_of(p("PART 1 - GENERAL"), p("1.1 SUMMARY"), p("A. Section includes switchgear."))
+    assert [c.clause_no for c in tree.clauses] == ["PART 1", "1.1", "1.1.A"]
+    assert not any("DECIMAL_OUTLINE" in c.flags for c in tree.clauses)
+
+
+def test_decimal_outline_sections_include_chapters_without_children():
+    """KAN-254: 하위 조항 없는 장(`1 Scope`의 본문)도 추출 절이다. 하위 조항이 있는 장은 장 단위로 묶는다."""
+    from backend.api.tft.worker_processor import sections_of
+
+    tree = tree_of(
+        p("1 Scope"),
+        p("This specification covers field testing."),
+        p("2 References"),
+        p("2.1 IEEE 400 Guide for field testing."),
+    )
+    assert sections_of(tree) == ["1", "2"]
