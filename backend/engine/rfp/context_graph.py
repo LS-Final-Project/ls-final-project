@@ -52,6 +52,13 @@ def _guard() -> None:
         raise ValueError(TRACING_BLOCKED)
 
 
+def _rejected_message(rejected: list[tuple[str, str]], names: dict[str, str]) -> str:
+    """거부한 묶음 연결 안내(최대 3개). 예: "묶음 연결 확인 필요: 'Meter'(설비·작업 이름 또는 절 범위 불일치) 외 1개"."""
+    parts = [f"'{names.get(g, '알 수 없는 묶음')}'({why})" for g, why in rejected[:3]]
+    more = f" 외 {len(rejected) - 3}개" if len(rejected) > 3 else ""
+    return "묶음 연결 확인 필요: " + ", ".join(parts) + more
+
+
 def _issue(code: str, ids: list[str], entities: list[str] | None = None) -> ContextIssue:
     return ContextIssue(
         code=code,
@@ -288,6 +295,7 @@ def validate_context(
         if invalid:
             groups[key] = group.model_copy(update={"parent_id": None, "needs_review": True})
             issues.append(_issue("INVALID_PARENT", group.evidence_requirement_ids, [key]))
+    proposed = {g.entity_id: g.name for g in result.groups}
     rows: dict[str, list[ContextAssignment]] = {}
     for assignment in result.assignments:
         rows.setdefault(assignment.requirement_id, []).append(assignment)
@@ -314,35 +322,53 @@ def validate_context(
         invalid_refs = missing_self or unknown_evidence
         links = []
         seen: set[str] = set()
-        invalid_links = False
+        # KAN-255: 거부한 연결과 이유(묶음 ID, 이유). 화면 안내와 다음 개선 근거로 이슈 메시지에 남긴다.
+        rejected: list[tuple[str, str]] = []
         for link in candidate.relations:
             target_group = groups.get(link.group_id)
-            valid = (
-                target_group is not None
-                and link.group_id in candidate.group_ids
-                and link.group_id not in seen
-            )
-            if valid and target_group is not None:
-                valid = _related(target_group, row, by_id)
-                if target_group.tag is not None:
-                    valid = valid and _identifier_literal(target_group.tag, _text(row))
-                if target_group.site is not None:
-                    valid = valid and _identifier_literal(target_group.site, _text(row))
-                # A generic family name is not proof of identical physical equipment.
-                if link.relation == "SAME_EQUIPMENT":
-                    valid = valid and target_group.kind == "EQUIPMENT" and bool(target_group.tag)
-            if not valid:
-                invalid_links = True
+            why = None
+            if target_group is None:
+                why = "묶음 근거 무효" if link.group_id in proposed else "없는 묶음"
+            elif link.group_id not in candidate.group_ids:
+                why = "묶음 목록에 없는 관계"
+            elif link.group_id in seen:
+                why = "같은 묶음 중복"
+            elif not _related(target_group, row, by_id):
+                why = "설비·작업 이름 또는 절 범위 불일치"
+            elif target_group.tag is not None and not _identifier_literal(
+                target_group.tag, _text(row)
+            ):
+                why = "요구 원문에 태그 없음"
+            elif target_group.site is not None and not _identifier_literal(
+                target_group.site, _text(row)
+            ):
+                why = "요구 원문에 장소 없음"
+            # A generic family name is not proof of identical physical equipment.
+            elif link.relation == "SAME_EQUIPMENT" and not (
+                target_group.kind == "EQUIPMENT" and target_group.tag
+            ):
+                why = "같은 설비 관계는 태그 필요"
+            if why:
+                rejected.append((link.group_id, why))
                 continue
             seen.add(link.group_id)
             links.append(link)
-        invalid_links = invalid_links or set(candidate.group_ids) != seen
+        rejected += [
+            (g, "관계 없는 묶음")
+            for g in candidate.group_ids
+            if g not in seen and g not in {r[0] for r in rejected}
+        ]
+        invalid_links = bool(rejected)
         if missing_self:
             issues.append(_issue("MISSING_SELF_EVIDENCE", [key]))
         if unknown_evidence:
             issues.append(_issue("UNKNOWN_EVIDENCE_REFERENCE", [key]))
         if invalid_links:
-            issues.append(_issue("AMBIGUOUS_GROUP_LINK", [key]))
+            issues.append(
+                _issue(
+                    "AMBIGUOUS_GROUP_LINK", [key], list(dict.fromkeys(g for g, _ in rejected))
+                ).model_copy(update={"message": _rejected_message(rejected, proposed)})
+            )
         additions = list(
             dict.fromkeys(
                 c for c in candidate.additional_categories if c != candidate.primary_category
@@ -874,7 +900,12 @@ async def run_context(
         ]
         if progress:
             progress(step)
-        result = await provider(stage, payload)
+        try:
+            result = await provider(stage, payload)
+        except ContextOutputError:
+            # KAN-255: 형식이 틀린 응답(잘린 JSON·스키마 불일치)만 같은 입력으로 한 번 더 묻는다. 두 번째 실패는 지금처럼
+            # 배치 이슈(*_INVALID_OUTPUT)로 남는다. 전송 오류는 다시 묻지 않는다(provider의 재시도 0과 같은 이유).
+            result = await provider(stage, payload)
         if progress:
             progress(step)
         return result

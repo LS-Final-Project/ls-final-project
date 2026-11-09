@@ -831,3 +831,62 @@ def test_parent_cycle_left_by_name_merge_is_cut_before_use():
             seen.add(at)
             at = parents.get(at)
     assert any(i.code == "INVALID_PARENT" for i in result.issues)
+
+
+def test_malformed_output_is_asked_once_more_then_left_as_batch_issue():
+    # KAN-255: 형식 오류 응답은 같은 입력으로 한 번만 다시 묻는다(D11 연결 배치 1개 실패로 24개 빠짐).
+    calls = Counter()
+
+    async def flaky(stage, payload):
+        calls[stage] += 1
+        if calls[stage] == 1:
+            raise graph.ContextOutputError("synthetic truncated json")
+        if stage == "inventory":
+            return ContextProposal(groups=[group(evidence_requirement_ids=["r1", "r2"])])
+        target = payload["groups"][0]["entity_id"]
+        return ContextProposal(
+            assignments=[
+                assignment(
+                    r["requirement_id"],
+                    group_ids=[target],
+                    relations=[ContextRelation(group_id=target, relation="APPLIES_TO")],
+                )
+                for r in payload["requirements"]
+            ]
+        )
+
+    result = asyncio.run(graph.run_context([requirement("r1"), requirement("r2")], flaky))
+    assert calls == {"inventory": 2, "link": 2}
+    assert not any(i.code.endswith("_INVALID_OUTPUT") for i in result.issues)
+    assert all(a.group_ids for a in result.assignments)
+
+    seen = Counter()
+
+    async def always_bad(stage, payload):
+        seen[stage] += 1
+        raise graph.ContextOutputError("synthetic invalid output")
+
+    result = asyncio.run(graph.run_context([requirement()], always_bad))
+    assert seen == {"inventory": 2, "link": 2, "repair": 2}
+    assert {i.code for i in result.issues} >= {"INVENTORY_INVALID_OUTPUT", "LINK_INVALID_OUTPUT"}
+
+
+def test_rejected_link_reason_is_named_in_the_issue():
+    rows = [
+        requirement("r1", equipment="Meter", quote="Meter shall read kWh."),
+        requirement("r2", equipment="Relay", quote="Relay shall trip."),
+    ]
+    link = lambda key, rel="APPLIES_TO": assignment(  # noqa: E731
+        key, group_ids=["g1"], relations=[ContextRelation(group_id="g1", relation=rel)]
+    )
+    result = validate(
+        rows,
+        [group(name="Meter", evidence_requirement_ids=["r1"])],
+        [link("r1", "SAME_EQUIPMENT"), link("r2")],
+    )
+    messages = {i.requirement_ids[0]: (i.entity_ids, i.message) for i in result.issues}
+    assert messages["r1"] == (["g1"], "묶음 연결 확인 필요: 'Meter'(같은 설비 관계는 태그 필요)")
+    assert messages["r2"] == (
+        ["g1"],
+        "묶음 연결 확인 필요: 'Meter'(설비·작업 이름 또는 절 범위 불일치)",
+    )
