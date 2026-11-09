@@ -52,6 +52,13 @@ def _guard() -> None:
         raise ValueError(TRACING_BLOCKED)
 
 
+def _rejected_message(rejected: list[tuple[str, str]], names: dict[str, str]) -> str:
+    """거부한 묶음 연결 안내(최대 3개). 예: "묶음 연결 확인 필요: 'Meter'(설비·작업 이름 또는 절 범위 불일치) 외 1개"."""
+    parts = [f"'{names.get(g, '알 수 없는 묶음')}'({why})" for g, why in rejected[:3]]
+    more = f" 외 {len(rejected) - 3}개" if len(rejected) > 3 else ""
+    return "묶음 연결 확인 필요: " + ", ".join(parts) + more
+
+
 def _issue(code: str, ids: list[str], entities: list[str] | None = None) -> ContextIssue:
     return ContextIssue(
         code=code,
@@ -83,6 +90,32 @@ def _identity(row: ContextRequirement, label: str) -> set[str]:
     return {m.casefold() for m in re.findall(pattern, _text(row), re.IGNORECASE)}
 
 
+_ARTICLES = frozenset({"the", "a", "an"})
+
+
+def _singular(word: str) -> str:
+    if len(word) > 4 and word.endswith(("ches", "shes", "sses", "xes")):
+        return word[:-2]
+    if len(word) > 3 and word.endswith("ies"):
+        return word[:-3] + "y"
+    if len(word) > 3 and word.endswith("s") and not word.endswith(("ss", "us", "is")):
+        return word[:-1]
+    return word
+
+
+def entity_name(text: str | None) -> str:
+    """같은 문서 안 설비·작업 이름 비교용(KAN-255). 대소문자·기호·관사·영어 복수형만 정리하고 동의어는 합치지 않는다.
+
+    Args:
+        text: 요구의 equipment/task 또는 묶음 이름.
+
+    Returns:
+        str: 비교 키. 비어 있으면 "".
+    """
+    words = re.sub(r"[^\w]+", " ", (text or "").casefold()).split()
+    return " ".join(_singular(w) for w in words if w not in _ARTICLES)
+
+
 def _same_scope(left: ContextRequirement, right: ContextRequirement) -> bool:
     return (
         left.document_version_id == right.document_version_id
@@ -97,15 +130,33 @@ def _related(
 ) -> bool:
     if row.requirement_id in group.evidence_requirement_ids:
         return True
+    # KAN-255: 같은 설비·작업은 같은 문서 안이면 절(PART)이 달라도 같은 대상이다(PART 3 시험 요구 → PART 2 설비).
+    # 이름은 entity_name으로만 맞추고 동의어·상위 개념으로 넓히지 않는다. 공통 묶음과 태그 묶음(물리 식별)은 지금처럼
+    # 같은 절 범위만 본다: 같은 이름의 T-01·T-02 묶음이 다른 PART의 태그 없는 요구를 서로 끌어가지 않게.
+    equipment, task = entity_name(row.equipment), entity_name(row.task)
+    if (
+        group.kind in ("EQUIPMENT", "TASK")
+        and not group.tag
+        and (
+            (equipment and equipment == entity_name(group.name))
+            or (task and task == entity_name(group.name))
+        )
+    ):
+        return any(
+            ref in source and source[ref].document_version_id == row.document_version_id
+            for ref in group.evidence_requirement_ids
+        )
     return any(
         ref in source
-        and _same_scope(row, source[ref])
         and (
-            row.equipment is not None
-            and row.equipment.casefold() == (source[ref].equipment or "").casefold()
-            or row.task is not None
-            and row.task.casefold() == (source[ref].task or "").casefold()
+            source[ref].document_version_id == row.document_version_id
+            and (group.tag is None or _same_scope(row, source[ref]))
+            and (
+                (equipment and equipment == entity_name(source[ref].equipment))
+                or (task and task == entity_name(source[ref].task))
+            )
             or group.kind == "COMMON"
+            and _same_scope(row, source[ref])
         )
         for ref in group.evidence_requirement_ids
     )
@@ -235,6 +286,7 @@ def validate_context(
         if invalid:
             groups[key] = group.model_copy(update={"parent_id": None, "needs_review": True})
             issues.append(_issue("INVALID_PARENT", group.evidence_requirement_ids, [key]))
+    proposed = {g.entity_id: g.name for g in result.groups}
     rows: dict[str, list[ContextAssignment]] = {}
     for assignment in result.assignments:
         rows.setdefault(assignment.requirement_id, []).append(assignment)
@@ -261,35 +313,53 @@ def validate_context(
         invalid_refs = missing_self or unknown_evidence
         links = []
         seen: set[str] = set()
-        invalid_links = False
+        # KAN-255: 거부한 연결과 이유(묶음 ID, 이유). 화면 안내와 다음 개선 근거로 이슈 메시지에 남긴다.
+        rejected: list[tuple[str, str]] = []
         for link in candidate.relations:
             target_group = groups.get(link.group_id)
-            valid = (
-                target_group is not None
-                and link.group_id in candidate.group_ids
-                and link.group_id not in seen
-            )
-            if valid and target_group is not None:
-                valid = _related(target_group, row, by_id)
-                if target_group.tag is not None:
-                    valid = valid and _identifier_literal(target_group.tag, _text(row))
-                if target_group.site is not None:
-                    valid = valid and _identifier_literal(target_group.site, _text(row))
-                # A generic family name is not proof of identical physical equipment.
-                if link.relation == "SAME_EQUIPMENT":
-                    valid = valid and target_group.kind == "EQUIPMENT" and bool(target_group.tag)
-            if not valid:
-                invalid_links = True
+            why = None
+            if target_group is None:
+                why = "묶음 근거 무효" if link.group_id in proposed else "없는 묶음"
+            elif link.group_id not in candidate.group_ids:
+                why = "묶음 목록에 없는 관계"
+            elif link.group_id in seen:
+                why = "같은 묶음 중복"
+            elif not _related(target_group, row, by_id):
+                why = "설비·작업 이름 또는 절 범위 불일치"
+            elif target_group.tag is not None and not _identifier_literal(
+                target_group.tag, _text(row)
+            ):
+                why = "요구 원문에 태그 없음"
+            elif target_group.site is not None and not _identifier_literal(
+                target_group.site, _text(row)
+            ):
+                why = "요구 원문에 장소 없음"
+            # A generic family name is not proof of identical physical equipment.
+            elif link.relation == "SAME_EQUIPMENT" and not (
+                target_group.kind == "EQUIPMENT" and target_group.tag
+            ):
+                why = "같은 설비 관계는 태그 필요"
+            if why:
+                rejected.append((link.group_id, why))
                 continue
             seen.add(link.group_id)
             links.append(link)
-        invalid_links = invalid_links or set(candidate.group_ids) != seen
+        rejected += [
+            (g, "관계 없는 묶음")
+            for g in candidate.group_ids
+            if g not in seen and g not in {r[0] for r in rejected}
+        ]
+        invalid_links = bool(rejected)
         if missing_self:
             issues.append(_issue("MISSING_SELF_EVIDENCE", [key]))
         if unknown_evidence:
             issues.append(_issue("UNKNOWN_EVIDENCE_REFERENCE", [key]))
         if invalid_links:
-            issues.append(_issue("AMBIGUOUS_GROUP_LINK", [key]))
+            issues.append(
+                _issue(
+                    "AMBIGUOUS_GROUP_LINK", [key], list(dict.fromkeys(g for g, _ in rejected))
+                ).model_copy(update={"message": _rejected_message(rejected, proposed)})
+            )
         additions = list(
             dict.fromkeys(
                 c for c in candidate.additional_categories if c != candidate.primary_category
@@ -599,6 +669,66 @@ def _duplicates(
     return duplicates, conflicts
 
 
+def merge_by_name(
+    groups: list[ContextGroup], source: dict[str, ContextRequirement]
+) -> tuple[list[ContextGroup], dict[str, str]]:
+    """배치마다 따로 만든 설비·작업 묶음을 같은 문서 안 정규화 이름으로 합친다(KAN-255).
+
+    태그·장소가 서로 다르거나, 합친 근거 요구에 명시 태그·장소가 둘 이상이면 합치지 않는다(validate_context가
+    EQUIPMENT 묶음의 태그 둘 이상을 거부하는 것과 같은 기준). 이름은 먼저 나온 묶음 것을 쓴다.
+
+    Args:
+        groups: 묶음 후보(배치 순서).
+        source: 요구 ID → 요구.
+
+    Returns:
+        tuple: 합친 묶음 목록과 흡수된 묶음 ID → 남은 묶음 ID.
+    """
+    kept: list[ContextGroup] = []
+    by_key: dict[tuple[Any, ...], int] = {}
+    aliases: dict[str, str] = {}
+    for group in groups:
+        name = entity_name(group.name)
+        docs = frozenset(source[r].document_version_id for r in group.evidence_requirement_ids)
+        if group.kind not in ("EQUIPMENT", "TASK") or not name or len(docs) != 1:
+            kept.append(group)
+            continue
+        key = (
+            group.kind,
+            next(iter(docs)),
+            name,
+            group.tag.casefold() if group.tag else None,
+            group.site.casefold() if group.site else None,
+        )
+        at = by_key.get(key)
+        if at is not None:
+            previous = kept[at]
+            evidence = list(
+                dict.fromkeys(previous.evidence_requirement_ids + group.evidence_requirement_ids)
+            )
+            rows = [source[r] for r in evidence]
+            tags = set().union(*(_identity(r, "tag|equipment tag|장비 태그") for r in rows))
+            sites = set().union(*(_identity(r, "site|location|현장") for r in rows))
+            if group.kind == "EQUIPMENT" and (len(tags) > 1 or len(sites) > 1):
+                kept.append(group)
+                continue
+            kept[at] = previous.model_copy(
+                update={
+                    "evidence_requirement_ids": evidence,
+                    "diagram_source_ids": list(
+                        dict.fromkeys(previous.diagram_source_ids + group.diagram_source_ids)
+                    ),
+                    "parent_id": previous.parent_id or group.parent_id,
+                    "needs_review": True,
+                }
+            )
+            aliases[group.entity_id] = previous.entity_id
+            continue
+        by_key[key] = len(kept)
+        kept.append(group)
+    return kept, aliases
+
+
 def build_input(row: ContextRequirement, *, inventory: bool = False) -> dict[str, Any]:
     """Explicit whitelist. Comparison status/necessity are read-only and never model inputs."""
     return {
@@ -650,7 +780,12 @@ async def run_context(
         ]
         if progress:
             progress(step)
-        result = await provider(stage, payload)
+        try:
+            result = await provider(stage, payload)
+        except ContextOutputError:
+            # KAN-255: 형식이 틀린 응답(잘린 JSON·스키마 불일치)만 같은 입력으로 한 번 더 묻는다. 두 번째 실패는 지금처럼
+            # 배치 이슈(*_INVALID_OUTPUT)로 남는다. 전송 오류는 다시 묻지 않는다(provider의 재시도 0과 같은 이유).
+            result = await provider(stage, payload)
         if progress:
             progress(step)
         return result
@@ -764,10 +899,17 @@ async def run_context(
                 merged.append(group)
                 if group.kind == "EQUIPMENT" and group.tag:
                     canonical[key] = group
+        merged, named = merge_by_name(merged, source)
+        aliases = {key: named.get(value, value) for key, value in aliases.items()} | named
         merged = [
             g.model_copy(
                 update={"parent_id": aliases.get(g.parent_id, g.parent_id) if g.parent_id else None}
             )
+            for g in merged
+        ]
+        # 합친 뒤 자기 자신을 부모로 가리키면 끊는다(같은 이름 부모·자식이 한 묶음이 된 경우).
+        merged = [
+            g.model_copy(update={"parent_id": None}) if g.parent_id == g.entity_id else g
             for g in merged
         ]
         if len(merged) > MAX_REQUIREMENTS:

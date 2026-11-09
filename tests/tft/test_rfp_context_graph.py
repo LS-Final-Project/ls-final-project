@@ -676,3 +676,142 @@ def test_documents_without_declared_tags_are_left_unchanged():
     )
     assert graph.consolidate(result, rows, {}) == result
     assert graph.consolidate(result, rows, graph.heading_tags([])) == result
+
+
+def test_batches_merge_same_normalized_equipment_name_but_not_different_tags():
+    # KAN-255: 80개 배치마다 따로 만든 'Meters'·'meter'는 같은 문서 안이면 한 묶음이다. 태그가 다르면 합치지 않는다.
+    rows = [
+        requirement(f"r{i}", equipment="Meter", quote="Meter shall read kWh.") for i in range(4)
+    ]
+    source = {r.requirement_id: r for r in rows}
+    groups = [
+        group("a", name="Meters", evidence_requirement_ids=["r0"]),
+        group("b", name="the meter", evidence_requirement_ids=["r1"]),
+        group("c", name="Meter", tag="M-01", evidence_requirement_ids=["r2"]),
+        group("d", name="Meter", kind="COMMON", evidence_requirement_ids=["r3"]),
+    ]
+    merged, aliases = graph.merge_by_name(groups, source)
+    assert [g.entity_id for g in merged] == ["a", "c", "d"]
+    assert merged[0].evidence_requirement_ids == ["r0", "r1"]
+    assert aliases == {"b": "a"}
+
+
+def test_test_requirement_in_part3_links_to_part2_equipment_by_name():
+    # 같은 설비면 절(PART)이 달라도 연결한다. 이름이 다르면 여전히 거부한다.
+    product = requirement("r1", section_path=["PART 2", "2.3"], equipment="Circuit Breakers")
+    test = requirement("r2", section_path=["PART 3", "3.6"], equipment="circuit breaker")
+    other = requirement("r3", section_path=["PART 3", "3.6"], equipment="Relay")
+    link = lambda key: assignment(  # noqa: E731
+        key, group_ids=["g1"], relations=[ContextRelation(group_id="g1", relation="APPLIES_TO")]
+    )
+    result = validate(
+        [product, test, other],
+        [group(name="Circuit Breakers", evidence_requirement_ids=["r1"])],
+        [link("r1"), link("r2"), link("r3")],
+    )
+    by_id = {a.requirement_id: a for a in result.assignments}
+    assert by_id["r2"].group_ids == ["g1"]
+    assert by_id["r3"].group_ids == []
+
+
+def test_tagged_group_keeps_same_part_scope_for_name_links():
+    # 같은 이름의 태그 묶음은 다른 PART의 태그 없는 요구를 이름만으로 끌어가지 않는다(물리 식별은 태그로만).
+    tagged = requirement("r1", section_path=["PART 2"], quote="Transformer tag: T-01")
+    other_part = requirement("r2", section_path=["PART 3"], quote="Transformer tag: T-01 test")
+    same_part = requirement("r3", section_path=["PART 2"], quote="Transformer tag: T-01 rating")
+    link = lambda key: assignment(  # noqa: E731
+        key, group_ids=["g1"], relations=[ContextRelation(group_id="g1", relation="APPLIES_TO")]
+    )
+    result = validate(
+        [tagged, other_part, same_part],
+        [group(tag="T-01", evidence_requirement_ids=["r1"])],
+        [link("r1"), link("r2"), link("r3")],
+    )
+    by_id = {a.requirement_id: a.group_ids for a in result.assignments}
+    assert by_id == {"r1": ["g1"], "r2": [], "r3": ["g1"]}
+
+
+def test_parent_cycle_left_by_name_merge_is_cut_before_use():
+    # 이름 병합으로 A→B→A 순환이 남아도 validate_context가 부모를 끊는다.
+    rows = [requirement("r1"), requirement("r2")]
+    merged, aliases = graph.merge_by_name(
+        [
+            group("a", kind="SYSTEM", name="Transformer", parent_id="b2"),
+            group("b", name="Transformer", parent_id="a", evidence_requirement_ids=["r1"]),
+            group("b2", name="transformers", evidence_requirement_ids=["r2"], parent_id="a"),
+        ],
+        {r.requirement_id: r for r in rows},
+    )
+    assert aliases == {"b2": "b"}
+    merged = [
+        g.model_copy(update={"parent_id": aliases.get(g.parent_id, g.parent_id)}) for g in merged
+    ]
+    assert {g.entity_id: g.parent_id for g in merged} == {"a": "b", "b": "a"}
+    result = validate(rows, merged, [assignment("r1"), assignment("r2")])
+    parents = {g.entity_id: g.parent_id for g in result.groups}
+    for start in parents:  # 어느 묶음에서 올라가도 끝난다(순환 없음).
+        seen, at = set(), start
+        while at is not None:
+            assert at not in seen
+            seen.add(at)
+            at = parents.get(at)
+    assert any(i.code == "INVALID_PARENT" for i in result.issues)
+
+
+def test_malformed_output_is_asked_once_more_then_left_as_batch_issue():
+    # KAN-255: 형식 오류 응답은 같은 입력으로 한 번만 다시 묻는다(D11 연결 배치 1개 실패로 24개 빠짐).
+    calls = Counter()
+
+    async def flaky(stage, payload):
+        calls[stage] += 1
+        if calls[stage] == 1:
+            raise graph.ContextOutputError("synthetic truncated json")
+        if stage == "inventory":
+            return ContextProposal(groups=[group(evidence_requirement_ids=["r1", "r2"])])
+        target = payload["groups"][0]["entity_id"]
+        return ContextProposal(
+            assignments=[
+                assignment(
+                    r["requirement_id"],
+                    group_ids=[target],
+                    relations=[ContextRelation(group_id=target, relation="APPLIES_TO")],
+                )
+                for r in payload["requirements"]
+            ]
+        )
+
+    result = asyncio.run(graph.run_context([requirement("r1"), requirement("r2")], flaky))
+    assert calls == {"inventory": 2, "link": 2}
+    assert not any(i.code.endswith("_INVALID_OUTPUT") for i in result.issues)
+    assert all(a.group_ids for a in result.assignments)
+
+    seen = Counter()
+
+    async def always_bad(stage, payload):
+        seen[stage] += 1
+        raise graph.ContextOutputError("synthetic invalid output")
+
+    result = asyncio.run(graph.run_context([requirement()], always_bad))
+    assert seen == {"inventory": 2, "link": 2, "repair": 2}
+    assert {i.code for i in result.issues} >= {"INVENTORY_INVALID_OUTPUT", "LINK_INVALID_OUTPUT"}
+
+
+def test_rejected_link_reason_is_named_in_the_issue():
+    rows = [
+        requirement("r1", equipment="Meter", quote="Meter shall read kWh."),
+        requirement("r2", equipment="Relay", quote="Relay shall trip."),
+    ]
+    link = lambda key, rel="APPLIES_TO": assignment(  # noqa: E731
+        key, group_ids=["g1"], relations=[ContextRelation(group_id="g1", relation=rel)]
+    )
+    result = validate(
+        rows,
+        [group(name="Meter", evidence_requirement_ids=["r1"])],
+        [link("r1", "SAME_EQUIPMENT"), link("r2")],
+    )
+    messages = {i.requirement_ids[0]: (i.entity_ids, i.message) for i in result.issues}
+    assert messages["r1"] == (["g1"], "묶음 연결 확인 필요: 'Meter'(같은 설비 관계는 태그 필요)")
+    assert messages["r2"] == (
+        ["g1"],
+        "묶음 연결 확인 필요: 'Meter'(설비·작업 이름 또는 절 범위 불일치)",
+    )
