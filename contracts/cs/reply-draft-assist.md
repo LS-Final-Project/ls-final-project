@@ -36,7 +36,7 @@
 
 | 코드 | 규칙 |
 | --- | --- |
-| `CS_REPLY_ASSIST_SCHEMA` | JSON 객체 하나, `text` 키만, 공백만은 안 됨. 기준 글(DEPT_DRAFT는 부서 답변+제안 문안, TO_KO는 원래 초안, FROM_KO는 고친 한국어) 길이의 3배(최소 400자)와 8000자 중 작은 값 이하 |
+| `CS_REPLY_ASSIST_SCHEMA` | JSON 객체 하나, `text` 키만, 공백만은 안 됨. 기준 글(DEPT_DRAFT는 부서 답변+제안 문안, TO_KO는 원래 초안, FROM_KO는 고친 한국어) 길이의 배수(DEPT_DRAFT·FROM_KO 8배, TO_KO 3배, 최소 400자)와 8000자 중 작은 값 이하. 한국어 기준 글을 고객 언어로 쓰면 글자 수가 몇 배로 늘어서다 |
 | `CS_REPLY_ASSIST_LANGUAGE` | 한국어로 쓸 출력(TO_KO, 고객 언어가 한국어인 회신)에는 한글이 있어야 하고, 고객 언어가 한국어가 아니면 고객에게 갈 출력(DEPT_DRAFT·FROM_KO)에 한글이 없어야 한다 |
 | `CS_REPLY_ASSIST_UNGROUNDED` | [번역](translation.md)의 `CS_TRANSLATION_UNGROUNDED`와 같은 검사. 근거 글은 DEPT_DRAFT가 부서 답변·제안 문안·문의 제목·본문, TO_KO가 원래 초안, FROM_KO가 원래 초안+고친 한국어다. 부서 답변에 없는 판본·기간·수량을 만들면 이 코드다 |
 | `CS_BLOCKED_EVIDENCE` | 인용 차단 코드(FLT-042)를 말하면 안 된다 |

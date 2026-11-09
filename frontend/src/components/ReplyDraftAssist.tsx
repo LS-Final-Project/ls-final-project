@@ -25,8 +25,10 @@ export function DeptReplyDraft({ create, load, onUse, inUse = false }: { create:
   useEffect(() => {
     if (!load) return;
     const controller = new AbortController();
-    load(controller.signal).then(result => { if (result.data) setDraft({ state: 'done', data: result.data }); },
-      error => { if (!controller.signal.aborted && error instanceof ApiError && (error.status === 404 || error.status === 403)) setDraft(failure(error, 'AI 회신 초안')); });
+    // 읽기가 늦게 오면 그 사이 "만들기"로 시작한 상태를 덮지 않는다(아직 idle일 때만 반영).
+    const settle = (next: typeof draft) => setDraft(prev => prev.state === 'idle' ? next : prev);
+    load(controller.signal).then(result => { if (result.data) settle({ state: 'done', data: result.data }); },
+      error => { if (!controller.signal.aborted && error instanceof ApiError && (error.status === 404 || error.status === 403)) settle(failure(error, 'AI 회신 초안')); });
     return () => controller.abort();
     // 부모가 부서 답변마다 key를 바꿔 새로 그린다. 처음 한 번만 읽는다.
   }, []);
