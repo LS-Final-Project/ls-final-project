@@ -389,3 +389,14 @@ def test_cache_larger_than_input_gives_no_billable_input():
     assert usage.billable_input_tokens is None
     cost = estimate_cost(usage, "fixture-model", FAKE_PRICES)
     assert cost.input is None and cost.total == Decimal("0.0000025")
+
+
+def test_generate_logs_token_counts_without_content(sdk_http, caplog):
+    """KAN-155: 사용량을 저장하지 않는 호출도 비용을 셀 수 있게 토큰 수만 로그로 남긴다."""
+    settings = AISettings(ai_provider="vertex", google_cloud_project="fixture-project")
+    with caplog.at_level("INFO", logger="backend.shared.ai"), create_client(settings) as client:
+        generate(client, settings, "synthetic secret prompt")
+    [record] = [r for r in caplog.records if r.getMessage() == "AI_USAGE"]
+    assert (record.input_tokens, record.output_tokens, record.thought_tokens) == (7, 4, 11)
+    assert record.cached_input_tokens == 2 and record.model == settings.gemini_model
+    assert "synthetic secret prompt" not in caplog.text

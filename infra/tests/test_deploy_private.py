@@ -45,6 +45,8 @@ class DeploymentTests(unittest.TestCase):
                 )
             )
             self.assertIn("--min=1", command)
+            # KAN-155: SSE가 자리를 잡는 platform만 80, 나머지 API는 20.
+            self.assertIn(f"--concurrency={80 if service == 'platform' else 20}", command)
             self.assertTrue(
                 any(
                     arg.startswith(f"--image={deployment.REGISTRY}/{service}@sha256:")
@@ -91,6 +93,7 @@ class DeploymentTests(unittest.TestCase):
         ]
         command = deployment.deployment_commands(build, ("web",))[0]
         self.assertIn("--allow-unauthenticated", command)
+        self.assertIn("--concurrency=80", command)
         self.assertFalse(
             any("--update-secrets" in arg or "--set-cloudsql" in arg for arg in command)
         )

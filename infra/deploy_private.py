@@ -57,7 +57,8 @@ def deployment_commands(
             "--memory=512Mi",
             "--port=8080",
             "--timeout=300s",
-            "--concurrency=20",
+            # KAN-155: SSE가 자리를 오래 잡는 web·platform은 80(배포 환경 5차 측정 통과), 나머지는 20.
+            f"--concurrency={80 if service in ('web', 'platform') else 20}",
             f"--labels=commit-sha={revision}",
             "--quiet",
         ]
