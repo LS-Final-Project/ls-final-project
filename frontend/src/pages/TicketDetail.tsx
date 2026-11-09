@@ -8,7 +8,7 @@ import DeptResultReview from '../components/DeptResultReview';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ApiError, getApiMode, request } from '../api/client';
 import { getTicket, getTicketAnalysis, getTicketAudit, getTicketSummary, getTicketTranslation, getTicketUnits, type TicketListResponse } from '../api/cs';
-import { closeTicket, confirmReturn, correctAnalysis, createTicketSummary, createTicketTranslation, getTicketWorkflow, INVALID_TRANSITION_TEXT, isInvalidOwner, isInvalidTransition, isSendPending, isResolutionExists, isResultVersionConflict, isVersionConflict, reassignOwner, recallTransfer, registerResolutionCase, reviewDeptResult, suggestFault, saveUnitLink, startReview, transferTicket, type DeptCode, type UnitLinkBody, type WorkflowRecord, refreshCustomerSend, retryCustomerSend, sendCustomerMessage, createDeptReplyDraft, translateReplyDraft, applyKoreanEdit } from '../api/cs-workflow';
+import { closeTicket, confirmReturn, correctAnalysis, createTicketSummary, createTicketTranslation, getTicketWorkflow, INVALID_TRANSITION_TEXT, isInvalidOwner, isInvalidTransition, isSendPending, isResolutionExists, isResultVersionConflict, isVersionConflict, reassignOwner, recallTransfer, registerResolutionCase, reviewDeptResult, suggestFault, saveUnitLink, startReview, transferTicket, type DeptCode, type UnitLinkBody, type WorkflowRecord, refreshCustomerSend, retryCustomerSend, sendCustomerMessage, createDeptReplyDraft, getDeptReplyDraft, translateReplyDraft, applyKoreanEdit } from '../api/cs-workflow';
 import { listCsAssignees, me } from '../api/platform';
 import { listMailboxes } from '../api/mailbox';
 import { ErrorState, Loading } from '../components/states';
@@ -611,7 +611,7 @@ function TicketScreen({ ticketId }: { ticketId: string }) {
                   ? <div className="dept-reply"><span>부서가 제안한 고객 문안</span>{acceptedResult.reply_content}
                     <button className="kb3 sm" onClick={() => { setEdited(acceptedResult.reply_content ?? ''); setEditing(false); }}>이 문안 쓰기</button></div>
                   : <div className="meta">부서가 고객 문안은 주지 않았습니다. 아래 초안을 부서 답변에 맞게 고쳐 쓰거나 AI 초안을 만드세요.</div>}
-                {canWrite && <DeptReplyDraft key={acceptedResult.id} create={signal => createDeptReplyDraft(ticketId, acceptedResult.id, signal)}
+                {canWrite && <DeptReplyDraft key={acceptedResult.id} create={signal => createDeptReplyDraft(ticketId, acceptedResult.id, signal)} load={signal => getDeptReplyDraft(ticketId, acceptedResult.id, signal)}
                   onUse={text => { setBoxPick('OWN'); setEdited(text); setDeptDraftText(text); setEditing(false); resetSend(); setCopyNote(''); setNotice({ kind: 'ok', text: '부서 답변 기반 AI 초안을 회신 상자에 넣었습니다. 읽고 고친 뒤 보내세요.' }); }} />}
               </div>}
               {act === 'info' && <div className="need">

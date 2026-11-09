@@ -24,6 +24,16 @@ test('부서 답변 기반 초안은 보여 주기만 하고 "이 초안 쓰기"
   expect(onUse).toHaveBeenCalledWith('Firmware 4.2.1 fixes E-204.');
 });
 
+test('저장된 초안이 있으면 처음부터 보이고, 없으면 단추만 보인다', async () => {
+  const saved = vi.fn().mockResolvedValue(reply('DEPT_DRAFT', 'Saved draft.', { reused: true, dept_result_id: 'r1' }));
+  render(<DeptReplyDraft create={vi.fn()} load={saved} onUse={vi.fn()} />);
+  expect(await screen.findByText(/Saved draft./)).toBeTruthy();
+  expect(screen.getByText(/저장본/)).toBeTruthy();
+  cleanup();
+  render(<DeptReplyDraft create={vi.fn()} load={vi.fn().mockResolvedValue({ data: null })} onUse={vi.fn()} />);
+  await waitFor(() => expect(screen.getByRole('button', { name: /부서 답변으로 AI 회신 초안/ })).toBeTruthy());
+});
+
 test('꺼진 배포(404)는 꺼져 있다고 안내하고 단추를 막는다', async () => {
   render(<DeptReplyDraft create={vi.fn().mockRejectedValue(new ApiError(404, 'Not found'))} onUse={vi.fn()} />);
   click(/부서 답변으로 AI 회신 초안/);

@@ -32,7 +32,7 @@ export const businessRoutes = [
   ['/api/v1/cs/tickets/{uuid}/summary', ['GET', 'POST'], []],
   ['/api/v1/cs/tickets/{uuid}/translation', ['GET', 'POST'], []],
   ['/api/v1/cs/tickets/{uuid}/fault-suggestion', ['POST'], []],
-  ['/api/v1/cs/tickets/{uuid}/reply-draft/dept-answer', ['POST'], []],
+  ['/api/v1/cs/tickets/{uuid}/reply-draft/dept-answer', ['GET', 'POST'], ['dept_result_id']],
   ['/api/v1/cs/tickets/{uuid}/reply-draft/korean', ['POST'], []],
   ['/api/v1/cs/tickets/{uuid}/reply-draft/korean-edit', ['POST'], []],
   ['/api/v1/cs/tickets/{uuid}/reply-analysis', ['GET', 'POST'], ['message_id']],

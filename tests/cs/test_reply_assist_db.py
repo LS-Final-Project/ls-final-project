@@ -132,9 +132,15 @@ def test_an_agent_gets_a_customer_language_draft_from_the_accepted_answer(cs_dat
     ticket_id = add_ticket(admin)
     result_id = add_result(admin, ticket_id)
     model = FakeModel(DRAFT)
+    saved = f"{path(ticket_id, 'dept-answer')}?dept_result_id={result_id}"
     with TestClient(app_for(cs_database, dept=model), headers=principal_header(AGENT)) as c:
+        before = c.get(saved)
         first = c.post(path(ticket_id, "dept-answer"), json={"dept_result_id": str(result_id)})
         again = c.post(path(ticket_id, "dept-answer"), json={"dept_result_id": str(result_id)})
+        after = c.get(saved)
+    # 저장본 조회는 모델을 부르지 않는다. 만들기 전에는 null, 만든 뒤에는 그 초안이다.
+    assert before.status_code == 200 and before.json()["data"] is None
+    assert after.json()["data"]["text"] == DRAFT and after.json()["data"]["reused"] is True
     assert first.status_code == again.status_code == 200, first.text
     data = first.json()["data"]
     assert (data["kind"], data["text"], data["dept_result_id"]) == (

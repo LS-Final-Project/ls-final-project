@@ -85,6 +85,8 @@ export type ReplyAssist = paths['/api/v1/cs/tickets/{ticket_id}/reply-draft/kore
 type AssistResult = { data: ReplyAssist };
 // 확인 완료한 부서 답변으로 고객 언어 회신 초안을 만든다.
 export const createDeptReplyDraft = async (ticketId: string, deptResultId: string, signal: AbortSignal) => (await postTo(`${ticketBase(ticketId)}/reply-draft/dept-answer`, { dept_result_id: deptResultId }, signal)) as unknown as AssistResult;
+// 그 부서 답변으로 저장된 가장 최근 AI 초안(없으면 null). 모델을 부르지 않는다.
+export const getDeptReplyDraft = (ticketId: string, deptResultId: string, signal?: AbortSignal) => request<{ data: ReplyAssist | null }>(`${ticketBase(ticketId)}/reply-draft/dept-answer?dept_result_id=${encodeURIComponent(deptResultId)}`, { signal, mockFallback: () => ({ data: null }) });
 // 회신 상자의 초안을 한국어로 옮긴다.
 export const translateReplyDraft = async (ticketId: string, text: string, signal: AbortSignal) => (await postTo(`${ticketBase(ticketId)}/reply-draft/korean`, { text }, signal)) as unknown as AssistResult;
 // 담당자가 고친 한국어를 원래 초안(text, 먼저 번역한 글)에 반영한 고객 언어 글을 만든다.

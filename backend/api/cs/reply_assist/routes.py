@@ -1,7 +1,7 @@
 """고객 회신 초안의 AI 보조(KAN-251). 기본 비활성. 판단·규칙은 `backend/engine/cs/reply_assist.py`.
 
 - `POST …/reply-draft/dept-answer` (`CS_DEPT_REPLY_DRAFT_ENABLED`): 확인 완료(ACCEPTED)한 부서 답변으로 고객 언어
-  회신 초안 하나를 만든다.
+  회신 초안 하나를 만든다. `GET …?dept_result_id=`는 그 답변으로 저장된 가장 최근 초안을 읽는다(모델 호출 없음).
 - `POST …/reply-draft/korean` (`CS_REPLY_TRANSLATION_ENABLED`): 회신 상자의 초안을 한국어로 옮긴다. 고객 언어가
   한국어이거나 글이 이미 한국어면 모델을 부르지 않고 422 `CS_REPLY_TRANSLATION_NOT_NEEDED`다.
 - `POST …/reply-draft/korean-edit` (같은 설정): 담당자가 고친 한국어를 원래 초안에 반영한 고객 언어 글을 만든다.
@@ -232,6 +232,34 @@ def not_needed() -> ApplicationError:
     return ApplicationError(
         422, "CS_REPLY_TRANSLATION_NOT_NEEDED", "The draft is already written in Korean."
     )
+
+
+@router.get(
+    "/dept-answer",
+    response_model=SuccessResponse[ReplyAssist | None],
+    operation_id="cs_get_dept_reply_draft",
+    openapi_extra={**PARTIAL, "x-activation": "CS_DEPT_REPLY_DRAFT_ENABLED"},
+)
+async def saved_dept_reply_draft(
+    ticket_id: UUID,
+    dept_result_id: UUID,
+    request: Request,
+    principal: Principal = Depends(current_principal),
+) -> SuccessResponse[ReplyAssist | None]:
+    """그 부서 답변으로 저장된 가장 최근 초안(없으면 null). 모델을 부르지 않는다."""
+    feature(request, "dept")
+    async with connection(request.app.state.settings) as conn:
+        await load(conn, principal, ticket_id)
+        if not principal.has("cs_agent"):
+            raise HTTPException(403)
+        cursor = await conn.execute(
+            f"SELECT {COLUMNS} FROM cs.reply_draft_assists WHERE ticket_id = %s "
+            "AND kind = 'DEPT_DRAFT' AND dept_result_id = %s AND outcome = 'VALID' "
+            "ORDER BY created_at DESC, id DESC LIMIT 1",
+            (ticket_id, dept_result_id),
+        )
+        row = await cursor.fetchone()
+    return respond(request, view(row, reused=True) if row else None)
 
 
 @router.post(

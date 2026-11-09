@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ApiError } from '../api/client';
 import type { ReplyAssist } from '../api/cs-workflow';
 import { ElloMark, ElloWorking } from './Ello';
@@ -17,8 +17,17 @@ function failure(error: unknown, name: string): Failure {
 const maskedNote = (text: string) => MASKED.test(text) && <div className="meta">가림 표시([…_PROVIDED])는 보내기 전에 실제 값으로 바꾸세요.</div>;
 
 /** 확인한 부서 답변 상자 안의 "부서 답변으로 AI 회신 초안". 결과를 보여 주고 "이 초안 쓰기"로만 회신 상자에 넣는다. */
-export function DeptReplyDraft({ create, onUse }: { create: Call; onUse: (text: string) => void }) {
+export function DeptReplyDraft({ create, load, onUse }: { create: Call; load?: (signal: AbortSignal) => Promise<{ data: ReplyAssist | null }>; onUse: (text: string) => void }) {
   const [draft, setDraft] = useState<{ state: 'idle' | 'busy' } | Failure | { state: 'done'; data: ReplyAssist }>({ state: 'idle' });
+  // 저장된 초안이 있으면 처음부터 보인다(모델 호출 없음). 꺼진 배포(404)면 단추를 미리 막는다. 그 밖의 읽기 실패는 단추를 그대로 둔다.
+  useEffect(() => {
+    if (!load) return;
+    const controller = new AbortController();
+    load(controller.signal).then(result => { if (result.data) setDraft({ state: 'done', data: result.data }); },
+      error => { if (!controller.signal.aborted && error instanceof ApiError && (error.status === 404 || error.status === 403)) setDraft(failure(error, 'AI 회신 초안')); });
+    return () => controller.abort();
+    // 부모가 부서 답변마다 key를 바꿔 새로 그린다. 처음 한 번만 읽는다.
+  }, []);
   const make = () => {
     setDraft({ state: 'busy' });
     create(new AbortController().signal).then(result => setDraft({ state: 'done', data: result.data }), error => setDraft(failure(error, 'AI 회신 초안')));
