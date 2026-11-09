@@ -343,8 +343,9 @@ def test_inventory_namespaced_same_tag_different_document_never_merges():
         for i in range(160)
     ]
     result = asyncio.run(graph.run_context(rows, provider))
-    assert len(result.groups) == 2
-    assert {g.entity_id.split(":")[0] for g in result.groups} == {"b0", "b1"}
+    equipment = [g for g in result.groups if g.kind == "EQUIPMENT"]
+    assert len(equipment) == 2
+    assert {g.entity_id.split(":")[0] for g in equipment} == {"b0", "b1"}
 
 
 def test_fake_provider_is_unclassified_explicit_offline_not_semantic_pass():
@@ -505,10 +506,11 @@ def test_max_length_provider_ids_are_remapped_with_parent_links_and_roundtrip_sa
         return ContextProposal(assignments=[assignment()])
 
     result = asyncio.run(graph.run_context([requirement()], provider))
-    assert len(result.groups) == 2
+    provided = [g for g in result.groups if not g.entity_id.startswith("article:")]
+    assert len(provided) == 2
     assert all(len(g.entity_id) <= 160 for g in result.groups)
-    roots = [g for g in result.groups if g.parent_id is None]
-    children = [g for g in result.groups if g.parent_id is not None]
+    roots = [g for g in provided if g.parent_id is None]
+    children = [g for g in provided if g.parent_id is not None]
     assert len(roots) == len(children) == 1
     assert children[0].parent_id == roots[0].entity_id
     assert ContextResult.model_validate_json(result.model_dump_json()) == result
@@ -676,3 +678,60 @@ def test_documents_without_declared_tags_are_left_unchanged():
     )
     assert graph.consolidate(result, rows, {}) == result
     assert graph.consolidate(result, rows, graph.heading_tags([])) == result
+
+
+def test_batches_merge_same_normalized_equipment_name_but_not_different_tags():
+    # KAN-255: 80개 배치마다 따로 만든 'Meters'·'meter'는 같은 문서 안이면 한 묶음이다. 태그가 다르면 합치지 않는다.
+    rows = [
+        requirement(f"r{i}", equipment="Meter", quote="Meter shall read kWh.") for i in range(4)
+    ]
+    source = {r.requirement_id: r for r in rows}
+    groups = [
+        group("a", name="Meters", evidence_requirement_ids=["r0"]),
+        group("b", name="the meter", evidence_requirement_ids=["r1"]),
+        group("c", name="Meter", tag="M-01", evidence_requirement_ids=["r2"]),
+        group("d", name="Meter", kind="COMMON", evidence_requirement_ids=["r3"]),
+    ]
+    merged, aliases = graph.merge_by_name(groups, source)
+    assert [g.entity_id for g in merged] == ["a", "c", "d"]
+    assert merged[0].evidence_requirement_ids == ["r0", "r1"]
+    assert aliases == {"b": "a"}
+
+
+def test_test_requirement_in_part3_links_to_part2_equipment_by_name():
+    # 같은 설비면 절(PART)이 달라도 연결한다. 이름이 다르면 여전히 거부한다.
+    product = requirement("r1", section_path=["PART 2", "2.3"], equipment="Circuit Breakers")
+    test = requirement("r2", section_path=["PART 3", "3.6"], equipment="circuit breaker")
+    other = requirement("r3", section_path=["PART 3", "3.6"], equipment="Relay")
+    link = lambda key: assignment(  # noqa: E731
+        key, group_ids=["g1"], relations=[ContextRelation(group_id="g1", relation="APPLIES_TO")]
+    )
+    result = validate(
+        [product, test, other],
+        [group(name="Circuit Breakers", evidence_requirement_ids=["r1"])],
+        [link("r1"), link("r2"), link("r3")],
+    )
+    by_id = {a.requirement_id: a for a in result.assignments}
+    assert by_id["r2"].group_ids == ["g1"]
+    assert by_id["r3"].group_ids == []
+
+
+def test_unlinked_requirements_go_to_their_article_and_survive_revalidation():
+    rows = [
+        requirement("r1", clause_no="2.3.A", section_path=["PART 2", "2.3", "2.3.A"]),
+        requirement("r2", clause_no="2.3.B", section_path=["PART 2", "2.3", "2.3.B"]),
+        requirement("r3", clause_no="3.1", section_path=["PART 3", "3.1"]),
+        requirement("r4", section_path=[]),
+    ]
+    result = validate(rows, [], [assignment(r.requirement_id) for r in rows])
+    titled = graph.attach_to_articles(result, rows, {("d1", "2.3"): "MOLDED-CASE BREAKERS"})
+    names = {g.name: g.evidence_requirement_ids for g in titled.groups}
+    assert names == {"2.3 MOLDED-CASE BREAKERS": ["r1", "r2"], "3.1": ["r3"]}
+    assert all(g.kind == "COMMON" and g.needs_review for g in titled.groups)
+    by_id = {a.requirement_id: a for a in titled.assignments}
+    assert by_id["r4"].group_ids == []
+    assert by_id["r1"].primary_category == "QUALITY"
+    # 저장 직전 다시 검사(checked_result)해도 조 묶음과 연결이 그대로 남는다.
+    assert graph.validate_context(titled, rows).model_dump(exclude={"outcome", "issues"}) == (
+        titled.model_dump(exclude={"outcome", "issues"})
+    )

@@ -83,6 +83,32 @@ def _identity(row: ContextRequirement, label: str) -> set[str]:
     return {m.casefold() for m in re.findall(pattern, _text(row), re.IGNORECASE)}
 
 
+_ARTICLES = frozenset({"the", "a", "an"})
+
+
+def _singular(word: str) -> str:
+    if len(word) > 4 and word.endswith(("ches", "shes", "sses", "xes")):
+        return word[:-2]
+    if len(word) > 3 and word.endswith("ies"):
+        return word[:-3] + "y"
+    if len(word) > 3 and word.endswith("s") and not word.endswith(("ss", "us", "is")):
+        return word[:-1]
+    return word
+
+
+def entity_name(text: str | None) -> str:
+    """같은 문서 안 설비·작업 이름 비교용(KAN-255). 대소문자·기호·관사·영어 복수형만 정리하고 동의어는 합치지 않는다.
+
+    Args:
+        text: 요구의 equipment/task 또는 묶음 이름.
+
+    Returns:
+        str: 비교 키. 비어 있으면 "".
+    """
+    words = re.sub(r"[^\w]+", " ", (text or "").casefold()).split()
+    return " ".join(_singular(w) for w in words if w not in _ARTICLES)
+
+
 def _same_scope(left: ContextRequirement, right: ContextRequirement) -> bool:
     return (
         left.document_version_id == right.document_version_id
@@ -97,15 +123,27 @@ def _related(
 ) -> bool:
     if row.requirement_id in group.evidence_requirement_ids:
         return True
+    # KAN-255: 같은 설비·작업은 같은 문서 안이면 절(PART)이 달라도 같은 대상이다(PART 3 시험 요구 → PART 2 설비).
+    # 이름은 entity_name으로만 맞추고 동의어·상위 개념으로 넓히지 않는다. 공통 묶음은 지금처럼 같은 절 범위만.
+    equipment, task = entity_name(row.equipment), entity_name(row.task)
+    if group.kind in ("EQUIPMENT", "TASK") and (
+        (equipment and equipment == entity_name(group.name))
+        or (task and task == entity_name(group.name))
+    ):
+        return any(
+            ref in source and source[ref].document_version_id == row.document_version_id
+            for ref in group.evidence_requirement_ids
+        )
     return any(
         ref in source
-        and _same_scope(row, source[ref])
         and (
-            row.equipment is not None
-            and row.equipment.casefold() == (source[ref].equipment or "").casefold()
-            or row.task is not None
-            and row.task.casefold() == (source[ref].task or "").casefold()
+            source[ref].document_version_id == row.document_version_id
+            and (
+                (equipment and equipment == entity_name(source[ref].equipment))
+                or (task and task == entity_name(source[ref].task))
+            )
             or group.kind == "COMMON"
+            and _same_scope(row, source[ref])
         )
         for ref in group.evidence_requirement_ids
     )
@@ -114,12 +152,12 @@ def _related(
 def _scope_keys(row: ContextRequirement) -> list[tuple[str, ...]]:
     keys: list[tuple[str, ...]] = [("requirement", row.requirement_id)]
     if row.section_path:
-        scope = (row.document_version_id, row.section_path[0])
-        keys.append(("scope", *scope))
-        if row.equipment:
-            keys.append(("equipment", *scope, row.equipment.casefold()))
-        if row.task:
-            keys.append(("task", *scope, row.task.casefold()))
+        keys.append(("scope", row.document_version_id, row.section_path[0]))
+    # KAN-255: 설비·작업은 문서 전체에서 정규화 이름으로 찾는다(_related와 같은 기준).
+    if row.equipment and entity_name(row.equipment):
+        keys.append(("equipment", row.document_version_id, entity_name(row.equipment)))
+    if row.task and entity_name(row.task):
+        keys.append(("task", row.document_version_id, entity_name(row.task)))
     return keys
 
 
@@ -133,6 +171,11 @@ def _candidate_index(
                 if key[0] == "scope" and group.kind != "COMMON":
                     continue
                 index.setdefault(key, set()).add(group.entity_id)
+        # 묶음 이름 자체도 찾기 키다(근거 요구의 설비 칸이 비어 있어도 이름이 같은 요구를 붙인다).
+        if group.kind in ("EQUIPMENT", "TASK") and entity_name(group.name):
+            for doc in {source[r].document_version_id for r in group.evidence_requirement_ids}:
+                kind = "equipment" if group.kind == "EQUIPMENT" else "task"
+                index.setdefault((kind, doc, entity_name(group.name)), set()).add(group.entity_id)
     return index
 
 
@@ -334,6 +377,11 @@ TAG = r"[A-Z]{1,5}(?:-[A-Z]{1,5})*-\d{1,4}"
 _TAG_TOKEN = re.compile(rf"(?<![\w-])({TAG})(?![\w-])")
 _HEADING = re.compile(rf"^\s*([^()\n]{{1,60}}?)\s*\(\s*({TAG})\s*\)\s*$")
 Headings = dict[tuple[str, str], tuple[str, str]]
+
+
+def clause_titles(clauses: list[dict[str, Any]]) -> dict[tuple[str, str], str]:
+    """(판본, 조항 번호) → 조항 제목(없으면 빈 문자열)."""
+    return {(c["document_version_id"], c["clause_no"]): c.get("title") or "" for c in clauses}
 
 
 def heading_tags(clauses: list[dict[str, Any]]) -> Headings:
@@ -599,6 +647,140 @@ def _duplicates(
     return duplicates, conflicts
 
 
+def merge_by_name(
+    groups: list[ContextGroup], source: dict[str, ContextRequirement]
+) -> tuple[list[ContextGroup], dict[str, str]]:
+    """배치마다 따로 만든 설비·작업 묶음을 같은 문서 안 정규화 이름으로 합친다(KAN-255).
+
+    태그·장소가 서로 다르거나, 합친 근거 요구에 명시 태그·장소가 둘 이상이면 합치지 않는다(validate_context가
+    EQUIPMENT 묶음의 태그 둘 이상을 거부하는 것과 같은 기준). 이름은 먼저 나온 묶음 것을 쓴다.
+
+    Args:
+        groups: 묶음 후보(배치 순서).
+        source: 요구 ID → 요구.
+
+    Returns:
+        tuple: 합친 묶음 목록과 흡수된 묶음 ID → 남은 묶음 ID.
+    """
+    kept: list[ContextGroup] = []
+    by_key: dict[tuple[Any, ...], int] = {}
+    aliases: dict[str, str] = {}
+    for group in groups:
+        name = entity_name(group.name)
+        docs = frozenset(source[r].document_version_id for r in group.evidence_requirement_ids)
+        if group.kind not in ("EQUIPMENT", "TASK") or not name or len(docs) != 1:
+            kept.append(group)
+            continue
+        key = (
+            group.kind,
+            next(iter(docs)),
+            name,
+            group.tag.casefold() if group.tag else None,
+            group.site.casefold() if group.site else None,
+        )
+        at = by_key.get(key)
+        if at is not None:
+            previous = kept[at]
+            evidence = list(
+                dict.fromkeys(previous.evidence_requirement_ids + group.evidence_requirement_ids)
+            )
+            rows = [source[r] for r in evidence]
+            tags = set().union(*(_identity(r, "tag|equipment tag|장비 태그") for r in rows))
+            sites = set().union(*(_identity(r, "site|location|현장") for r in rows))
+            if group.kind == "EQUIPMENT" and (len(tags) > 1 or len(sites) > 1):
+                kept.append(group)
+                continue
+            kept[at] = previous.model_copy(
+                update={
+                    "evidence_requirement_ids": evidence,
+                    "diagram_source_ids": list(
+                        dict.fromkeys(previous.diagram_source_ids + group.diagram_source_ids)
+                    ),
+                    "parent_id": previous.parent_id or group.parent_id,
+                    "needs_review": True,
+                }
+            )
+            aliases[group.entity_id] = previous.entity_id
+            continue
+        by_key[key] = len(kept)
+        kept.append(group)
+    return kept, aliases
+
+
+def article_of(row: ContextRequirement) -> str | None:
+    """요구가 속한 조(article): 절 경로에서 맨 앞 PART·장 머리를 뺀 첫 단계. 경로가 없으면 None."""
+    path = list(row.section_path)
+    if len(path) > 1 and re.match(r"(?i)part\b|제\s*\d+\s*[장편]", path[0]):
+        path = path[1:]
+    return path[0] if path else None
+
+
+def attach_to_articles(
+    result: ContextResult,
+    requirements: list[ContextRequirement],
+    titles: dict[tuple[str, str], str],
+) -> ContextResult:
+    """설비·작업 묶음에 끝까지 연결되지 않은 요구를 소속 조 묶음(COMMON)에 둔다(KAN-255).
+
+    요구 행·분류·검토 필요 표시는 바꾸지 않고 묶음 연결(APPLIES_TO)만 더한다. 조 번호를 알 수 없는 요구는 그대로 둔다.
+
+    Args:
+        result: 맥락 정리 결과.
+        requirements: 입력 요구.
+        titles: (판본, 조항 번호) → 조항 제목.
+
+    Returns:
+        ContextResult: 조 묶음이 더해진 결과.
+    """
+    rows = {r.requirement_id: r for r in requirements}
+    members: dict[tuple[str, str], list[str]] = {}
+    for assignment in result.assignments:
+        row = rows.get(assignment.requirement_id)
+        article = article_of(row) if row else None
+        if row is not None and article and not assignment.group_ids:
+            members.setdefault((row.document_version_id, article), []).append(row.requirement_id)
+    if not members:
+        return result
+    ids = {
+        key: "article:" + hashlib.sha256("\0".join(key).encode()).hexdigest()[:24]
+        for key in members
+    }
+    groups = [
+        ContextGroup(
+            entity_id=ids[key],
+            name=_article_name(key[1], titles.get(key)),
+            kind="COMMON",
+            evidence_requirement_ids=refs,
+            needs_review=True,
+        )
+        for key, refs in members.items()
+    ]
+    owner = {ref: ids[key] for key, refs in members.items() for ref in refs}
+    assignments = [
+        a.model_copy(
+            update={
+                "group_ids": [owner[a.requirement_id]],
+                "relations": [
+                    ContextRelation(group_id=owner[a.requirement_id], relation="APPLIES_TO")
+                ],
+            }
+        )
+        if a.requirement_id in owner
+        else a
+        for a in result.assignments
+    ]
+    return result.model_copy(
+        update={"groups": [*result.groups, *groups], "assignments": assignments}
+    )
+
+
+def _article_name(article: str, title: str | None) -> str:
+    title = (title or "").strip()
+    if title and title.casefold() not in article.casefold():
+        return f"{article} {title}"
+    return article
+
+
 def build_input(row: ContextRequirement, *, inventory: bool = False) -> dict[str, Any]:
     """Explicit whitelist. Comparison status/necessity are read-only and never model inputs."""
     return {
@@ -636,10 +818,12 @@ async def run_context(
     diagram_source_ids: list[str] | None = None,
     progress: Callable[[str], None] | None = None,
     headings: Headings | None = None,
+    titles: dict[tuple[str, str], str] | None = None,
 ) -> ContextResult:
     """Chunked inventory/linking (max 6 concurrent), then at most one 24-row repair.
 
     headings: 원문 조항 제목의 설비 태그(heading_tags). 있으면 끝에 결정적 정리(consolidate)를 한다.
+    titles: (판본, 조항 번호) → 제목(clause_titles). 연결되지 않은 요구를 둘 조 묶음 이름에 쓴다.
     """
     _guard()
     diagrams = list(diagram_source_ids or [])
@@ -764,10 +948,17 @@ async def run_context(
                 merged.append(group)
                 if group.kind == "EQUIPMENT" and group.tag:
                     canonical[key] = group
+        merged, named = merge_by_name(merged, source)
+        aliases = {key: named.get(value, value) for key, value in aliases.items()} | named
         merged = [
             g.model_copy(
                 update={"parent_id": aliases.get(g.parent_id, g.parent_id) if g.parent_id else None}
             )
+            for g in merged
+        ]
+        # 합친 뒤 자기 자신을 부모로 가리키면 끊는다(같은 이름 부모·자식이 한 묶음이 된 경우).
+        merged = [
+            g.model_copy(update={"parent_id": None}) if g.parent_id == g.entity_id else g
             for g in merged
         ]
         if len(merged) > MAX_REQUIREMENTS:
@@ -909,7 +1100,9 @@ async def run_context(
     output = await compiled.ainvoke(
         {"requirements": requirements, "diagrams": diagrams}, config={"recursion_limit": 12}
     )
-    return consolidate(output["result"], requirements, headings or {})
+    return attach_to_articles(
+        consolidate(output["result"], requirements, headings or {}), requirements, titles or {}
+    )
 
 
 def _light_schema(value: Any) -> Any:
