@@ -96,13 +96,13 @@ def test_xlsx_and_summary_docx_from_a_saved_review(
         sheets = read_xlsx(xlsx.content)
         assert list(sheets) == ["편차표", "질의서", "현황표", "요구별"]
         meta = sheets["요구별"][0][0]
-        assert "검토본 1" in meta and "저장 조건" in meta
+        assert "검토본 1" in meta
         assert sheets["요구별"][1][:4] == ["No", "요구 번호", "조항", "설비"]
         # 저장 조건(KAN-220)을 채우려고 결정이 필요한 요구를 모두 편차표에 기재했다. 질의서 행은 없다.
         # 요구별은 모든 요구(뺀 요구·합친 중복 없음).
         assert recorded and len(sheets["편차표"]) == 2 + recorded
         assert len(sheets["요구별"]) == 2 + requirements
-        assert "저장 조건 충족" in meta
+        assert meta.endswith("| 확정")
         total = sheets["현황표"][-1]
         assert total[0] == "합계" and sum(map(int, total[1:6])) == requirements
 

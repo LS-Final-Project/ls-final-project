@@ -8,7 +8,7 @@ import {
 } from '../api/rfp';
 import { activeRfpJob, replayRfpJob, type RfpProgress, type RfpWatch } from '../api/rfp-job-events';
 import { listSupplementCandidates } from '../api/rfp-supplement';
-import { downloadExportFile, getDraft, getExportJob, getExports, getReviewVersions, sendCommand, type Accepted, type ExportRow } from '../api/rfp-draft';
+import { downloadExportFile, getDraft, getExportJob, getExports, getReviewVersions, sendCommand, type Accepted, type ExportRow, type Review } from '../api/rfp-draft';
 import { getProject, listProjects, type ProjectDetail } from '../api/tft';
 import { BusinessGate, useBusinessAccess } from '../components/BusinessAccess';
 import { ElloMark, ElloWorking } from '../components/Ello';
@@ -17,7 +17,7 @@ import { KvTitle } from '../ls-shell/kv';
 import { MOCK_WORKSPACE_REQUIREMENTS } from '../mocks/rfp-workspace';
 import { fileProblem, latestVersions } from './IntakeForms';
 import { OriginalDocument } from './OriginalDocument';
-import { clauseLabel, codeLabel, ISSUE_LABEL, partnerNote, PARTNER_GRADE_LABEL, reasonText, label, NECESSITY_LABEL, OPERATOR_LABEL, PATH_LABEL, STATUS_LABEL, exportFileName } from './labels';
+import { clauseLabel, codeLabel, ISSUE_LABEL, partnerNote, PARTNER_GRADE_LABEL, reasonText, label, NECESSITY_LABEL, OPERATOR_LABEL, PATH_LABEL, STATUS_LABEL, exportFileName, reviewLabel } from './labels';
 import { useNames } from './names';
 import { focusText } from './RfpReasoning';
 import { ReplyForm } from './QuestionForms';
@@ -441,7 +441,7 @@ export function Decide({ project, documents, rows, role, actorId, log }: { proje
     <div className="ws-tabrow">
     <div className="ws-tabs" role="tablist">
       <button role="tab" aria-selected={tab === 'review'} className={tab === 'review' ? 'on' : ''} onClick={() => setTab('review')}>검토</button>
-      <button role="tab" aria-selected={tab === 'output'} className={tab === 'output' ? 'on' : ''} onClick={() => setTab('output')}>출력 {[gate.undecided, gate.deviation_missing, gate.open_queries, gate.review_pending].some(Boolean) && <span className="muted">출력 전 남은 일 {[gate.undecided, gate.deviation_missing, gate.open_queries, gate.review_pending].filter(Boolean).length}</span>}</button>
+      <button role="tab" aria-selected={tab === 'output'} className={tab === 'output' ? 'on' : ''} onClick={() => setTab('output')}>출력 {[gate.undecided, gate.deviation_missing, gate.open_queries].some(Boolean) && <span className="muted">출력 전 남은 일 {[gate.undecided, gate.deviation_missing, gate.open_queries].filter(Boolean).length}</span>}</button>
     </div>
     {/* 결정 진행은 탭 줄 오른쪽에 작게 둔다: 따로 한 줄을 쓰면 아래 원문 칸이 그만큼 줄어든다. */}
     <div className="ws-strip ws-strip-mini">
@@ -455,7 +455,7 @@ export function Decide({ project, documents, rows, role, actorId, log }: { proje
     {logOpen && <AnalysisLog projectId={project.id} actorId={actorId} documents={documents} live={log} />}
     {stale && <p className="muted ws-note ws-stale">맥락 정리 뒤 바뀐 요구가 있습니다. 설비 묶음과 중복을 맞추려면 맥락 정리를 다시 하세요.</p>}
     {tab === 'output'
-      ? <Output project={project} rows={verdictRows} excluded={excluded} responsible={responsible} readOnly={readOnly} actorId={actorId} onJump={f => { setFilter(f); setTab('review'); }} onPick={id => { setFilter('all'); setSel(id); setTab('review'); }} />
+      ? <Output project={project} rows={verdictRows} excluded={excluded} responsible={responsible || (!!actorId && actorId === project.responsible_user_id)} readOnly={readOnly} actorId={actorId} onJump={f => { setFilter(f); setTab('review'); }} onPick={id => { setFilter('all'); setSel(id); setTab('review'); }} />
       : <>
         <div className="ws-filters" role="toolbar" aria-label="판정 필터">
           <div className="ws-frow">
@@ -802,7 +802,8 @@ function Output({ project, rows, excluded = [], responsible, readOnly = responsi
   // 통합 책임(조립품 통합)이 필요한데 정하지 않으면 서버가 검토본 저장을 거절한다(TFT_DRAFT_INCOMPLETE). 같은 조건을 여기서 보인다.
   const integration = project.integration_responsibility;
   const integrationOpen = !!integration?.required && (integration.holder ?? 'UNRESOLVED') === 'UNRESOLVED';
-  const ready = !gate.undecided && !gate.deviation_missing && !gate.open_queries && !gate.review_pending && !integrationOpen;
+  // 책임자 확인 대기는 저장을 막지 않는다. 남은 채 저장하면 초안이고 책임자가 그 초안을 보고 확인한다(KAN-253).
+  const ready = !gate.undecided && !gate.deviation_missing && !gate.open_queries && !integrationOpen;
   const deviations = rows.filter(r => r.decision?.action === 'record_deviation');
   const keyOf = useMemo(() => makeEqKey(rows), [rows]);
   const byEq = useMemo(() => eqOrder(rows.filter(r => !followsOf(r)).map(keyOf)).map(eq => {
@@ -813,7 +814,7 @@ function Output({ project, rows, excluded = [], responsible, readOnly = responsi
   const unsent = tq.filter(q => q.status === 'OPEN' && !q.sent_at);
   const sent = useMutation({ mutationFn: () => markQuestionsSent(project.id, unsent.map(q => q.question_id), key()), onSettled: () => client.invalidateQueries({ queryKey: ['questions'] }) });
   const reviewBlock = <section className="ws-sec ws-review" aria-label="책임자 확인">
-    <h2>책임자 확인 <span className="muted">{name(project.responsible_user_id)} {pending.length}건</span>{responsible && pending.length > 0 && <button className="kb primary" disabled={review.isPending} onClick={() => review.mutate({ ids: pending, action: 'review_confirm' })}>{review.isPending && review.variables?.action === 'review_confirm' ? `확인 중 (${review.variables.ids.length}건)` : '모두 확인'}</button>}{review.isError && <span role="alert" className="muted">{failureText(review.error)}</span>}</h2>
+    <h2>책임자 확인 <span className="muted">{name(project.responsible_user_id)} {pending.length}건{project.decision_gate?.self_review && ', 본인 결정'}</span>{responsible && pending.length > 0 && <button className="kb primary" disabled={review.isPending} onClick={() => review.mutate({ ids: pending, action: 'review_confirm' })}>{review.isPending && review.variables?.action === 'review_confirm' ? `확인 중 (${review.variables.ids.length}건)` : '모두 확인'}</button>}{review.isError && <span role="alert" className="muted">{failureText(review.error)}</span>}</h2>
     <table className="ws-table"><tbody>{pending.map(p => <tr key={p.decisionId}><td className="tag">{p.row.equipment}</td><td>{p.row.attribute ?? codeLabel(p.row.code)}</td><td>{p.label}</td>
       <td className="r">{responsible && <button className="ws-link" disabled={review.isPending} onClick={() => review.mutate({ ids: [p], action: 'review_return' })}>재검토 요청</button>}</td></tr>)}
       {pending.length === 0 && <tr><td className="muted">확인할 결정이 없습니다.</td></tr>}</tbody></table>
@@ -830,11 +831,13 @@ function Output({ project, rows, excluded = [], responsible, readOnly = responsi
       <button className="kb" disabled={!latestReview || fileOut.isPending} title={latestReview ? `검토본 ${latestReview}판` : '검토본을 먼저 저장하세요'} onClick={() => fileOut.mutate('XLSX')}>대응 현황표 XLSX</button>
       <button className="kb" disabled={!latestReview || fileOut.isPending} title={latestReview ? `검토본 ${latestReview}판` : '검토본을 먼저 저장하세요'} onClick={() => fileOut.mutate('DOCX')}>요약서 DOCX</button>
     </div>
+    {!readOnly && gate.review_pending > 0 && <p className="muted ws-note ws-outnote">책임자 확인 {gate.review_pending}건이 남아 있어 지금 저장하면 초안입니다. 책임자가 확인한 뒤 다시 저장하면 확정입니다.</p>}
+    {!!latestReview && reviews.isSuccess && <p className="muted ws-note ws-outnote">최신 검토본 {latestReview}판: {reviewLabel(reviews.data?.find(r => r.review_version === latestReview)?.review_pending)}</p>}
     {!latestReview && reviews.isSuccess && <p className="muted ws-note ws-outnote">검토본을 먼저 저장하세요. 대응 현황표 XLSX와 요약서 DOCX는 저장한 검토본으로 만듭니다.</p>}
     {fileOut.isPending && <p className="muted ws-note ws-outnote" role="status">{fileOut.variables} 출력을 만들고 있습니다.</p>}
     {fileOut.isError && <p role="alert" className="ws-alert">{failureText(fileOut.error)}</p>}
     {save.isError && <p role="alert" className="ws-alert">{failureText(save.error)}</p>}
-    {save.isSuccess && <p className="ws-ok" role="status">검토본을 저장했습니다.</p>}
+    {save.isSuccess && <p className="ws-ok" role="status">검토본을 {reviewLabel((save.data as Review | undefined)?.review_pending)}으로 저장했습니다.</p>}
     {integrationOpen && <section className="ws-sec ws-review" aria-label="통합 책임"><IntegrationPanel projectId={project.id} canEdit={!readOnly} /></section>}
     {reviewBlock}
     <div className="ws-dtabs" role="tablist" aria-label="출력 문서">

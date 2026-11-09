@@ -3,6 +3,8 @@ export const STATUS_LABEL: Record<string, string> = {
   EVIDENCE_FOUND: '근거 있음', CONDITIONAL: '조건부 검토', SPEC_GAP: '사양 차이', INSUFFICIENT_EVIDENCE: '근거 부족',
 };
 export const OUTPUT_LABEL: Record<string, string> = { INTAKE: '접수', ANALYZING: '분석·검토 중', REVIEW_DRAFT: '검토본 작성' };
+// 검토본 판본의 구분(KAN-253): 저장 때 책임자 확인이 남았으면 초안, 없으면 확정.
+export const reviewLabel = (pending?: number | null) => pending ? `초안 (책임자 확인 ${pending}건 대기)` : '확정';
 export const JUDGEMENT_LABEL: Record<string, string> = {
   NEEDS_REVIEW: '검토 필요', CONDITION_CHECK: '조건 확인 필요', OWNER_CONFIRMED: '담당자 확인',
 };

@@ -1071,6 +1071,8 @@ class ReviewVersion(Model):
     judgement_status: JudgementStatus
     saved_by: UUID
     saved_at: datetime
+    # 저장 때 남은 책임자 확인 수(KAN-253). 0이면 확정, 있으면 초안(책임자 확인 n건 대기).
+    review_pending: int = 0
 
 
 class ReviewVersionItem(Model):
@@ -1084,6 +1086,8 @@ class ReviewVersionItem(Model):
     saved_by: UUID
     saved_by_name: str | None = None
     saved_at: datetime
+    # 저장 때 남은 책임자 확인 수(KAN-253). 0이면 확정, 있으면 초안. 그 전 저장은 0이다.
+    review_pending: int = 0
 
 
 class ReviewVersionList(Model):
