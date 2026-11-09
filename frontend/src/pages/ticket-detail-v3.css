@@ -343,3 +343,12 @@
 .ls-root .kv .td3 #td-dept .kv-grid th{color:#4a5566;font-weight:600}
 /* 목록 No 칸: 순번은 옅게, 자릿수 맞춤 */
 .ls-root .kv .td3 .log td.no{color:#6b7385;font-variant-numeric:tabular-nums}
+/* 회신 초안 AI 보조(KAN-251): 부서 답변 기반 초안 단추, 회신 상자 아래 한국어 번역·한국어로 고쳐 반영 */
+.ls-root .kv .td3 .assist-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.ls-root .kv .td3 .assist-row .meta{display:inline-flex;align-items:center;gap:4px}
+.ls-root .kv .td3 .unc{color:#8a5a00}
+.ls-root .kv .td3 .draft-ko{display:flex;flex-direction:column;gap:5px;margin-top:2px}
+.ls-root .kv .td3 .draft-ko .kb3.sm.on{background:#1a3a7a;border-color:#1a3a7a;color:#fff}
+.ls-root .kv .td3 .ko-box{display:flex;flex-direction:column;gap:6px;border:1px solid #d6dfef;background:#f7f9fd;padding:8px 10px}
+.ls-root .kv .td3 .ko-text{font-size:12.5px;line-height:1.6;color:#2d3546;white-space:pre-wrap;max-height:180px;overflow:auto}
+.ls-root .kv .td3 .ko-result{display:flex;flex-direction:column;gap:5px;border-top:1px dashed #cfdcf2;padding-top:6px}

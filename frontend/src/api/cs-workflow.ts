@@ -79,6 +79,16 @@ export const createTicketTranslation = (ticketId: string, signal: AbortSignal) =
 // 추천일 뿐이다. 고장 코드는 담당자가 고르고 해결 기록 저장으로 확정한다. 꺼진 배포에서는 404.
 export type FaultSuggestion = paths['/api/v1/cs/tickets/{ticket_id}/fault-suggestion']['post']['responses'][200]['content']['application/json']['data'];
 export const suggestFault = async (ticketId: string, signal: AbortSignal) => (await postTo(`${ticketBase(ticketId)}/fault-suggestion`, {}, signal)) as unknown as { data: FaultSuggestion };
+// 고객 회신 초안 AI 보조(KAN-251). 아무것도 보내지 않는다. 결과는 담당자가 회신 상자에 넣고 고쳐 승인해야 나간다. C/S 담당자만.
+// 같은 입력이면 저장본(reused, 모델 호출 없음). 꺼진 배포는 404, 이미 한국어면 422 CS_REPLY_TRANSLATION_NOT_NEEDED.
+export type ReplyAssist = paths['/api/v1/cs/tickets/{ticket_id}/reply-draft/korean']['post']['responses'][200]['content']['application/json']['data'];
+type AssistResult = { data: ReplyAssist };
+// 확인 완료한 부서 답변으로 고객 언어 회신 초안을 만든다.
+export const createDeptReplyDraft = async (ticketId: string, deptResultId: string, signal: AbortSignal) => (await postTo(`${ticketBase(ticketId)}/reply-draft/dept-answer`, { dept_result_id: deptResultId }, signal)) as unknown as AssistResult;
+// 회신 상자의 초안을 한국어로 옮긴다.
+export const translateReplyDraft = async (ticketId: string, text: string, signal: AbortSignal) => (await postTo(`${ticketBase(ticketId)}/reply-draft/korean`, { text }, signal)) as unknown as AssistResult;
+// 담당자가 고친 한국어를 원래 초안(text, 먼저 번역한 글)에 반영한 고객 언어 글을 만든다.
+export const applyKoreanEdit = async (ticketId: string, text: string, editedKo: string, signal: AbortSignal) => (await postTo(`${ticketBase(ticketId)}/reply-draft/korean-edit`, { text, edited_ko: editedKo }, signal)) as unknown as AssistResult;
 export const createReplyAnalysis = (ticketId: string, messageId: string | null, signal: AbortSignal) => postTo(`${ticketBase(ticketId)}/reply-analysis`, messageId ? { message_id: messageId } : {}, signal);
 
 // 담당자가 AI 분류를 정정한다. 바꾼 칸만 보내고 사유가 필수다. 읽은 분석 판본(version)과 기준 분석 실행(analysis_id)을 함께 보낸다. 업무 상태 판본은 바뀌지 않는다.
