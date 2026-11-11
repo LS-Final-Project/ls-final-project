@@ -48,6 +48,64 @@
 
 ## 기술 스택
 
+<table>
+  <tr>
+    <td width="33%" align="center" valign="top">
+      <h3>백엔드</h3>
+      <p>
+        <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@v2.17.0/icons/python/python-original.svg" alt="Python" width="44" height="44">
+        <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@v2.17.0/icons/fastapi/fastapi-original.svg" alt="FastAPI" width="44" height="44">
+      </p>
+      <p><b>Python 3.11+ · FastAPI 0.115+</b><br><sub>API · 입력 검증 · 업무 규칙</sub></p>
+    </td>
+    <td width="33%" align="center" valign="top">
+      <h3>프론트엔드</h3>
+      <p>
+        <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@v2.17.0/icons/react/react-original.svg" alt="React" width="44" height="44">
+        <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@v2.17.0/icons/typescript/typescript-original.svg" alt="TypeScript" width="44" height="44">
+        <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@v2.17.0/icons/vitejs/vitejs-original.svg" alt="Vite" width="44" height="44">
+      </p>
+      <p><b>React 19 · TypeScript 5 · Vite 7</b><br><sub>TanStack Query 5 · React Router 7</sub></p>
+    </td>
+    <td width="33%" align="center" valign="top">
+      <h3>AI</h3>
+      <p>
+        <img src="https://cdn.jsdelivr.net/npm/simple-icons@16.0.0/icons/googlegemini.svg" alt="Gemini" width="44" height="44">
+        <img src="https://cdn.jsdelivr.net/npm/simple-icons@16.0.0/icons/langgraph.svg" alt="LangGraph" width="44" height="44">
+      </p>
+      <p><b>Gemini · LangGraph 1.x</b><br><sub>분류 · 요구 추출 · 초안 생성</sub></p>
+    </td>
+  </tr>
+  <tr>
+    <td width="33%" align="center" valign="top">
+      <h3>데이터 · 검색</h3>
+      <p>
+        <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@v2.17.0/icons/postgresql/postgresql-original.svg" alt="PostgreSQL" width="44" height="44">
+      </p>
+      <p><b>PostgreSQL · pgvector · FTS</b><br><sub>Cloud SQL · 하이브리드 검색</sub></p>
+    </td>
+    <td width="33%" align="center" valign="top">
+      <h3>인프라 · 배포</h3>
+      <p>
+        <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@v2.17.0/icons/googlecloud/googlecloud-original.svg" alt="Google Cloud" width="44" height="44">
+        <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@v2.17.0/icons/githubactions/githubactions-original.svg" alt="GitHub Actions" width="44" height="44">
+      </p>
+      <p><b>Google Cloud · GitHub Actions</b><br><sub>Cloud Run · Cloud Build · Storage</sub></p>
+    </td>
+    <td width="33%" align="center" valign="top">
+      <h3>테스트 · 품질</h3>
+      <p>
+        <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@v2.17.0/icons/pytest/pytest-original.svg" alt="pytest" width="44" height="44">
+        <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@v2.17.0/icons/playwright/playwright-original.svg" alt="Playwright" width="44" height="44">
+      </p>
+      <p><b>pytest · Playwright</b><br><sub>Vitest · Ruff · mypy</sub></p>
+    </td>
+  </tr>
+</table>
+
+<details>
+<summary>전체 기술 및 버전 보기</summary>
+
 | 구분 | 사용 기술 |
 | --- | --- |
 | 백엔드 | Python 3.11 이상(실행 이미지 3.12), FastAPI 0.115+, Uvicorn, Pydantic Settings, psycopg 3·psycopg-pool |
@@ -59,6 +117,8 @@
 | 데이터 | Cloud SQL PostgreSQL(로컬은 PostgreSQL 17 + pgvector 0.8.7), Cloud Storage |
 | 인프라 | Cloud Run(서울 리전) 서비스 4개와 Cloud Run Jobs worker, Cloud Scheduler, Cloud Tasks, Secret Manager, Cloud Build |
 | 개발 도구 | uv, Ruff, mypy, pytest, Vitest, Playwright, GitHub Actions |
+
+</details>
 
 ## 성능
 
