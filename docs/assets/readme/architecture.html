@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>서비스 아키텍처</title>
+<!-- README의 architecture.png 원본. 고친 뒤 Playwright로 2000×1125 화면을 찍어 PNG를 다시 만든다. -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+<style>
+  html, body { margin: 0; background: #fff; }
+  svg { display: block; font-family: "Pretendard Variable", Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", sans-serif; }
+  .t { fill: #1f2328; }
+  .m { fill: #5b6470; }
+  .s { fill: #6b7380; font-size: 13px; }
+  .lbl { fill: #2b3036; font-size: 15px; }
+  .edge { stroke: #3b4048; stroke-width: 2; fill: none; }
+  .dash { stroke-dasharray: 7 6; }
+  .chip { fill: #fff; stroke-width: 2; }
+  .chiptext { font-size: 14px; font-weight: 600; text-anchor: middle; }
+</style>
+</head>
+<body>
+<svg width="2000" height="1125" viewBox="0 0 2000 1125" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#3b4048"/>
+    </marker>
+    <g id="run">
+      <circle r="17" fill="#1f9d6b"/>
+      <path d="M3 -11 L-7 2 L-1 2 L-3 11 L7 -2 L1 -2 Z" fill="#fff"/>
+    </g>
+    <g id="person">
+      <circle cy="-9" r="7" fill="#3b4048"/>
+      <path d="M-13 13 a13 11 0 0 1 26 0 z" fill="#3b4048"/>
+    </g>
+  </defs>
+
+  <!-- 제목 -->
+  <text x="50" y="68" class="t" font-size="40" font-weight="800">C/S · RFP 통합 AI 서비스 아키텍처</text>
+  <text x="52" y="107" class="m" font-size="18">공용 시연 환경 배포 구성 / 공통 플랫폼(인증·권한·메일·작업 전송) 위에 프로젝트 1 C/S API와 프로젝트 2 제안 지원 API를 각각 배포</text>
+
+  <!-- 범례 -->
+  <line x1="1595" y1="62" x2="1660" y2="62" class="edge" marker-end="url(#a)"/>
+  <text x="1673" y="68" class="lbl">동기 호출 · 데이터 접근</text>
+  <line x1="1595" y1="96" x2="1660" y2="96" class="edge dash" marker-end="url(#a)"/>
+  <text x="1673" y="102" class="lbl">비동기 작업 요청 · 실행</text>
+
+  <!-- CI/CD -->
+  <rect x="585" y="138" width="1037" height="127" rx="12" fill="#f5f6f8" stroke="#d3d7dd" stroke-width="2"/>
+  <text x="604" y="167" font-size="15" font-weight="700" class="t">배포 (서비스별 CI/CD · 웹 · 플랫폼 · C/S · 제안 지원)</text>
+  <g transform="translate(666,198)"><use href="#person"/></g>
+  <text x="666" y="238" text-anchor="middle" font-size="15" font-weight="700" class="t">개발자</text>
+  <text x="666" y="255" text-anchor="middle" class="s">dev → main 병합</text>
+  <line x1="712" y1="204" x2="788" y2="204" class="edge" marker-end="url(#a)"/>
+  <g transform="translate(833,196)"><circle r="20" fill="#1f2328"/><text y="5" text-anchor="middle" font-size="13" font-weight="800" fill="#fff">GH</text></g>
+  <text x="833" y="238" text-anchor="middle" font-size="15" font-weight="700" class="t">GitHub</text>
+  <text x="833" y="255" text-anchor="middle" class="s">main</text>
+  <line x1="880" y1="204" x2="958" y2="204" class="edge" marker-end="url(#a)"/>
+  <g transform="translate(1010,196)"><circle r="20" fill="#2f6fd6"/><path d="M-6 -8 L8 0 L-6 8 Z" fill="#fff"/></g>
+  <text x="1010" y="238" text-anchor="middle" font-size="15" font-weight="700" class="t">GitHub Actions</text>
+  <text x="1010" y="255" text-anchor="middle" class="s">서비스별 CI · 바뀐 서비스 판단</text>
+  <line x1="1095" y1="204" x2="1150" y2="204" class="edge" marker-end="url(#a)"/>
+  <g transform="translate(1197,196)"><circle r="17" fill="#3b78e7"/><text y="5" text-anchor="middle" font-size="12" font-weight="800" fill="#fff">CB</text></g>
+  <text x="1197" y="238" text-anchor="middle" font-size="15" font-weight="700" class="t">Cloud Build</text>
+  <text x="1197" y="255" text-anchor="middle" class="s">이미지 생성</text>
+  <line x1="1250" y1="204" x2="1315" y2="204" class="edge" marker-end="url(#a)"/>
+  <g transform="translate(1364,196)"><circle r="17" fill="#3b78e7"/><text y="5" text-anchor="middle" font-size="12" font-weight="800" fill="#fff">AR</text></g>
+  <text x="1364" y="238" text-anchor="middle" font-size="15" font-weight="700" class="t">Artifact Registry</text>
+  <text x="1364" y="255" text-anchor="middle" class="s">이미지 보관</text>
+  <line x1="1432" y1="204" x2="1494" y2="204" class="edge" marker-end="url(#a)"/>
+  <g transform="translate(1541,196)"><circle r="17" fill="#3b78e7"/><text y="5" text-anchor="middle" font-size="12" font-weight="800" fill="#fff">CB</text></g>
+  <text x="1541" y="238" text-anchor="middle" font-size="15" font-weight="700" class="t">Cloud Build</text>
+  <text x="1541" y="255" text-anchor="middle" class="s">CD 배포</text>
+  <line x1="1541" y1="266" x2="1541" y2="310" class="edge" marker-end="url(#a)"/>
+  <text x="1556" y="294" class="lbl">바뀐 서비스만 배포 (worker 이미지는 수동)</text>
+
+  <!-- Google Cloud 영역 -->
+  <rect x="295" y="313" width="1350" height="782" rx="16" fill="#f8fbff" stroke="#4a86e8" stroke-width="2" stroke-dasharray="8 6"/>
+  <g transform="translate(332,347)">
+    <path d="M-12 8 a8 8 0 0 1 1 -16 a11 11 0 0 1 21 -2 a8 8 0 0 1 4 18 z" fill="none" stroke="#2f6fd6" stroke-width="3.2"/>
+  </g>
+  <text x="358" y="354" font-size="19" font-weight="700" fill="#1f5fcf">Google Cloud · 서울 asia-northeast3 · 공용 시연 환경</text>
+
+  <!-- 사용자 -->
+  <rect x="27" y="455" width="236" height="310" rx="14" fill="#fff" stroke="#d3d7dd" stroke-width="2"/>
+  <g transform="translate(110,515) scale(1.55)"><use href="#person"/></g>
+  <g transform="translate(183,512)"><circle r="23" fill="#3b78e7"/><circle r="9" fill="#fff"/><circle r="6" fill="#3b78e7"/></g>
+  <text x="145" y="571" text-anchor="middle" font-size="20" font-weight="800" class="t">사용자 · 브라우저</text>
+  <rect x="121" y="586" width="42" height="22" rx="11" fill="#2f6fd6"/>
+  <text x="142" y="602" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">C/S</text>
+  <text x="145" y="626" text-anchor="middle" font-size="14" class="m">상담원 · 부서 담당자 · 관리자</text>
+  <rect x="120" y="641" width="44" height="22" rx="11" fill="#1f8a7a"/>
+  <text x="142" y="657" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">RFP</text>
+  <text x="145" y="681" text-anchor="middle" font-size="14" class="m">영업 담당 · 검토 부서 · 책임자</text>
+  <text x="145" y="710" text-anchor="middle" font-size="13" class="m">Microsoft 로그인 · HttpOnly 세션 쿠키</text>
+
+  <line x1="263" y1="610" x2="318" y2="610" class="edge" marker-end="url(#a)"/>
+  <text x="267" y="598" class="lbl" font-size="14">HTTPS</text>
+
+  <!-- 통합 웹 -->
+  <rect x="320" y="490" width="197" height="240" rx="12" fill="#eef8f2" stroke="#4caf73" stroke-width="2"/>
+  <g transform="translate(418,540)" fill="none" stroke="#2f8f5b" stroke-width="2.4">
+    <ellipse rx="23" ry="9"/><ellipse rx="23" ry="9" transform="rotate(60)"/><ellipse rx="23" ry="9" transform="rotate(120)"/>
+    <circle r="4" fill="#2f8f5b" stroke="none"/>
+  </g>
+  <text x="418" y="597" text-anchor="middle" font-size="21" font-weight="800" fill="#2f8f5b">통합 웹</text>
+  <text x="418" y="620" text-anchor="middle" class="s">Cloud Run · 유일한 공개 서비스</text>
+  <text x="418" y="654" text-anchor="middle" font-size="14.5" class="t">C/S · RFP · 메일 화면 제공</text>
+  <text x="418" y="677" text-anchor="middle" font-size="14.5" class="t">허용한 경로만 플랫폼으로</text>
+  <text x="418" y="698" text-anchor="middle" font-size="14.5" class="t">중계(서비스 ID 토큰)</text>
+
+  <line x1="517" y1="610" x2="585" y2="610" class="edge" marker-end="url(#a)"/>
+  <text x="534" y="598" class="lbl">중계</text>
+
+  <!-- 공통 플랫폼 API -->
+  <rect x="587" y="408" width="328" height="394" rx="12" fill="#f7f2fd" stroke="#8b5cf6" stroke-width="2"/>
+  <g transform="translate(632,452)"><use href="#run"/></g>
+  <text x="664" y="462" font-size="25" font-weight="800" fill="#6d28d9">공통 플랫폼 API</text>
+  <text x="612" y="491" class="s" font-size="14">Cloud Run · 비공개(IAM) · 두 업무가 함께 사용</text>
+  <g font-size="16" class="t">
+    <text x="612" y="530">· Microsoft 로그인 · 세션 · 권한 검사</text>
+    <text x="612" y="560">· 업무 API 중계 (C/S · 제안 지원)</text>
+    <text x="612" y="590">· 메일 수집 · 발송 (Graph)</text>
+    <text x="612" y="620">· 처리 작업 접수 · worker 실행</text>
+    <text x="612" y="650">· 메일 첨부 저장 · 평가 결과 조회</text>
+  </g>
+  <text x="612" y="692" font-size="14" font-weight="600" fill="#6d28d9">공통 로직·테이블은 플랫폼이 소유,</text>
+  <text x="612" y="714" font-size="14" font-weight="600" fill="#6d28d9">업무 API는 계약된 내부 API로만 호출</text>
+
+  <!-- 플랫폼 → 업무 API -->
+  <line x1="915" y1="500" x2="991" y2="500" class="edge" marker-end="url(#a)"/>
+  <text x="925" y="489" class="lbl">C/S 업무</text>
+  <line x1="915" y1="711" x2="991" y2="711" class="edge" marker-end="url(#a)"/>
+  <text x="925" y="700" class="lbl">제안 업무</text>
+
+  <!-- 로그인 · 메일 (플랫폼 → Microsoft) -->
+  <polyline points="728,408 728,377 1666,377 1666,474 1688,474" class="edge" marker-end="url(#a)"/>
+  <rect x="1195" y="363" width="96" height="24" fill="#f8fbff"/>
+  <text x="1243" y="381" text-anchor="middle" class="lbl">로그인 · 메일</text>
+
+  <!-- C/S API -->
+  <rect x="993" y="410" width="517" height="182" rx="12" fill="#f3f7fd" stroke="#2f6fd6" stroke-width="2"/>
+  <g transform="translate(1034,447)"><use href="#run"/></g>
+  <text x="1065" y="456" font-size="25" font-weight="800" fill="#1f5fcf">C/S API</text>
+  <rect x="1168" y="437" width="74" height="21" rx="10.5" fill="#1f5fcf"/>
+  <text x="1205" y="452" text-anchor="middle" font-size="12.5" font-weight="700" fill="#fff">프로젝트 1</text>
+  <text x="1259" y="452" class="s" font-size="14">Cloud Run · 비공개(IAM)</text>
+  <text x="1017" y="490" font-size="16" font-weight="600" class="t">문의 분석·분류 → 근거 검색 → 회신 초안 · 개선요청</text>
+  <g>
+    <rect x="1017" y="505" width="106" height="26" rx="13" class="chip" stroke="#2f6fd6"/>
+    <text x="1070" y="523" class="chiptext" fill="#1f5fcf">LangGraph</text>
+    <rect x="1133" y="505" width="128" height="26" rx="13" class="chip" stroke="#2f6fd6"/>
+    <text x="1197" y="523" class="chiptext" fill="#1f5fcf">Python 룰 엔진</text>
+    <rect x="1271" y="505" width="214" height="26" rx="13" class="chip" stroke="#2f6fd6"/>
+    <text x="1378" y="523" class="chiptext" fill="#1f5fcf">FTS 근거 검색 · 벡터는 선택</text>
+  </g>
+  <rect x="1017" y="540" width="202" height="26" rx="13" fill="#fff6ec" stroke="#f08a24" stroke-width="2"/>
+  <circle cx="1037" cy="553" r="4.5" fill="#f08a24"/>
+  <text x="1050" y="558" font-size="14" font-weight="700" fill="#c25e00">회신 발송은 담당자 확인 후</text>
+
+  <!-- 제안 지원 API -->
+  <rect x="993" y="620" width="517" height="182" rx="12" fill="#eef8f6" stroke="#1f8a7a" stroke-width="2"/>
+  <g transform="translate(1034,657)"><use href="#run"/></g>
+  <text x="1065" y="666" font-size="25" font-weight="800" fill="#16786a">제안 지원 API</text>
+  <rect x="1216" y="647" width="76" height="21" rx="10.5" fill="#16786a"/>
+  <text x="1254" y="662" text-anchor="middle" font-size="12.5" font-weight="700" fill="#fff">프로젝트 2</text>
+  <text x="1309" y="662" class="s" font-size="14">Cloud Run · 비공개(IAM)</text>
+  <text x="1017" y="700" font-size="16" font-weight="600" class="t">조항 추출 → 요구 판정 → 보완 경로·후보 → 초안</text>
+  <g>
+    <rect x="1017" y="715" width="106" height="26" rx="13" class="chip" stroke="#1f8a7a"/>
+    <text x="1070" y="733" class="chiptext" fill="#16786a">LangGraph</text>
+    <rect x="1133" y="715" width="138" height="26" rx="13" class="chip" stroke="#1f8a7a"/>
+    <text x="1202" y="733" class="chiptext" fill="#16786a">Python 규칙 엔진</text>
+    <rect x="1281" y="715" width="196" height="26" rx="13" class="chip" stroke="#1f8a7a"/>
+    <text x="1379" y="733" class="chiptext" fill="#16786a">자사 제품 마스터 비교</text>
+  </g>
+  <rect x="1017" y="750" width="242" height="26" rx="13" fill="#fff6ec" stroke="#f08a24" stroke-width="2"/>
+  <circle cx="1037" cy="763" r="4.5" fill="#f08a24"/>
+  <text x="1050" y="768" font-size="14" font-weight="700" fill="#c25e00">확약·외부 발송 없음 · 승인 후 반영</text>
+
+  <!-- 데이터 선: 업무 API → Cloud SQL -->
+  <polyline points="1510,448 1593,448 1593,943" class="edge" marker-end="url(#a)"/>
+  <text x="1478" y="912" class="lbl">C/S 데이터</text>
+  <line x1="1458" y1="802" x2="1458" y2="943" class="edge" marker-end="url(#a)"/>
+  <text x="1336" y="830" class="lbl">제안 데이터</text>
+
+  <!-- AI 호출 묶음선 -->
+  <polyline points="1510,500 1625,500 1625,875" class="edge"/>
+  <line x1="1510" y1="711" x2="1625" y2="711" class="edge"/>
+  <line x1="1625" y1="625" x2="1688" y2="625" class="edge" marker-end="url(#a)"/>
+  <circle cx="1625" cy="625" r="4.5" fill="#3b4048"/>
+  <circle cx="1625" cy="711" r="4.5" fill="#3b4048"/>
+  <text x="1527" y="489" class="lbl">AI 호출</text>
+
+  <!-- 파일: 플랫폼 → Cloud Storage -->
+  <polyline points="587,770 540,770 540,943" class="edge" marker-end="url(#a)"/>
+  <text x="458" y="878" class="lbl">메일 첨부</text>
+  <!-- 플랫폼 → Cloud SQL -->
+  <line x1="635" y1="802" x2="635" y2="943" class="edge" marker-end="url(#a)"/>
+  <text x="572" y="878" class="lbl">플랫폼</text>
+
+  <!-- Cloud Tasks: 메일 작업 -->
+  <line x1="740" y1="802" x2="740" y2="832" class="edge dash" marker-end="url(#a)"/>
+  <text x="752" y="824" class="lbl">메일 작업</text>
+  <rect x="664" y="834" width="242" height="80" rx="10" fill="#f7f2fd" stroke="#8b5cf6" stroke-width="2" stroke-dasharray="6 5"/>
+  <g transform="translate(694,874)"><circle r="17" fill="#8b5cf6"/><text y="4.5" text-anchor="middle" font-size="11" font-weight="800" fill="#fff">Task</text></g>
+  <text x="721" y="866" font-size="17" font-weight="800" fill="#6d28d9">Cloud Tasks</text>
+  <text x="721" y="886" class="s">메일 수집 · 발송 큐</text>
+  <text x="721" y="903" class="s">Scheduler 주기 호출 → 플랫폼</text>
+
+  <!-- 플랫폼 → Cloud Run Jobs (worker 실행) -->
+  <polyline points="915,782 958,782 958,874 1018,874" class="edge dash" marker-end="url(#a)"/>
+  <rect x="1020" y="834" width="310" height="80" rx="10" fill="#eef8f6" stroke="#1f8a7a" stroke-width="2" stroke-dasharray="6 5"/>
+  <g transform="translate(1051,874)"><circle r="17" fill="#1f8a7a"/><text y="4.5" text-anchor="middle" font-size="11.5" font-weight="800" fill="#fff">Job</text></g>
+  <text x="1078" y="864" font-size="17" font-weight="800" fill="#16786a">Cloud Run Jobs</text>
+  <text x="1210" y="864" class="s">worker 실행</text>
+  <text x="1078" y="884" class="s">cs-worker 문의 분석 · tft-worker RFP 처리</text>
+  <text x="1078" y="903" class="s">접수 즉시 + Scheduler 1분 주기 전송</text>
+  <!-- worker → Cloud SQL -->
+  <line x1="1170" y1="914" x2="1170" y2="943" class="edge dash" marker-end="url(#a)"/>
+  <text x="1182" y="935" class="lbl">처리 결과 저장</text>
+  <!-- worker → AI 호출 묶음선(데이터 선을 건너간다) -->
+  <line x1="1330" y1="875" x2="1625" y2="875" class="edge"/>
+
+  <!-- Cloud Storage -->
+  <rect x="320" y="945" width="233" height="130" rx="12" fill="#fff" stroke="#b9bfc8" stroke-width="2"/>
+  <g transform="translate(356,979)" fill="#3b78e7">
+    <rect x="-13" y="-12" width="26" height="6" rx="1.5"/><rect x="-13" y="-3" width="26" height="6" rx="1.5"/><rect x="-13" y="6" width="26" height="6" rx="1.5"/>
+  </g>
+  <text x="383" y="987" font-size="20" font-weight="800" class="t">Cloud Storage</text>
+  <text x="340" y="1020" font-size="14.5" class="t">메일 원문 · 첨부 (플랫폼)</text>
+  <text x="340" y="1043" font-size="14.5" class="t">RFP 원문 · 검토본 파일 (제안 지원)</text>
+
+  <!-- Cloud SQL -->
+  <rect x="587" y="945" width="1023" height="130" rx="12" fill="#fff" stroke="#b9bfc8" stroke-width="2"/>
+  <g transform="translate(628,980)" fill="none" stroke="#3b78e7" stroke-width="2.4">
+    <ellipse cy="-12" rx="14" ry="5"/><path d="M-14 -12 v24 a14 5 0 0 0 28 0 v-24"/><path d="M-14 0 a14 5 0 0 0 28 0"/>
+  </g>
+  <text x="660" y="987" font-size="21" font-weight="800" class="t">Cloud SQL · PostgreSQL 17</text>
+  <text x="955" y="985" class="m" font-size="14.5">업무 DB 1개 · pgvector + FTS · 서비스마다 자기 스키마와 전용 접속 계정</text>
+  <rect x="611" y="1011" width="250" height="28" rx="14" class="chip" stroke="#8b5cf6"/>
+  <text x="736" y="1030" class="chiptext" fill="#6d28d9">플랫폼: 인증·메일·작업·평가</text>
+  <rect x="873" y="1011" width="260" height="28" rx="14" class="chip" stroke="#2f6fd6"/>
+  <text x="1003" y="1030" class="chiptext" fill="#1f5fcf">C/S: 문의·검색 색인·체크포인트</text>
+  <rect x="1145" y="1011" width="244" height="28" rx="14" class="chip" stroke="#1f8a7a"/>
+  <text x="1267" y="1030" class="chiptext" fill="#16786a">제안 지원: RFP·제품·협력사</text>
+
+  <!-- Microsoft -->
+  <rect x="1690" y="410" width="285" height="128" rx="12" fill="#fff" stroke="#d3d7dd" stroke-width="2"/>
+  <g transform="translate(1714,428)">
+    <rect width="15" height="15" fill="#f25022"/><rect x="17" width="15" height="15" fill="#7fba00"/>
+    <rect y="17" width="15" height="15" fill="#00a4ef"/><rect x="17" y="17" width="15" height="15" fill="#ffb900"/>
+  </g>
+  <text x="1760" y="453" font-size="22" font-weight="800" class="t">Microsoft</text>
+  <text x="1712" y="488" font-size="15" class="t">Entra ID 로그인 (OAuth)</text>
+  <text x="1712" y="510" font-size="15" class="t">Graph 메일 수집 · 발송</text>
+  <text x="1712" y="528" class="s">C/S 문의 · RFP 메일 접수</text>
+
+  <!-- Gemini -->
+  <rect x="1690" y="572" width="285" height="112" rx="12" fill="#fff" stroke="#d3d7dd" stroke-width="2"/>
+  <path d="M1728 590 C1730 602 1734 606 1746 608 C1734 610 1730 614 1728 626 C1726 614 1722 610 1710 608 C1722 606 1726 602 1728 590 Z" fill="#8b6cf0"/>
+  <text x="1757" y="614" font-size="22" font-weight="800" class="t">Gemini API</text>
+  <text x="1712" y="645" font-size="15" class="t">분류 · 요구 추출 · 요약 · 초안 생성</text>
+  <text x="1712" y="666" class="s">임베딩은 벡터 검색을 켤 때만</text>
+
+  <!-- 사람의 최종 확인 -->
+  <rect x="1690" y="720" width="285" height="187" rx="12" fill="#fff7ef" stroke="#f08a24" stroke-width="2"/>
+  <text x="1712" y="759" font-size="21" font-weight="800" fill="#c25e00">사람의 최종 확인</text>
+  <g font-size="14.5" class="t">
+    <text x="1712" y="792"><tspan font-weight="800">AI</tspan>: 분석 · 근거 · 초안</text>
+    <text x="1712" y="816"><tspan font-weight="800" fill="#1f5fcf">C/S</tspan>: 회신 발송 · 업무 결정</text>
+    <text x="1712" y="840"><tspan font-weight="800" fill="#16786a">RFP</tspan>: 보완 경로·후보 선택,</text>
+    <text x="1712" y="864">참여 · 제안 승인</text>
+  </g>
+</svg>
+</body>
+</html>
