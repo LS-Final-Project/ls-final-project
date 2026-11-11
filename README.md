@@ -104,7 +104,7 @@
 </table>
 
 <details>
-<summary>전체 기술 및 버전 보기</summary>
+<summary><strong>기술 상세</strong></summary>
 
 | 구분 | 사용 기술 |
 | --- | --- |
