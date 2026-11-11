@@ -235,6 +235,9 @@ class ChangeTests(unittest.TestCase):
 
     def test_docs_are_skipped_but_unknown_code_is_not(self):
         self.assertEqual(changes.classify(["docs/team-start.md"])["services"], [])
+        readme_media = changes.classify(["docs/assets/readme/p1-hero.gif"])
+        self.assertEqual(readme_media["services"], [])
+        self.assertFalse(readme_media["frontend"] or readme_media["infrastructure"])
         self.assertEqual(
             changes.classify(["new-runtime/handler.py"])["services"], list(changes.SERVICES)
         )

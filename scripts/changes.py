@@ -58,7 +58,8 @@ def classify(paths: list[str]) -> dict:
             release.update(("cs", "tft", "platform"))
             evaluation = True
             continue
-        if path.endswith(".md") or path.startswith("contracts/"):
+        # README 그림·영상(docs/assets/)은 실행 코드가 아니라 설명 Markdown과 같이 건너뛴다.
+        if path.endswith(".md") or path.startswith(("contracts/", "docs/assets/")):
             continue
         if path.startswith("frontend/src/mocks/generated/"):
             frontend = True
