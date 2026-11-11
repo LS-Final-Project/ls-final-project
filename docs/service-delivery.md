@@ -14,7 +14,7 @@
 | OpenAPI와 개발용 모의 예시 | 원본 일치 및 프론트 호환성 | OpenAPI는 해당 앱, 개발 모의 예시만 바꾸면 웹 CD 없음 |
 | eval 및 tests/eval | Ruff·포맷, 공통 회귀 및 평가 테스트 재귀 수집 | API CD 없음 |
 | infra·scripts·.github와 Python 의존성 | Ruff·포맷, 도구 unittest·PR 자동화·새 DB 초기화 | 자동 DB 마이그레이션 없음 |
-| 설명 Markdown | Application result만 확인 | 없음 |
+| 설명 Markdown, README 그림·영상(docs/assets) | Application result만 확인 | 없음 |
 
 알 수 없는 실행 코드 경로는 전체 검사 대상으로 보수적으로 처리한다. 공통 백엔드·AI 의존성과 공유 엔진·에이전트 변경은 평가 소비자 검사도 실행한다. 서비스별 테스트는 해당 앱에서, tests/eval은 평가에서, 그 밖의 새 테스트 폴더는 공유 범위로 재귀 수집한다. 공유 엔진과 에이전트가 플랫폼에서도 쓰이기 시작하면 scripts/changes.py의 영향 범위를 함께 수정해야 한다. 현재 루트 tests의 기존 사례는 공통 회귀 검사이며, 새 업무 테스트는 tests/cs, tests/tft, tests/platform 아래에 추가한다.
 
